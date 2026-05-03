@@ -15,17 +15,23 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
-import type { BuilderMode, EstimateLineItem } from "@/lib/types";
+import type { BuilderMode, EstimateLineItem, InvoiceLineItem } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+// LineItemRow only reads { id, description, code, quantity, unit, unit_price }
+// — fields name-compatible across both entity-kind line items. The money field
+// (estimate.total vs invoice.amount) is computed locally in the row, not read
+// off the prop, so the widening is type-only.
+export type BuilderLineItem = EstimateLineItem | InvoiceLineItem;
+
 export interface LineItemRowProps {
-  item: EstimateLineItem;
+  item: BuilderLineItem;
   /** Required for dnd-kit — the immediate container's id (section.id or subsection.id). */
   parentSectionId: string;
-  onChange: (next: Partial<EstimateLineItem>) => void;
+  onChange: (next: Partial<BuilderLineItem>) => void;
   onDelete: () => void;
   readOnly?: boolean;
   mode?: BuilderMode;

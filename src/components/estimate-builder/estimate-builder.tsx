@@ -126,6 +126,43 @@ function serializeTemplateRootPut(template: TemplateWithContents) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Local recompute helpers — wrap computeEstimateTotals so invoice-mode setState
+// branches can update sub/markup/discount/tax/total_amount in lockstep with the
+// estimate-mode branches. The math is identical; only the output field name for
+// "total" differs (estimate.total vs invoice.total_amount).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyEstimateTotals<T extends {
+  subtotal: number;
+  markup_type: AdjustmentType;
+  markup_value: number;
+  discount_type: AdjustmentType;
+  discount_value: number;
+  tax_rate: number;
+}>(estimate: T): T & ReturnType<typeof computeEstimateTotals> {
+  const t = computeEstimateTotals(estimate);
+  return { ...estimate, ...t };
+}
+
+function applyInvoiceTotals<T extends {
+  subtotal: number;
+  markup_type: AdjustmentType;
+  markup_value: number;
+  discount_type: AdjustmentType;
+  discount_value: number;
+  tax_rate: number;
+}>(invoice: T): T & {
+  markup_amount: number;
+  discount_amount: number;
+  adjusted_subtotal: number;
+  tax_amount: number;
+  total_amount: number;
+} {
+  const { total, ...rest } = computeEstimateTotals(invoice);
+  return { ...invoice, ...rest, total_amount: total };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -475,21 +512,20 @@ export function EstimateBuilder({
   function onMarkupChange(type: AdjustmentType, value: number) {
     setState((prev) => {
       if (prev.entity.kind === "estimate") {
-        const next_estimate = { ...prev.entity.data, markup_type: type, markup_value: value };
-        const totals = computeEstimateTotals(next_estimate);
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
-        };
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          markup_type: type,
+          markup_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       }
       if (prev.entity.kind === "invoice") {
-        return {
-          ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, markup_type: type, markup_value: value },
-          } as BuilderEntity,
-        };
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          markup_type: type,
+          markup_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -498,21 +534,20 @@ export function EstimateBuilder({
   function onDiscountChange(type: AdjustmentType, value: number) {
     setState((prev) => {
       if (prev.entity.kind === "estimate") {
-        const next_estimate = { ...prev.entity.data, discount_type: type, discount_value: value };
-        const totals = computeEstimateTotals(next_estimate);
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
-        };
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          discount_type: type,
+          discount_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       }
       if (prev.entity.kind === "invoice") {
-        return {
-          ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, discount_type: type, discount_value: value },
-          } as BuilderEntity,
-        };
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          discount_type: type,
+          discount_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -522,21 +557,18 @@ export function EstimateBuilder({
     const clamped = Math.max(0, Math.min(100, rate));
     setState((prev) => {
       if (prev.entity.kind === "estimate") {
-        const next_estimate = { ...prev.entity.data, tax_rate: clamped };
-        const totals = computeEstimateTotals(next_estimate);
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
-        };
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          tax_rate: clamped,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       }
       if (prev.entity.kind === "invoice") {
-        return {
-          ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, tax_rate: clamped },
-          } as BuilderEntity,
-        };
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          tax_rate: clamped,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -982,9 +1014,9 @@ export function EstimateBuilder({
         };
       }
       if (prev.entity.kind === "invoice") {
-        // Invoice mode: optimistic local removal only — server reconciles totals
-        // via recalculateInvoiceTotals on the DELETE route, and the next root PUT
-        // / page refresh picks up authoritative values.
+        // Invoice mode: optimistic local removal + local totals recompute so
+        // TotalsPanel updates instantly. Server reconciles authoritative values
+        // via recalculateInvoiceTotals on the DELETE route + next root PUT.
         const sections_after = prev.entity.data.sections.map((s) => ({
           ...s,
           items: s.items.filter((i) => i.id !== id),
@@ -993,12 +1025,15 @@ export function EstimateBuilder({
             items: sub.items.filter((i) => i.id !== id),
           })),
         }));
+        const subtotal = sumLineItemsFromSections(sections_after);
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
         return {
           ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, sections: sections_after },
-          } as BuilderEntity,
+          entity: { ...prev.entity, data: next_invoice },
         };
       }
       return prev;
@@ -1035,7 +1070,10 @@ export function EstimateBuilder({
 
   // ── Slot 5: line-item inline edit (Task 25) ───────────────────────────
 
-  function onLineItemChange(itemId: string, partial: Partial<EstimateLineItem>) {
+  function onLineItemChange(
+    itemId: string,
+    partial: Partial<EstimateLineItem | import("@/lib/types").InvoiceLineItem>,
+  ) {
     // Template mode: local synthesis; rootPut auto-save persists.
     if (state.entity.kind === "template") {
       setState((prev) => {
@@ -1064,54 +1102,59 @@ export function EstimateBuilder({
     }
     setState((prev) => {
       if (prev.entity.kind === "estimate") {
+        // Narrow the widened partial to estimate shape inside the estimate branch.
+        const estimatePartial = partial as Partial<EstimateLineItem>;
         const sections_after = prev.entity.data.sections.map((sec) => ({
           ...sec,
           items: sec.items.map((item) =>
-            item.id === itemId ? { ...item, ...partial } : item
+            item.id === itemId ? { ...item, ...estimatePartial } : item
           ),
           subsections: sec.subsections.map((sub) => ({
             ...sub,
             items: sub.items.map((item) =>
-              item.id === itemId ? { ...item, ...partial } : item
+              item.id === itemId ? { ...item, ...estimatePartial } : item
             ),
           })),
         }));
         const subtotal = sumLineItemsFromSections(sections_after);
-        const next_estimate = { ...prev.entity.data, sections: sections_after, subtotal };
-        const totals = computeEstimateTotals(next_estimate);
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
         return {
           ...prev,
-          entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
+          entity: { ...prev.entity, data: next_estimate },
         };
       }
       if (prev.entity.kind === "invoice") {
-        // Task 43: invoice mode — optimistic local edit; totals recompute
-        // happens server-side via recalculateInvoiceTotals on the line-item PUT.
-        // The TotalsPanel may briefly show stale totals until auto-save returns.
+        // Cast partial to invoice-shaped Partial inside the invoice narrowing —
+        // the editable subset (description, code, quantity, unit, unit_price)
+        // is name-compatible across both kinds. Recompute totals locally so
+        // TotalsPanel updates instantly; server reconciles via the line-item
+        // PUT's recalculateInvoiceTotals.
+        const invoicePartial = partial as Partial<import("@/lib/types").InvoiceLineItem>;
         const sections_after = prev.entity.data.sections.map((sec) => ({
           ...sec,
-          // Cast: partial is typed as Partial<EstimateLineItem>; runtime fields
-          // line up with InvoiceLineItem for the editable subset (description,
-          // quantity, unit_price, code, unit).
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           items: sec.items.map((item) =>
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            item.id === itemId ? ({ ...item, ...(partial as any) }) : item
+            item.id === itemId ? { ...item, ...invoicePartial } : item
           ),
           subsections: sec.subsections.map((sub) => ({
             ...sub,
             items: sub.items.map((item) =>
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              item.id === itemId ? ({ ...item, ...(partial as any) }) : item
+              item.id === itemId ? { ...item, ...invoicePartial } : item
             ),
           })),
         }));
+        const subtotal = sumLineItemsFromSections(sections_after);
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
         return {
           ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, sections: sections_after },
-          } as BuilderEntity,
+          entity: { ...prev.entity, data: next_invoice },
         };
       }
       return prev;
@@ -1123,7 +1166,9 @@ export function EstimateBuilder({
     setAddItemTarget({ sectionId });
   }
 
-  function onLineItemAdded(newItem: EstimateLineItem) {
+  function onLineItemAdded(
+    newItem: EstimateLineItem | import("@/lib/types").InvoiceLineItem,
+  ) {
     // Template mode: AddItemDialog passes a synthesized item (per Task 32);
     // insert it into local state. rootPut auto-save handles persistence.
     if (state.entity.kind === "template") {
@@ -1156,56 +1201,59 @@ export function EstimateBuilder({
     }
     setState((prev) => {
       if (prev.entity.kind === "estimate") {
+        // Narrow the widened newItem to estimate shape inside the estimate branch.
+        const estimateItem = newItem as EstimateLineItem;
         const sections_after = prev.entity.data.sections.map((sec) => {
-          if (sec.id === newItem.section_id) {
-            return { ...sec, items: [...sec.items, newItem] };
+          if (sec.id === estimateItem.section_id) {
+            return { ...sec, items: [...sec.items, estimateItem] };
           }
           return {
             ...sec,
             subsections: sec.subsections.map((sub) =>
-              sub.id === newItem.section_id
-                ? { ...sub, items: [...sub.items, newItem] }
+              sub.id === estimateItem.section_id
+                ? { ...sub, items: [...sub.items, estimateItem] }
                 : sub
             ),
           };
         });
         const subtotal = sumLineItemsFromSections(sections_after);
-        const next_estimate = { ...prev.entity.data, sections: sections_after, subtotal };
-        const totals = computeEstimateTotals(next_estimate);
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
         return {
           ...prev,
-          entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
+          entity: { ...prev.entity, data: next_estimate },
         };
       }
       if (prev.entity.kind === "invoice") {
-        // Task 43: invoice mode — server reconciles totals via
-        // recalculateInvoiceTotals on the line-item POST; we splice the new
-        // item locally so it appears immediately. TotalsPanel may show briefly
-        // stale totals until the next auto-save settles.
-        // Note: the invoice POST route returns the raw row whose total field
-        // is `amount` (not `total`). AddItemDialog still types it as
-        // EstimateLineItem; cast through any to splice into invoice-shape arrays.
+        // POST returns InvoiceLineItem (now wrapped via Task 1's C1 fix); cast
+        // inside the invoice narrowing. Recompute totals locally so TotalsPanel
+        // updates instantly; server reconciles via the POST's recalculateInvoiceTotals.
+        const invoiceItem = newItem as import("@/lib/types").InvoiceLineItem;
         const sections_after = prev.entity.data.sections.map((sec) => {
-          if (sec.id === newItem.section_id) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return { ...sec, items: [...sec.items, newItem as any] };
+          if (sec.id === invoiceItem.section_id) {
+            return { ...sec, items: [...sec.items, invoiceItem] };
           }
           return {
             ...sec,
             subsections: sec.subsections.map((sub) =>
-              sub.id === newItem.section_id
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ? { ...sub, items: [...sub.items, newItem as any] }
+              sub.id === invoiceItem.section_id
+                ? { ...sub, items: [...sub.items, invoiceItem] }
                 : sub
             ),
           };
         });
+        const subtotal = sumLineItemsFromSections(sections_after);
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
         return {
           ...prev,
-          entity: {
-            ...prev.entity,
-            data: { ...prev.entity.data, sections: sections_after },
-          } as BuilderEntity,
+          entity: { ...prev.entity, data: next_invoice },
         };
       }
       return prev;
@@ -1641,13 +1689,6 @@ export function EstimateBuilder({
     const invSections = invoice.sections;
     const invMode = invoiceEntity.kind;
 
-    // TotalsPanel was authored against `Estimate.total` but Invoice uses
-    // `total_amount`. Adapt by aliasing total ← total_amount before passing
-    // through. Other monetary fields (subtotal, markup_*, discount_*, tax_*,
-    // adjusted_subtotal) are name-compatible across both entities.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const invoiceForTotals = { ...invoice, total: invoice.total_amount } as any;
-
     return (
       <div className="relative min-h-screen bg-background">
         {/* Voided banner */}
@@ -1727,12 +1768,7 @@ export function EstimateBuilder({
                   {invSections.map((sec, sIdx) => (
                     <SectionCard
                       key={sec.id}
-                      // Invoice sections are structurally compatible at the
-                      // fields SectionCard reads (id, title, sort_order, items,
-                      // subsections), but use InvoiceLineItem (`amount`) where
-                      // the prop expects EstimateLineItem (`total`). Cast.
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      section={sec as any}
+                      section={sec}
                       onRename={onSectionRename}
                       onDelete={onSectionDelete}
                       onAddSubsection={onSubsectionAdd}
@@ -1820,7 +1856,7 @@ export function EstimateBuilder({
 
         {/* ── TotalsPanel (sticky bottom-right) ─────────────────────────── */}
         <TotalsPanel
-          estimate={invoiceForTotals}
+          entity={invoiceEntity}
           onMarkupChange={onMarkupChange}
           onDiscountChange={onDiscountChange}
           onTaxRateChange={onTaxRateChange}
@@ -2228,7 +2264,7 @@ export function EstimateBuilder({
 
       {/* ── SLOT 7: TotalsPanel (sticky bottom-right) ─────────────────────── */}
       <TotalsPanel
-        estimate={estimate}
+        entity={estimateEntity}
         onMarkupChange={onMarkupChange}
         onDiscountChange={onDiscountChange}
         onTaxRateChange={onTaxRateChange}

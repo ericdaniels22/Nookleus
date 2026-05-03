@@ -4,14 +4,14 @@ import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { Input } from "@/components/ui/input";
-import type { AdjustmentType, BuilderMode, Estimate } from "@/lib/types";
+import type { AdjustmentType, BuilderEntity, BuilderMode } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Props
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TotalsPanelProps {
-  estimate: Estimate;
+  entity: BuilderEntity;
   onMarkupChange: (type: AdjustmentType, value: number) => void;
   onDiscountChange: (type: AdjustmentType, value: number) => void;
   onTaxRateChange: (rate: number) => void;
@@ -137,16 +137,47 @@ function AdjustmentRow({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function TotalsPanel({
-  estimate,
+  entity,
   onMarkupChange,
   onDiscountChange,
   onTaxRateChange,
   readOnly = false,
   mode = "estimate",
 }: TotalsPanelProps) {
-  const isNegative = estimate.total < 0;
   const [isMinimized, setIsMinimized] = useState(false);
-  if (mode === "template") return null;
+  if (mode === "template" || entity.kind === "template") return null;
+
+  // Narrow on entity.kind to read total vs total_amount; other monetary fields
+  // share names across Estimate and Invoice.
+  const totals = entity.kind === "invoice"
+    ? {
+        subtotal: entity.data.subtotal,
+        markup_type: entity.data.markup_type,
+        markup_value: entity.data.markup_value,
+        markup_amount: entity.data.markup_amount,
+        discount_type: entity.data.discount_type,
+        discount_value: entity.data.discount_value,
+        discount_amount: entity.data.discount_amount,
+        adjusted_subtotal: entity.data.adjusted_subtotal,
+        tax_rate: entity.data.tax_rate,
+        tax_amount: entity.data.tax_amount,
+        total: entity.data.total_amount,
+      }
+    : {
+        subtotal: entity.data.subtotal,
+        markup_type: entity.data.markup_type,
+        markup_value: entity.data.markup_value,
+        markup_amount: entity.data.markup_amount,
+        discount_type: entity.data.discount_type,
+        discount_value: entity.data.discount_value,
+        discount_amount: entity.data.discount_amount,
+        adjusted_subtotal: entity.data.adjusted_subtotal,
+        tax_rate: entity.data.tax_rate,
+        tax_amount: entity.data.tax_amount,
+        total: entity.data.total,
+      };
+
+  const isNegative = totals.total < 0;
 
   if (isMinimized) {
     return (
@@ -166,7 +197,7 @@ export function TotalsPanel({
               isNegative ? "text-destructive" : "text-foreground"
             }`}
           >
-            {formatCurrency(estimate.total)}
+            {formatCurrency(totals.total)}
           </span>
           <ChevronUp size={16} className="text-muted-foreground" />
         </button>
@@ -199,15 +230,15 @@ export function TotalsPanel({
         {/* Subtotal */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">Subtotal</span>
-          <span className="text-xs font-mono">{formatCurrency(estimate.subtotal)}</span>
+          <span className="text-xs font-mono">{formatCurrency(totals.subtotal)}</span>
         </div>
 
         {/* Markup */}
         <AdjustmentRow
           label="Markup"
-          type={estimate.markup_type}
-          value={estimate.markup_value}
-          amount={estimate.markup_amount}
+          type={totals.markup_type}
+          value={totals.markup_value}
+          amount={totals.markup_amount}
           onChange={onMarkupChange}
           readOnly={readOnly}
         />
@@ -215,9 +246,9 @@ export function TotalsPanel({
         {/* Discount */}
         <AdjustmentRow
           label="Discount"
-          type={estimate.discount_type}
-          value={estimate.discount_value}
-          amount={estimate.discount_amount}
+          type={totals.discount_type}
+          value={totals.discount_value}
+          amount={totals.discount_amount}
           onChange={onDiscountChange}
           readOnly={readOnly}
           isDiscount
@@ -226,14 +257,14 @@ export function TotalsPanel({
         {/* Adjusted subtotal */}
         <div className="flex items-center justify-between border-t border-border pt-1.5">
           <span className="text-xs text-muted-foreground">Adjusted subtotal</span>
-          <span className="text-xs font-mono">{formatCurrency(estimate.adjusted_subtotal)}</span>
+          <span className="text-xs font-mono">{formatCurrency(totals.adjusted_subtotal)}</span>
         </div>
 
         {/* Tax */}
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-1">
             <span className="text-xs text-muted-foreground">Tax</span>
-            <span className="text-xs font-mono">{formatCurrency(estimate.tax_amount)}</span>
+            <span className="text-xs font-mono">{formatCurrency(totals.tax_amount)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Input
@@ -241,7 +272,7 @@ export function TotalsPanel({
               min={0}
               max={100}
               step={0.01}
-              value={estimate.tax_rate}
+              value={totals.tax_rate}
               disabled={readOnly}
               onChange={(e) => {
                 const n = parseFloat(e.target.value);
@@ -262,7 +293,7 @@ export function TotalsPanel({
               isNegative ? "text-destructive" : "text-foreground"
             }`}
           >
-            {formatCurrency(estimate.total)}
+            {formatCurrency(totals.total)}
           </span>
         </div>
 

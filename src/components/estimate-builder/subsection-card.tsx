@@ -40,21 +40,23 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { LineItemRow } from "./line-item-row";
-import type { BuilderMode, EstimateSection, EstimateLineItem } from "@/lib/types";
+import { LineItemRow, type BuilderLineItem } from "./line-item-row";
+import type { BuilderMode, EstimateSection, InvoiceSection } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SubsectionCardProps {
-  subsection: EstimateSection & { items: EstimateLineItem[] };
+  subsection:
+    | (EstimateSection & { items: BuilderLineItem[] })
+    | (InvoiceSection & { items: BuilderLineItem[] });
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onAddLineItem: (sectionId: string) => void;
   onLineItemDelete: (id: string) => void;
   /** Task 25: called when an inline cell is committed; parent updates local state. */
-  onLineItemChange: (itemId: string, partial: Partial<EstimateLineItem>) => void;
+  onLineItemChange: (itemId: string, partial: Partial<BuilderLineItem>) => void;
   /** Task 25: when true, hides editing controls (voided estimate). */
   readOnly?: boolean;
   mode?: BuilderMode;

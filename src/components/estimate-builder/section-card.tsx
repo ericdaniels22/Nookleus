@@ -53,18 +53,23 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { SubsectionCard } from "./subsection-card";
-import { LineItemRow } from "./line-item-row";
-import type { BuilderMode, EstimateSection, EstimateLineItem } from "@/lib/types";
+import { LineItemRow, type BuilderLineItem } from "./line-item-row";
+import type { BuilderMode, EstimateSection, InvoiceSection } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SectionCardProps {
-  section: EstimateSection & {
-    items: EstimateLineItem[];
-    subsections: Array<EstimateSection & { items: EstimateLineItem[] }>;
-  };
+  section:
+    | (EstimateSection & {
+        items: BuilderLineItem[];
+        subsections: Array<EstimateSection & { items: BuilderLineItem[] }>;
+      })
+    | (InvoiceSection & {
+        items: BuilderLineItem[];
+        subsections: Array<InvoiceSection & { items: BuilderLineItem[] }>;
+      });
   // Plan deviation: title added to onAddSubsection (was missing from spec signature)
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -72,7 +77,7 @@ export interface SectionCardProps {
   onAddLineItem: (sectionId: string) => void;
   onLineItemDelete: (id: string) => void;
   /** Task 25: called when an inline cell is committed; parent updates local state. */
-  onLineItemChange: (itemId: string, partial: Partial<EstimateLineItem>) => void;
+  onLineItemChange: (itemId: string, partial: Partial<BuilderLineItem>) => void;
   onSubsectionRename: (id: string, title: string) => void;
   onSubsectionDelete: (id: string) => void;
   onSubsectionLineItemDelete: (id: string) => void;
