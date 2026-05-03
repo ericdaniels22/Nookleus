@@ -146,3 +146,28 @@ These two were caught during the §11 run and fixed in-pass; logged here for tra
 ---
 
 ## (Future findings appended here as build progresses.)
+
+---
+
+## Closed in 67b cleanup pass (2026-05-02 session 10)
+
+Plan: `docs/superpowers/plans/2026-05-02-build-67b-cleanup.md`
+
+- **C1** — invoice POST line-items response shape — closed in `5a6424d`
+- **C2** — invoice-mode drag-reorder — closed in `e60d5cf`
+- **C3** — invoice-mode totals don't recompute locally — closed in `20f22a4`
+- **C4** — onLineItemChange/onLineItemAdded `as any` casts — closed in `20f22a4`
+- **C5** — TotalsPanel `total: invoice.total_amount` aliasing — closed in `20f22a4`
+- **C6** — SectionCard `as any` cast for invoice/template sections — closed in `20f22a4` (invoice cast removed; template branch retains a single narrow cast — declared acceptable; see plan Step 3.3)
+- **C7** — `/invoices` list page lost Customer + QB columns — restored in `5a6424d` (QB column shows `—` when null; per-org QB connection conditioning deferred as a follow-up if needed)
+- **I2** — `default_invoice_due_days` settings cast — closed in `387cea8`
+- **I4** — `apply_template_to_estimate` doesn't recompute estimate totals inline — closed in `387cea8`
+- **M3 / M4 / M6 / M7 / M8** — minor RPC cleanups — folded into `387cea8`
+- **HeaderBar redundant `isVoided` disabled term** — closed in this session (Task 5)
+- **AddItemDialog template-mode `organization_id: ""` sentinel** — closed in this session (Task 5)
+- **V1** — `use-auto-save.ts` manual browser verification — covered by Build 67b §11 manual test pass (Test 15), 2026-05-02 session 9. Closed by reference.
+
+## Still deferred
+
+- **I1** — `xactimate_code` dual-write in convert RPC — Option C: keep until 67c retires the column. Re-evaluate if 67c slips materially.
+- **5xx error redactor sweep across remaining ~80 routes** — separate chip; not 67b scope.

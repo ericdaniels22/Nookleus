@@ -373,8 +373,8 @@ export function HeaderBar({
           <Button
             variant="destructive"
             size="sm"
-            disabled={isVoided || isVoiding}
-            title={isVoided ? "Already voided" : isVoiding ? "Voiding…" : undefined}
+            disabled={isVoiding}
+            title={isVoiding ? "Voiding…" : undefined}
             onClick={() => setVoidOpen(true)}
           >
             <Ban size={14} />

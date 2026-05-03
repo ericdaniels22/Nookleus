@@ -144,11 +144,11 @@ function LibraryTab({
       // Template mode has no granular line-item routes — see Part 2 plan
       // deviation; parent's rootPut auto-save persists via setEntity callback.
       if (mode === "template") {
-        const now = new Date().toISOString();
-        const localItem: EstimateLineItem = {
+        // Template mode: build only fields onLineItemAdded actually reads
+        // (see estimate-builder onLineItemAdded template branch). Cast through
+        // unknown — callback param is widened to EstimateLineItem | InvoiceLineItem.
+        const localItem = {
           id: crypto.randomUUID(),
-          organization_id: "",
-          estimate_id: estimateId,
           section_id: sectionId,
           library_item_id: libItem.id,
           description: libItem.name,
@@ -156,11 +156,8 @@ function LibraryTab({
           quantity: libItem.default_quantity,
           unit: libItem.default_unit ?? null,
           unit_price: libItem.unit_price,
-          total: libItem.default_quantity * libItem.unit_price,
           sort_order: 0,
-          created_at: now,
-          updated_at: now,
-        };
+        } as unknown as EstimateLineItem;
         onAdded(localItem);
         toast.success(`Added: ${libItem.name}`);
         return;
@@ -368,11 +365,11 @@ function CustomTab({
       // Template mode has no granular line-item routes — see Part 2 plan
       // deviation; parent's rootPut auto-save persists via setEntity callback.
       if (mode === "template") {
-        const now = new Date().toISOString();
-        const localItem: EstimateLineItem = {
+        // Template mode: build only fields onLineItemAdded actually reads
+        // (see estimate-builder onLineItemAdded template branch). Cast through
+        // unknown — callback param is widened to EstimateLineItem | InvoiceLineItem.
+        const localItem = {
           id: crypto.randomUUID(),
-          organization_id: "",
-          estimate_id: estimateId,
           section_id: sectionId,
           library_item_id: null,
           description: description.trim(),
@@ -380,11 +377,8 @@ function CustomTab({
           quantity: qty,
           unit: unit.trim() || null,
           unit_price: price,
-          total: qty * price,
           sort_order: 0,
-          created_at: now,
-          updated_at: now,
-        };
+        } as unknown as EstimateLineItem;
         onAdded(localItem);
         toast.success("Item added");
         onClose();
