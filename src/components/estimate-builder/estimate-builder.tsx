@@ -1295,8 +1295,170 @@ export function EstimateBuilder({
       return;
     }
 
-    // Invoice-mode drag-reorder is a no-op today (TODO post-67b: needs polymorphic
-    // local-state mutator or estimate↔invoice section-shape adapter).
+    if (state.entity.kind === "invoice") {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const activeType = active.data.current?.type as string | undefined;
+
+      if (activeType === "section") {
+        const secs = state.entity.data.sections;
+        const oldIdx = secs.findIndex((s) => s.id === active.id);
+        const newIdx = secs.findIndex((s) => s.id === over.id);
+        if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
+
+        const reorderedSections = arrayMove(secs, oldIdx, newIdx);
+        const snapshot = state.entity.data;
+
+        setState((prev) => {
+          if (prev.entity.kind !== "invoice") return prev;
+          return {
+            ...prev,
+            entity: {
+              ...prev.entity,
+              data: { ...prev.entity.data, sections: reorderedSections },
+            },
+          };
+        });
+
+        const sectionPayload = reorderedSections.flatMap((sec, idx) => [
+          { id: sec.id, sort_order: idx, parent_section_id: null as string | null },
+          ...sec.subsections.map((sub, subIdx) => ({
+            id: sub.id,
+            sort_order: subIdx,
+            parent_section_id: sec.id,
+          })),
+        ]);
+
+        void saveSectionsReorder(sectionPayload).then((ok) => {
+          if (!ok) {
+            toast.error("Failed to save section order");
+            setState((prev) => {
+              if (prev.entity.kind !== "invoice") return prev;
+              return { ...prev, entity: { ...prev.entity, data: snapshot } };
+            });
+          }
+        });
+        return;
+      }
+
+      if (activeType === "subsection") {
+        const activeParent = active.data.current?.parentSectionId as string | undefined;
+        const overParent = over.data.current?.parentSectionId as string | undefined;
+        if (activeParent !== overParent) return;
+
+        const parentSection = state.entity.data.sections.find((s) => s.id === activeParent);
+        if (!parentSection) return;
+        const subs = parentSection.subsections;
+        const oldIdx = subs.findIndex((sub) => sub.id === active.id);
+        const newIdx = subs.findIndex((sub) => sub.id === over.id);
+        if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
+
+        const reorderedSections = state.entity.data.sections.map((s) => {
+          if (s.id !== activeParent) return s;
+          return { ...s, subsections: arrayMove(subs, oldIdx, newIdx) };
+        });
+        const snapshot = state.entity.data;
+
+        setState((prev) => {
+          if (prev.entity.kind !== "invoice") return prev;
+          return {
+            ...prev,
+            entity: {
+              ...prev.entity,
+              data: { ...prev.entity.data, sections: reorderedSections },
+            },
+          };
+        });
+
+        const sectionPayload = reorderedSections.flatMap((sec, idx) => [
+          { id: sec.id, sort_order: idx, parent_section_id: null as string | null },
+          ...sec.subsections.map((sub, subIdx) => ({
+            id: sub.id,
+            sort_order: subIdx,
+            parent_section_id: sec.id,
+          })),
+        ]);
+
+        void saveSectionsReorder(sectionPayload).then((ok) => {
+          if (!ok) {
+            toast.error("Failed to save subsection order");
+            setState((prev) => {
+              if (prev.entity.kind !== "invoice") return prev;
+              return { ...prev, entity: { ...prev.entity, data: snapshot } };
+            });
+          }
+        });
+        return;
+      }
+
+      if (activeType === "line-item") {
+        const activeParentSectionId = active.data.current?.parentSectionId as string | undefined;
+        const overParentSectionId = over.data.current?.parentSectionId as string | undefined;
+        if (activeParentSectionId !== overParentSectionId) return;
+
+        let reorderedItems: import("@/lib/types").InvoiceLineItem[] = [];
+        const reorderedSections = state.entity.data.sections.map((s) => {
+          if (s.id === activeParentSectionId) {
+            const items = s.items;
+            const oldIdx = items.findIndex((i) => i.id === active.id);
+            const newIdx = items.findIndex((i) => i.id === over.id);
+            if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return s;
+            reorderedItems = arrayMove(items, oldIdx, newIdx);
+            return { ...s, items: reorderedItems };
+          }
+          return {
+            ...s,
+            subsections: s.subsections.map((sub) => {
+              if (sub.id !== activeParentSectionId) return sub;
+              const items = sub.items;
+              const oldIdx = items.findIndex((i) => i.id === active.id);
+              const newIdx = items.findIndex((i) => i.id === over.id);
+              if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return sub;
+              reorderedItems = arrayMove(items, oldIdx, newIdx);
+              return { ...sub, items: reorderedItems };
+            }),
+          };
+        });
+
+        if (reorderedItems.length === 0) return;
+
+        const snapshot = state.entity.data;
+
+        setState((prev) => {
+          if (prev.entity.kind !== "invoice") return prev;
+          return {
+            ...prev,
+            entity: {
+              ...prev.entity,
+              data: { ...prev.entity.data, sections: reorderedSections },
+            },
+          };
+        });
+
+        // InvoiceLineItem.section_id is `string | null`; the reorder route
+        // requires string. Filter the null case defensively, though the
+        // builder UI never produces orphan items.
+        const itemPayload = reorderedItems
+          .filter((item): item is typeof item & { section_id: string } => item.section_id !== null)
+          .map((item, idx) => ({
+            id: item.id,
+            section_id: item.section_id,
+            sort_order: idx,
+          }));
+
+        void saveLineItemsReorder(itemPayload).then((ok) => {
+          if (!ok) {
+            toast.error("Failed to save line item order");
+            setState((prev) => {
+              if (prev.entity.kind !== "invoice") return prev;
+              return { ...prev, entity: { ...prev.entity, data: snapshot } };
+            });
+          }
+        });
+      }
+      return;
+    }
+
     if (state.entity.kind !== "estimate") return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
