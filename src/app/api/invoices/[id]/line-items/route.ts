@@ -108,7 +108,7 @@ export async function POST(
     if (error) throw error;
     await recalculateInvoiceTotals(supabase, id);
     await touchEntity(supabase, "invoices", id);
-    return NextResponse.json(data);
+    return NextResponse.json({ line_item: data });
   } catch (e: unknown) {
     return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/invoices/[id]/line-items");
   }

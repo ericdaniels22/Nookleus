@@ -114,18 +114,20 @@ export default function InvoiceListClient() {
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Invoice #</th>
                 <th className="text-left px-4 py-2 font-medium">Title</th>
+                <th className="text-left px-4 py-2 font-medium">Customer</th>
                 <th className="text-left px-4 py-2 font-medium">Job</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Total</th>
                 <th className="text-left px-4 py-2 font-medium">Issued</th>
                 <th className="text-left px-4 py-2 font-medium">Due</th>
+                <th className="text-left px-4 py-2 font-medium">QB</th>
                 <th className="px-4 py-2 font-medium w-10" />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <td colSpan={10} className="text-center py-8 text-muted-foreground">
                     No invoices match the current filters.
                   </td>
                 </tr>
@@ -138,6 +140,11 @@ export default function InvoiceListClient() {
                     </Link>
                   </td>
                   <td className="px-4 py-2">{r.title || "—"}</td>
+                  <td className="px-4 py-2">
+                    {[r.jobs?.contacts?.first_name, r.jobs?.contacts?.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "—"}
+                  </td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {r.jobs ? (
                       <Link
@@ -163,6 +170,9 @@ export default function InvoiceListClient() {
                   <td className="px-4 py-2 text-right">${Number(r.total_amount).toFixed(2)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(r.issued_date)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(r.due_date)}</td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground">
+                    {r.qb_invoice_id ? `QB ${r.qb_invoice_id}` : "—"}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger
