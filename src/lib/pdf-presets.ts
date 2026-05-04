@@ -1,5 +1,12 @@
 // src/lib/pdf-presets.ts — DB-facing CRUD for pdf_presets.
 // All callers must pass an org-scoped supabase client; RLS does final enforcement.
+//
+// Error-string contract (route layer matches by message):
+//   - "preset not found"            → routes map to 404
+//   - "cannot delete default preset"→ routes map to 409
+//   Other thrown messages are 5xx; routes redact them via apiError.
+//   Do not edit these two strings without updating every route handler that
+//   relies on them.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -68,6 +75,8 @@ export async function updatePreset(
 ): Promise<PdfPreset> {
   // If flipping is_default → true, clear the prior default for the same (org, doc_type).
   // Read the row first to know which (org, doc_type) we're operating on.
+  // `=== true` (not truthy): payload.is_default may be undefined on a partial
+  // update — only an explicit `true` should trigger the prior-default clear.
   if (payload.is_default === true) {
     const current = await getPreset(supabase, id);
     if (!current) throw new Error("preset not found");
