@@ -14,6 +14,10 @@ function isValidDocType(v: unknown): v is DocumentType {
   return typeof v === "string" && VALID_DOC_TYPES.includes(v as DocumentType);
 }
 
+function asBool(v: unknown, defaultValue: boolean): boolean {
+  return typeof v === "boolean" ? v : defaultValue;
+}
+
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient();
   const auth = await requireAnyPermission(supabase, ["view_estimates", "view_invoices"]);
@@ -41,9 +45,13 @@ export async function POST(request: Request) {
   const auth = await requirePermission(supabase, "manage_pdf_presets");
   if (!auth.ok) return auth.response;
 
-  let body: Partial<PdfPresetCreatePayload>;
-  try { body = (await request.json()) as Partial<PdfPresetCreatePayload>; }
+  let raw: unknown;
+  try { raw = await request.json(); }
   catch { return NextResponse.json({ error: "invalid JSON body" }, { status: 400 }); }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  const body = raw as Partial<PdfPresetCreatePayload>;
 
   // Required string fields
   if (typeof body.name !== "string" || !body.name.trim()) {
@@ -61,20 +69,22 @@ export async function POST(request: Request) {
   const documentTitle = body.document_title.trim();
   if (documentTitle.length > 200) return NextResponse.json({ error: "document_title too long (max 200)" }, { status: 400 });
 
-  // Boolean fields default to spec defaults if absent.
+  // Boolean fields default to spec defaults if absent or not a boolean.
+  // Note: createPreset() in @/lib/pdf-presets atomically demotes any prior
+  // default for (org, document_type) when is_default is true.
   const payload: PdfPresetCreatePayload = {
     name,
     document_type: body.document_type,
     document_title: documentTitle,
-    show_markup: body.show_markup ?? true,
-    show_discount: body.show_discount ?? true,
-    show_tax: body.show_tax ?? true,
-    show_opening_statement: body.show_opening_statement ?? true,
-    show_closing_statement: body.show_closing_statement ?? true,
-    show_category_subtotals: body.show_category_subtotals ?? false,
-    show_code_column: body.show_code_column ?? true,
-    show_notes_column: body.show_notes_column ?? false,
-    is_default: body.is_default ?? false,
+    show_markup: asBool(body.show_markup, true),
+    show_discount: asBool(body.show_discount, true),
+    show_tax: asBool(body.show_tax, true),
+    show_opening_statement: asBool(body.show_opening_statement, true),
+    show_closing_statement: asBool(body.show_closing_statement, true),
+    show_category_subtotals: asBool(body.show_category_subtotals, false),
+    show_code_column: asBool(body.show_code_column, true),
+    show_notes_column: asBool(body.show_notes_column, false),
+    is_default: asBool(body.is_default, false),
   };
 
   const orgId = await getActiveOrganizationId(supabase);
