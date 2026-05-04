@@ -656,36 +656,44 @@ export interface EstimateTemplate {
   updated_at: string;
 }
 
+// ─── PDF presets (Build 67c1) ──────────────────────────────────────────────
+
+export type DocumentType = "estimate" | "invoice";
+
 export interface PdfPreset {
   id: string;
   organization_id: string;
   name: string;
-  document_type: 'estimate' | 'invoice';
+  document_type: DocumentType;
   document_title: string;
-  group_items_by: 'section';
-  show_code: boolean;
-  show_description: boolean;
-  show_quantity: boolean;
-  show_unit_cost: boolean;
-  show_total: boolean;
-  show_notes: boolean;
   show_markup: boolean;
   show_discount: boolean;
-  show_taxes: boolean;
-  show_company_details: boolean;
-  show_sender_details: boolean;
-  show_recipient_details: boolean;
-  show_document_details: boolean;
+  show_tax: boolean;
   show_opening_statement: boolean;
-  show_line_items: boolean;
-  show_category_subtotals: boolean;
-  show_total_cost: boolean;
   show_closing_statement: boolean;
+  show_category_subtotals: boolean;
+  show_code_column: boolean;
+  show_notes_column: boolean;
   is_default: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+// Subset accepted on POST (server fills the rest).
+export type PdfPresetCreatePayload = Pick<
+  PdfPreset,
+  | "name" | "document_type" | "document_title"
+  | "show_markup" | "show_discount" | "show_tax"
+  | "show_opening_statement" | "show_closing_statement"
+  | "show_category_subtotals" | "show_code_column" | "show_notes_column"
+  | "is_default"
+>;
+
+// All fields except `name` are optional on PUT (partial update).
+export type PdfPresetUpdatePayload = Partial<Omit<PdfPreset,
+  "id" | "organization_id" | "created_by" | "created_at" | "updated_at" | "document_type"
+>>;
 
 // =============================================================================
 // 67b — invoices, templates, builder entity union
