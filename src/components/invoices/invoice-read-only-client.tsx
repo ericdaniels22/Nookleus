@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import RecordPaymentModal from "@/components/payments/record-payment-modal";
 import { PaymentRequestModal } from "@/components/payments/payment-request-modal";
+import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import type { InvoiceWithContents } from "@/lib/types";
 
@@ -39,22 +40,6 @@ export default function InvoiceReadOnlyClient({
       return;
     }
     toast.success("Sent");
-  }
-
-  async function handlePdf() {
-    const res = await fetch(`/api/invoices/${invoice.id}/pdf`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) {
-      // Toast/UI handled by parent caller chain. Full export flow lands in T18 via the modal.
-      return;
-    }
-    const { download_url } = (await res.json()) as { download_url: string };
-    const a = document.createElement("a");
-    a.href = download_url;
-    a.click();
   }
 
   return (
@@ -91,9 +76,11 @@ export default function InvoiceReadOnlyClient({
               Record Payment
             </button>
           )}
-          <button onClick={handlePdf} className="btn">
-            PDF
-          </button>
+          <ExportPdfButton
+            documentType="invoice"
+            documentId={invoice.id}
+            filenameHint={invoice.invoice_number}
+          />
         </div>
       </div>
 

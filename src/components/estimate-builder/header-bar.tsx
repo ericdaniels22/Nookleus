@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Ban, ArrowLeft, CheckCircle, XCircle, Receipt, CreditCard, Send } from "lucide-react";
 import { toast } from "sonner";
 import { SaveIndicator } from "./save-indicator";
+import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -445,6 +446,17 @@ export function HeaderBar({
         <div className="flex items-center gap-2 shrink-0">
           <SaveIndicator status={saveStatus} lastSavedAt={lastSavedAt} mode={entity.kind} />
           {renderActions()}
+          {entity.kind !== "template" && (
+            <ExportPdfButton
+              documentType={entity.kind}
+              documentId={entity.data.id}
+              filenameHint={
+                entity.kind === "estimate"
+                  ? entity.data.estimate_number
+                  : entity.data.invoice_number
+              }
+            />
+          )}
         </div>
       </div>
 

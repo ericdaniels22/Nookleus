@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/permissions-api";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
+import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import type {
   Contact,
   EstimateLineItem,
@@ -195,16 +196,23 @@ export default async function EstimateViewPage({
           </h1>
         </div>
 
-        {/* Right: Edit button (if permitted) */}
-        {canEdit && (
-          <Link
-            href={`/estimates/${id}/edit`}
-            className="inline-flex items-center gap-1.5 shrink-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
-          >
-            <Pencil size={14} />
-            Edit
-          </Link>
-        )}
+        {/* Right: Export PDF + Edit button (if permitted) */}
+        <div className="flex items-center gap-2 shrink-0">
+          <ExportPdfButton
+            documentType="estimate"
+            documentId={id}
+            filenameHint={estimate.estimate_number}
+          />
+          {canEdit && (
+            <Link
+              href={`/estimates/${id}/edit`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+            >
+              <Pencil size={14} />
+              Edit
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* ── CUSTOMER BLOCK ──────────────────────────────────────────────────── */}
