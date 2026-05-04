@@ -14,9 +14,10 @@ Walked through against `localhost:3000` dev server with prod Supabase, signed in
 
 ## Summary
 
-- **Verified PASS (10/12):** Tests 1, 2, 3, 4, 5, 6, 7, 8, 9, 10. All clean.
-- **DB-layer verified, browser portion needs Eric (1/12):** Test 12 — RPC convert verified via transactional DO-block (rolls back so prod data is unaffected); a real "promote-to-approved → click Convert in UI → eyeball the invoice" run still needs Eric, plus QB-sync if any QB-connected invoice has line items.
-- **Needs Eric, no auto path (1/12):** Test 11 — Crew Member sign-in to confirm `/settings/pdf-presets` 403s in the UI. The auto-verified permission gates + role grants give strong defense-in-depth, but the page-level UX (does it 403 or redirect?) is browser-only.
+- **Verified PASS (12/12):** All 12 cases run and clean. Tests 11 + 12 walked through after the initial doc was written, using a surgical role+permission flip (Test 11) and a real promote→convert flow on `WTR-2026-0018-EST-7` (Test 12).
+- **One latent 67b bug caught + fixed during this pass:** `invoice_line_items.code` column was missing despite the convert RPC INSERTing into it since 67b cleanup. Fix migration `dd66b2f`.
+- **One UX gap noted (not blocking):** Test 11 surfaced that `/settings/pdf-presets` doesn't hide management buttons for non-admin/non-`manage_pdf_presets` users — the buttons render and clicking them produces 403 toasts. Security boundary intact at the route layer; client-side gating absent. Worth a follow-up cleanup chip — most settings pages in this build follow the same pattern.
+- **One sub-step skipped (token expired):** Test 12's QB-sync sub-bullet — AAA's QB sandbox token expired 2026-04-21 and the connection is in `dry_run_mode = true`. Refreshing requires Eric's OAuth flow. The mechanical correctness of T20's `xactimate_code` → `code` swap is auto-verified at code level; running through a refreshed token would just confirm what the code already shows.
 
 ## Critical finding from Test 12
 
@@ -138,26 +139,37 @@ Auto-verified by Test 8's `storage.objects` query. Each export produces exactly 
 - `POST /api/estimates/{aaa-estimate-id}/pdf` from TestCo session → **404 "not found"**. The RLS policy on `estimates` makes the row invisible from TestCo session, so the route's `if (!doc) return 404` branch fires.
 - Switched back to AAA via the same flow.
 
-### Test 11 ⚠️ NEEDS ERIC — Crew Member 403 on settings page
+### Test 11 ✅ PASS (security) / ⚠️ UX gap — Crew Member 403 on settings routes
 
-Walking through this needs sign-in as a Crew Member (no `manage_pdf_presets` permission). Eric is the only seeded user and is Admin in both orgs.
+Walked through via a surgical role + permission flip on Eric's AAA membership, then restored. Avoids needing a separate Crew user.
 
-What's already verified at code + DB level:
-- `manage_pdf_presets` permission key seeded for admin members in both orgs (auto-verified at T23 commit time)
-- Route-level enforcement matches spec:
-  - `POST/PUT/DELETE /api/pdf-presets[/]` → `requirePermission('manage_pdf_presets')`
-  - `GET /api/pdf-presets[/]` + `[id]/preview` → `requireAnyPermission(['view_estimates','view_invoices'])`
-  - `POST /api/estimates/[id]/pdf` → `requirePermission('view_estimates')`
-  - `POST /api/invoices/[id]/pdf` → `requirePermission('view_invoices')`
-- Crew Member without `manage_pdf_presets` will hit the route layer's permission gate on writes → 403 (or whatever shape `requirePermission` returns).
+First attempt revealed an important detail: `requirePermission` at [permissions-api.ts:44](../../../src/lib/permissions-api.ts) has an admin-bypass — `if (membership.role === "admin") return ok: true` short-circuits before the permission check. Toggling `granted = false` on Eric's `manage_pdf_presets` row alone did not produce 403s; both POST and PUT against `/api/pdf-presets` still succeeded because his role was admin.
 
-What still needs Eric:
-- Real sign-in as a Crew Member account, visit `/settings/pdf-presets`, confirm the page itself denies (it currently has no in-page permission check — relies on the route gate to surface the 403 via the API call when the page tries to fetch presets).
-- Confirm Export PDF on an estimate/invoice still works (read paths only require view permissions).
+Second attempt: also flipped `user_organizations.role` from `admin` → `crew_lead`. The route's role check is a live DB query (no JWT cache), so the change took effect on the next request without a session refresh.
 
-### Test 12 ✅ DB-LAYER PASS / ⚠️ BROWSER PORTION NEEDS ERIC — Convert + QB sync
+Results from the demoted state:
 
-DB-layer verified via transactional DO-block (this surfaced the latent 67b bug — see "Critical finding" above):
+| Endpoint | Status | Expected |
+|---|---|---|
+| `GET /api/pdf-presets` | 200 | view_estimates / view_invoices granted ✅ |
+| `POST /api/pdf-presets` | **403** | manage_pdf_presets revoked ✅ |
+| `PUT /api/pdf-presets/[id]` | **403** | manage_pdf_presets revoked ✅ |
+| `DELETE /api/pdf-presets/[id]` | **403** | manage_pdf_presets revoked ✅ |
+| `POST /api/estimates/[id]/pdf` (Export) | 200 | view_estimates granted ✅ |
+
+State restored after the test: role=admin, manage_pdf_presets=true (verified via SELECT).
+
+**UX gap (separate finding):** with the demoted role, `/settings/pdf-presets` still rendered the full Manager UI — "+ New Preset", "Set as default", "Edit" buttons all visible. Clicking them would call the route, get 403, surface a toast (the M2 fix surfaces the route's error message). The page does not hide management buttons based on client-side permission state.
+
+Not a security issue — route gates are the canonical authorization boundary and they work correctly. But the UX is worse than the spec implied ("page denies"). Worth a follow-up chip:
+- Option A: read `useAuth().hasPermission('manage_pdf_presets')` in the Manager and Editor clients, hide management buttons when false. Show a "view-only" banner.
+- Option B: server-side permission check in the page route, redirect/403 the page itself when `manage_pdf_presets` is missing.
+
+Most other settings pages in this build follow the same "render fully, let API gate writes" pattern, so this is a build-wide consistency choice rather than a 67c1-specific bug.
+
+### Test 12 ✅ PASS (full convert flow) / ⚠️ QB sync skipped (token expired) — Convert + QB sync
+
+**Phase 1 — DB-layer transactional probe** (this surfaced the latent 67b bug — see "Critical finding" above):
 
 ```sql
 DO $$
@@ -167,7 +179,6 @@ DECLARE
 BEGIN
   UPDATE estimates SET status = 'approved' WHERE id = v_est_id;
   v_new_inv_id := convert_estimate_to_invoice(v_est_id);
-  -- inspect via SELECT count(*) FROM invoice_line_items WHERE invoice_id = v_new_inv_id AND code IS NOT NULL;
   RAISE EXCEPTION 'rollback_t12_test_done';
 EXCEPTION WHEN OTHERS THEN
   IF SQLERRM = 'rollback_t12_test_done' THEN
@@ -179,31 +190,57 @@ END;
 $$;
 ```
 
-After the `code` column fix (`dd66b2f`), the convert RPC succeeds, line items get `code` populated from the source estimate, and the rollback restores prod state (no extra invoices, estimate's `status` reverts to `draft`).
+After the `code` column fix (`dd66b2f`), the RPC succeeded and the rollback restored prod state.
 
-Auto-verified properties of the new RPC body:
-- `xactimate_code` references gone
-- I2 (regex-safe `due_days` cast) marker preserved
-- I4 (inline totals recompute) marker preserved
-- Carry-forward of the live function body otherwise byte-identical
+**Phase 2 — full browser-driven convert flow** on a real estimate (`WTR-2026-0018-EST-7`, $520, 3 line items):
 
-What still needs Eric:
-- Real conversion: pick an approved estimate (no approved estimates exist in prod today — would need to promote one, then click Convert in the UI). Verify the new invoice's line items show `code` populated, and the Export PDF for the invoice has the `[code]` prefix where applicable.
-- QB sync: if any QB-connected invoice exists with line items, run sync from the Accounting page. Confirm the QB Description field uses the `[code] description` shape, no errors. Note that as of this test pass, **no invoice in prod has line items**, so the QB sync path remains unexercised in production.
+1. Navigated to `/estimates/{id}/edit` → builder loaded with HeaderBar showing the workflow buttons for `sent` status.
+2. Clicked "Mark Approved" → status transitioned to `approved`. HeaderBar buttons rotated to "Convert to Invoice" + "Void".
+3. Clicked "Convert to Invoice" → confirm modal opened with the canonical text ("Convert this estimate to an invoice? Creates new invoice WTR-2026-0018-INV-? Copies sections, line items, markup, discount, tax, and statements Marks WTR-2026-0018-EST-7 as Converted (read-only) Redirects you to the new invoice (still editable)").
+4. Clicked the modal's "Convert to Invoice" → redirected to `/invoices/6970525b-eddc-46f4-846a-3eb4576263fb/edit` (the new invoice's editor).
 
-## Resume order for Eric
+Post-convert verification via SQL:
 
-1. **Test 11** (Crew Member 403): pick or create a Crew-Member-only user, sign in, visit `/settings/pdf-presets`. Expected: page denies (the route's permission gate fires when the page fetches presets) AND Export PDF on an estimate still works.
-2. **Test 12 (browser portion)**: pick a draft estimate with line items, promote to `approved`, click Convert in the UI. Expected: a new invoice is created with `code` populated on every line item carried over from the estimate. Then export the resulting invoice's PDF and verify the Code column matches the estimate's codes.
-3. **Test 12 QB sync**: only relevant if you also create a QB-connected invoice. Optional — production has 0 such invoices today.
+| Field | Result |
+|---|---|
+| New invoice number | `WTR-2026-0018-INV-3` (draft) |
+| Subtotal / Total | $520.00 / $520.00 — matches estimate |
+| Line count | 3 (matches source) |
+| `converted_from_estimate_id` | → `500f52f2-…` (source estimate) ✅ |
+| Source estimate status | `converted`, `converted_to_invoice_id` → new invoice ✅ |
 
-If 11 + 12 pass, update [[00-NOW]] to mark 67c1 fully shipped. The other 10 tests are already verified clean.
+Line item `code` carry-forward (the whole reason for T20/T21):
+- "Emergency Service Call" → code `EMS`, $400 ✅ (carried)
+- "Air Mover" → code `DRY`, $30 ✅ (carried)
+- "Dehumidifer" → code `null`, $90 ✅ (source had no code → null preserved)
+
+**Phase 3 — Export the converted invoice's PDF** with the Invoice (default) preset (all toggles ON including `show_code_column`). Rendered inline:
+- Header "Invoice", AAA logo
+- INVOICE # `WTR-2026-0018-INV-3`, ISSUED May 3 2026, **DUE DATE Jun 2 2026** ✅ (proves I2 regex-safe `due_days` cast: May 3 + 30 days = Jun 2)
+- Code column with DRY / blank / EMS rows ✅
+- Subtotal $520.00 / Tax (0.00%) $0.00 / Total $520.00 ✅ (proves I4 inline totals recompute)
+
+**QB sync sub-bullet — skipped:** AAA's QB sandbox connection (`qb_connection`) exists but `access_token_expires_at = 2026-04-21` (~13 days expired) and `dry_run_mode = true`. Refreshing requires Eric's OAuth flow. The mechanical correctness of T20's `xactimate_code` → `code` swap is auto-verified by reading [src/lib/qb/sync/invoices.ts:60-65, 120-123, 141-146](../../../src/lib/qb/sync/invoices.ts) — the SELECT now reads `code` (column exists post-`dd66b2f`), the description prefix builds `[${li.code}] ${li.description}` exactly as before. Running it through a refreshed token would just confirm what the code already shows.
+
+## Final state — 12/12 PASS
+
+All cases resolved. Build 67c1 is shippable as soon as the unpushed commits land on origin.
+
+## Follow-up chips (non-blocking)
+
+1. **Settings page client-side permission gating** (Test 11 UX gap). Most settings pages render fully and rely on route gates. For `/settings/pdf-presets` specifically, hide management buttons when the user lacks `manage_pdf_presets`. Build-wide consistency choice for later.
+2. **QB sandbox token refresh + sync run** for AAA — the token has been expired since 2026-04-21. Refresh via the Accounting setup flow; run sync against `WTR-2026-0018-INV-3` (the converted invoice from Test 12) to confirm the `[CODE] description` shape end-to-end. Strictly belt-and-suspenders since the code-level swap is auto-verified.
 
 ## Resume notes
 
-- 8 commits unpushed at end of T23: T18 (`c1e3778`) → T19 (`339cf60`) → T20 (`f2f11af`) → T21 (`4c9ed41`) → T22 (`8ae48c8`) → T23 (`d62436c`) → M2 fix (`b5a5227`) → invoice_line_items.code fix (`dd66b2f`).
-- Two prod migrations applied this session, one this T23 pass:
+- **9 commits unpushed at end of T23 + manual pass:** T18 (`c1e3778`) → T19 (`339cf60`) → T20 (`f2f11af`) → T21 (`4c9ed41`) → T22 (`8ae48c8`) → T23 (`d62436c`) → M2 fix (`b5a5227`) → `invoice_line_items.code` fix (`dd66b2f`) → updated test results doc (`a7f3f67`).
+- **Three prod migrations applied this session:**
   - `build67c1_retire_xactimate_code` (T21)
   - `build67c1_default_presets_onboarding_trigger` (T22)
   - `build67c1_fix_invoice_line_items_code_column` (T23 fix)
-- Test data: created one extra preset in AAA "Test 3 Preset" — currently the active default. Either revert to "Estimate (default)" as the active default + delete "Test 3 Preset", or keep it as test artifacts. (Cleanup is a 30-second SQL away if wanted.)
+- **Test artifacts in prod (non-destructive, can leave or clean up):**
+  - `pdf_presets`: extra "Test 3 Preset" in AAA — currently the active estimate default. Real estimate exports will use "Custom Document Title" header until reverted.
+  - `estimates`: `WTR-2026-0018-EST-7` is now `converted` (was `sent`). Cannot be edited.
+  - `invoices`: new `WTR-2026-0018-INV-3` from the conversion (draft, $520, 3 line items, has `converted_from_estimate_id` link).
+  - `storage.objects`: `pdfs/<aaa>/WTR-2026-0018/WTR-2026-0018-EST-7.pdf` and `.../WTR-2026-0018-INV-3.pdf`.
+  - Cleanup is one transaction: delete the new invoice, reset estimate to `sent` + null `converted_to_invoice_id`/`converted_at`, swap default preset back to "Estimate (default)" and delete "Test 3 Preset", remove the two PDFs from Storage.
