@@ -5,9 +5,16 @@
 // <ul>, <ol>, <li>, <br>. Image nodes are stripped (out of scope for v1).
 
 import { Text, View } from "@react-pdf/renderer";
-import { JSX } from "react";
+import type { JSX } from "react";
 
 interface Run { text: string; bold?: boolean; italic?: boolean; }
+
+// True when at least one run carries non-whitespace text. Guards against
+// emitting a phantom paragraph for `<p>   </p>` (Tiptap can produce this
+// when a user hits space and saves).
+function runsHaveContent(runs: Run[]): boolean {
+  return runs.some((r) => r.text.trim().length > 0);
+}
 
 // Tokenize a fragment of HTML into plain runs. Naive parser sufficient for the
 // editor's output; not a general HTML parser.
@@ -64,7 +71,7 @@ export function htmlToPdfNodes(html: string | null | undefined): JSX.Element[] {
     const stray = m[3]?.trim();
     if (tag === "p") {
       const runs = tokenize(inner);
-      if (runs.length > 0) {
+      if (runsHaveContent(runs)) {
         out.push(<Text key={`p-${i}`} style={{ marginBottom: 4 }}>{renderRuns(runs, `p-${i}`)}</Text>);
       }
     } else if (tag === "ul" || tag === "ol") {
@@ -85,7 +92,7 @@ export function htmlToPdfNodes(html: string | null | undefined): JSX.Element[] {
       out.push(<View key={`list-${i}`}>{items}</View>);
     } else if (stray) {
       const runs = tokenize(stray);
-      if (runs.length > 0) {
+      if (runsHaveContent(runs)) {
         out.push(<Text key={`s-${i}`} style={{ marginBottom: 4 }}>{renderRuns(runs, `s-${i}`)}</Text>);
       }
     }
