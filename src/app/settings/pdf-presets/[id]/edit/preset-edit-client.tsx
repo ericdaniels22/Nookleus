@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 
 interface Props { initial: PdfPreset; }
 
@@ -28,6 +29,8 @@ export default function PresetEditClient({ initial }: Props) {
   const [preset, setPreset] = useState<PdfPreset>(initial);
   const [saving, setSaving] = useState(false);
   const router = useRouter();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("manage_pdf_presets");
 
   function setField<K extends keyof PdfPreset>(key: K, value: PdfPreset[K]) {
     setPreset((prev) => ({ ...prev, [key]: value }));
@@ -73,7 +76,7 @@ export default function PresetEditClient({ initial }: Props) {
           ← Back to PDF Presets
         </Link>
       </div>
-      <h1 className="text-2xl font-semibold mb-6">Edit Preset</h1>
+      <h1 className="text-2xl font-semibold mb-6">{canManage ? "Edit Preset" : "View Preset"}</h1>
 
       <div className="space-y-4">
         <div>
@@ -83,6 +86,7 @@ export default function PresetEditClient({ initial }: Props) {
             value={preset.name}
             onChange={(e) => setField("name", e.target.value)}
             maxLength={200}
+            disabled={!canManage}
           />
         </div>
         <div>
@@ -92,6 +96,7 @@ export default function PresetEditClient({ initial }: Props) {
             value={preset.document_title}
             onChange={(e) => setField("document_title", e.target.value)}
             maxLength={200}
+            disabled={!canManage}
           />
         </div>
         <div className="flex items-center gap-3">
@@ -99,6 +104,7 @@ export default function PresetEditClient({ initial }: Props) {
             id="is_default"
             checked={preset.is_default}
             onCheckedChange={(v) => setField("is_default", v)}
+            disabled={!canManage}
           />
           <Label htmlFor="is_default" className="cursor-pointer">
             Set as default {preset.document_type} preset
@@ -115,6 +121,7 @@ export default function PresetEditClient({ initial }: Props) {
                 id={t.key as string}
                 checked={Boolean(preset[t.key])}
                 onCheckedChange={(v) => setField(t.key, v as PdfPreset[typeof t.key])}
+                disabled={!canManage}
               />
               <div>
                 <Label htmlFor={t.key as string} className="cursor-pointer">{t.label}</Label>
@@ -126,9 +133,11 @@ export default function PresetEditClient({ initial }: Props) {
       </div>
 
       <div className="mt-8 flex gap-3">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
+        {canManage && (
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        )}
         <Button variant="outline" onClick={handlePreview}>
           Preview sample PDF
         </Button>

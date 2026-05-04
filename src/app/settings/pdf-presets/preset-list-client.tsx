@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import type { PdfPreset, DocumentType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 
 interface Props { initialPresets: PdfPreset[]; }
 
@@ -19,6 +20,8 @@ export default function PresetListClient({ initialPresets }: Props) {
   const [presets, setPresets] = useState<PdfPreset[]>(initialPresets);
   const [tab, setTab] = useState<DocumentType>("estimate");
   const router = useRouter();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("manage_pdf_presets");
 
   const filtered = presets.filter((p) => p.document_type === tab);
 
@@ -76,7 +79,7 @@ export default function PresetListClient({ initialPresets }: Props) {
     <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">PDF Presets</h1>
-        <Button onClick={handleNew}>+ New Preset</Button>
+        {canManage && <Button onClick={handleNew}>+ New Preset</Button>}
       </div>
 
       <div className="flex gap-2 mb-4 border-b">
@@ -117,14 +120,14 @@ export default function PresetListClient({ initialPresets }: Props) {
               </div>
               <div className="flex items-center gap-2">
                 <Link href={`/settings/pdf-presets/${p.id}/edit`}>
-                  <Button variant="outline" size="sm">Edit</Button>
+                  <Button variant="outline" size="sm">{canManage ? "Edit" : "View"}</Button>
                 </Link>
-                {!p.is_default && (
+                {canManage && !p.is_default && (
                   <Button variant="outline" size="sm" onClick={() => handleSetDefault(p)}>
                     Set as default
                   </Button>
                 )}
-                {!p.is_default && (
+                {canManage && !p.is_default && (
                   <Button variant="outline" size="sm" onClick={() => handleDelete(p)}>
                     Delete
                   </Button>
