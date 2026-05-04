@@ -73,13 +73,23 @@ export async function updatePreset(
   id: string,
   payload: PdfPresetUpdatePayload,
 ): Promise<PdfPreset> {
-  // If flipping is_default → true, clear the prior default for the same (org, doc_type).
-  // Read the row first to know which (org, doc_type) we're operating on.
+  // Always pre-check existence so the route's `"preset not found"` → 404 mapping
+  // is reliable regardless of whether the partial update flips `is_default`.
+  // Also gives us (organization_id, document_type) for the conditional default flip below.
+  const current = await getPreset(supabase, id);
+  if (!current) throw new Error("preset not found");
+
+  // Concurrency: this function is NOT row-locked. Two concurrent PUTs against
+  // the same id will last-write-wins on overlapping fields. The atomic default
+  // flip below is protected by the partial-unique index
+  // `idx_pdf_presets_org_default ON (org, document_type) WHERE is_default = true`
+  // — concurrent flips to two different presets can't both succeed (the second
+  // surfaces as a 5xx via the route's apiError catch). Non-default field
+  // updates have no such protection. Matches the 67a/67b model.
+  //
   // `=== true` (not truthy): payload.is_default may be undefined on a partial
   // update — only an explicit `true` should trigger the prior-default clear.
   if (payload.is_default === true) {
-    const current = await getPreset(supabase, id);
-    if (!current) throw new Error("preset not found");
     const { error: clearErr } = await supabase.from(TABLE)
       .update({ is_default: false })
       .eq("organization_id", current.organization_id)

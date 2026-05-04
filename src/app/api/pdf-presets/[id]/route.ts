@@ -7,7 +7,13 @@ import { getPreset, updatePreset, deletePreset } from "@/lib/pdf-presets";
 import { apiError } from "@/lib/api-errors";
 import type { PdfPresetUpdatePayload } from "@/lib/types";
 
-const BOOL_FIELDS: (keyof PdfPresetUpdatePayload)[] = [
+// Compile-time guard: only boolean-typed keys can land in BOOL_FIELDS.
+// If a future PdfPresetUpdatePayload field is non-boolean, adding it here is a tsc error.
+type BoolKeys = {
+  [K in keyof PdfPresetUpdatePayload]-?: PdfPresetUpdatePayload[K] extends boolean | undefined ? K : never;
+}[keyof PdfPresetUpdatePayload];
+
+const BOOL_FIELDS: BoolKeys[] = [
   "show_markup",
   "show_discount",
   "show_tax",
@@ -18,6 +24,10 @@ const BOOL_FIELDS: (keyof PdfPresetUpdatePayload)[] = [
   "show_notes_column",
   "is_default",
 ];
+
+// 200-char cap on `name` and `document_title` is API-side sanity only;
+// the underlying columns are `text` (uncapped). Sized for typical preset names.
+const MAX_TEXT_LEN = 200;
 
 export async function GET(
   _request: Request,
@@ -60,7 +70,7 @@ export async function PUT(
     if (typeof body.name !== "string" || !body.name.trim()) {
       return NextResponse.json({ error: "name must be non-empty string" }, { status: 400 });
     }
-    if (body.name.length > 200) {
+    if (body.name.length > MAX_TEXT_LEN) {
       return NextResponse.json({ error: "name too long (max 200)" }, { status: 400 });
     }
     body.name = body.name.trim();
@@ -69,7 +79,7 @@ export async function PUT(
     if (typeof body.document_title !== "string" || !body.document_title.trim()) {
       return NextResponse.json({ error: "document_title must be non-empty string" }, { status: 400 });
     }
-    if (body.document_title.length > 200) {
+    if (body.document_title.length > MAX_TEXT_LEN) {
       return NextResponse.json({ error: "document_title too long (max 200)" }, { status: 400 });
     }
     body.document_title = body.document_title.trim();
