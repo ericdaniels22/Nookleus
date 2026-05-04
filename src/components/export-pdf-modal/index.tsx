@@ -42,7 +42,8 @@ export function ExportPdfModal({
         const res = await fetch(`/api/pdf-presets?document_type=${documentType}`);
         if (cancelled) return;
         if (!res.ok) {
-          toast.error("Could not load presets");
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          toast.error(j.error || "Could not load presets");
           setLoading(false);
           return;
         }
@@ -76,7 +77,8 @@ export function ExportPdfModal({
         body: JSON.stringify({ preset_id: selectedId }),
       });
       if (!res.ok) {
-        toast.error("Could not generate PDF");
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(j.error || "Could not generate PDF");
         return;
       }
       const { download_url } = (await res.json()) as { download_url: string };
