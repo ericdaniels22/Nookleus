@@ -41,8 +41,20 @@ export default function InvoiceReadOnlyClient({
     toast.success("Sent");
   }
 
-  function handlePdf() {
-    window.open(`/api/invoices/${invoice.id}/pdf`, "_blank");
+  async function handlePdf() {
+    const res = await fetch(`/api/invoices/${invoice.id}/pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      // Toast/UI handled by parent caller chain. Full export flow lands in T18 via the modal.
+      return;
+    }
+    const { download_url } = (await res.json()) as { download_url: string };
+    const a = document.createElement("a");
+    a.href = download_url;
+    a.click();
   }
 
   return (
