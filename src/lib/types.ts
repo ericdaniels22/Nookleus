@@ -102,17 +102,6 @@ export interface Invoice {
   updated_at: string;
 }
 
-export interface LineItem {
-  id: string;
-  invoice_id: string;
-  description: string;
-  xactimate_code: string | null;
-  quantity: number;
-  unit_price: number;
-  total: number;
-  created_at: string;
-}
-
 export interface Payment {
   id: string;
   job_id: string;
@@ -723,7 +712,6 @@ export interface InvoiceLineItem {
   unit_price: number;
   amount: number; // = total in estimate-land
   sort_order: number;
-  xactimate_code: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -29,7 +29,6 @@ export interface InvoiceLineItemInput {
   description: string;
   quantity: number;
   unit_price: number;
-  xactimate_code?: string | null;
 }
 
 export interface CreateInvoiceInput {
