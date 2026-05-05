@@ -10,7 +10,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { getDefaultPreset } from "@/lib/pdf-presets";
-import { renderAndUploadInvoicePdf } from "@/lib/pdf-renderer/render-and-upload";
+import { renderAndUploadInvoicePdf, PdfRenderInputError } from "@/lib/pdf-renderer/render-and-upload";
 import { apiError } from "@/lib/api-errors";
 
 interface PdfRequestBody { preset_id?: string; }
@@ -56,6 +56,9 @@ export async function POST(
       filename: result.filename,
     });
   } catch (e) {
+    if (e instanceof PdfRenderInputError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     return apiError(e, "POST /api/invoices/[id]/pdf");
   }
 }

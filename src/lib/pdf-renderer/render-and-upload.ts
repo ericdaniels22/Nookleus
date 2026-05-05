@@ -21,6 +21,21 @@ import type {
 } from "@/lib/types";
 import type { PdfCompany, PdfRecipient } from "./types";
 
+/**
+ * Thrown by render helpers when caller-supplied input is invalid (doc not
+ * found, cross-org doc, preset not found, preset type mismatch). Pdf routes
+ * catch this and return 4xx; send routes pre-validate so this should never
+ * fire for them, but they wrap any escape via apiDbError → 500.
+ */
+export class PdfRenderInputError extends Error {
+  readonly status: 404 | 400;
+  constructor(message: string, status: 404 | 400) {
+    super(message);
+    this.name = "PdfRenderInputError";
+    this.status = status;
+  }
+}
+
 export interface PdfRenderResult {
   buffer: Buffer;
   storage_path: string;
@@ -108,8 +123,8 @@ export async function renderAndUploadEstimatePdf(
     .select("*")
     .eq("id", estimateId)
     .maybeSingle<Estimate>();
-  if (!doc) throw new Error("estimate not found");
-  if (doc.organization_id !== orgId) throw new Error("estimate not found");
+  if (!doc) throw new PdfRenderInputError("estimate not found", 404);
+  if (doc.organization_id !== orgId) throw new PdfRenderInputError("estimate not found", 404);
 
   const { data: sections } = await supabase
     .from("estimate_sections")
@@ -121,9 +136,9 @@ export async function renderAndUploadEstimatePdf(
     .eq("estimate_id", estimateId);
 
   const preset = await getPreset(supabase, presetId);
-  if (!preset) throw new Error("preset not found");
+  if (!preset) throw new PdfRenderInputError("preset not found", 400);
   if (preset.document_type !== "estimate") {
-    throw new Error("preset document_type mismatch");
+    throw new PdfRenderInputError("preset document_type mismatch", 400);
   }
 
   const service = createServiceClient();
@@ -172,8 +187,8 @@ export async function renderAndUploadInvoicePdf(
     .select("*")
     .eq("id", invoiceId)
     .maybeSingle<Invoice>();
-  if (!doc) throw new Error("invoice not found");
-  if (doc.organization_id !== orgId) throw new Error("invoice not found");
+  if (!doc) throw new PdfRenderInputError("invoice not found", 404);
+  if (doc.organization_id !== orgId) throw new PdfRenderInputError("invoice not found", 404);
 
   const { data: sections } = await supabase
     .from("invoice_sections")
@@ -185,9 +200,9 @@ export async function renderAndUploadInvoicePdf(
     .eq("invoice_id", invoiceId);
 
   const preset = await getPreset(supabase, presetId);
-  if (!preset) throw new Error("preset not found");
+  if (!preset) throw new PdfRenderInputError("preset not found", 400);
   if (preset.document_type !== "invoice") {
-    throw new Error("preset document_type mismatch");
+    throw new PdfRenderInputError("preset document_type mismatch", 400);
   }
 
   const service = createServiceClient();

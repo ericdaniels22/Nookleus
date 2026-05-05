@@ -163,7 +163,7 @@ export async function POST(
   }
 
   // Audit row — best effort; failure does not roll back the send.
-  await supabase.from("contract_events").insert({
+  const { error: auditErr } = await supabase.from("contract_events").insert({
     organization_id: orgId,
     contract_id: null,
     signer_id: null,
@@ -176,6 +176,12 @@ export async function POST(
       provider: result.provider,
     },
   });
+  if (auditErr) {
+    console.warn(
+      "[api] estimate_sent audit insert failed:",
+      auditErr.message,
+    );
+  }
 
   return NextResponse.json({
     ok: true,
