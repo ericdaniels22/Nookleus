@@ -49,7 +49,7 @@ export const settingsNavItems: SettingsNavItem[] = [
   { href: "/settings/notifications", label: "Notifications", icon: Bell },
   { href: "/settings/accounting", label: "Accounting", icon: Link2 },
   { href: "/settings/stripe", label: "Stripe Payments", icon: CreditCard },
-  { href: "/settings/payments", label: "Payment Emails", icon: Mail },
+  { href: "/settings/payments", label: "Outgoing Emails", icon: Mail },
   { href: "/settings/reports", label: "Reports", icon: FileText },
   { href: "/settings/export", label: "Data Export", icon: Download },
   { href: "/settings/knowledge", label: "Knowledge Base", icon: BookOpen },
