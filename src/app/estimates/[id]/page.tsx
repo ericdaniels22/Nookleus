@@ -7,6 +7,7 @@ import { getEstimateWithContents } from "@/lib/estimates";
 import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
+import { SendButton } from "@/components/send-modal/button";
 import type {
   Contact,
   EstimateLineItem,
@@ -196,8 +197,14 @@ export default async function EstimateViewPage({
           </h1>
         </div>
 
-        {/* Right: Export PDF + Edit button (if permitted) */}
+        {/* Right: Send + Export PDF + Edit button (if permitted) */}
         <div className="flex items-center gap-2 shrink-0">
+          <SendButton
+            mode="estimate"
+            documentId={id}
+            jobId={estimate.job_id}
+            status={estimate.status}
+          />
           <ExportPdfButton
             documentType="estimate"
             documentId={id}
