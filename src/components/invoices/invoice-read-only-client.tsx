@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import RecordPaymentModal from "@/components/payments/record-payment-modal";
 import { PaymentRequestModal } from "@/components/payments/payment-request-modal";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
+import { SendButton } from "@/components/send-modal/button";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import type { InvoiceWithContents } from "@/lib/types";
 
@@ -33,15 +33,6 @@ export default function InvoiceReadOnlyClient({
   const [paymentRequestOpen, setPaymentRequestOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
 
-  async function handleSend() {
-    const res = await fetch(`/api/invoices/${invoice.id}/send`, { method: "POST" });
-    if (!res.ok) {
-      toast.error("Send failed");
-      return;
-    }
-    toast.success("Sent");
-  }
-
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
@@ -61,11 +52,12 @@ export default function InvoiceReadOnlyClient({
           <Link href={`/invoices/${invoice.id}/edit`} className="btn">
             Edit
           </Link>
-          {invoice.status === "draft" && (
-            <button onClick={handleSend} className="btn btn-primary">
-              Send
-            </button>
-          )}
+          <SendButton
+            mode="invoice"
+            documentId={invoice.id}
+            jobId={invoice.job_id}
+            status={invoice.status}
+          />
           {invoice.status !== "voided" && invoice.status !== "paid" && stripeConnected && (
             <button onClick={() => setPaymentRequestOpen(true)} className="btn">
               Send Payment Request
