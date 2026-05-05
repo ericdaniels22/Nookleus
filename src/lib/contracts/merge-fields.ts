@@ -4,6 +4,7 @@ import type { MergeFieldCategory, MergeFieldDefinition } from "./types";
 export const MERGE_FIELDS: MergeFieldDefinition[] = [
   // Customer
   { name: "customer_name", label: "Customer Name", category: "Customer" },
+  { name: "customer_first_name", label: "Customer First Name", category: "Customer" },
   { name: "customer_email", label: "Customer Email", category: "Customer" },
   { name: "customer_phone", label: "Customer Phone", category: "Customer" },
   { name: "customer_address", label: "Customer Address", category: "Customer" },
@@ -142,6 +143,7 @@ export async function buildMergeFieldValues(
       .maybeSingle<ContactRow>();
     if (contact) {
       values.customer_name = fullName(contact);
+      values.customer_first_name = contact.first_name;
       values.customer_email = contact.email;
       values.customer_phone = contact.phone;
     }

@@ -29,11 +29,16 @@ SELECT o.id, '', 'Outgoing', 'resend'
  );
 
 -- 3. Backfill the 4 new template columns on every row with sensible defaults.
+-- Uses {{double_brace}} merge-field syntax + field names that exist in
+-- src/lib/contracts/merge-fields.ts (customer_first_name added in 67c2,
+-- property_address + company_name pre-existing). The plan's original
+-- single-brace + {job_address}/{customer_first_name} field-names didn't
+-- match the resolver and would have shipped raw to recipients.
 UPDATE payment_email_settings SET
-  estimate_send_subject_template = 'Estimate from {company_name} — {job_address}',
-  estimate_send_body_template = E'<p>Hi {customer_first_name},</p>\n<p>Attached is the estimate for the work at {job_address}. Please review and let us know if you have any questions.</p>\n<p>Thanks,<br>{company_name}</p>',
-  invoice_send_subject_template = 'Invoice from {company_name} — {job_address}',
-  invoice_send_body_template = E'<p>Hi {customer_first_name},</p>\n<p>Attached is the invoice for the work at {job_address}. Payment instructions are in the attached PDF.</p>\n<p>Thanks,<br>{company_name}</p>'
+  estimate_send_subject_template = 'Estimate from {{company_name}} — {{property_address}}',
+  estimate_send_body_template = E'<p>Hi {{customer_first_name}},</p>\n<p>Attached is the estimate for the work at {{property_address}}. Please review and let us know if you have any questions.</p>\n<p>Thanks,<br>{{company_name}}</p>',
+  invoice_send_subject_template = 'Invoice from {{company_name}} — {{property_address}}',
+  invoice_send_body_template = E'<p>Hi {{customer_first_name}},</p>\n<p>Attached is the invoice for the work at {{property_address}}. Payment instructions are in the attached PDF.</p>\n<p>Thanks,<br>{{company_name}}</p>'
 WHERE estimate_send_subject_template = '';
 
 -- 4. estimates: last_sent_at + last_sent_to_email
@@ -82,10 +87,10 @@ BEGIN
     '',
     'Outgoing',
     'resend',
-    'Estimate from {company_name} — {job_address}',
-    E'<p>Hi {customer_first_name},</p>\n<p>Attached is the estimate for the work at {job_address}. Please review and let us know if you have any questions.</p>\n<p>Thanks,<br>{company_name}</p>',
-    'Invoice from {company_name} — {job_address}',
-    E'<p>Hi {customer_first_name},</p>\n<p>Attached is the invoice for the work at {job_address}. Payment instructions are in the attached PDF.</p>\n<p>Thanks,<br>{company_name}</p>'
+    'Estimate from {{company_name}} — {{property_address}}',
+    E'<p>Hi {{customer_first_name}},</p>\n<p>Attached is the estimate for the work at {{property_address}}. Please review and let us know if you have any questions.</p>\n<p>Thanks,<br>{{company_name}}</p>',
+    'Invoice from {{company_name}} — {{property_address}}',
+    E'<p>Hi {{customer_first_name}},</p>\n<p>Attached is the invoice for the work at {{property_address}}. Payment instructions are in the attached PDF.</p>\n<p>Thanks,<br>{{company_name}}</p>'
   WHERE NOT EXISTS (
     SELECT 1 FROM payment_email_settings WHERE organization_id = NEW.id
   );
