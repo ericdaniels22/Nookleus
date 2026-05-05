@@ -148,6 +148,10 @@ export function SendModal(props: SendModalProps) {
 
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
+      if (err.error === "from_unconfigured") {
+        setFromUnconfigured(true);
+        return;
+      }
       toast.error(err.error || `Send failed (${res.status})`);
       return;
     }
@@ -218,7 +222,13 @@ export function SendModal(props: SendModalProps) {
               <Label htmlFor="send-preset">PDF Preset</Label>
               <Select value={presetId} onValueChange={(v) => setPresetId(v ?? "")}>
                 <SelectTrigger id="send-preset">
-                  <SelectValue placeholder="Select preset" />
+                  <SelectValue placeholder="Select preset">
+                    {(v: string | null) => {
+                      if (!v) return null;
+                      const p = presets.find((x) => x.id === v);
+                      return p ? `${p.name}${p.is_default ? " (default)" : ""}` : v;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {presets.map((p) => (

@@ -133,9 +133,10 @@ export async function POST(
         { status: 400 },
       );
     }
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
+    return apiDbError(
+      e instanceof Error ? e.message : String(e),
+      "POST /api/estimates/[id]/send dispatch",
+      502,
     );
   }
 
