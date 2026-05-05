@@ -100,6 +100,8 @@ export interface Invoice {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  last_sent_at: string | null;
+  last_sent_to_email: string | null;
 }
 
 export interface Payment {
@@ -564,6 +566,8 @@ export interface Estimate {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  last_sent_at: string | null;
+  last_sent_to_email: string | null;
 }
 
 export interface EstimateSection {
