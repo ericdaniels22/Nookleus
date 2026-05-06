@@ -181,6 +181,7 @@ export default async function EstimateViewPage({
           documentId={estimate.id}
           documentNumber={estimate.estimate_number}
           deletedAt={estimate.deleted_at}
+          jobId={estimate.job_id}
         />
       )}
 

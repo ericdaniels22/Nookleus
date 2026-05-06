@@ -15,6 +15,7 @@ import {
   getStatusBadgeClasses,
 } from "@/lib/estimate-status";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
+import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { daysLeft } from "@/lib/trash/days-left";
 import type { InvoiceRow, InvoiceStatus } from "@/lib/invoices";
 
@@ -39,6 +40,8 @@ export default function InvoiceListClient() {
   const [trashRows, setTrashRows] = useState<InvoiceWithJob[]>([]);
   const [forceTarget, setForceTarget] = useState<InvoiceWithJob | null>(null);
   const [isForceDeleting, setIsForceDeleting] = useState(false);
+  const [trashTarget, setTrashTarget] = useState<InvoiceWithJob | null>(null);
+  const [isTrashing, setIsTrashing] = useState(false);
 
   const refreshTrash = useCallback(async () => {
     setLoading(true);
@@ -78,19 +81,26 @@ export default function InvoiceListClient() {
     refresh();
   }, [refresh]);
 
-  const onVoid = useCallback(
-    async (r: InvoiceWithJob) => {
-      if (!confirm(`Void invoice ${r.invoice_number}? This cannot be undone.`)) return;
-      const res = await fetch(`/api/invoices/${r.id}/void`, { method: "POST" });
+  const onTrash = useCallback(
+    async (reason: string | null) => {
+      if (!trashTarget || isTrashing) return;
+      setIsTrashing(true);
+      const res = await fetch(`/api/invoices/${trashTarget.id}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delete_reason: reason }),
+      });
+      setIsTrashing(false);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}) as { error?: string });
-        toast.error(body?.error ?? "Failed to void invoice");
+        toast.error(body?.error ?? "Failed to move to trash");
         return;
       }
-      toast.success(`Invoice ${r.invoice_number} voided`);
+      toast.success(`Invoice ${trashTarget.invoice_number} moved to trash`);
+      setTrashTarget(null);
       refresh();
     },
-    [refresh],
+    [trashTarget, isTrashing, refresh],
   );
 
   const onRestore = useCallback(
@@ -305,11 +315,10 @@ export default function InvoiceListClient() {
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          disabled={r.status === "voided" || r.status === "draft"}
-                          onClick={() => onVoid(r)}
+                          onClick={() => setTrashTarget(r)}
                           className="text-destructive"
                         >
-                          Void
+                          Trash
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -328,6 +337,15 @@ export default function InvoiceListClient() {
         documentNumber={forceTarget?.invoice_number ?? ""}
         onConfirm={onForceDelete}
         isDeleting={isForceDeleting}
+      />
+
+      <TrashConfirmDialog
+        open={trashTarget !== null}
+        onOpenChange={(open) => { if (!open) setTrashTarget(null); }}
+        documentKind="invoice"
+        documentNumber={trashTarget?.invoice_number ?? ""}
+        onConfirm={onTrash}
+        isTrashing={isTrashing}
       />
     </div>
   );

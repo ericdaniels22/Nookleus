@@ -11,9 +11,12 @@ interface Props {
   documentId: string;
   documentNumber: string;
   deletedAt: string;
+  // Estimate-only: parent job to return to after force-delete. Ignored for invoices,
+  // which always return to the global /invoices list.
+  jobId?: string;
 }
 
-export function TrashedBanner({ documentKind, documentId, documentNumber, deletedAt }: Props) {
+export function TrashedBanner({ documentKind, documentId, documentNumber, deletedAt, jobId }: Props) {
   const router = useRouter();
   const [forceOpen, setForceOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,7 +56,11 @@ export function TrashedBanner({ documentKind, documentId, documentNumber, delete
       return;
     }
     toast.success(`${documentKind === "estimate" ? "Estimate" : "Invoice"} permanently deleted`);
-    router.push(documentKind === "estimate" ? "/jobs" : "/invoices");
+    if (documentKind === "estimate") {
+      router.push(jobId ? `/jobs/${jobId}` : "/jobs");
+    } else {
+      router.push("/invoices");
+    }
   }
 
   return (
