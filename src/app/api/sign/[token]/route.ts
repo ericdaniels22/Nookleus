@@ -5,12 +5,22 @@ import { verifySigningToken, InvalidSigningTokenError } from "@/lib/contracts/to
 import { writeContractEvent, getRequestIp, getRequestUserAgent } from "@/lib/contracts/audit";
 import { resolveMergeValues } from "@/lib/contracts/resolve-merge-values";
 import { stampPdf } from "@/lib/contracts/stamp-pdf";
+import { buildPublicSigningViewByToken, type BuildViewError } from "@/lib/contracts/build-public-signing-view";
 import type {
   Contract,
   ContractSigner,
   ContractTemplate,
-  PublicSigningView,
 } from "@/lib/contracts/types";
+
+const ERROR_HTTP_STATUS: Record<BuildViewError, number> = {
+  invalid_token: 401,
+  stale_token: 410,
+  expired: 410,
+  voided: 410,
+  not_found: 404,
+  signer_not_found: 404,
+  template_not_found: 404,
+};
 
 // GET /api/sign/[token]
 // Public endpoint for the signing page. Validates the JWT, loads the
@@ -22,76 +32,20 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
-
-  let payload: { contract_id: string; signer_id: string };
-  try {
-    payload = verifySigningToken(token);
-  } catch (e) {
-    if (e instanceof InvalidSigningTokenError) {
-      return NextResponse.json({ error: "invalid_token", message: e.message }, { status: 401 });
-    }
-    throw e;
-  }
-
   const supabase = createServiceClient();
-  const { data: contract, error } = await supabase
-    .from("contracts")
-    .select("*")
-    .eq("id", payload.contract_id)
-    .maybeSingle<Contract & { link_token: string | null; filled_content_html: string }>();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!contract) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  const result = await buildPublicSigningViewByToken(supabase, token);
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: ERROR_HTTP_STATUS[result.error] ?? 500 },
+    );
   }
-  if (contract.link_token !== token) {
-    return NextResponse.json({ error: "stale_token" }, { status: 410 });
-  }
+  const { view, contract, signer } = result;
 
-  const { data: signer } = await supabase
-    .from("contract_signers")
-    .select("*")
-    .eq("id", payload.signer_id)
-    .maybeSingle<ContractSigner>();
-  if (!signer) {
-    return NextResponse.json({ error: "signer_not_found" }, { status: 404 });
-  }
-
-  if (
-    contract.link_expires_at &&
-    (contract.status === "sent" || contract.status === "viewed") &&
-    new Date(contract.link_expires_at).getTime() < Date.now()
-  ) {
-    await supabase.rpc("mark_contract_expired", { p_contract_id: contract.id });
-    return NextResponse.json({ error: "expired" }, { status: 410 });
-  }
-
-  if (contract.status === "voided") {
-    return NextResponse.json({ error: "voided" }, { status: 410 });
-  }
-
-  const { data: template } = await supabase
-    .from("contract_templates")
-    .select("*")
-    .eq("id", contract.template_id)
-    .maybeSingle<ContractTemplate>();
-  if (!template) {
-    return NextResponse.json({ error: "template_not_found" }, { status: 404 });
-  }
-
-  const { data: allSigners } = await supabase
-    .from("contract_signers")
-    .select("id, signer_order, signed_at")
-    .eq("contract_id", contract.id);
-
-  const { data: companyRows } = await supabase
-    .from("company_settings")
-    .select("key, value")
-    .eq("organization_id", contract.organization_id)
-    .in("key", ["company_name", "phone", "email", "address", "logo_url"]);
-  const map = new Map<string, string | null>(
-    (companyRows ?? []).map((r: { key: string; value: string | null }) => [r.key, r.value]),
-  );
-
+  // View-dedup audit: only fires once per browser session per contract.
+  // The route handler is still reachable directly (HEAD/preflight, the
+  // download flow) so the cookie gate continues to apply here.
   const cookieName = `sv_${contract.id.slice(0, 8)}`;
   const cookieStore = await cookies();
   const hasViewedCookie = cookieStore.get(cookieName);
@@ -122,56 +76,6 @@ export async function GET(
     .from("contracts")
     .update({ last_viewed_at: new Date().toISOString() })
     .eq("id", contract.id);
-
-  let pdfUrl: string | null = null;
-  if (template.pdf_storage_path) {
-    const { data: signed } = await supabase.storage
-      .from("contract-pdfs")
-      .createSignedUrl(template.pdf_storage_path, 600);
-    pdfUrl = signed?.signedUrl ?? null;
-  }
-
-  const resolved = await resolveMergeValues(supabase, contract.job_id, {
-    signedAt: contract.signed_at ? new Date(contract.signed_at) : undefined,
-  });
-
-  const view: PublicSigningView = {
-    contract: {
-      id: contract.id,
-      title: contract.title,
-      status: contract.status,
-      link_expires_at: contract.link_expires_at,
-      signed_at: contract.signed_at,
-      signed_pdf_path: contract.signed_pdf_path,
-      legacy_html: template.pdf_storage_path ? null : (contract.filled_content_html ?? null),
-    },
-    template: {
-      id: template.id,
-      pdf_url: pdfUrl,
-      pdf_pages: template.pdf_pages,
-      overlay_fields: template.overlay_fields,
-      signer_count: template.signer_count,
-      signer_role_label: template.signer_role_label,
-    },
-    resolved_merge_values: resolved,
-    signer: {
-      id: signer.id,
-      signer_order: signer.signer_order,
-      name: signer.name,
-      role_label: signer.role_label,
-      signed_at: signer.signed_at,
-    },
-    other_signers: (allSigners ?? [])
-      .filter((s) => s.id !== signer.id)
-      .map((s) => ({ id: s.id, signer_order: s.signer_order, signed_at: s.signed_at })),
-    company: {
-      name: map.get("company_name") || "",
-      phone: map.get("phone") || "",
-      email: map.get("email") || "",
-      address: map.get("address") || "",
-      logo_url: map.get("logo_url") || null,
-    },
-  };
 
   const res = NextResponse.json(view);
   if (!hasViewedCookie && contract.link_expires_at) {

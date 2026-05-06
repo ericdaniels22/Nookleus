@@ -10,7 +10,7 @@ interface Props {
   view: PublicSigningView;
   signToken: string;
   inPerson?: boolean;
-  onSigned?: () => void;
+  onSigned?: (result: { all_signed: boolean }) => void;
 }
 
 export default function ContractSignerView({ view, signToken, inPerson, onSigned }: Props) {
@@ -62,7 +62,7 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
         );
         return;
       }
-      onSigned?.();
+      onSigned?.({ all_signed: !!j.all_signed });
     } finally {
       setSubmitting(false);
     }

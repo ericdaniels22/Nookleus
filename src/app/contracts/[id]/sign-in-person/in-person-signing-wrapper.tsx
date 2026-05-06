@@ -1,19 +1,25 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import ContractSignerView from "@/components/contracts/contract-signer-view";
 import type { PublicSigningView } from "@/lib/contracts/types";
 
 interface Props {
   view: PublicSigningView;
-  contractId: string;
 }
 
-export default function InPersonSigningWrapper({ view, contractId }: Props) {
+export default function InPersonSigningWrapper({ view }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
 
-  function handleSigned() {
-    router.push(`/contracts/${contractId}/sign-in-person/complete`);
+  function handleSigned(result: { all_signed: boolean }) {
+    if (result.all_signed) {
+      router.push(`${pathname}/complete`);
+    } else {
+      // Reload the SSR page so the next unsigned signer is picked up
+      // and pre-filled into the view.
+      router.refresh();
+    }
   }
 
   return (

@@ -1,12 +1,10 @@
-"use server";
-
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import type { Contract, ContractSigner, ContractTemplate, PublicSigningView } from "@/lib/contracts/types";
-import { resolveMergeValues } from "@/lib/contracts/resolve-merge-values";
+import type { ContractSigner } from "@/lib/contracts/types";
+import { buildPublicSigningViewForContract } from "@/lib/contracts/build-public-signing-view";
 import InPersonSigningWrapper from "./in-person-signing-wrapper";
 
 interface CompanyBrand {
@@ -15,25 +13,6 @@ interface CompanyBrand {
   email: string;
   address: string;
   logo_url: string | null;
-}
-
-async function loadCompany(orgId: string): Promise<CompanyBrand> {
-  const supabase = createServiceClient();
-  const { data } = await supabase
-    .from("company_settings")
-    .select("key, value")
-    .eq("organization_id", orgId)
-    .in("key", ["company_name", "phone", "email", "address", "logo_url"]);
-  const m = new Map<string, string | null>(
-    (data ?? []).map((r: { key: string; value: string | null }) => [r.key, r.value]),
-  );
-  return {
-    name: m.get("company_name") || "",
-    phone: m.get("phone") || "",
-    email: m.get("email") || "",
-    address: m.get("address") || "",
-    logo_url: m.get("logo_url") || null,
-  };
 }
 
 // /contracts/[id]/sign-in-person — full-screen internal tablet view.
@@ -56,8 +35,16 @@ export default async function SignInPersonPage({
   }
 
   const supabase = createServiceClient();
+
+  // Quick load of contract + signers to determine status and pick the
+  // active (next unsigned) signer. Detailed view-shape construction
+  // happens via buildPublicSigningViewForContract once we know the active.
   const [{ data: contract }, { data: signersRaw }] = await Promise.all([
-    supabase.from("contracts").select("*").eq("id", id).maybeSingle<Contract>(),
+    supabase
+      .from("contracts")
+      .select("id, status, job_id")
+      .eq("id", id)
+      .maybeSingle<{ id: string; status: string; job_id: string }>(),
     supabase
       .from("contract_signers")
       .select("*")
@@ -93,92 +80,54 @@ export default async function SignInPersonPage({
   }
   const active = signers.find((s) => !s.signed_at);
   if (!active) {
-    redirect(`/contracts/${id}/sign-in-person/complete`);
+    return redirect(`/contracts/${id}/sign-in-person/complete`);
   }
 
-  // Load template, company, and resolve merge values in parallel.
-  const [{ data: templateRaw }, company, resolved] = await Promise.all([
-    supabase
-      .from("contract_templates")
-      .select("*")
-      .eq("id", contract.template_id)
-      .maybeSingle<ContractTemplate>(),
-    loadCompany(contract.organization_id),
-    resolveMergeValues(supabase, contract.job_id, {
-      signedAt: contract.signed_at ? new Date(contract.signed_at) : undefined,
-    }),
-  ]);
-
-  if (!templateRaw) {
+  const result = await buildPublicSigningViewForContract(supabase, id, active.id);
+  if (!result.ok) {
+    if (result.error === "voided") {
+      return (
+        <ErrorShell
+          title="This contract has been voided"
+          subtitle="Return to the job to see history."
+        />
+      );
+    }
+    if (result.error === "template_not_found") {
+      return (
+        <ErrorShell
+          title="Template not found"
+          subtitle="The contract template is missing. Contact support."
+        />
+      );
+    }
     return (
-      <ErrorShell
-        title="Template not found"
-        subtitle="The contract template is missing. Contact support."
-      />
+      <ErrorShell title="Contract not available" subtitle="This signing session is no longer valid." />
     );
   }
 
-  // Build a signed URL for the source PDF (valid 10 minutes — enough for signing).
-  let pdfUrl: string | null = null;
-  if (templateRaw.pdf_storage_path) {
-    const { data: signed } = await supabase.storage
-      .from("contract-pdfs")
-      .createSignedUrl(templateRaw.pdf_storage_path, 600);
-    pdfUrl = signed?.signedUrl ?? null;
-  }
-
-  // Build the PublicSigningView shape the component expects.
-  const view: PublicSigningView = {
-    contract: {
-      id: contract.id,
-      title: contract.title,
-      status: contract.status,
-      link_expires_at: contract.link_expires_at,
-      signed_at: contract.signed_at,
-      signed_pdf_path: contract.signed_pdf_path,
-      legacy_html: templateRaw.pdf_storage_path ? null : (contract.filled_content_html ?? null),
-    },
-    template: {
-      id: templateRaw.id,
-      pdf_url: pdfUrl,
-      pdf_pages: templateRaw.pdf_pages,
-      overlay_fields: templateRaw.overlay_fields,
-      signer_count: templateRaw.signer_count,
-      signer_role_label: templateRaw.signer_role_label,
-    },
-    resolved_merge_values: resolved,
-    signer: {
-      id: active!.id,
-      signer_order: active!.signer_order,
-      name: active!.name,
-      role_label: active!.role_label,
-      signed_at: active!.signed_at,
-    },
-    other_signers: signers
-      .filter((s) => s.id !== active!.id)
-      .map((s) => ({ id: s.id, signer_order: s.signer_order, signed_at: s.signed_at })),
-    company: {
-      name: company.name,
-      phone: company.phone,
-      email: company.email,
-      address: company.address,
-      logo_url: company.logo_url,
-    },
+  const { view } = result;
+  const company: CompanyBrand = {
+    name: view.company.name,
+    phone: view.company.phone,
+    email: view.company.email,
+    address: view.company.address,
+    logo_url: view.company.logo_url,
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-6 py-8">
         <Link
-          href={`/jobs/${contract.job_id}`}
+          href={`/jobs/${result.contract.job_id}`}
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeft size={14} />
           Back to job
         </Link>
-        <HeaderBlock company={company} title={contract.title} />
-        {/* Client wrapper handles onSigned → router.push */}
-        <InPersonSigningWrapper view={view} contractId={id} />
+        <HeaderBlock company={company} title={view.contract.title} />
+        {/* Client wrapper handles onSigned → push-to-complete or refresh */}
+        <InPersonSigningWrapper view={view} />
       </div>
     </div>
   );

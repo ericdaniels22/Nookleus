@@ -1,10 +1,101 @@
-import { headers } from "next/headers";
 import { Lock } from "lucide-react";
-import ContractSignerView from "@/components/contracts/contract-signer-view";
+import { createServiceClient } from "@/lib/supabase-api";
+import { buildPublicSigningViewByToken } from "@/lib/contracts/build-public-signing-view";
+import { writeContractEvent } from "@/lib/contracts/audit";
+import { headers } from "next/headers";
 import type { PublicSigningView } from "@/lib/contracts/types";
+import SignedRedirectWrapper from "./signed-redirect-wrapper";
 
-// Error codes returned by GET /api/sign/[token] that need human-readable labels.
-type ApiErrorCode =
+interface CompanyBrand {
+  name: string;
+  phone: string;
+  email: string;
+  logo_url: string | null;
+}
+
+export default async function SignPage({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+  const supabase = createServiceClient();
+
+  const result = await buildPublicSigningViewByToken(supabase, token);
+
+  // Error path — render an appropriate ErrorShell with no branding (we
+  // don't have the org context for invalid/missing tokens).
+  if (!result.ok) {
+    const info = errorInfoFor(result.error);
+    const emptyBrand: CompanyBrand = { name: "", phone: "", email: "", logo_url: null };
+    return <ErrorShell title={info.title} subtitle={info.subtitle} company={emptyBrand} />;
+  }
+
+  const { view, contract, signer } = result;
+
+  // Page-level audit. Per review: simplest correct behavior is one
+  // `link_viewed` per page render — duplicates on reload are acceptable
+  // (this is how it worked pre-Task-24). The /api/sign/[token] route
+  // still has cookie-based dedup for surfaces that hit it directly.
+  // Pull request metadata via headers() since we don't have the Request
+  // object inside a Server Component.
+  const h = await headers();
+  const xff = h.get("x-forwarded-for");
+  const ip = xff ? xff.split(",")[0].trim() : (h.get("x-real-ip") ?? null);
+  const ua = h.get("user-agent");
+
+  try {
+    await writeContractEvent(supabase, {
+      contractId: contract.id,
+      eventType: "link_viewed",
+      signerId: signer.id,
+      ipAddress: ip,
+      userAgent: ua,
+    });
+  } catch {
+    // Audit failures must not block the signer from seeing their contract.
+  }
+  if (!contract.first_viewed_at) {
+    await supabase
+      .from("contracts")
+      .update({
+        first_viewed_at: new Date().toISOString(),
+        status: contract.status === "sent" ? "viewed" : contract.status,
+      })
+      .eq("id", contract.id);
+  }
+  await supabase
+    .from("contracts")
+    .update({ last_viewed_at: new Date().toISOString() })
+    .eq("id", contract.id);
+
+  // Branding from the view the helper already loaded.
+  const company: CompanyBrand = {
+    name: view.company.name,
+    phone: view.company.phone,
+    email: view.company.email,
+    logo_url: view.company.logo_url,
+  };
+
+  // Already-signed short-circuit.
+  if (view.contract.status === "signed") {
+    return <SignedShell view={view} company={company} />;
+  }
+
+  return (
+    <div className="min-h-screen py-10 px-4">
+      <div className="max-w-3xl mx-auto">
+        <HeaderBlock company={company} />
+        <SignedRedirectWrapper view={view} signToken={token} />
+        <AuditFooter />
+      </div>
+    </div>
+  );
+}
+
+// `BuildViewError` codes from build-public-signing-view; mapped here to
+// human-readable labels used by ErrorShell.
+type BuildViewErrorCode =
   | "invalid_token"
   | "stale_token"
   | "expired"
@@ -18,8 +109,8 @@ interface ErrorInfo {
   subtitle: string;
 }
 
-function errorInfoFor(code: string | undefined): ErrorInfo {
-  switch (code as ApiErrorCode) {
+function errorInfoFor(code: BuildViewErrorCode): ErrorInfo {
+  switch (code) {
     case "invalid_token":
       return {
         title: "This link is invalid",
@@ -47,85 +138,6 @@ function errorInfoFor(code: string | undefined): ErrorInfo {
         subtitle: "This signing link is no longer valid.",
       };
   }
-}
-
-interface CompanyBrand {
-  name: string;
-  phone: string;
-  email: string;
-  logo_url: string | null;
-}
-
-const EMPTY_BRAND: CompanyBrand = { name: "", phone: "", email: "", logo_url: null };
-
-export default async function SignPage({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = await params;
-
-  // Resolve absolute URL for server-side fetch to our own API.
-  const h = await headers();
-  const host = h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const apiUrl = `${proto}://${host}/api/sign/${token}`;
-
-  // Forward any cookies so the API route can set the view-dedup cookie.
-  const cookieHeader = h.get("cookie") ?? "";
-
-  let view: PublicSigningView | null = null;
-  let errorCode: string | undefined;
-
-  try {
-    const res = await fetch(apiUrl, {
-      cache: "no-store",
-      headers: {
-        cookie: cookieHeader,
-        "x-forwarded-for": h.get("x-forwarded-for") ?? "",
-        "x-real-ip": h.get("x-real-ip") ?? "",
-        "user-agent": h.get("user-agent") ?? "",
-      },
-    });
-
-    if (res.ok) {
-      view = (await res.json()) as PublicSigningView;
-    } else {
-      const body = await res.json().catch(() => ({})) as { error?: string };
-      errorCode = body.error;
-    }
-  } catch {
-    errorCode = "not_found";
-  }
-
-  // Error path — no view available.
-  if (!view) {
-    const info = errorInfoFor(errorCode);
-    return <ErrorShell title={info.title} subtitle={info.subtitle} company={EMPTY_BRAND} />;
-  }
-
-  // Branding from the view the API already loaded.
-  const company: CompanyBrand = {
-    name: view.company.name,
-    phone: view.company.phone,
-    email: view.company.email,
-    logo_url: view.company.logo_url,
-  };
-
-  // Already-signed short-circuit.
-  if (view.contract.status === "signed") {
-    return <SignedShell view={view} company={company} />;
-  }
-
-  return (
-    <div className="min-h-screen py-10 px-4">
-      <div className="max-w-3xl mx-auto">
-        <HeaderBlock company={company} />
-        <ContractSignerView view={view} signToken={token} />
-        <AuditFooter />
-      </div>
-    </div>
-  );
 }
 
 // ---------- Status shells ----------
