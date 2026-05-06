@@ -1,5 +1,5 @@
 ---
-last_verified: 2026-05-05 (67d execution session: Tasks 1-24 of 27 complete; schema applied, all 8 trash routes shipped, full UI live, tsc clean; 23 commits unpushed at `f117b3b`; Tasks 25-27 deferred to fresh session)
+last_verified: 2026-05-05 (67d execution session: Tasks 1-24 of 27 complete; schema applied, all 8 trash routes shipped, full UI live, tsc clean; pushed to origin at `d8fcdbe`; Tasks 25-27 deferred to fresh session)
 ---
 
 # Nookleus — current state
@@ -59,7 +59,7 @@ Build 66 (Knowledge Vault & Session Continuity) is **complete**. All four sub-bu
 
 ## Active branches
 
-- `main` at `f117b3b` — `ui(67d): edit pages redirect to read-only when doc is trashed`. **23 commits ahead of `origin/main` at handoff start** (entire 67d execution session: `8a8f594` migration → `f117b3b` edit-page redirects). Will push after handoff commit lands.
+- `main` at `d8fcdbe` — `vault: handoff for build 67d execution session on 2026-05-05`. In sync with `origin/main` after the 2026-05-05 evening push (24 commits: 23 67d execution commits `8a8f594`→`f117b3b` + the execution handoff). Plus the push-state marker commit on top of this update.
 - `main` (historical anchor at 67d planning) at `180dbe3` — `vault: handoff for build 67d planning session on 2026-05-05`. In sync with `origin/main` after the 2026-05-05 morning push (3 commits: `93e3c24` spec + `054ee1c` plan + `180dbe3` handoff).
 - `main` (historical anchor at 67c2 wrap) at `e8fec69` — `vault: handoff for build 67c2 wrap session on 2026-05-05`. The 67c2 wrap session's 2 commits (`67e5506` M1/M2/Mn1 fixes + `4ee3fd9` test results) plus the handoff. In sync with origin after the 2026-05-05 wrap push.
 - `main` (historical anchor at 67c1 cleanup pass) at `b43d3f8` — `ui(67c1): gate pdf-presets management UI on manage_pdf_presets`. In sync with `origin/main` after 2026-05-04 night cleanup-pass session. The 67c1-3 handoff (`96c7d62`) was pushed at start of that session; the cleanup-pass UX fix (`b43d3f8`) was the only commit that session before the handoff commit landed.
