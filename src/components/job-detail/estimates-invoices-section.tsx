@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import InvoicesList from "./invoices-list";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -17,7 +16,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/format";
-import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
+import { STATUS_BADGE_CLASSES, formatStatusLabel, getStatusBadgeClasses } from "@/lib/estimate-status";
 import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
 import { daysLeft } from "@/lib/trash/days-left";
@@ -45,6 +44,8 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
 
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+  const [invoicesError, setInvoicesError] = useState<string | null>(null);
 
   const [trashTarget, setTrashTarget] = useState<
     | { kind: "estimate"; row: Estimate }
@@ -79,8 +80,28 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
     }
   }
 
+  async function fetchInvoices() {
+    try {
+      const res = await fetch(`/api/invoices?jobId=${jobId}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setInvoicesError(body.error ?? "Failed to load invoices");
+        return;
+      }
+      const data = (await res.json()) as { rows: Invoice[] };
+      const sorted = (data.rows ?? []).slice().sort((a, b) =>
+        a.invoice_number.localeCompare(b.invoice_number)
+      );
+      setInvoices(sorted);
+      setInvoicesError(null);
+    } catch {
+      setInvoicesError("Failed to load invoices");
+    }
+  }
+
   useEffect(() => {
     fetchEstimates();
+    fetchInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
@@ -141,7 +162,11 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
       });
       setTrashTarget(null);
       router.refresh();
-      await fetchEstimates();
+      if (capturedTarget.kind === "estimate") {
+        await fetchEstimates();
+      } else {
+        await fetchInvoices();
+      }
     } catch {
       toast.error(`Failed to move ${trashTarget.kind} to trash`);
     } finally {
@@ -208,6 +233,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
     }
     toast.success("Invoice restored");
     router.refresh();
+    await fetchInvoices();
     const tr = await fetch(`/api/invoices/trash?job_id=${jobId}`).then((r) => r.json());
     setTrashedInvoices((tr?.invoices ?? []) as Invoice[]);
   }
@@ -216,6 +242,8 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   const canEdit = !authLoading && hasPermission("edit_estimates");
   const canCreate = !authLoading && hasPermission("create_estimates");
   const canCreateInvoices = !authLoading && hasPermission("create_invoices");
+  const canEditInvoices = !authLoading && hasPermission("edit_invoices");
+  const canViewInvoices = !authLoading && hasPermission("view_invoices");
   const canManageEstimates = !authLoading && hasPermission("manage_estimates");
   const canManageInvoices = !authLoading && hasPermission("manage_invoices");
 
@@ -411,50 +439,176 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
 
       {/* ── Invoices card ───────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-5">
-        <InvoicesList
-          jobId={jobId}
-          canCreate={canCreateInvoices}
-          canManage={canManageInvoices}
-          onTrash={(row) => setTrashTarget({ kind: "invoice", row })}
-        />
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-foreground">Invoices</h3>
+          {authLoading ? null : canCreateInvoices ? (
+            <Link href={`/jobs/${jobId}/invoices/new`}>
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <Plus size={14} />
+                New Invoice
+              </Button>
+            </Link>
+          ) : null}
+        </div>
 
-        {/* Trashed invoices — rendered below InvoicesList without modifying it */}
-        {showTrashed && trashedInvoices.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <h4 className="text-xs font-medium text-muted-foreground mb-2">Trashed invoices</h4>
-            <table className="w-full text-sm">
-              <tbody>
-                {trashedInvoices.map((inv) => (
-                  <tr key={`trashed-inv-${inv.id}`} className="opacity-60">
-                    <td className="font-mono text-xs py-1 pr-3">{inv.invoice_number}</td>
-                    <td className="py-1 pr-3">{inv.title}</td>
-                    <td className="py-1 pr-3 text-right tabular-nums">${inv.total_amount.toFixed(2)}</td>
-                    <td className="py-1 pr-3">
-                      <span className="text-xs text-muted-foreground">
-                        In trash · {daysLeft(inv.deleted_at)} days left
+        {/* Loading state */}
+        {invoices === null && !invoicesError && (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        )}
+
+        {/* Error state */}
+        {invoicesError && (
+          <p className="text-sm text-destructive">{invoicesError}</p>
+        )}
+
+        {/* Empty state */}
+        {invoices !== null && !invoicesError && invoices.length === 0 && (!showTrashed || trashedInvoices.length === 0) && (
+          <p className="text-sm text-muted-foreground">
+            No invoices yet — create one to get started.
+          </p>
+        )}
+
+        {/* Table */}
+        {invoices !== null && !invoicesError && (invoices.length > 0 || (showTrashed && trashedInvoices.length > 0)) && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-32">#</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead className="w-32 text-right">Total</TableHead>
+                <TableHead className="w-28">Status</TableHead>
+                <TableHead className="w-36">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invoices.map((inv) => (
+                <TableRow key={inv.id}>
+                  {/* Invoice number — monospace, with optional source-estimate link */}
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {inv.invoice_number}
                       </span>
-                    </td>
-                    <td className="py-1">
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="text-blue-600 text-xs hover:underline"
-                          onClick={() => void restoreInvoice(inv.id)}
+                      {inv.converted_from_estimate_id && (
+                        <Link
+                          href={`/estimates/${inv.converted_from_estimate_id}`}
+                          className="text-xs text-blue-600 hover:underline"
+                          title="View source estimate"
                         >
-                          Restore
-                        </button>
-                        <button
-                          className="text-red-600 text-xs hover:underline"
-                          onClick={() => setForceTarget({ kind: "invoice", row: inv })}
-                        >
-                          Delete now
-                        </button>
+                          ← EST
+                        </Link>
+                      )}
+                    </div>
+                  </TableCell>
+
+                  {/* Title */}
+                  <TableCell className="max-w-xs truncate">
+                    {inv.title}
+                  </TableCell>
+
+                  {/* Total */}
+                  <TableCell className="text-right tabular-nums">
+                    {formatCurrency(inv.total_amount)}
+                  </TableCell>
+
+                  {/* Status badge */}
+                  <TableCell>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses("invoice", inv.status)}`}
+                    >
+                      {formatStatusLabel(inv.status)}
+                    </span>
+                  </TableCell>
+
+                  {/* Actions */}
+                  <TableCell>
+                    {authLoading ? (
+                      <span className="text-xs text-muted-foreground">Loading…</span>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        {canViewInvoices && (
+                          <Link href={`/invoices/${inv.id}`}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 gap-1 text-xs"
+                              title="View invoice"
+                            >
+                              <Eye size={12} />
+                              View
+                            </Button>
+                          </Link>
+                        )}
+                        {canEditInvoices && inv.status !== "voided" && inv.status !== "paid" && (
+                          <Link href={`/invoices/${inv.id}/edit`}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 gap-1 text-xs"
+                              title="Edit invoice"
+                            >
+                              <Pencil size={12} />
+                              Edit
+                            </Button>
+                          </Link>
+                        )}
+                        {canManageInvoices && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            title="Move invoice to trash"
+                            aria-label="Move invoice to trash"
+                            onClick={() => setTrashTarget({ kind: "invoice", row: inv })}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        )}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+
+              {/* Trashed invoice rows */}
+              {showTrashed && trashedInvoices.map((inv) => (
+                <TableRow key={`trashed-inv-${inv.id}`} className="opacity-60 bg-muted/30">
+                  <TableCell>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {inv.invoice_number}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-xs truncate text-muted-foreground">
+                    {inv.title}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatCurrency(inv.total_amount)}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-muted-foreground">
+                      In trash · {daysLeft(inv.deleted_at)} days left
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="text-blue-600 text-xs hover:underline"
+                        onClick={() => void restoreInvoice(inv.id)}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        className="text-red-600 text-xs hover:underline"
+                        onClick={() => setForceTarget({ kind: "invoice", row: inv })}
+                      >
+                        Delete now
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
 
