@@ -2,20 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Eye, Pencil, Ban, Plus } from "lucide-react";
+import { Eye, Pencil, Plus } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import InvoicesList from "./invoices-list";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   Table,
   TableHeader,
@@ -26,93 +18,16 @@ import {
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
-import type { Estimate } from "@/lib/types";
+import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
+import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
+import type { Estimate, Invoice } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inline void confirm dialog
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function VoidConfirmDialog({
-  open,
-  onOpenChange,
-  estimateNumber,
-  onConfirm,
-  isVoiding,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  estimateNumber: string;
-  onConfirm: (reason: string) => void;
-  isVoiding: boolean;
-}) {
-  const [reason, setReason] = useState("");
-
-  useEffect(() => {
-    if (open) setReason("");
-  }, [open]);
-
-  const canConfirm = reason.trim().length > 0 && !isVoiding;
-  const remaining = 500 - reason.length;
-
-  function handleConfirm() {
-    if (!canConfirm) return;
-    onConfirm(reason.trim());
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={isVoiding ? undefined : onOpenChange}>
-      <DialogContent showCloseButton={!isVoiding}>
-        <DialogHeader>
-          <DialogTitle>Void estimate {estimateNumber}?</DialogTitle>
-          <DialogDescription>
-            Voiding is irreversible. The estimate will be marked as voided and
-            no further edits will be allowed. Please provide a reason.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1">
-          <Input
-            autoFocus
-            placeholder="Reason for voiding…"
-            value={reason}
-            maxLength={500}
-            onChange={(e) => {
-              if (e.target.value.length <= 500) setReason(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canConfirm) handleConfirm();
-              if (e.key === "Escape" && !isVoiding) onOpenChange(false);
-            }}
-            disabled={isVoiding}
-          />
-          <p
-            className={`text-xs text-right ${
-              remaining <= 50 ? "text-destructive" : "text-muted-foreground"
-            }`}
-          >
-            {remaining} characters remaining
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isVoiding}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={!canConfirm}
-            onClick={handleConfirm}
-          >
-            {isVoiding ? "Voiding…" : "Void Estimate"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,12 +39,24 @@ interface EstimatesInvoicesSectionProps {
 }
 
 export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProps) {
+  const router = useRouter();
   const { hasPermission, loading: authLoading } = useAuth();
 
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [voidTarget, setVoidTarget] = useState<Estimate | null>(null);
-  const [isVoiding, setIsVoiding] = useState(false);
+
+  const [trashTarget, setTrashTarget] = useState<
+    | { kind: "estimate"; row: Estimate }
+    | { kind: "invoice"; row: Invoice }
+    | null
+  >(null);
+  const [isTrashing, setIsTrashing] = useState(false);
+  const [forceTarget, setForceTarget] = useState<
+    | { kind: "estimate"; row: Estimate }
+    | { kind: "invoice"; row: Invoice }
+    | null
+  >(null);
+  const [isForceDeleting, setIsForceDeleting] = useState(false);
 
   async function fetchEstimates() {
     try {
@@ -152,26 +79,79 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
-  async function handleVoidConfirm(reason: string) {
-    if (!voidTarget || isVoiding) return;
-    setIsVoiding(true);
+  async function handleTrashConfirm(reason: string | null) {
+    if (!trashTarget || isTrashing) return;
+    setIsTrashing(true);
+    const url =
+      trashTarget.kind === "estimate"
+        ? `/api/estimates/${trashTarget.row.id}/delete`
+        : `/api/invoices/${trashTarget.row.id}/delete`;
     try {
-      const res = await fetch(
-        `/api/estimates/${voidTarget.id}?reason=${encodeURIComponent(reason)}`,
-        { method: "DELETE" }
-      );
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delete_reason: reason }),
+      });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(body.error ?? "Failed to void estimate");
+        const j = await res.json().catch(() => ({}));
+        toast.error((j as { error?: string }).error ?? `Failed to move ${trashTarget.kind} to trash`);
         return;
       }
-      toast.success(`Estimate ${voidTarget.estimate_number} voided`);
-      setVoidTarget(null);
+      const number =
+        trashTarget.kind === "estimate"
+          ? trashTarget.row.estimate_number
+          : trashTarget.row.invoice_number;
+      const capturedTarget = trashTarget;
+      toast.success(`${capitalize(capturedTarget.kind)} ${number} moved to trash`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            await fetch(
+              capturedTarget.kind === "estimate"
+                ? `/api/estimates/${capturedTarget.row.id}/restore`
+                : `/api/invoices/${capturedTarget.row.id}/restore`,
+              { method: "POST" },
+            );
+            router.refresh();
+          },
+        },
+      });
+      setTrashTarget(null);
+      router.refresh();
       await fetchEstimates();
     } catch {
-      toast.error("Failed to void estimate");
+      toast.error(`Failed to move ${trashTarget.kind} to trash`);
     } finally {
-      setIsVoiding(false);
+      setIsTrashing(false);
+    }
+  }
+
+  async function handleForceDelete() {
+    if (!forceTarget || isForceDeleting) return;
+    setIsForceDeleting(true);
+    const capturedTarget = forceTarget;
+    const url =
+      capturedTarget.kind === "estimate"
+        ? `/api/estimates/${capturedTarget.row.id}`
+        : `/api/invoices/${capturedTarget.row.id}`;
+    try {
+      const res = await fetch(url, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error((j as { error?: string }).error ?? `Failed to delete ${capturedTarget.kind}`);
+        return;
+      }
+      const number =
+        capturedTarget.kind === "estimate"
+          ? capturedTarget.row.estimate_number
+          : capturedTarget.row.invoice_number;
+      toast.success(`${capitalize(capturedTarget.kind)} ${number} permanently deleted`);
+      setForceTarget(null);
+      router.refresh();
+    } catch {
+      toast.error(`Failed to delete ${capturedTarget.kind}`);
+    } finally {
+      setIsForceDeleting(false);
     }
   }
 
@@ -179,6 +159,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   const canEdit = !authLoading && hasPermission("edit_estimates");
   const canCreate = !authLoading && hasPermission("create_estimates");
   const canCreateInvoices = !authLoading && hasPermission("create_invoices");
+  const canManageEstimates = !authLoading && hasPermission("manage_estimates");
 
   return (
     <div className="space-y-6 mb-6">
@@ -297,16 +278,15 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
                             </Button>
                           </Link>
                         )}
-                        {canEdit && est.status !== "voided" && est.status !== "converted" && (
+                        {canManageEstimates && (
                           <Button
                             size="sm"
                             variant="ghost"
                             className="h-7 px-2 gap-1 text-xs text-destructive hover:text-destructive"
-                            title="Void estimate"
-                            onClick={() => setVoidTarget(est)}
+                            title="Move estimate to trash"
+                            onClick={() => setTrashTarget({ kind: "estimate", row: est })}
                           >
-                            <Ban size={12} />
-                            Void
+                            Trash
                           </Button>
                         )}
                       </div>
@@ -324,15 +304,32 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         <InvoicesList jobId={jobId} canCreate={canCreateInvoices} />
       </div>
 
-      {/* ── Void confirm dialog ─────────────────────────────────────────────── */}
-      <VoidConfirmDialog
-        open={voidTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setVoidTarget(null);
-        }}
-        estimateNumber={voidTarget?.estimate_number ?? ""}
-        onConfirm={handleVoidConfirm}
-        isVoiding={isVoiding}
+      {/* ── Trash confirm dialog ────────────────────────────────────────────── */}
+      <TrashConfirmDialog
+        open={trashTarget !== null}
+        onOpenChange={(open) => { if (!open) setTrashTarget(null); }}
+        documentNumber={
+          trashTarget?.kind === "estimate"
+            ? trashTarget.row.estimate_number
+            : trashTarget?.row.invoice_number ?? ""
+        }
+        documentKind={trashTarget?.kind ?? "estimate"}
+        onConfirm={handleTrashConfirm}
+        isTrashing={isTrashing}
+      />
+
+      {/* ── Force-delete confirm dialog ─────────────────────────────────────── */}
+      <ForceDeleteConfirmDialog
+        open={forceTarget !== null}
+        onOpenChange={(open) => { if (!open) setForceTarget(null); }}
+        documentNumber={
+          forceTarget?.kind === "estimate"
+            ? forceTarget.row.estimate_number
+            : forceTarget?.row.invoice_number ?? ""
+        }
+        documentKind={forceTarget?.kind ?? "estimate"}
+        onConfirm={handleForceDelete}
+        isDeleting={isForceDeleting}
       />
     </div>
   );
