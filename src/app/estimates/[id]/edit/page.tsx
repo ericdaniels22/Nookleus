@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
@@ -66,6 +66,11 @@ export default async function EstimateEditPage({
   const estimate = await getEstimateWithContents(id, supabase);
   if (!estimate) {
     notFound();
+  }
+
+  // 2a. Redirect to read-only view if the estimate is in the trash.
+  if (estimate.deleted_at) {
+    redirect(`/estimates/${id}`);
   }
 
   // 3. Fetch the parent job with the contact joined.

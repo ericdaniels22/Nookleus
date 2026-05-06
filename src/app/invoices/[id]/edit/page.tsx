@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
@@ -66,6 +66,11 @@ export default async function InvoiceEditPage({
   const inv = await getInvoiceWithContents(supabase, id);
   if (!inv) {
     notFound();
+  }
+
+  // 2a. Redirect to read-only view if the invoice is in the trash.
+  if (inv.deleted_at) {
+    redirect(`/invoices/${id}`);
   }
 
   // 3. Fetch the parent job + contact for the customer block.
