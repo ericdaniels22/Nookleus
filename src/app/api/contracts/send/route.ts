@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { resolveMergeFields } from "@/lib/contracts/merge-fields";
 import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
 import { sendContractEmail } from "@/lib/contracts/email";
 import { generateSigningToken } from "@/lib/contracts/tokens";
@@ -97,13 +96,13 @@ export async function POST(request: Request) {
   // --- Fetch template ---
   const { data: tpl, error: tErr } = await supabase
     .from("contract_templates")
-    .select("id, name, content_html, version, is_active, signer_role_label")
+    .select("id, name, pdf_storage_path, version, is_active, signer_role_label")
     .eq("id", body.templateId)
     .eq("organization_id", orgId)
     .maybeSingle<{
       id: string;
       name: string;
-      content_html: string;
+      pdf_storage_path: string | null;
       version: number;
       is_active: boolean;
       signer_role_label: string | null;
@@ -114,8 +113,8 @@ export async function POST(request: Request) {
   if (!tpl.is_active) {
     return NextResponse.json({ error: "Template is archived" }, { status: 400 });
   }
-  if (!tpl.content_html?.trim()) {
-    return NextResponse.json({ error: "Template has no content" }, { status: 400 });
+  if (!tpl.pdf_storage_path) {
+    return NextResponse.json({ error: "Template has no PDF" }, { status: 400 });
   }
 
   // --- Confirm the job exists ---
@@ -129,9 +128,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: jErr?.message || "Job not found" }, { status: 404 });
   }
 
-  // --- Resolve merge fields ---
-  const { html: filledHtml } = await resolveMergeFields(supabase, tpl.content_html, body.jobId);
-  const filledHash = createHash("sha256").update(filledHtml).digest("hex");
+  // Build 15d: PDF-overlay templates resolve merge values at sign time
+  // (inside stampPdf), not at draft creation. The legacy filled_content_html
+  // column is retained NOT NULL on contracts for pre-15d rows, so we pass
+  // empty string + its sha256 to satisfy the schema.
+  const filledHtml = "";
+  const filledHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // sha256("")
 
   // --- Compute IDs, token, expiry ---
   const contractId = randomUUID();
