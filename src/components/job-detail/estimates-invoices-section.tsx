@@ -30,6 +30,13 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function daysLeft(deletedAt: string | null): number {
+  if (!deletedAt) return 0;
+  const elapsed = Date.now() - new Date(deletedAt).getTime();
+  const remainingMs = 30 * 86_400_000 - elapsed;
+  return Math.max(0, Math.floor(remainingMs / 86_400_000));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EstimatesInvoicesSection
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +65,10 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   >(null);
   const [isForceDeleting, setIsForceDeleting] = useState(false);
 
+  const [showTrashed, setShowTrashed] = useState(false);
+  const [trashedEstimates, setTrashedEstimates] = useState<Estimate[]>([]);
+  const [trashedInvoices, setTrashedInvoices] = useState<Invoice[]>([]);
+
   async function fetchEstimates() {
     try {
       const res = await fetch(`/api/estimates?job_id=${jobId}`);
@@ -78,6 +89,24 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
     fetchEstimates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
+
+  useEffect(() => {
+    if (!showTrashed) {
+      setTrashedEstimates([]);
+      setTrashedInvoices([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/estimates/trash?job_id=${jobId}`).then((r) => r.json()),
+      fetch(`/api/invoices/trash?job_id=${jobId}`).then((r) => r.json()),
+    ]).then(([est, inv]) => {
+      if (cancelled) return;
+      setTrashedEstimates((est?.estimates ?? []) as Estimate[]);
+      setTrashedInvoices((inv?.invoices ?? []) as Invoice[]);
+    });
+    return () => { cancelled = true; };
+  }, [showTrashed, jobId]);
 
   async function handleTrashConfirm(reason: string | null) {
     if (!trashTarget || isTrashing) return;
@@ -148,11 +177,45 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
       toast.success(`${capitalize(capturedTarget.kind)} ${number} permanently deleted`);
       setForceTarget(null);
       router.refresh();
+      if (showTrashed) {
+        if (capturedTarget.kind === "estimate") {
+          const tr = await fetch(`/api/estimates/trash?job_id=${jobId}`).then((r) => r.json());
+          setTrashedEstimates((tr?.estimates ?? []) as Estimate[]);
+        } else {
+          const tr = await fetch(`/api/invoices/trash?job_id=${jobId}`).then((r) => r.json());
+          setTrashedInvoices((tr?.invoices ?? []) as Invoice[]);
+        }
+      }
     } catch {
       toast.error(`Failed to delete ${capturedTarget.kind}`);
     } finally {
       setIsForceDeleting(false);
     }
+  }
+
+  async function restoreEstimate(id: string) {
+    const res = await fetch(`/api/estimates/${id}/restore`, { method: "POST" });
+    if (!res.ok) {
+      toast.error("Failed to restore estimate");
+      return;
+    }
+    toast.success("Estimate restored");
+    router.refresh();
+    await fetchEstimates();
+    const tr = await fetch(`/api/estimates/trash?job_id=${jobId}`).then((r) => r.json());
+    setTrashedEstimates((tr?.estimates ?? []) as Estimate[]);
+  }
+
+  async function restoreInvoice(id: string) {
+    const res = await fetch(`/api/invoices/${id}/restore`, { method: "POST" });
+    if (!res.ok) {
+      toast.error("Failed to restore invoice");
+      return;
+    }
+    toast.success("Invoice restored");
+    router.refresh();
+    const tr = await fetch(`/api/invoices/trash?job_id=${jobId}`).then((r) => r.json());
+    setTrashedInvoices((tr?.invoices ?? []) as Invoice[]);
   }
 
   const canView = !authLoading && hasPermission("view_estimates");
@@ -166,7 +229,20 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
       {/* ── Estimates card ─────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-foreground">Estimates</h3>
+          <div className="flex items-center gap-4">
+            <h3 className="text-base font-semibold text-foreground">Estimates</h3>
+            <div className="flex items-center gap-2">
+              <input
+                id="show-trashed"
+                type="checkbox"
+                checked={showTrashed}
+                onChange={(e) => setShowTrashed(e.target.checked)}
+              />
+              <label htmlFor="show-trashed" className="text-sm text-muted-foreground">
+                Show trashed
+              </label>
+            </div>
+          </div>
           {authLoading ? null : canCreate ? (
             <Link href={`/jobs/${jobId}/estimates/new`}>
               <Button size="sm" variant="outline" className="gap-1.5">
@@ -188,14 +264,14 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         )}
 
         {/* Empty state */}
-        {estimates !== null && !error && estimates.length === 0 && (
+        {estimates !== null && !error && estimates.length === 0 && (!showTrashed || trashedEstimates.length === 0) && (
           <p className="text-sm text-muted-foreground">
             No estimates yet — create one to get started.
           </p>
         )}
 
         {/* Table */}
-        {estimates !== null && !error && estimates.length > 0 && (
+        {estimates !== null && !error && (estimates.length > 0 || (showTrashed && trashedEstimates.length > 0)) && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -294,6 +370,44 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
                   </TableCell>
                 </TableRow>
               ))}
+
+              {/* Trashed estimate rows */}
+              {showTrashed && trashedEstimates.map((est) => (
+                <TableRow key={`trashed-est-${est.id}`} className="opacity-60 bg-muted/30">
+                  <TableCell>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {est.estimate_number}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-xs truncate text-muted-foreground">
+                    {est.title}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatCurrency(est.total)}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-muted-foreground">
+                      In trash · {daysLeft(est.deleted_at)} days left
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="text-blue-600 text-xs hover:underline"
+                        onClick={() => void restoreEstimate(est.id)}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        className="text-red-600 text-xs hover:underline"
+                        onClick={() => setForceTarget({ kind: "estimate", row: est })}
+                      >
+                        Delete now
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         )}
@@ -302,6 +416,45 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
       {/* ── Invoices card ───────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-5">
         <InvoicesList jobId={jobId} canCreate={canCreateInvoices} />
+
+        {/* Trashed invoices — rendered below InvoicesList without modifying it */}
+        {showTrashed && trashedInvoices.length > 0 && (
+          <div className="mt-4 border-t border-border pt-3">
+            <h4 className="text-xs font-medium text-muted-foreground mb-2">Trashed invoices</h4>
+            <table className="w-full text-sm">
+              <tbody>
+                {trashedInvoices.map((inv) => (
+                  <tr key={`trashed-inv-${inv.id}`} className="opacity-60">
+                    <td className="font-mono text-xs py-1 pr-3">{inv.invoice_number}</td>
+                    <td className="py-1 pr-3">{inv.title}</td>
+                    <td className="py-1 pr-3 text-right tabular-nums">${inv.total_amount.toFixed(2)}</td>
+                    <td className="py-1 pr-3">
+                      <span className="text-xs text-muted-foreground">
+                        In trash · {daysLeft(inv.deleted_at)} days left
+                      </span>
+                    </td>
+                    <td className="py-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="text-blue-600 text-xs hover:underline"
+                          onClick={() => void restoreInvoice(inv.id)}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          className="text-red-600 text-xs hover:underline"
+                          onClick={() => setForceTarget({ kind: "invoice", row: inv })}
+                        >
+                          Delete now
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ── Trash confirm dialog ────────────────────────────────────────────── */}
