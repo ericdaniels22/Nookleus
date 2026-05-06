@@ -57,3 +57,7 @@ supabase/.temp/
 .obsidian/workspace-mobile.json
 .obsidian/cache
 .superpowers/
+
+# Xcode SPM local state — Package.resolved IS committed (pins SPM versions),
+# but per-user workspace configuration is not.
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/
