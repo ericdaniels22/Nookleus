@@ -169,7 +169,7 @@ export default function ContractTemplatesPage() {
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all disabled:opacity-60"
         >
           {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          New Template
+          Upload Contract PDF
         </button>
       </div>
 
@@ -193,7 +193,7 @@ export default function ContractTemplatesPage() {
               <tr>
                 <th className="text-left font-medium px-4 py-3">Name</th>
                 <th className="text-left font-medium px-4 py-3 hidden md:table-cell">Description</th>
-                <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Signers</th>
+                <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Pages · Signers</th>
                 <th className="text-left font-medium px-4 py-3">Active</th>
                 <th className="text-left font-medium px-4 py-3 hidden sm:table-cell">Last Edited</th>
                 <th className="w-10" />
@@ -216,7 +216,21 @@ export default function ContractTemplatesPage() {
                   <td className="px-4 py-3 text-muted-foreground max-w-[28ch] truncate hidden md:table-cell">
                     {t.description || <span className="text-muted-foreground/50">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{t.default_signer_count}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs whitespace-nowrap">
+                      {t.pdf_page_count != null ? (
+                        <span>
+                          {t.pdf_page_count} {t.pdf_page_count === 1 ? "page" : "pages"}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/50">no PDF</span>
+                      )}
+                      <span>·</span>
+                      <span>
+                        {t.signer_count} signer{t.signer_count > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <label className="inline-flex items-center gap-2 cursor-pointer">
                       <input
