@@ -48,7 +48,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
 
   const [trashTarget, setTrashTarget] = useState<
     | { kind: "estimate"; row: Estimate }
-    | { kind: "invoice"; row: Invoice }
+    | { kind: "invoice"; row: Pick<Invoice, "id" | "invoice_number"> }
     | null
   >(null);
   const [isTrashing, setIsTrashing] = useState(false);
@@ -217,6 +217,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   const canCreate = !authLoading && hasPermission("create_estimates");
   const canCreateInvoices = !authLoading && hasPermission("create_invoices");
   const canManageEstimates = !authLoading && hasPermission("manage_estimates");
+  const canManageInvoices = !authLoading && hasPermission("manage_invoices");
 
   return (
     <div className="space-y-6 mb-6">
@@ -409,7 +410,12 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
 
       {/* ── Invoices card ───────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-5">
-        <InvoicesList jobId={jobId} canCreate={canCreateInvoices} />
+        <InvoicesList
+          jobId={jobId}
+          canCreate={canCreateInvoices}
+          canManage={canManageInvoices}
+          onTrash={(row) => setTrashTarget({ kind: "invoice", row })}
+        />
 
         {/* Trashed invoices — rendered below InvoicesList without modifying it */}
         {showTrashed && trashedInvoices.length > 0 && (

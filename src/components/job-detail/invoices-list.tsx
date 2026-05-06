@@ -18,7 +18,14 @@ interface InvoiceRow {
   converted_from_estimate_id: string | null;
 }
 
-export default function InvoicesList({ jobId, canCreate }: { jobId: string; canCreate: boolean }) {
+interface InvoicesListProps {
+  jobId: string;
+  canCreate: boolean;
+  canManage?: boolean;
+  onTrash?: (row: { id: string; invoice_number: string }) => void;
+}
+
+export default function InvoicesList({ jobId, canCreate, canManage, onTrash }: InvoicesListProps) {
   const router = useRouter();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
 
@@ -49,7 +56,21 @@ export default function InvoicesList({ jobId, canCreate }: { jobId: string; canC
                   <td><span className={`px-2 py-0.5 rounded text-xs ${getStatusBadgeClasses("invoice", r.status)}`}>{formatStatusLabel("invoice", r.status)}</span></td>
                   <td>{r.converted_from_estimate_id && <Link href={`/estimates/${r.converted_from_estimate_id}`} className="text-xs text-blue-600">← from EST</Link>}</td>
                   <td className="text-right">${r.total_amount.toFixed(2)}</td>
-                  <td><Link href={`/invoices/${r.id}`} className="text-xs">View</Link></td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/invoices/${r.id}`} className="text-xs">View</Link>
+                      {canManage && onTrash && (
+                        <button
+                          type="button"
+                          onClick={() => onTrash({ id: r.id, invoice_number: r.invoice_number })}
+                          className="text-xs text-destructive hover:underline"
+                          title="Move invoice to trash"
+                        >
+                          Trash
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
