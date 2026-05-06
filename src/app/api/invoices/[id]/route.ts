@@ -134,7 +134,7 @@ export async function DELETE(
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const { data: { user } } = await supabase.auth.getUser();
-  await supabase.from("contract_events").insert({
+  const { error: auditErr } = await supabase.from("contract_events").insert({
     organization_id: row.organization_id,
     contract_id: null,
     signer_id: null,
@@ -147,6 +147,7 @@ export async function DELETE(
       reason: "force",
     },
   });
+  if (auditErr) console.warn("[api] invoice_purged audit insert failed:", auditErr.message);
 
   const { storageRemoved, storageErrors } = await purgeInvoiceStorage(supabase, id);
 

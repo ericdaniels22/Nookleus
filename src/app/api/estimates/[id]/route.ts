@@ -101,7 +101,7 @@ export async function DELETE(
   // would survive cascade either way, but writing first preserves audit on
   // any partial-failure path (Storage 4xx etc.).
   const { data: { user } } = await supabase.auth.getUser();
-  await supabase.from("contract_events").insert({
+  const { error: auditErr } = await supabase.from("contract_events").insert({
     organization_id: row.organization_id,
     contract_id: null,
     signer_id: null,
@@ -114,6 +114,7 @@ export async function DELETE(
       reason: "force",
     },
   });
+  if (auditErr) console.warn("[api] estimate_purged audit insert failed:", auditErr.message);
 
   const { storageRemoved, storageErrors } = await purgeEstimateStorage(supabase, id);
 

@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   const purgeFailures: { id: string; storageErrors: string[] }[] = [];
   for (const row of expired ?? []) {
-    await supabase.from("contract_events").insert({
+    const { error: auditErr } = await supabase.from("contract_events").insert({
       organization_id: row.organization_id,
       contract_id: null,
       signer_id: null,
@@ -38,6 +38,7 @@ export async function GET(request: Request) {
         reason: "auto_30d",
       },
     });
+    if (auditErr) console.warn("[api] invoice_purged audit insert failed:", auditErr.message);
     const { storageErrors } = await purgeInvoiceStorage(supabase, row.id);
     if (storageErrors.length > 0) purgeFailures.push({ id: row.id, storageErrors });
     await supabase.from("invoices").delete().eq("id", row.id);
