@@ -66,6 +66,8 @@ export function buildSampleEstimate(orgId: string): {
     updated_at: now,
     last_sent_at: null,
     last_sent_to_email: null,
+    deleted_at: null,
+    delete_reason: null,
   };
   const sections: EstimateSection[] = [{
     id: secId,
@@ -158,6 +160,8 @@ export function buildSampleInvoice(orgId: string): {
     updated_at: now,
     last_sent_at: null,
     last_sent_to_email: null,
+    deleted_at: null,
+    delete_reason: null,
   };
   const sections: InvoiceSection[] = [{
     id: secId,
