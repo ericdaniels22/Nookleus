@@ -41,8 +41,31 @@ export async function GET(
 ) {
   const { id } = await params;
   const supabase = await createServerSupabaseClient();
+  // Permission gate: template authors (manage_contract_templates) clearly
+  // need preview access, but Task 26 also wired this route up to
+  // <PreviewContractModal>, which is opened from the send-contract and
+  // sign-in-person modals. Users in those flows can SEND contracts but
+  // may not have template-management. The send/in-person POSTs gate on
+  // authenticated session + org membership only (no permission key), so
+  // we match that bar as a fallback. The preview only renders sample data
+  // (no contract-specific PII), so this matches the actual data sensitivity.
   const gate = await requirePermission(supabase, "manage_contract_templates");
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+    }
+    const fallbackOrgId = await getActiveOrganizationId(supabase);
+    const { data: membership } = await supabase
+      .from("user_organizations")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("organization_id", fallbackOrgId)
+      .maybeSingle<{ id: string }>();
+    if (!membership) return gate.response;
+  }
   const orgId = await getActiveOrganizationId(supabase);
 
   const { data: tpl, error } = await supabase
