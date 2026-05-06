@@ -11,6 +11,7 @@ import { sendOrgEmail, FromUnconfiguredError } from "@/lib/email/send";
 import { textToHtml } from "@/lib/email/text-to-html";
 import { renderAndUploadEstimatePdf } from "@/lib/pdf-renderer/render-and-upload";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -59,7 +60,7 @@ export async function POST(
   // Load estimate
   const { data: estimate } = await supabase
     .from("estimates")
-    .select("id, organization_id, status, sent_at, estimate_number, job_id")
+    .select("id, organization_id, status, sent_at, estimate_number, job_id, deleted_at")
     .eq("id", id)
     .maybeSingle<{
       id: string;
@@ -68,11 +69,14 @@ export async function POST(
       sent_at: string | null;
       estimate_number: string;
       job_id: string;
+      deleted_at: string | null;
     }>();
 
   if (!estimate || estimate.organization_id !== orgId) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+  const trashed = assertNotTrashed(estimate);
+  if (trashed) return trashed;
   if (BLOCKED_STATUSES.has(estimate.status)) {
     return NextResponse.json(
       { error: `cannot send a ${estimate.status} estimate` },

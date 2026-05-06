@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { applyTemplate } from "@/lib/estimate-templates";
 import { recalculateTotals } from "@/lib/estimates";
 
@@ -18,6 +19,15 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
+
+  const { data: estimateRow } = await supabase
+    .from("estimates")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(estimateRow);
+  if (trashed) return trashed;
+
   const body = (await request.json().catch(() => null)) as PostBody | null;
   if (!body || typeof body.template_id !== "string") {
     return NextResponse.json({ error: "template_id required" }, { status: 400 });

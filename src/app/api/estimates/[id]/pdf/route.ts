@@ -12,6 +12,7 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { getDefaultPreset } from "@/lib/pdf-presets";
 import { renderAndUploadEstimatePdf, PdfRenderInputError } from "@/lib/pdf-renderer/render-and-upload";
 import { apiError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 interface PdfRequestBody { preset_id?: string; }
 
@@ -26,6 +27,14 @@ export async function POST(
   const { id } = await context.params;
   const orgId = await getActiveOrganizationId(supabase);
   if (!orgId) return NextResponse.json({ error: "no active org" }, { status: 400 });
+
+  const { data: estimateRow } = await supabase
+    .from("estimates")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(estimateRow);
+  if (trashed) return trashed;
 
   let body: PdfRequestBody = {};
   try { body = (await request.json().catch(() => ({}))) as PdfRequestBody; }

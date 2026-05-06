@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot } from "@/lib/builder-shared";
 
 type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "converted" | "voided";
@@ -45,8 +46,10 @@ export async function PUT(
     }
 
     const { data: cur } = await supabase
-      .from("estimates").select("status, converted_to_invoice_id").eq("id", id).maybeSingle<{ status: EstimateStatus; converted_to_invoice_id: string | null }>();
+      .from("estimates").select("status, converted_to_invoice_id, deleted_at").eq("id", id).maybeSingle<{ status: EstimateStatus; converted_to_invoice_id: string | null; deleted_at: string | null }>();
     if (!cur) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const trashed = assertNotTrashed(cur);
+    if (trashed) return trashed;
 
     // Spec rule: cannot void a converted estimate
     if (body.status === "voided" && cur.converted_to_invoice_id !== null) {

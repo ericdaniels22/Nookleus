@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
 import { convertEstimateToInvoice } from "@/lib/conversion";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 export async function POST(
   _request: Request,
@@ -13,6 +14,14 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
+
+  const { data: estimateRow } = await supabase
+    .from("estimates")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(estimateRow);
+  if (trashed) return trashed;
 
   try {
     const result = await convertEstimateToInvoice(supabase, id);

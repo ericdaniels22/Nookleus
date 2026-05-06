@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/permissions-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { checkSnapshot, recalculateTotals, touchEstimate } from "@/lib/estimates";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -30,6 +31,14 @@ export async function POST(request: Request, ctx: RouteCtx) {
   const supabase = await createServerSupabaseClient();
   const auth = await requirePermission(supabase, "edit_estimates");
   if (!auth.ok) return auth.response;
+
+  const { data: estimateRow } = await supabase
+    .from("estimates")
+    .select("deleted_at")
+    .eq("id", estimateId)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(estimateRow);
+  if (trashed) return trashed;
 
   let body: CreatePayload;
   try {
@@ -155,6 +164,14 @@ export async function PUT(request: Request, ctx: RouteCtx) {
   const supabase = await createServerSupabaseClient();
   const auth = await requirePermission(supabase, "edit_estimates");
   if (!auth.ok) return auth.response;
+
+  const { data: estimateRowPut } = await supabase
+    .from("estimates")
+    .select("deleted_at")
+    .eq("id", estimateId)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashedPut = assertNotTrashed(estimateRowPut);
+  if (trashedPut) return trashedPut;
 
   let body: ReorderPayload;
   try {

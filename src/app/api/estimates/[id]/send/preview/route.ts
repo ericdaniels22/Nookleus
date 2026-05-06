@@ -12,6 +12,7 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { resolveDocumentTemplate } from "@/lib/email/template-resolver";
 import { htmlToText } from "@/lib/email/html-to-text";
 import { loadOrgEmailSettings } from "@/lib/email/send";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 export async function GET(
   _request: Request,
@@ -31,9 +32,9 @@ export async function GET(
   // Load estimate to get job_id + verify org match
   const { data: estimate } = await supabase
     .from("estimates")
-    .select("id, organization_id, job_id")
+    .select("id, organization_id, job_id, deleted_at")
     .eq("id", id)
-    .maybeSingle<{ id: string; organization_id: string; job_id: string }>();
+    .maybeSingle<{ id: string; organization_id: string; job_id: string; deleted_at: string | null }>();
 
   if (!estimate) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -41,6 +42,8 @@ export async function GET(
   if (estimate.organization_id !== orgId) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+  const trashed = assertNotTrashed(estimate);
+  if (trashed) return trashed;
 
   // Load settings + check from-email configured
   const settings = await loadOrgEmailSettings(supabase, orgId);
