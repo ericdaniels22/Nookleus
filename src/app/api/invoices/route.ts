@@ -28,6 +28,7 @@ export async function GET(request: Request) {
       { count: "exact" },
     )
     .eq("organization_id", await getActiveOrganizationId(supabase))
+    .is("deleted_at", null)
     .order("issued_date", { ascending: false })
     .range(offset, offset + limit - 1);
 

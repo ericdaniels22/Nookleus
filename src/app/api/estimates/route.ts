@@ -68,6 +68,7 @@ export async function GET(request: Request) {
     .from("estimates")
     .select("*")
     .eq("job_id", jobId)
+    .is("deleted_at", null)
     .order("sequence_number", { ascending: true })
     .returns<Estimate[]>();
   if (error) return apiDbError(error.message, "GET /api/estimates list");
