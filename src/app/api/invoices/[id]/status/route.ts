@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot } from "@/lib/builder-shared";
 
 type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "voided";
@@ -53,8 +54,10 @@ export async function PUT(
     }
 
     const { data: cur } = await supabase
-      .from("invoices").select("status").eq("id", id).maybeSingle<{ status: InvoiceStatus }>();
+      .from("invoices").select("status, deleted_at").eq("id", id).maybeSingle<{ status: InvoiceStatus; deleted_at: string | null }>();
     if (!cur) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const trashed = assertNotTrashed(cur);
+    if (trashed) return trashed;
     const next = body.status;
     if (!VALID_TRANSITIONS[cur.status].includes(next)) {
       return NextResponse.json(

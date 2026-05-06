@@ -18,6 +18,7 @@ import { sendOrgEmail, FromUnconfiguredError } from "@/lib/email/send";
 import { textToHtml } from "@/lib/email/text-to-html";
 import { renderAndUploadInvoicePdf } from "@/lib/pdf-renderer/render-and-upload";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -63,7 +64,7 @@ export async function POST(
 
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("id, organization_id, status, sent_at, invoice_number, job_id")
+    .select("id, organization_id, status, sent_at, invoice_number, job_id, deleted_at")
     .eq("id", id)
     .maybeSingle<{
       id: string;
@@ -72,11 +73,14 @@ export async function POST(
       sent_at: string | null;
       invoice_number: string;
       job_id: string;
+      deleted_at: string | null;
     }>();
 
   if (!invoice || invoice.organization_id !== orgId) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+  const trashed = assertNotTrashed(invoice);
+  if (trashed) return trashed;
   if (invoice.status === "voided") {
     return NextResponse.json({ error: "cannot send a voided invoice" }, { status: 400 });
   }

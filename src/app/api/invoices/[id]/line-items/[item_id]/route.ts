@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot, touchEntity, roundMoney } from "@/lib/builder-shared";
 import { recalculateInvoiceTotals } from "@/lib/invoices";
 
@@ -25,6 +26,15 @@ export async function PUT(
   if (!auth.ok) return auth.response;
 
   const { id, item_id } = await context.params;
+
+  const { data: invoiceRow } = await supabase
+    .from("invoices")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(invoiceRow);
+  if (trashed) return trashed;
+
   const body = (await request.json().catch(() => null)) as PutBody | null;
   if (!body) return NextResponse.json({ error: "body required" }, { status: 400 });
 
@@ -90,6 +100,15 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const { id, item_id } = await context.params;
+
+  const { data: invoiceRowDel } = await supabase
+    .from("invoices")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashedDel = assertNotTrashed(invoiceRowDel);
+  if (trashedDel) return trashedDel;
+
   try {
     const { error } = await supabase.from("invoice_line_items").delete().eq("id", item_id).eq("invoice_id", id);
     if (error) throw error;

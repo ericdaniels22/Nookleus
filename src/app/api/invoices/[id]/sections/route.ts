@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { apiDbError } from "@/lib/api-errors";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot, touchEntity } from "@/lib/builder-shared";
 
 interface PostBody {
@@ -20,6 +21,15 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
+
+  const { data: invoiceRow } = await supabase
+    .from("invoices")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashed = assertNotTrashed(invoiceRow);
+  if (trashed) return trashed;
+
   const body = (await request.json().catch(() => null)) as PostBody | null;
   if (!body || typeof body.title !== "string") {
     return NextResponse.json({ error: "title required" }, { status: 400 });
@@ -77,6 +87,15 @@ export async function PUT(
   if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
+
+  const { data: invoiceRowPut } = await supabase
+    .from("invoices")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle<{ deleted_at: string | null }>();
+  const trashedPut = assertNotTrashed(invoiceRowPut);
+  if (trashedPut) return trashedPut;
+
   const body = (await request.json().catch(() => null)) as PutBody | null;
   if (!body || !Array.isArray(body.reorder)) {
     return NextResponse.json({ error: "reorder array required" }, { status: 400 });
