@@ -1,5 +1,5 @@
 ---
-last_verified: 2026-05-05 (67d planning landed — spec + 27-task plan committed; main 2 commits ahead of origin pre-handoff push, fresh session will execute)
+last_verified: 2026-05-05 (67d planning landed — spec + 27-task plan + handoff pushed to origin at `180dbe3`; ready for fresh-session execution)
 ---
 
 # Nookleus — current state
@@ -59,7 +59,7 @@ Build 66 (Knowledge Vault & Session Continuity) is **complete**. All four sub-bu
 
 ## Active branches
 
-- `main` at `054ee1c` — `plan(67d): 27-task implementation plan for soft-delete + 30-day trash`. 2 commits ahead of `origin/main` pre-handoff push (the 67d spec + plan). Handoff commit + 00-NOW push-state marker land on top before the actual push.
+- `main` at `180dbe3` — `vault: handoff for build 67d planning session on 2026-05-05`. In sync with `origin/main` after the 2026-05-05 evening push (3 commits: `93e3c24` spec + `054ee1c` plan + `180dbe3` handoff). Plus the push-state marker commit on top of this update.
 - `main` (historical anchor at 67c2 wrap) at `e8fec69` — `vault: handoff for build 67c2 wrap session on 2026-05-05`. The 67c2 wrap session's 2 commits (`67e5506` M1/M2/Mn1 fixes + `4ee3fd9` test results) plus the handoff. In sync with origin after the 2026-05-05 wrap push.
 - `main` (historical anchor at 67c1 cleanup pass) at `b43d3f8` — `ui(67c1): gate pdf-presets management UI on manage_pdf_presets`. In sync with `origin/main` after 2026-05-04 night cleanup-pass session. The 67c1-3 handoff (`96c7d62`) was pushed at start of that session; the cleanup-pass UX fix (`b43d3f8`) was the only commit that session before the handoff commit landed.
 - `main` (historical anchor at end of T18–T23 + manual test pass) at `5dd0b7b` — `docs(67c1): T23 results — 12/12 PASS, Tests 11 + 12 walked through`. The late-evening session's 10 commits (`c1e3778` → `5dd0b7b`) plus a handoff at `96c7d62` that landed at start of the next session.
