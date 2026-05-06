@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
+import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
 
 interface SignerInput {
   name: string;
@@ -79,12 +80,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: jErr?.message || "Job not found" }, { status: 404 });
   }
 
-  // Build 15d: PDF-overlay templates resolve merge values at sign time
-  // (inside stampPdf), not at draft creation. The legacy filled_content_html
-  // column is retained NOT NULL on contracts for pre-15d rows, so we pass
-  // empty string + its sha256 to satisfy the schema.
-  const filledHtml = "";
-  const filledHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // sha256("")
+  const filledHtml = EMPTY_HTML;
+  const filledHash = EMPTY_HTML_SHA256;
 
   const contractId = randomUUID();
   const signerIds = body.signers.map(() => randomUUID());
