@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
+import { TrashedBanner } from "@/components/trash/trashed-banner";
 import type {
   Contact,
   EstimateLineItem,
@@ -173,6 +174,16 @@ export default async function EstimateViewPage({
         </div>
       )}
 
+      {/* ── TRASHED BANNER ──────────────────────────────────────────────────── */}
+      {estimate.deleted_at && (
+        <TrashedBanner
+          documentKind="estimate"
+          documentId={estimate.id}
+          documentNumber={estimate.estimate_number}
+          deletedAt={estimate.deleted_at}
+        />
+      )}
+
       {/* ── HEADER ROW ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4">
         {/* Left: icon + number + badge + title */}
@@ -197,29 +208,31 @@ export default async function EstimateViewPage({
           </h1>
         </div>
 
-        {/* Right: Send + Export PDF + Edit button (if permitted) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <SendButton
-            mode="estimate"
-            documentId={id}
-            jobId={estimate.job_id}
-            status={estimate.status}
-          />
-          <ExportPdfButton
-            documentType="estimate"
-            documentId={id}
-            filenameHint={estimate.estimate_number}
-          />
-          {canEdit && (
-            <Link
-              href={`/estimates/${id}/edit`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
-            >
-              <Pencil size={14} />
-              Edit
-            </Link>
-          )}
-        </div>
+        {/* Right: Send + Export PDF + Edit button (if permitted, and not trashed) */}
+        {!estimate.deleted_at && (
+          <div className="flex items-center gap-2 shrink-0">
+            <SendButton
+              mode="estimate"
+              documentId={id}
+              jobId={estimate.job_id}
+              status={estimate.status}
+            />
+            <ExportPdfButton
+              documentType="estimate"
+              documentId={id}
+              filenameHint={estimate.estimate_number}
+            />
+            {canEdit && (
+              <Link
+                href={`/estimates/${id}/edit`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+              >
+                <Pencil size={14} />
+                Edit
+              </Link>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── CUSTOMER BLOCK ──────────────────────────────────────────────────── */}

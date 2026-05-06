@@ -34,6 +34,8 @@ export default async function InvoicePage({
     <InvoiceReadOnlyClient
       invoice={{ ...inv, job: (job as unknown as InvoiceReadOnlyClientJob) ?? null }}
       stripeConnected={stripeConnected}
+      isTrashed={!!inv.deleted_at}
+      deletedAt={inv.deleted_at ?? undefined}
     />
   );
 }
