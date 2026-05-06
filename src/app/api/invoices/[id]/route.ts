@@ -1,13 +1,14 @@
 // GET /api/invoices/[id]    — invoice + sections + items + job summary
 // PUT /api/invoices/[id]    — entity-level edit (title, statements, markup, discount, tax, dates)
-// DELETE /api/invoices/[id] — void
+// DELETE /api/invoices/[id] — hard-purge (67d; soft-delete lives at POST /api/invoices/[id]/delete)
 
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
 import { checkSnapshot } from "@/lib/builder-shared";
-import { getInvoiceWithContents, recalculateInvoiceTotals, voidInvoice } from "@/lib/invoices";
+import { getInvoiceWithContents, recalculateInvoiceTotals } from "@/lib/invoices";
+import { purgeInvoiceStorage } from "@/lib/documents/purge";
 
 export async function GET(
   _request: Request,
@@ -70,6 +71,15 @@ export async function PUT(
       );
     }
 
+    const { data: trashedCheck } = await supabase
+      .from("invoices")
+      .select("deleted_at")
+      .eq("id", id)
+      .maybeSingle<{ deleted_at: string | null }>();
+    if (trashedCheck?.deleted_at) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.title !== undefined) patch.title = body.title;
     if (body.opening_statement !== undefined) patch.opening_statement = body.opening_statement;
@@ -106,26 +116,43 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  // 67d: DELETE is now a hard-purge. Soft-delete (the trash flow) lives at
+  // POST /api/invoices/[id]/delete.
+  const { id } = await context.params;
   const supabase = await createServerSupabaseClient();
-  const auth = await requirePermission(supabase, "edit_invoices");
+  const auth = await requirePermission(supabase, "manage_invoices");
   if (!auth.ok) return auth.response;
 
-  const { id } = await context.params;
-  const url = new URL(request.url);
-  const reason = url.searchParams.get("reason");
+  const { data: row } = await supabase
+    .from("invoices")
+    .select("id, organization_id, invoice_number")
+    .eq("id", id)
+    .maybeSingle<{ id: string; organization_id: string; invoice_number: string }>();
+  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  try {
-    const { data: cur } = await supabase.from("invoices").select("status").eq("id", id).maybeSingle<{ status: string }>();
-    if (!cur) return NextResponse.json({ error: "not_found" }, { status: 404 });
-    if (cur.status === "voided") return NextResponse.json({ error: "already_voided" }, { status: 400 });
-    if (cur.status === "paid") return NextResponse.json({ error: "cannot_void_paid" }, { status: 400 });
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("contract_events").insert({
+    organization_id: row.organization_id,
+    contract_id: null,
+    signer_id: null,
+    event_type: "invoice_purged",
+    metadata: {
+      invoice_id: row.id,
+      invoice_number: row.invoice_number,
+      actor_email: user?.email ?? null,
+      purged_at: new Date().toISOString(),
+      reason: "force",
+    },
+  });
 
-    await voidInvoice(supabase, id, reason);
-    return NextResponse.json({ ok: true });
-  } catch (e: unknown) {
-    return apiDbError(e instanceof Error ? e.message : String(e), "DELETE /api/invoices/[id]");
+  const { storageRemoved, storageErrors } = await purgeInvoiceStorage(supabase, id);
+
+  const { error: deleteError } = await supabase.from("invoices").delete().eq("id", id);
+  if (deleteError) {
+    return apiDbError(deleteError.message, "DELETE /api/invoices/[id] purge", 500);
   }
+  return NextResponse.json({ ok: true, storageRemoved, storageErrors });
 }
