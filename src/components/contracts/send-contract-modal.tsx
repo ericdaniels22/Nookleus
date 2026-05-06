@@ -27,13 +27,6 @@ interface Props {
   onSent: () => void | Promise<void>;
 }
 
-interface PreviewData {
-  html: string;
-  unresolvedFields: string[];
-  templateVersion: number;
-  defaultTitle: string;
-}
-
 export default function SendContractModal({
   open,
   onOpenChange,
@@ -52,15 +45,12 @@ export default function SendContractModal({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<PreviewData | null>(null);
   const [sending, setSending] = useState(false);
 
   // Reset form whenever the modal reopens.
   useEffect(() => {
     if (!open) return;
     setSigners([{ name: defaultSignerName ?? "", email: defaultSignerEmail ?? "" }]);
-    setPreview(null);
   }, [open, defaultSignerName, defaultSignerEmail]);
 
   function updateSigner(idx: number, patch: Partial<SignerRow>) {
@@ -99,24 +89,9 @@ export default function SendContractModal({
 
   const setupIncomplete = !!settings && (!settings.send_from_email || !settings.send_from_name);
 
-  async function doPreview() {
+  function doPreview() {
     if (!templateId) return;
-    setPreviewing(true);
-    try {
-      const res = await fetch("/api/contracts/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId, jobId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Preview failed");
-      setPreview(data as PreviewData);
-      setPreviewOpen(true);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Preview failed");
-    } finally {
-      setPreviewing(false);
-    }
+    setPreviewOpen(true);
   }
 
   async function doSend() {
@@ -304,10 +279,10 @@ export default function SendContractModal({
           <button
             type="button"
             onClick={doPreview}
-            disabled={!templateId || previewing}
+            disabled={!templateId}
             className="order-2 sm:order-1 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-60"
           >
-            {previewing ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            <FileText size={14} />
             Preview Contract
           </button>
           <div className="order-1 sm:order-2 flex gap-2 ml-auto">
@@ -333,7 +308,8 @@ export default function SendContractModal({
         <PreviewContractModal
           open={previewOpen}
           onOpenChange={setPreviewOpen}
-          preview={preview}
+          templateId={templateId || null}
+          title={templates?.find((t) => t.id === templateId)?.name ?? null}
         />
       </DialogContent>
     </Dialog>
