@@ -266,11 +266,14 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
         transitionToSaved();
       } else if (res.status === 409 && config.hasSnapshotConcurrency) {
         handleStaleConflict();
+      } else if (res.status === 404) {
+        // Document was trashed (or hard-deleted) under us — terminal stop.
+        handleStaleConflict();
       } else if (res.status === 409 && !config.hasSnapshotConcurrency) {
         // Templates have no snapshot concurrency — treat 409 as a generic error
         handleSaveError(saveTimerRef, performEntitySave);
       } else {
-        // 4xx other than 409: treat as error too
+        // 4xx other than 409/404: treat as error too
         handleSaveError(saveTimerRef, performEntitySave);
       }
     } catch (err) {
