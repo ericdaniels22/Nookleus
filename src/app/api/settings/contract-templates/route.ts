@@ -27,8 +27,27 @@ export async function POST(request: Request) {
   const userId = gate.userId;
 
   const body = await request.json().catch(() => ({}));
-  const name: string = (body?.name || "Untitled Template").toString().slice(0, 120);
+  const requestedName: string = (body?.name || "Untitled Template").toString().slice(0, 120);
   const orgId = await getActiveOrganizationId(supabase);
+
+  // Derive a unique name per the (organization_id, name) unique index from
+  // build46. If "Foo" is taken, try "Foo (2)", "Foo (3)", … up to 999.
+  const { data: existingRows } = await supabase
+    .from("contract_templates")
+    .select("name")
+    .eq("organization_id", orgId)
+    .ilike("name", `${requestedName}%`);
+  const taken = new Set((existingRows ?? []).map((r) => r.name));
+  let name = requestedName;
+  if (taken.has(requestedName)) {
+    for (let n = 2; n < 1000; n++) {
+      const candidate = `${requestedName} (${n})`.slice(0, 120);
+      if (!taken.has(candidate)) {
+        name = candidate;
+        break;
+      }
+    }
+  }
 
   const { data, error } = await supabase
     .from("contract_templates")
