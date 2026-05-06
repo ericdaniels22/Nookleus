@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Eye, Pencil, Plus } from "lucide-react";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import InvoicesList from "./invoices-list";
 import { Button } from "@/components/ui/button";
@@ -353,11 +353,12 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 px-2 gap-1 text-xs text-destructive hover:text-destructive"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                             title="Move estimate to trash"
+                            aria-label="Move estimate to trash"
                             onClick={() => setTrashTarget({ kind: "estimate", row: est })}
                           >
-                            Trash
+                            <Trash2 size={14} />
                           </Button>
                         )}
                       </div>

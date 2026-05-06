@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowRight } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 
 interface InvoiceRow {
@@ -63,10 +63,11 @@ export default function InvoicesList({ jobId, canCreate, canManage, onTrash }: I
                         <button
                           type="button"
                           onClick={() => onTrash({ id: r.id, invoice_number: r.invoice_number })}
-                          className="text-xs text-destructive hover:underline"
+                          className="text-destructive hover:opacity-80 inline-flex items-center"
                           title="Move invoice to trash"
+                          aria-label="Move invoice to trash"
                         >
-                          Trash
+                          <Trash2 size={14} />
                         </button>
                       )}
                     </div>
