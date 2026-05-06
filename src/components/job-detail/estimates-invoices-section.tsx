@@ -20,6 +20,7 @@ import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
+import { daysLeft } from "@/lib/trash/days-left";
 import type { Estimate, Invoice } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,13 +29,6 @@ import type { Estimate, Invoice } from "@/lib/types";
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function daysLeft(deletedAt: string | null): number {
-  if (!deletedAt) return 0;
-  const elapsed = Date.now() - new Date(deletedAt).getTime();
-  const remainingMs = 30 * 86_400_000 - elapsed;
-  return Math.max(0, Math.floor(remainingMs / 86_400_000));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
