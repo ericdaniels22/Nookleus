@@ -141,7 +141,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
       supabase
         .from("invoices")
         .select("id, total_amount")
-        .eq("job_id", jobId),
+        .eq("job_id", jobId)
+        .is("deleted_at", null),
       supabase
         .from("photos")
         .select("*")
