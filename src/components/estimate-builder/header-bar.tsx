@@ -297,6 +297,17 @@ export function HeaderBar({
               Mark as Paid
             </Button>
           )}
+          {inv.status === "paid" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => transitionStatus("sent")}
+              title="Revert to Sent (in case this was marked paid by mistake)"
+            >
+              <XCircle size={14} />
+              Unmark Paid
+            </Button>
+          )}
           {inv.status !== "voided" && inv.status !== "paid" && (
             <Button
               variant="outline"
