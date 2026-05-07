@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-// TEMP DEBUG (bisect 3): stub PdfCanvas + SignaturePadModal to isolate which
-// import chain throws on SSR. Restore both imports once root cause is found.
+// TEMP DEBUG (bisect 4): SignaturePadModal restored, PdfCanvas still stubbed.
 // import PdfCanvas from "./pdf-canvas";
-// import SignaturePadModal from "./signature-pad-modal";
+import SignaturePadModal from "./signature-pad-modal";
 import type { PublicSigningView, OverlayField, PdfPage } from "@/lib/contracts/types";
 
 const PdfCanvas: React.FC<{
@@ -13,13 +12,7 @@ const PdfCanvas: React.FC<{
   pdfPages: PdfPage[];
   overlayFields: OverlayField[];
   renderOverlay: (args: { page: PdfPage; fields: OverlayField[]; scale: number; onPageDrop: (page: number, xPt: number, yPt: number, dataTransfer: DataTransfer) => void }) => React.ReactNode;
-}> = () => <div style={{ padding: 16, background: "#e0f2fe", color: "#075985" }}>PdfCanvas STUB</div>;
-const SignaturePadModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onConfirm: (dataUrl: string) => void;
-  title?: string;
-}> = () => null;
+}> = () => <div style={{ padding: 16, background: "#e0f2fe", color: "#075985" }}>PdfCanvas STUB (modal real)</div>;
 
 interface Props {
   view: PublicSigningView;
