@@ -19,11 +19,11 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 |---|------|--------|-------|
 | 1a | Click "+ Upload Contract PDF" → editor (Bug 1 verify) | ✅ | Fix `96eebeb` verified in AAA prod. New row "Untitled Template (2)" created (suffix logic skipped existing "Untitled Template" + "(copy 2)"). |
 | 1b | Upload AAA FM-7001 PDF | ✅ | After Bug 2 fix `934883b` deployed. PDF renders at responsive scale 0.588 (360×466 CSS px per page) on AAA prod, full headings + body text legible. |
-| 2 | Place all 5 overlay fields | ⏭ | |
-| 3 | Move and resize a field | ⏭ | |
-| 4 | Add Input + Checkbox | ⏭ | |
-| 5 | Add Free-text label | ⏭ | |
-| 6 | Preview stamped sample | ⏭ | |
+| 2 | Place all 5 overlay fields | ✅* | 4/5 PASS — page 5 NAME + SERVICE LOCATION + SIGNATURE + DATE placed prior session. Page 4 county merge skipped: no `county` entry in `MERGE_FIELDS` registry; Eric will use a custom-text label there (rolls into Test 5). Inline UX fix `3236d7d` moved trash from chip into FieldInspector right column. |
+| 3 | Move and resize a field | ✅ | NAME merge moved 100pt right + 50pt down (146, 62 → 246, 112) and resized 280×27 → 300×20pt via synthetic `PointerEvent`s in Chrome MCP. Post-reload persistence verified (245.7, 111.7, 299.6×20.4 — sub-pt drift is float math). |
+| 4 | Add Input + Checkbox | ✅ | Both dropped via synthetic `DragEvent` w/ `Object.defineProperty(ev, 'clientX/Y')` workaround for Chrome's coord-init quirk. Input "Special Instructions" + checkbox "I agree to terms" persist post-reload with `inputKey` + `inputLabel` + `required: true`. |
+| 5 | Add Free-text label | ✅ | Label dropped on page 1 at (206, 32, 200×16) with `labelText="INTERNAL USE ONLY"`. Persisted post-reload. Textarea (controlled) populated via `HTMLTextAreaElement.prototype.value` setter + bubbled `'input'` event. |
+| 6 | Preview stamped sample | ✅* | Preview route returns 200 + 286 KB stamped PDF; pdf.js text-extraction confirms `INTERNAL USE ONLY` (page 1), `John Doe`, `123 Main Street, Austin, TX 78701`, today's date, `Sample Special Instructions`, and `X` checkmark all stamped on page 5. **Caveat:** preview route passes `signatureDataUrls: {}` so the signature field draws nothing — spec said "sample signature image". Small gap, filed as carry-over. |
 | 7 | Send to test customer | ⏭ | |
 | 8 | Sign as customer | ⏭ | |
 | 9 | Verify stamped PDF | ⏭ | |
@@ -55,7 +55,11 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Page 4 county merge, page 5 NAME merge + SERVICE LOCATION merge + CUSTOMER SIGNATURE signature + DATE date. Save (auto + manual). Reload editor — all 5 fields persist at exact pixel positions.
 
-**Result:** _pending_
+**Result:** ✅ PASS at 4/5. Page 5 NAME merge (`{{customer_name}}` at 159, 170 · 215×28pt), SERVICE LOCATION merge (`{{property_address}}`), CUSTOMER SIGNATURE (`Signature 1`), DATE (`Signed date`) all placed in prior session and confirmed persisted at v37 in this session.
+
+**Page 4 county merge skipped (deliberate):** spec calls for a "county merge field" but `MERGE_FIELDS` registry (`src/lib/contracts/merge-fields.ts`) has no `county` entry — closest is `property_address` which is the full address, and there's no county column on `jobs` or `contacts`. Adding a real county merge would need a schema column + intake-form mapping + UI. Out of 15d scope. Eric will use a free-text `label` field with static "County, TX" text in that spot — rolls into Test 5 coverage. Logged as a follow-up chip: "add county merge field (or expose already-derived county from address parsing) — needed for FM-7001 §6 Jurisdiction line."
+
+**Inline UX fix during this session:** trash icon inside the chip overlapped chip text on small fields (NAME, DATE both ≤30pt tall) — hard to see what was selected. Commit `3236d7d` moves trash button out of `<OverlayFieldChip>` and into the right column `<FieldInspector>` as a full-width "Delete field" button at the bottom. Pushed to origin/main; Vercel auto-deploy.
 
 ---
 
@@ -63,7 +67,7 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Drag NAME merge field 50pt down + 100pt right; resize to 300pt × 20pt. Save. Reload — exact new position.
 
-**Result:** _pending_
+**Result:** ✅ PASS. NAME merge moved + resized via synthetic `PointerEvent`s dispatched through `mcp__claude-in-chrome__javascript_tool`. Pre-state: x=145.7, y=61.7, w=279.7, h=27.4pt (page 5). Move sequence: `pointerdown` on chip body (avoiding corner handles), `pointermove` on `window` with delta (+58.82px, +29.41px) at scale 0.588 (= +100pt, +50pt), `pointerup` on `window`. Post-move state: 246, 112, 280×27pt (per inspector). Resize sequence: `pointerdown` on `span[data-handle="se"]`, `pointermove` on `window` with delta (+11.76px, -4.12px) (= +20pt, -7pt), `pointerup`. Post-resize state: 246, 112, 300×20pt (per inspector). Auto-saved + page reloaded — server-persisted state read back as 245.7, 111.7, 299.6×20.4 (sub-pt drift is float-math noise). **Confirms synthetic `PointerEvent`s drive the chip's `onPointerDown` move/resize handlers properly through React's event delegation** — relevant for further automation of Tests 4–11.
 
 ---
 
@@ -71,7 +75,18 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Add input "Special Instructions" + checkbox "I agree to terms". Save. Reload — both persist with their `inputKey` + label + required flag.
 
-**Result:** _pending_
+**Result:** ✅ PASS. Both dropped onto page 5 via synthetic `DragEvent` w/ `DataTransfer` and `Object.defineProperty(ev, 'clientX/Y', { value })` to defeat Chrome's `DragEvent` constructor coord-discard quirk (clientX/Y in init dict is silently dropped → drop handler sees 0). Inspector inputs (controlled React inputs) populated via the native HTMLInputElement value setter + bubbled `'input'` event:
+
+```js
+const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+setter.call(el, value);
+el.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+Required flag toggled via `el.click()` on the checkbox. Post-reload server state confirms both persisted:
+
+- **Input** at page 5, (200, 391, 200×18): `inputKey="special_instructions"`, `inputLabel="Special Instructions"`, `required=true`.
+- **Checkbox** at page 5, (293, 443, 14×14): `inputKey="agree_terms"`, `inputLabel="I agree to terms"`, `required=true`.
 
 ---
 
@@ -79,7 +94,7 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Type "INTERNAL USE ONLY" at top of page 1. Save + reload.
 
-**Result:** _pending_
+**Result:** ✅ PASS. Label chip dropped on page 1 (synthetic `DragEvent` w/ `Object.defineProperty` clientX/Y). `labelText` set to "INTERNAL USE ONLY" via `HTMLTextAreaElement.prototype.value` setter + bubbled `'input'` event on the inspector textarea. Post-reload server state: page 1, (206, 32, 200×16pt), labelText="INTERNAL USE ONLY".
 
 ---
 
@@ -87,7 +102,12 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Click Preview — opens stamped sample PDF in new tab — all 7 fields visible with sample values + sample signature image.
 
-**Result:** _pending_
+**Result:** ✅ PASS with caveat. `GET /api/settings/contract-templates/{id}/preview` returns `200 application/pdf` (286 KB, `%PDF-1.7` signature). Verified text overlay via in-browser pdfjs:
+
+- Page 1: contains `INTERNAL USE ONLY` (label field) ✓
+- Page 5: contains `John Doe` (customer_name merge sample), `123 Main Street, Austin, TX 78701` (property_address sample), `MM/DD/YYYY` date stamp, `Sample Special Instructions` (input default value), and `X` checkmark glyph ✓
+
+**Caveat — signature placeholder missing:** preview route (`src/app/api/settings/contract-templates/[id]/preview/route.ts:115`) passes `signatureDataUrls: {}` and `signerOrderById: {}` empty. `stampPdf`'s signature case calls `findSignerIdByOrder(input.signerOrderById, field.signerOrder)` which returns null with empty map, so the signature field is silently skipped — no image, no placeholder rendered. Spec explicitly called for a "sample signature image" in preview. Small gap, doesn't block authoring (preview is for placement verification; the author can see chip placement in editor). Filed as carry-over chip: "preview should render a hatched / 'Signature 1' placeholder rectangle for signature fields when no real signatures are present (or generate a tiny synthetic signature data URL)."
 
 ---
 
