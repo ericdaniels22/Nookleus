@@ -12,6 +12,7 @@ interface Props {
   pdfPages: PdfPage[];
   overlayFields: OverlayField[];
   scale?: number;
+  zoom?: number;
   renderOverlay: (args: {
     page: PdfPage;
     fields: OverlayField[];
@@ -29,6 +30,7 @@ export default function PdfCanvas({
   pdfPages,
   overlayFields,
   scale: maxScale = 1.5,
+  zoom = 1,
   renderOverlay,
   onPageDrop,
 }: Props) {
@@ -55,7 +57,7 @@ export default function PdfCanvas({
     containerWidth > 0
       ? Math.max(0.25, (containerWidth - HORIZONTAL_GUTTER_PX) / maxPageWidthPt)
       : maxScale;
-  const scale = Math.min(maxScale, fitScale);
+  const scale = Math.min(maxScale, fitScale) * zoom;
 
   return (
     <div ref={containerRef} className="flex flex-col items-center gap-6 py-6">
