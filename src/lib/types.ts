@@ -591,6 +591,7 @@ export interface EstimateLineItem {
   estimate_id: string;
   section_id: string;
   library_item_id: string | null;
+  name: string | null;
   description: string;
   code: string | null;
   quantity: number;
@@ -713,6 +714,7 @@ export interface InvoiceLineItem {
   invoice_id: string;
   section_id: string | null;
   library_item_id: string | null;
+  name: string | null;
   description: string;
   code: string | null;
   quantity: number;
@@ -768,6 +770,7 @@ export interface TemplateWithContents extends EstimateTemplate {
     items: Array<{
       id: string;
       library_item_id: string | null;
+      name: string | null;
       description: string;
       code: string | null;
       quantity: number;
@@ -782,6 +785,7 @@ export interface TemplateWithContents extends EstimateTemplate {
       items: Array<{
         id: string;
         library_item_id: string | null;
+        name: string | null;
         description: string;
         code: string | null;
         quantity: number;
