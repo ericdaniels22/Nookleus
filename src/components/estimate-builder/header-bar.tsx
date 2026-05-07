@@ -247,13 +247,12 @@ export function HeaderBar({
             </Button>
           </>
         )}
-        {est.status === "approved" && (
+        {est.status !== "voided" && est.status !== "converted" && (
           <Button
             variant="outline"
             size="sm"
             onClick={onConvertClick}
             disabled={!onConvertClick}
-            title={!onConvertClick ? "Convert flow lands in Task 38" : undefined}
           >
             <Receipt size={14} />
             Convert to Invoice
