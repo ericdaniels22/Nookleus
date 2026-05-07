@@ -57,10 +57,14 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
 
   function renderItemRow(item: LineItem, key: string) {
     const total = lineTotal(item);
+    const itemName = item.name ?? null;
     return (
       <View key={key} style={styles.tr} wrap={false}>
         {preset.show_code_column && <Text style={styles.tdCode}>{item.code ?? ""}</Text>}
-        <Text style={styles.tdDesc}>{item.description}</Text>
+        <View style={styles.tdDesc}>
+          {itemName && <Text style={styles.tdName}>{itemName}</Text>}
+          <Text>{item.description}</Text>
+        </View>
         <Text style={styles.tdQty}>{Number(item.quantity)}</Text>
         <Text style={styles.tdUnit}>{item.unit ?? ""}</Text>
         <Text style={styles.tdPrice}>{fmt(Number(item.unit_price))}</Text>

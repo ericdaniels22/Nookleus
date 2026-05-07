@@ -3,21 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Ban, ArrowLeft, CheckCircle, XCircle, Receipt, CreditCard, Send } from "lucide-react";
+import { FileText, Ban, ArrowLeft, CheckCircle, XCircle, Receipt, Send } from "lucide-react";
 import { toast } from "sonner";
 import { SaveIndicator } from "./save-indicator";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { VoidConfirmDialog } from "@/components/void-confirm-dialog";
 import type { BuilderEntity } from "@/lib/types";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 
@@ -35,97 +27,7 @@ export interface HeaderBarProps {
   isVoiding: boolean;
   // New optional callbacks for non-estimate modes
   onSaveTemplate?: () => void;
-  onSendPaymentRequest?: () => void;
   onConvertClick?: () => void;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// VoidDialog — confirm dialog with required reason field
-// ─────────────────────────────────────────────────────────────────────────────
-
-function VoidDialog({
-  open,
-  onOpenChange,
-  onConfirm,
-  entityLabel,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (reason: string) => void;
-  entityLabel: string;
-}) {
-  const [reason, setReason] = useState("");
-
-  // Reset reason when dialog opens
-  useEffect(() => {
-    if (open) {
-      setReason("");
-    }
-  }, [open]);
-
-  const canConfirm = reason.trim().length > 0;
-  const remaining = 500 - reason.length;
-
-  function handleConfirm() {
-    if (!canConfirm) return;
-    onConfirm(reason.trim());
-    onOpenChange(false);
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={true}>
-        <DialogHeader>
-          <DialogTitle>Void this {entityLabel}?</DialogTitle>
-          <DialogDescription>
-            Voiding is irreversible. The {entityLabel} will be marked as voided and
-            no further edits will be allowed. Please provide a reason.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1">
-          <Textarea
-            autoFocus
-            rows={3}
-            placeholder="Reason for voiding…"
-            value={reason}
-            onChange={(e) => {
-              if (e.target.value.length <= 500) setReason(e.target.value);
-            }}
-            maxLength={500}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                onOpenChange(false);
-              }
-            }}
-          />
-          <p
-            className={`text-xs text-right ${
-              remaining <= 50 ? "text-destructive" : "text-muted-foreground"
-            }`}
-          >
-            {remaining} characters remaining
-          </p>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={!canConfirm}
-            onClick={handleConfirm}
-          >
-            Void {entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1)}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,7 +42,6 @@ export function HeaderBar({
   lastSavedAt,
   isVoiding,
   onSaveTemplate,
-  onSendPaymentRequest,
   onConvertClick,
 }: HeaderBarProps) {
   const router = useRouter();
@@ -297,27 +198,15 @@ export function HeaderBar({
               Mark as Paid
             </Button>
           )}
-          {inv.status !== "voided" && inv.status !== "paid" && (
+          {inv.status === "paid" && (
             <Button
               variant="outline"
               size="sm"
-              onClick={onSendPaymentRequest}
-              disabled={!onSendPaymentRequest}
+              onClick={() => transitionStatus("sent")}
+              title="Revert to Sent (in case this was marked paid by mistake)"
             >
-              <CreditCard size={14} />
-              Send Payment Request
-            </Button>
-          )}
-          {inv.status !== "voided" && inv.status !== "paid" && (
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isVoiding}
-              title={isVoiding ? "Voiding…" : undefined}
-              onClick={() => setVoidOpen(true)}
-            >
-              <Ban size={14} />
-              Void
+              <XCircle size={14} />
+              Unmark Paid
             </Button>
           )}
         </>
@@ -358,13 +247,12 @@ export function HeaderBar({
             </Button>
           </>
         )}
-        {est.status === "approved" && (
+        {est.status !== "voided" && est.status !== "converted" && (
           <Button
             variant="outline"
             size="sm"
             onClick={onConvertClick}
             disabled={!onConvertClick}
-            title={!onConvertClick ? "Convert flow lands in Task 38" : undefined}
           >
             <Receipt size={14} />
             Convert to Invoice
@@ -461,7 +349,7 @@ export function HeaderBar({
       </div>
 
       {/* Void confirmation dialog */}
-      <VoidDialog
+      <VoidConfirmDialog
         open={voidOpen}
         onOpenChange={setVoidOpen}
         onConfirm={onVoid}

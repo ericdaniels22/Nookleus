@@ -10,6 +10,7 @@ import type { EstimateLineItem } from "@/lib/types";
 interface RouteCtx { params: Promise<{ id: string; item_id: string }> }
 
 interface UpdatePayload {
+  name?: string | null;
   description?: string;
   code?: string | null;
   quantity?: number;
@@ -58,6 +59,19 @@ export async function PUT(request: Request, ctx: RouteCtx) {
 
   const update: Record<string, unknown> = {};
 
+  if (body.name !== undefined) {
+    if (body.name === null) {
+      update.name = null;
+    } else if (typeof body.name !== "string") {
+      return NextResponse.json({ error: "name must be a string or null" }, { status: 400 });
+    } else {
+      const trimmed = body.name.trim();
+      if (trimmed.length > 200) {
+        return NextResponse.json({ error: "name too long (max 200)" }, { status: 400 });
+      }
+      update.name = trimmed.length > 0 ? trimmed : null;
+    }
+  }
   if (body.description !== undefined) {
     if (typeof body.description !== "string" || !body.description.trim()) {
       return NextResponse.json({ error: "description cannot be empty" }, { status: 400 });

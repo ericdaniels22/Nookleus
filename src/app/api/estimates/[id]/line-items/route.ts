@@ -13,6 +13,7 @@ interface RouteCtx { params: Promise<{ id: string }> }
 interface CreatePayload {
   section_id: string;
   library_item_id?: string | null;
+  name?: string | null;
   description?: string;
   code?: string | null;
   quantity: number;
@@ -69,6 +70,7 @@ export async function POST(request: Request, ctx: RouteCtx) {
   }
 
   // Resolve fields — library snapshot OR custom
+  let name: string | null;
   let description: string;
   let code: string | null;
   let unit: string | null;
@@ -77,9 +79,10 @@ export async function POST(request: Request, ctx: RouteCtx) {
   if (body.library_item_id) {
     const { data: lib } = await supabase
       .from("item_library")
-      .select("description, code, default_unit, unit_price, is_active")
+      .select("name, description, code, default_unit, unit_price, is_active")
       .eq("id", body.library_item_id)
       .maybeSingle<{
+        name: string;
         description: string;
         code: string | null;
         default_unit: string | null;
@@ -92,6 +95,7 @@ export async function POST(request: Request, ctx: RouteCtx) {
     if (!lib.is_active) {
       return NextResponse.json({ error: "library item is inactive" }, { status: 400 });
     }
+    name = lib.name;
     description = lib.description;
     code = lib.code;
     unit = lib.default_unit;
@@ -114,6 +118,18 @@ export async function POST(request: Request, ctx: RouteCtx) {
     description = body.description.trim();
     if (description.length > 2000) {
       return NextResponse.json({ error: "description too long (max 2000)" }, { status: 400 });
+    }
+    if (body.name !== undefined && body.name !== null) {
+      if (typeof body.name !== "string") {
+        return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+      }
+      const trimmed = body.name.trim();
+      if (trimmed.length > 200) {
+        return NextResponse.json({ error: "name too long (max 200)" }, { status: 400 });
+      }
+      name = trimmed.length > 0 ? trimmed : null;
+    } else {
+      name = null;
     }
     code = body.code ?? null;
     unit = body.unit ?? null;
@@ -142,6 +158,7 @@ export async function POST(request: Request, ctx: RouteCtx) {
       estimate_id: estimateId,
       section_id: body.section_id,
       library_item_id: body.library_item_id ?? null,
+      name,
       description,
       code,
       quantity: body.quantity,

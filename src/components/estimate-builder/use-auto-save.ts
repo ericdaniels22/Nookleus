@@ -161,6 +161,33 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // only on mount
 
+  // ── Re-baseline on external entity refresh ────────────────────────────────
+  // When the parent re-syncs entity from a fresh server fetch (e.g. after a
+  // status transition's router.refresh() or apply-template), advance our
+  // snapshots to match so the next autosave doesn't 409 with a stale token.
+  // Skipped when a save is in flight (that save will pick up the new
+  // updated_at via its own response).
+  useEffect(() => {
+    if (lastSavedSnapshotRef.current === null) return; // not yet initialized
+    if (!entity.updated_at) return;
+    if (entity.updated_at === updatedAtRef.current) return;
+    if (inFlightRef.current || inFlightItemsRef.current.size > 0) return;
+
+    updatedAtRef.current = entity.updated_at;
+    lastSavedSnapshotRef.current = config.serializeRootPut(entity);
+    if (config.entityKind !== "template") {
+      lastSavedLineItemsRef.current = collectLineItems(
+        entity as unknown as EntityWithSections,
+      );
+    }
+    if (staleConflictRef.current) {
+      staleConflictRef.current = false;
+      toast.dismiss("stale-conflict");
+      setSaveStatus("idle");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.updated_at]);
+
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => {

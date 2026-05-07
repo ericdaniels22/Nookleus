@@ -3,7 +3,7 @@
 //   draft   → sent | voided
 //   sent    → partial | paid | voided
 //   partial → paid | voided
-//   paid    → (terminal)
+//   paid    → sent      (undo accidental mark-paid)
 //   voided  → (terminal)
 
 import { NextResponse } from "next/server";
@@ -19,7 +19,7 @@ const VALID_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
   draft:   ["sent", "voided"],
   sent:    ["partial", "paid", "voided"],
   partial: ["paid", "voided"],
-  paid:    [],
+  paid:    ["sent"],
   voided:  [],
 };
 
@@ -67,7 +67,8 @@ export async function PUT(
     }
 
     const patch: Record<string, unknown> = { status: next, updated_at: new Date().toISOString() };
-    if (next === "sent") patch.sent_at = new Date().toISOString();
+    // Only set sent_at on the first send (draft → sent), not on paid → sent un-marks
+    if (next === "sent" && cur.status === "draft") patch.sent_at = new Date().toISOString();
     if (next === "voided") {
       patch.voided_at = new Date().toISOString();
       patch.void_reason = body.reason ?? null;

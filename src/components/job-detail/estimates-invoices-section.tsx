@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { Ban, CreditCard, Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,8 @@ import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel, getStatusBadgeClasses } from "@/lib/estimate-status";
 import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
+import { VoidConfirmDialog } from "@/components/void-confirm-dialog";
+import { PaymentRequestModal } from "@/components/payments/payment-request-modal";
 import { daysLeft } from "@/lib/trash/days-left";
 import type { Estimate, Invoice } from "@/lib/types";
 
@@ -59,6 +61,10 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
     | null
   >(null);
   const [isForceDeleting, setIsForceDeleting] = useState(false);
+
+  const [voidTarget, setVoidTarget] = useState<Invoice | null>(null);
+  const [isVoiding, setIsVoiding] = useState(false);
+  const [paymentRequestTarget, setPaymentRequestTarget] = useState<Invoice | null>(null);
 
   const [showTrashed, setShowTrashed] = useState(false);
   const [trashedEstimates, setTrashedEstimates] = useState<Estimate[]>([]);
@@ -209,6 +215,35 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
       toast.error(`Failed to delete ${capturedTarget.kind}`);
     } finally {
       setIsForceDeleting(false);
+    }
+  }
+
+  async function handleVoidConfirm(reason: string) {
+    if (!voidTarget || isVoiding) return;
+    setIsVoiding(true);
+    try {
+      const res = await fetch(`/api/invoices/${voidTarget.id}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "voided",
+          reason,
+          updated_at_snapshot: voidTarget.updated_at,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error((j as { error?: string }).error ?? "Failed to void invoice");
+        return;
+      }
+      toast.success(`Invoice ${voidTarget.invoice_number} voided`);
+      setVoidTarget(null);
+      router.refresh();
+      await fetchInvoices();
+    } catch {
+      toast.error("Failed to void invoice");
+    } finally {
+      setIsVoiding(false);
     }
   }
 
@@ -552,6 +587,31 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
                             </Button>
                           </Link>
                         )}
+                        {canEditInvoices && (inv.status === "sent" || inv.status === "partial") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            title="Send payment request"
+                            aria-label="Send payment request"
+                            onClick={() => setPaymentRequestTarget(inv)}
+                          >
+                            <CreditCard size={14} />
+                          </Button>
+                        )}
+                        {canManageInvoices && inv.status !== "voided" && inv.status !== "paid" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            title="Void invoice"
+                            aria-label="Void invoice"
+                            disabled={isVoiding}
+                            onClick={() => setVoidTarget(inv)}
+                          >
+                            <Ban size={14} />
+                          </Button>
+                        )}
                         {canManageInvoices && (
                           <Button
                             size="sm"
@@ -639,6 +699,27 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         onConfirm={handleForceDelete}
         isDeleting={isForceDeleting}
       />
+
+      {/* ── Void confirm dialog (invoices only) ─────────────────────────────── */}
+      <VoidConfirmDialog
+        open={voidTarget !== null}
+        onOpenChange={(open) => { if (!open) setVoidTarget(null); }}
+        onConfirm={handleVoidConfirm}
+        entityLabel="invoice"
+      />
+
+      {/* ── Payment request modal (invoices only) ───────────────────────────── */}
+      {paymentRequestTarget && (
+        <PaymentRequestModal
+          open={paymentRequestTarget !== null}
+          onOpenChange={(open) => { if (!open) setPaymentRequestTarget(null); }}
+          jobId={jobId}
+          invoiceId={paymentRequestTarget.id}
+          defaultTitle={paymentRequestTarget.title || `Invoice ${paymentRequestTarget.invoice_number}`}
+          defaultAmount={paymentRequestTarget.total_amount}
+          defaultRequestType="invoice"
+        />
+      )}
     </div>
   );
 }

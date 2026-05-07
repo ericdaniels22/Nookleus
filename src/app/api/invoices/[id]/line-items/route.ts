@@ -11,6 +11,7 @@ interface PostBody {
   section_id: string;
   // Library-backed:
   library_item_id?: string;
+  name?: string | null;
   // Custom:
   description?: string;
   quantity?: number;
@@ -57,10 +58,11 @@ export async function POST(
     if (body.library_item_id) {
       const { data: lib } = await supabase
         .from("item_library")
-        .select("description, code, default_quantity, default_unit, unit_price")
+        .select("name, description, code, default_quantity, default_unit, unit_price")
         .eq("id", body.library_item_id)
         .eq("is_active", true)
         .maybeSingle<{
+          name: string;
           description: string;
           code: string | null;
           default_quantity: number;
@@ -79,6 +81,7 @@ export async function POST(
         invoice_id: id,
         section_id: body.section_id,
         library_item_id: body.library_item_id,
+        name: lib.name,
         description: lib.description,
         code: lib.code,
         quantity: qty,
@@ -90,6 +93,17 @@ export async function POST(
     } else {
       if (typeof body.description !== "string" || !body.description.trim()) {
         return NextResponse.json({ error: "description required for custom item" }, { status: 400 });
+      }
+      let customName: string | null = null;
+      if (body.name !== undefined && body.name !== null) {
+        if (typeof body.name !== "string") {
+          return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+        }
+        const trimmed = body.name.trim();
+        if (trimmed.length > 200) {
+          return NextResponse.json({ error: "name too long (max 200)" }, { status: 400 });
+        }
+        customName = trimmed.length > 0 ? trimmed : null;
       }
       const qty = Number(body.quantity ?? 1);
       const price = Number(body.unit_price ?? 0);
@@ -104,6 +118,7 @@ export async function POST(
         invoice_id: id,
         section_id: body.section_id,
         library_item_id: null,
+        name: customName,
         description: body.description,
         code: body.code ?? null,
         quantity: qty,
