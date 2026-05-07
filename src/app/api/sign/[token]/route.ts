@@ -1,16 +1,30 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase-api";
-import { verifySigningToken, InvalidSigningTokenError } from "@/lib/contracts/tokens";
+import {
+  verifySigningToken,
+  InvalidSigningTokenError,
+  generateSigningToken,
+} from "@/lib/contracts/tokens";
 import { writeContractEvent, getRequestIp, getRequestUserAgent } from "@/lib/contracts/audit";
 import { resolveMergeValues } from "@/lib/contracts/resolve-merge-values";
+import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
+import { sendContractEmail } from "@/lib/contracts/email";
+import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import { stampPdf } from "@/lib/contracts/stamp-pdf";
 import { buildPublicSigningViewByToken, type BuildViewError } from "@/lib/contracts/build-public-signing-view";
 import type {
   Contract,
   ContractSigner,
   ContractTemplate,
+  ContractEmailSettings,
 } from "@/lib/contracts/types";
+
+function appUrl(): string {
+  const u = process.env.NEXT_PUBLIC_APP_URL;
+  if (!u) throw new Error("NEXT_PUBLIC_APP_URL is not set");
+  return u.replace(/\/$/, "");
+}
 
 const ERROR_HTTP_STATUS: Record<BuildViewError, number> = {
   invalid_token: 401,
@@ -251,6 +265,91 @@ export async function POST(
         signed_at: signedAt.toISOString(),
       })
       .eq("id", contract.id);
+  }
+
+  if (!allSigned) {
+    // Multi-signer handoff: more signers remain. Generate the next signer's
+    // token, rotate contracts.link_token via activate_next_signer RPC, send
+    // them the signing-request email, and schedule their first reminder.
+    // Best-effort — the current signer's signature is already recorded; any
+    // failure here is logged via audit and does not surface to the signer.
+    try {
+      const { data: settings } = await supabase
+        .from("contract_email_settings")
+        .select("*")
+        .eq("organization_id", contract.organization_id)
+        .limit(1)
+        .maybeSingle<ContractEmailSettings>();
+      if (!settings) throw new Error("contract_email_settings row missing");
+
+      const remaining = (refreshedSigners ?? [])
+        .filter((s) => !s.signed_at)
+        .sort((a, b) => a.signer_order - b.signer_order);
+      const next = remaining[0];
+      if (!next) throw new Error("no_next_signer_found");
+
+      const { data: nextRow } = await supabase
+        .from("contract_signers")
+        .select("*")
+        .eq("id", next.id)
+        .maybeSingle<ContractSigner>();
+      if (!nextRow) throw new Error("next signer row missing");
+
+      const expiryDays = Math.max(
+        1,
+        Math.min(30, settings.default_link_expiry_days),
+      );
+      const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
+      const newToken = generateSigningToken({
+        contractId: contract.id,
+        signerId: nextRow.id,
+        expiresAt,
+      });
+
+      const { error: actErr } = await supabase.rpc("activate_next_signer", {
+        p_contract_id: contract.id,
+        p_next_signer_id: nextRow.id,
+        p_link_token: newToken,
+        p_link_expires_at: expiresAt.toISOString(),
+      });
+      if (actErr) throw new Error(actErr.message);
+
+      const { subject, html } = await resolveEmailTemplate(
+        supabase,
+        settings.signing_request_subject_template,
+        settings.signing_request_body_template,
+        contract.job_id,
+        {
+          signing_link: `${appUrl()}/sign/${newToken}`,
+          document_title: contract.title,
+        },
+      );
+      await sendContractEmail(supabase, settings, {
+        to: nextRow.email,
+        subject,
+        html,
+      });
+
+      const firstReminder = computeInitialNextReminderAt(
+        new Date(),
+        settings.reminder_day_offsets,
+      );
+      if (firstReminder) {
+        await supabase.rpc("schedule_first_reminder", {
+          p_contract_id: contract.id,
+          p_next_reminder_at: firstReminder.toISOString(),
+        });
+      }
+    } catch (e) {
+      await writeContractEvent(supabase, {
+        contractId: contract.id,
+        eventType: "email_delivered",
+        metadata: {
+          kind: "next_signer_activation",
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }).catch(() => undefined);
+    }
   }
 
   try {
