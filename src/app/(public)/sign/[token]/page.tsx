@@ -4,7 +4,7 @@ import { buildPublicSigningViewByToken } from "@/lib/contracts/build-public-sign
 import { writeContractEvent } from "@/lib/contracts/audit";
 import { headers } from "next/headers";
 import type { PublicSigningView } from "@/lib/contracts/types";
-import SignedRedirectWrapper from "./signed-redirect-wrapper";
+// import SignedRedirectWrapper from "./signed-redirect-wrapper"; // TEMP DEBUG: bisecting SC→CC failure
 
 interface CompanyBrand {
   name: string;
@@ -82,11 +82,24 @@ export default async function SignPage({
     return <SignedShell view={view} company={company} />;
   }
 
+  // TEMP DEBUG: bisect — render WITHOUT the SignedRedirectWrapper to see if
+  // the page itself renders. Surface what we know so we can compare.
   return (
     <div className="min-h-screen py-10 px-4">
       <div className="max-w-3xl mx-auto">
         <HeaderBlock company={company} />
-        <SignedRedirectWrapper view={view} signToken={token} />
+        <pre style={{ whiteSpace: "pre-wrap", padding: "1rem", background: "#fef9c3", color: "#713f12", fontSize: "12px", borderRadius: 8 }}>
+          {`SIGN-PAGE-DEBUG (no wrapper)\n` +
+            `contract_id=${contract.id}\n` +
+            `signer_id=${signer.id}\n` +
+            `status=${view.contract.status}\n` +
+            `title=${view.contract.title}\n` +
+            `pdf_url_len=${view.template.pdf_url?.length ?? 0}\n` +
+            `overlay_fields_count=${view.template.overlay_fields?.length ?? 0}\n` +
+            `pdf_pages_count=${view.template.pdf_pages?.length ?? 0}\n` +
+            `other_signers_count=${view.other_signers?.length ?? 0}\n` +
+            `resolved_keys=${Object.keys(view.resolved_merge_values ?? {}).join(",")}\n`}
+        </pre>
         <AuditFooter />
       </div>
     </div>
