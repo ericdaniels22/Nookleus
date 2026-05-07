@@ -4,12 +4,12 @@ build_id: 15d
 session_type: manual-test
 related: ["[[build-15d]]", "[[2026-05-06-build-15d-implementation]]"]
 spec: docs/superpowers/specs/2026-05-06-build-15d-contract-template-pdf-overlay-design.md
-deploy_commit: 96eebeb
+deploy_commit: 8f2411b
 ---
 
 # Build 15d — §11 Manual Test Pass Results
 
-Tests run against Vercel deploy of `4208e54` (org: AAA prod / Test Co).
+Tests run against Vercel deploys of `4208e54` → `96eebeb` → `934883b` → `2a2bc32` → `3236d7d` → `8f2411b` (org: AAA prod).
 
 Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
@@ -24,9 +24,9 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 | 4 | Add Input + Checkbox | ✅ | Both dropped via synthetic `DragEvent` w/ `Object.defineProperty(ev, 'clientX/Y')` workaround for Chrome's coord-init quirk. Input "Special Instructions" + checkbox "I agree to terms" persist post-reload with `inputKey` + `inputLabel` + `required: true`. |
 | 5 | Add Free-text label | ✅ | Label dropped on page 1 at (206, 32, 200×16) with `labelText="INTERNAL USE ONLY"`. Persisted post-reload. Textarea (controlled) populated via `HTMLTextAreaElement.prototype.value` setter + bubbled `'input'` event. |
 | 6 | Preview stamped sample | ✅* | Preview route returns 200 + 286 KB stamped PDF; pdf.js text-extraction confirms `INTERNAL USE ONLY` (page 1), `John Doe`, `123 Main Street, Austin, TX 78701`, today's date, `Sample Special Instructions`, and `X` checkmark all stamped on page 5. **Caveat:** preview route passes `signatureDataUrls: {}` so the signature field draws nothing — spec said "sample signature image". Small gap, filed as carry-over. |
-| 7 | Send to test customer | ⏭ | |
-| 8 | Sign as customer | ⏭ | |
-| 9 | Verify stamped PDF | ⏭ | |
+| 7 | Send to test customer | ✅* | Resend test-mode rejected `eric+t1@aaacontracting.com` (only the exact registered address is accepted; `+alias` not honored). Switched to bare `eric@aaacontracting.com`. Contract `114aab5e-8d54-4be0-ad5f-3584055db7af` dispatched, message_id `8dae6301-f0b2-4e86-a61c-faed053eca6d`. Discarded a failed-send draft `c373a47f-...` first (now VOIDED). |
+| 8 | Sign as customer | ✅* | After Bug 5 fix `build15d_signature_png_mime_fix` migration. First submit returned 500 `signature_upload_failed: mime type image/png is not supported`; post-migration second submit `{ok:true, all_signed:true}`. Spec divergence (minor): submit button is disabled until required fields filled instead of click→toast. |
+| 9 | Verify stamped PDF | ✅ | After Bug 6 fix `8f2411b` deployed. `GET /api/contracts/114aab5e.../pdf` returns 200 / 287,681 bytes / `%PDF-1.7`. pdfjs parse confirms 5 pages, page 5 has 1 image (signature embedded), real customer name resolved (NOT preview sample "John Doe"), property_address resolved, MM/DD/YYYY date, input value "Test pass — signed via Chrome MCP", X checkmark glyph, INTERNAL USE ONLY label on page 1. All 6 stamped fields at expected PDF-pt positions (drift ≤14pt consistent with `pdf-lib` baseline-y semantics). |
 | 10 | Two-signer template | ⏭ | |
 | 11 | Replace PDF | ⏭ | |
 | 12 | Legacy contract readable | ⏭ | |
@@ -115,7 +115,9 @@ Required flag toggled via `el.click()` on the checkbox. Post-reload server state
 
 **Spec:** Send to test customer (Eric's `+t1` alias). Resend dispatches; email arrives with link.
 
-**Result:** _pending_
+**Result:** ✅ PASS with detour. Initial attempt with recipient `eric+t1@aaacontracting.com` was rejected by Resend with: *"You can only send testing emails to your own email address (eric@aaacontracting.com). To send emails to other recipients, please verify a domain at resend.com/domains."* Resend's test-mode whitelist is **exact-string** — no `+alias` form is accepted. The failed-send created an orphan draft `c373a47f-aec1-4d83-8ee4-c4c80045b42c` in `draft` status (with the failed-send error message but no email dispatched); discarded via the kebab → row flipped to VOIDED. Retried with bare `eric@aaacontracting.com`. New contract `114aab5e-8d54-4be0-ad5f-3584055db7af`, Resend message_id `8dae6301-f0b2-4e86-a61c-faed053eca6d`, signing link expires `2026-05-14T01:49:11.554+00:00` (7 days). Toast: "Contract sent for signature".
+
+**Carry-over chips:** (1) verify a domain at `resend.com/domains` so contract emails can go to anyone; (2) the discarded-draft kebab only had Discard + Edit, no Retry — failed-send drafts should expose a "Retry send" action.
 
 ---
 
@@ -123,7 +125,15 @@ Required flag toggled via `el.click()` on the checkbox. Post-reload server state
 
 **Spec:** Open link → all merges show resolved values, input is blank with placeholder, checkbox is unchecked, signature placeholder is hatched. Submit before filling required fields → error toast "Required: …". Fill input, check box, sign. Submit succeeds.
 
-**Result:** _pending_
+**Result:** ✅ PASS after Bug 5 fix. Token in the signing URL is a self-signed HS256 JWT (`src/lib/contracts/tokens.ts`) carrying `{contract_id, signer_id, iat, exp}` — NOT stored in DB; can't reconstruct without `SIGNING_LINK_SECRET`. Eric pasted the link from his inbox.
+
+**Sign flow:** `INTERNAL USE ONLY` label visible page 1. Filled input "Special Instructions" with "Test pass — signed via Chrome MCP" via the native `HTMLInputElement.prototype.value` setter + bubbled `'input'` event (controlled React inputs require this dance). Clicked the checkbox via `el.click()`. Opened signature pad ("Tap to sign" → modal with 600×200 canvas). Drew two strokes via synthetic `PointerEvent`s dispatched on the **canvas itself** (NOT window — earlier failed try fired pointermove on window where the chip's `startMove` listener sits, but the signature pad's `onPointerMove` is on the canvas, so `hasInk` stayed false → Confirm signature stayed disabled). Then `Confirm signature` enabled, click → `onConfirm(canvas.toDataURL("image/png"))` → modal closed → "Submit signed contract" enabled.
+
+**First submit attempt: 500 `signature_upload_failed`** — triggered the Bug 5 hunt.
+
+**After Bug 5 fix migration applied:** second submit returned `200 {ok: true, all_signed: true}`. Page header flipped to "This contract has been signed". `contracts.status = "signed"`, `signed_at = 2026-05-07T02:01:09.028+00:00`, `primary_signer_ip = 104.202.149.100`, `signed_pdf_path = a0000000.../contracts/114aab5e...-signed.pdf`.
+
+**Spec divergence (minor):** spec said "Submit before filling required fields → error toast `Required: …`". Actual UX: Submit button is `disabled` until all required fields filled + signature confirmed. Functionally equivalent; UX is "no toast, just disabled button." Either tightening could be a future polish chip.
 
 ---
 
@@ -131,7 +141,25 @@ Required flag toggled via `el.click()` on the checkbox. Post-reload server state
 
 **Spec:** Download stamped PDF from contract detail view — opens in a real PDF reader — all 7 fields visible at correct positions with correct values + signature image baked in.
 
-**Result:** _pending_
+**Result:** ✅ PASS after Bug 6 fix `8f2411b` deployed. Verified end-to-end via in-browser fetch + dynamic-import pdfjs-dist 4.7.76 from jsDelivr CDN.
+
+**API:** `GET /api/contracts/114aab5e-8d54-4be0-ad5f-3584055db7af/pdf` → `200 application/pdf` / `Content-Length: 287681` / header bytes `%PDF-1.7`. (Before fix: `500 {"error":"Object not found"}`.)
+
+**Document structure:** 5 pages (612×792 letter). Page-by-page image counts: `[1, 0, 0, 0, 1]`. Page 1's image is the FM-7001 logo embedded in AAA's source PDF. **Page 5's image is the customer signature stamped at sign time** — confirms Bug 5 fix end-to-end.
+
+**Field-by-field verification:**
+
+| # | Field | Page | Expected | Found | ✓ |
+|---|-------|------|----------|-------|---|
+| 1 | INTERNAL USE ONLY (label) | 1 | top-y ≈ 32 | bottom-left at (206, 747); page h=792 → top-y ≈ 45 | ✓ |
+| 2 | customer_name (merge → "Brenda Watson") | 5 | resolved value present, NOT preview sample "John Doe" | Brenda Watson token present; "John Doe" absent | ✓ |
+| 3 | property_address (merge) | 5 | resolved address (NOT "123 Main Street, Austin TX 78701") | TX/Austin tokens present; sample address absent | ✓ |
+| 4 | Signed date | 5 | MM/DD/YYYY or ISO | MM/DD/YYYY token present | ✓ |
+| 5 | Special Instructions input | 5 | "Test pass — signed via Chrome MCP" at (200, 391, 200×18) | exact string at bottom-left (200, 387); page h=792 → top-y ≈ 405 | ✓ |
+| 6 | agree_terms checkbox | 5 | X glyph at (293, 443, 14×14) | X glyph at bottom-left (296, 338); page h=792 → top-y ≈ 454 | ✓ |
+| 7 | Customer signature | 5 | image embedded | 1 paint-image op on page 5 | ✓ |
+
+Sub-pt position drift (≤14 pt) is consistent with `pdf-lib` drawing text at the **baseline y-coordinate** while spec coords are in top-left rect coordinates — drift ≈ field height + descender, exactly as expected.
 
 ---
 
@@ -221,6 +249,41 @@ Six occurrences across roughly a five-minute window.
 
 **Fix:** Same commit `2a2bc32` — default `mergeFieldName` to `MERGE_FIELDS[0].name` (`"customer_name"`) on drop. Field now passes validation immediately; author changes the name via the inspector dropdown. Verified post-deploy: editor shows two merge chips with `{{customer_name}}` and `{{property_address}}` resolved (Eric re-targeted the second one via inspector after fix went live). No "Save error" banner; template at v37.
 
+### Bug 5 — `signature_upload_failed: mime type image/png is not supported` (blocks every signature submission)
+
+**Surfaced in:** Test 8 first submit attempt (sign-as-customer flow against contract `114aab5e-...`).
+
+**Symptom:** POST to `/api/sign/[token]` returned `500 {error:"signature_upload_failed", detail:"mime type image/png is not supported"}` after a real customer signature was drawn + confirmed. Sign view stayed mounted with the disabled-Submit state.
+
+**Root cause:** The `contract-pdfs` Storage bucket was created during build-15d Tasks 1–9 with `allowed_mime_types = ARRAY['application/pdf']`. The signature upload at `src/app/api/sign/[token]/route.ts:178` calls `supabase.storage.from('contract-pdfs').upload(sigPath, sigBytes, { contentType: 'image/png', upsert: true })`. Supabase Storage rejects the upload because PNG isn't in the bucket's allowlist. **Production-blocking** in the active 15d signing pipeline — every customer signature submission would 500 against the prior bucket config.
+
+**Fix:** Migration `build15d_signature_png_mime_fix` applied via `mcp__claude_ai_Supabase__apply_migration` (no local SQL file — direct prod): `UPDATE storage.buckets SET allowed_mime_types = ARRAY['application/pdf', 'image/png'] WHERE id = 'contract-pdfs'`. No code change needed — sign-route already passes the right `contentType`.
+
+**Discovery path:** `mcp__claude_ai_Supabase__get_logs` storage service surfaced the `mime type image/png is not supported` rejection in the storage POST logs while the API route's `apiDbError` redactor masked the underlying message client-side.
+
+**Decision locked:** Bucket-allowlist migration (one-line UPDATE) over creating a separate signatures bucket. Eric explicitly approved the SQL before apply.
+
+### Bug 6 — Contract PDF download route uses wrong bucket name (blocks Test 9)
+
+**Surfaced in:** Test 9 first attempt (verify stamped PDF after Test 8 succeeded).
+
+**Symptom:** `GET /api/contracts/[id]/pdf` returned `500 {"error":"Object not found"}` immediately after Test 8 wrote `signed_pdf_path = a0000000.../contracts/114aab5e...-signed.pdf` to the contract row.
+
+**Root cause:** `src/app/api/contracts/[id]/pdf/route.ts:36` does `supabase.storage.from("contracts").download(contract.signed_pdf_path)` — but **no bucket named `contracts` exists in this project**. The sign route uploads stamped PDFs to bucket `contract-pdfs` (sign route `:240`).
+
+**Discovery path:** `mcp__claude_ai_Supabase__get_logs` storage service showed `POST 200 /object/contract-pdfs/.../<id>-signed.pdf` (upload succeeded) followed by `GET 400 /object/info/contracts/.../<id>-signed.pdf` (download to wrong bucket). Side-by-side bucket names made the typo unmistakable.
+
+**Fix:** Commit `8f2411b` — bucket name changed to `"contract-pdfs"` to match the upload-side. Same wrong-bucket bug exists at `regenerate-pdf/route.ts:59` and legacy `[id]/sign/route.ts:338` but those are 25b-deferred orphans (not in the active 15d flow). Pushed; Vercel auto-deploy verified via Test 9 success above.
+
 ## Test artifacts to clean up (Task 29)
 
-_(populated as artifacts get created — template IDs, contract IDs, signer IDs, storage paths)_
+**AAA prod (NOT Test Co — be careful with real customer rows):**
+
+- **Template `60862e63-59dc-4529-84e2-84724774ea3a`** ("Work Auth (WTR)"): currently has 7 overlay fields including INTERNAL USE ONLY label (page 1), Special Instructions input + agree_terms checkbox (page 5). Decide with Eric: revert `overlay_fields` to a clean production set OR delete the entire template if AAA hasn't started using it.
+- **Template `d9767028-d054-40e1-886f-1396af224307`** ("Untitled Template (2)") — created during Test 1a Bug 1 verification, no PDF attached. Safe to delete.
+- **Contract `c373a47f-aec1-4d83-8ee4-c4c80045b42c`** (status=voided) — discarded draft from the failed `+t1` send attempt.
+- **Contract `114aab5e-8d54-4be0-ad5f-3584055db7af`** (status=signed) — attached to Brenda Watson's `JOB-2026-0019` (`128e6f02-a097-49cb-ae4d-61921d71d8cd`). **The job is a real customer job — DO NOT TOUCH the job itself**, only this test contract row. Customer never received anything (email went only to `eric@aaacontracting.com`).
+- **Storage objects:**
+  - `a0000000.../contracts/114aab5e.../signer-c6a3d6cc...png` (signature PNG)
+  - `a0000000.../contracts/114aab5e...-signed.pdf` (stamped final)
+  - any draft-contract artifacts under the discarded draft path
