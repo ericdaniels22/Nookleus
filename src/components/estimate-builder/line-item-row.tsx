@@ -77,6 +77,7 @@ export function LineItemRow({
 
   // ── Local editing state ───────────────────────────────────────────────────
   // Strings for controlled inputs; numbers parsed on blur.
+  const [name, setName] = useState(item.name ?? "");
   const [description, setDescription] = useState(item.description);
   const [code, setCode] = useState(item.code ?? "");
   const [quantity, setQuantity] = useState(String(item.quantity));
@@ -85,12 +86,13 @@ export function LineItemRow({
 
   // Sync from props when item changes from outside (e.g. server reconcile)
   useEffect(() => {
+    setName(item.name ?? "");
     setDescription(item.description);
     setCode(item.code ?? "");
     setQuantity(String(item.quantity));
     setUnit(item.unit ?? "");
     setUnitPrice(String(item.unit_price));
-  }, [item.description, item.code, item.quantity, item.unit, item.unit_price]);
+  }, [item.name, item.description, item.code, item.quantity, item.unit, item.unit_price]);
 
   // ── Live total (uses local editing values) ────────────────────────────────
   const localQty = Number(quantity);
@@ -101,6 +103,14 @@ export function LineItemRow({
       : item.quantity * item.unit_price;
 
   // ── Blur commit helpers ───────────────────────────────────────────────────
+
+  function commitName() {
+    const trimmed = name.trim();
+    const next: string | null = trimmed.length > 0 ? trimmed : null;
+    if (next !== (item.name ?? null)) {
+      onChange({ name: next });
+    }
+  }
 
   function commitDescription() {
     const trimmed = description.trim();
@@ -162,7 +172,7 @@ export function LineItemRow({
       id={domId}
       style={style}
       className={cn(
-        "group flex items-center gap-1 px-2 py-1.5 rounded-md border border-border bg-card text-sm",
+        "group flex items-start gap-1 px-2 py-1.5 rounded-md border border-border bg-card text-sm",
         isDragging && "ring-2 ring-primary/30 shadow-md",
         readOnly && "opacity-75"
       )}
@@ -172,7 +182,7 @@ export function LineItemRow({
         <button
           {...attributes}
           {...listeners}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 mt-0.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
           aria-label="Drag to reorder"
           tabIndex={-1}
         >
@@ -182,24 +192,43 @@ export function LineItemRow({
       {/* Spacer when readOnly to keep alignment consistent */}
       {readOnly && <span className="w-5 shrink-0" />}
 
-      {/* Description — flex-1, takes remaining space */}
-      <input
-        type="text"
-        value={description}
-        maxLength={2000}
-        disabled={readOnly}
-        onChange={(e) => setDescription(e.target.value)}
-        onBlur={commitDescription}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-        placeholder="Description"
-        className={cn(
-          "flex-1 min-w-0 bg-transparent border-0 outline-none ring-0 text-sm text-foreground placeholder:text-muted-foreground",
-          "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
-          "disabled:cursor-default disabled:opacity-60"
-        )}
-      />
+      {/* Stacked name + description column */}
+      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+        <input
+          type="text"
+          value={name}
+          maxLength={200}
+          disabled={readOnly}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          placeholder="Item name"
+          className={cn(
+            "w-full bg-transparent border-0 outline-none ring-0 font-semibold text-sm text-foreground placeholder:text-muted-foreground/60",
+            "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
+            "disabled:cursor-default disabled:opacity-60"
+          )}
+        />
+        <input
+          type="text"
+          value={description}
+          maxLength={2000}
+          disabled={readOnly}
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={commitDescription}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          placeholder="Description"
+          className={cn(
+            "w-full bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
+            "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
+            "disabled:cursor-default disabled:opacity-60"
+          )}
+        />
+      </div>
 
       {/* Code */}
       <input
@@ -213,7 +242,7 @@ export function LineItemRow({
         }}
         placeholder="Code"
         className={cn(
-          "w-20 shrink-0 bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
+          "w-20 shrink-0 mt-0.5 bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
           "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
           "disabled:cursor-default disabled:opacity-60"
         )}
@@ -231,7 +260,7 @@ export function LineItemRow({
         }}
         placeholder="Qty"
         className={cn(
-          "w-16 shrink-0 bg-transparent border-0 outline-none ring-0 text-sm text-foreground tabular-nums text-right placeholder:text-muted-foreground/50",
+          "w-16 shrink-0 mt-0.5 bg-transparent border-0 outline-none ring-0 text-sm text-foreground tabular-nums text-right placeholder:text-muted-foreground/50",
           "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
           "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
           "disabled:cursor-default disabled:opacity-60"
@@ -250,7 +279,7 @@ export function LineItemRow({
         }}
         placeholder="Unit"
         className={cn(
-          "w-14 shrink-0 bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
+          "w-14 shrink-0 mt-0.5 bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
           "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
           "disabled:cursor-default disabled:opacity-60"
         )}
@@ -268,7 +297,7 @@ export function LineItemRow({
         }}
         placeholder="0.00"
         className={cn(
-          "w-24 shrink-0 bg-transparent border-0 outline-none ring-0 text-sm text-foreground tabular-nums text-right placeholder:text-muted-foreground/50",
+          "w-24 shrink-0 mt-0.5 bg-transparent border-0 outline-none ring-0 text-sm text-foreground tabular-nums text-right placeholder:text-muted-foreground/50",
           "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
           "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
           "disabled:cursor-default disabled:opacity-60"
@@ -276,7 +305,7 @@ export function LineItemRow({
       />
 
       {/* Live total — read-only, computed from local editing values */}
-      <span className="w-24 shrink-0 text-right font-mono tabular-nums text-sm text-foreground">
+      <span className="w-24 shrink-0 mt-0.5 text-right font-mono tabular-nums text-sm text-foreground">
         {formatCurrency(liveTotal)}
       </span>
 
@@ -284,7 +313,7 @@ export function LineItemRow({
       {!readOnly ? (
         <button
           onClick={onDelete}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 mt-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
           aria-label="Delete line item"
         >
           <Trash2 size={13} />
