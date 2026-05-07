@@ -331,6 +331,7 @@ function CustomTab({
   // parent's rootPut auto-save handles persistence.
   const entityBase = mode === "invoice" ? "invoices" : "estimates";
 
+  const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [code, setCode] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -348,6 +349,12 @@ function CustomTab({
       toast.error("Description too long (max 2000)");
       return;
     }
+    const nameTrimmed = name.trim();
+    if (nameTrimmed.length > 200) {
+      toast.error("Name too long (max 200)");
+      return;
+    }
+    const namePayload = nameTrimmed.length > 0 ? nameTrimmed : null;
     const qtyTrimmed = quantity.trim();
     const priceTrimmed = unitPrice.trim();
     const qty = qtyTrimmed === "" ? NaN : Number(qtyTrimmed);
@@ -373,6 +380,7 @@ function CustomTab({
           id: crypto.randomUUID(),
           section_id: sectionId,
           library_item_id: null,
+          name: namePayload,
           description: description.trim(),
           code: code.trim() || null,
           quantity: qty,
@@ -392,6 +400,7 @@ function CustomTab({
         body: JSON.stringify({
           section_id: sectionId,
           library_item_id: null,
+          name: namePayload,
           description: description.trim(),
           code: code.trim() || null,
           quantity: qty,
@@ -432,6 +441,21 @@ function CustomTab({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Name (optional) */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="custom-name" className="text-sm font-medium">
+          Name
+        </Label>
+        <Input
+          id="custom-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={200}
+          placeholder="Optional title (e.g. Asbestos Testing)"
+          className="text-sm"
+        />
+      </div>
+
       {/* Description */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="custom-description" className="text-sm font-medium">
