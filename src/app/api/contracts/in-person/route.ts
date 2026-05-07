@@ -1,131 +1,49 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { verifySigningToken, InvalidSigningTokenError } from "@/lib/contracts/tokens";
 import { writeContractEvent, getRequestIp, getRequestUserAgent } from "@/lib/contracts/audit";
 import { resolveMergeValues } from "@/lib/contracts/resolve-merge-values";
 import { stampPdf } from "@/lib/contracts/stamp-pdf";
-import { buildPublicSigningViewByToken, type BuildViewError } from "@/lib/contracts/build-public-signing-view";
-import type {
-  Contract,
-  ContractSigner,
-  ContractTemplate,
-} from "@/lib/contracts/types";
+import type { Contract, ContractSigner, ContractTemplate } from "@/lib/contracts/types";
 
-const ERROR_HTTP_STATUS: Record<BuildViewError, number> = {
-  invalid_token: 401,
-  stale_token: 410,
-  expired: 410,
-  voided: 410,
-  not_found: 404,
-  signer_not_found: 404,
-  template_not_found: 404,
-};
-
-// GET /api/sign/[token]
-// Public endpoint for the signing page. Validates the JWT, loads the
-// contract + template + signers via service role (never touches RLS),
-// resolves merge values from the job context, returns a signed URL for
-// the source PDF, logs the link_viewed event once per browser session.
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ token: string }> },
-) {
-  const { token } = await params;
-  const supabase = createServiceClient();
-
-  const result = await buildPublicSigningViewByToken(supabase, token);
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.error },
-      { status: ERROR_HTTP_STATUS[result.error] ?? 500 },
-    );
-  }
-  const { view, contract, signer } = result;
-
-  // View-dedup audit: only fires once per browser session per contract.
-  // The route handler is still reachable directly (HEAD/preflight, the
-  // download flow) so the cookie gate continues to apply here.
-  const cookieName = `sv_${contract.id.slice(0, 8)}`;
-  const cookieStore = await cookies();
-  const hasViewedCookie = cookieStore.get(cookieName);
-
-  if (!hasViewedCookie) {
-    try {
-      await writeContractEvent(supabase, {
-        contractId: contract.id,
-        eventType: "link_viewed",
-        signerId: signer.id,
-        ipAddress: getRequestIp(request),
-        userAgent: getRequestUserAgent(request),
-      });
-    } catch {
-      // Audit failures must not block the signer from seeing their contract.
-    }
-    if (!contract.first_viewed_at) {
-      await supabase
-        .from("contracts")
-        .update({
-          first_viewed_at: new Date().toISOString(),
-          status: contract.status === "sent" ? "viewed" : contract.status,
-        })
-        .eq("id", contract.id);
-    }
-  }
-  await supabase
-    .from("contracts")
-    .update({ last_viewed_at: new Date().toISOString() })
-    .eq("id", contract.id);
-
-  const res = NextResponse.json(view);
-  if (!hasViewedCookie && contract.link_expires_at) {
-    const maxAge = Math.max(
-      60,
-      Math.floor((new Date(contract.link_expires_at).getTime() - Date.now()) / 1000),
-    );
-    res.cookies.set(cookieName, "1", {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge,
-    });
-  }
-  return res;
-}
-
-// POST /api/sign/[token]
-// Records the signer's customer_inputs + signature. If all signers have
-// signed, stamps the final PDF (pdf-lib), uploads it to contract-pdfs,
-// and flips the contract status to "signed". Otherwise leaves the status
-// at "viewed" until the second signer submits.
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ token: string }> },
-) {
-  const { token } = await params;
-
-  let payload: { contract_id: string; signer_id: string };
-  try {
-    payload = verifySigningToken(token);
-  } catch (e) {
-    if (e instanceof InvalidSigningTokenError) {
-      return NextResponse.json({ error: "invalid_token", message: e.message }, { status: 401 });
-    }
-    throw e;
+// POST /api/contracts/in-person
+// Records the in-person signer's customer_inputs + signature, then mirrors
+// the public-link stamping pipeline. Authenticated via Supabase session
+// (admin-on-iPad flow); the request body provides contract_id + signer_id
+// so a single user account can drive multiple signers in turn.
+export async function POST(request: Request) {
+  const authClient = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authErr,
+  } = await authClient.auth.getUser();
+  if (authErr || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = createServiceClient();
+
+  const body = (await request.json().catch(() => ({}))) as {
+    contract_id?: string;
+    signer_id?: string;
+    customer_inputs?: Record<string, string | boolean>;
+    signature_data_url?: string;
+  };
+  if (!body.contract_id || !body.signer_id) {
+    return NextResponse.json({ error: "contract_id and signer_id are required" }, { status: 400 });
+  }
+  const customerInputs = body.customer_inputs ?? {};
+  const signatureDataUrl = body.signature_data_url;
+  if (!signatureDataUrl) {
+    return NextResponse.json({ error: "missing_signature" }, { status: 400 });
+  }
 
   const { data: contract } = await supabase
     .from("contracts")
     .select("*")
-    .eq("id", payload.contract_id)
-    .maybeSingle<Contract & { link_token: string | null }>();
+    .eq("id", body.contract_id)
+    .maybeSingle<Contract>();
   if (!contract) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (contract.link_token !== token) {
-    return NextResponse.json({ error: "stale_token" }, { status: 410 });
-  }
   if (contract.status === "voided" || contract.status === "expired" || contract.status === "signed") {
     return NextResponse.json({ error: "not_signable", status: contract.status }, { status: 409 });
   }
@@ -133,7 +51,8 @@ export async function POST(
   const { data: signer } = await supabase
     .from("contract_signers")
     .select("*")
-    .eq("id", payload.signer_id)
+    .eq("id", body.signer_id)
+    .eq("contract_id", contract.id)
     .maybeSingle<ContractSigner>();
   if (!signer) return NextResponse.json({ error: "signer_not_found" }, { status: 404 });
   if (signer.signed_at) {
@@ -146,16 +65,6 @@ export async function POST(
     .eq("id", contract.template_id)
     .maybeSingle<ContractTemplate>();
   if (!template) return NextResponse.json({ error: "template_not_found" }, { status: 404 });
-
-  const body = (await request.json().catch(() => ({}))) as {
-    customer_inputs?: Record<string, string | boolean>;
-    signature_data_url?: string;
-  };
-  const customerInputs = body.customer_inputs ?? {};
-  const signatureDataUrl = body.signature_data_url;
-  if (!signatureDataUrl) {
-    return NextResponse.json({ error: "missing_signature" }, { status: 400 });
-  }
 
   const missing = template.overlay_fields
     .filter((f) => {
@@ -177,7 +86,10 @@ export async function POST(
     .from("contract-pdfs")
     .upload(sigPath, sigBytes, { contentType: "image/png", upsert: true });
   if (sigUploadErr) {
-    return NextResponse.json({ error: "signature_upload_failed", detail: sigUploadErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "signature_upload_failed", detail: sigUploadErr.message },
+      { status: 500 },
+    );
   }
 
   const signedAt = new Date();
@@ -240,7 +152,10 @@ export async function POST(
       .from("contract-pdfs")
       .upload(stampedPath, stamped, { contentType: "application/pdf", upsert: true });
     if (stampedUploadErr) {
-      return NextResponse.json({ error: "stamped_upload_failed", detail: stampedUploadErr.message }, { status: 500 });
+      return NextResponse.json(
+        { error: "stamped_upload_failed", detail: stampedUploadErr.message },
+        { status: 500 },
+      );
     }
 
     await supabase

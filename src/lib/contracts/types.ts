@@ -12,13 +12,48 @@ export interface MergeFieldDefinition {
   description?: string;
 }
 
+export type OverlayFieldType =
+  | "merge"
+  | "signature"
+  | "date"
+  | "label"
+  | "input"
+  | "checkbox";
+
+export interface OverlayField {
+  id: string;            // uuid v4
+  type: OverlayFieldType;
+  page: number;          // 1-indexed
+  x: number;             // PDF points from page top-left
+  y: number;             // PDF points from page top-left
+  width: number;         // PDF points
+  height: number;        // PDF points
+  fontSize: number;      // points; default 11
+  // Type-specific (all optional in the shape; required by type per validation):
+  mergeFieldName?: string;
+  labelText?: string;
+  signerOrder?: 1 | 2;   // matches contract_signers.signer_order
+  inputKey?: string;
+  inputLabel?: string;
+  required?: boolean;
+}
+
+export interface PdfPage {
+  page: number;
+  width_pt: number;
+  height_pt: number;
+}
+
 export interface ContractTemplate {
   id: string;
+  organization_id: string;
   name: string;
   description: string | null;
-  content: unknown;
-  content_html: string;
-  default_signer_count: 1 | 2;
+  pdf_storage_path: string | null;
+  pdf_page_count: number | null;
+  pdf_pages: PdfPage[] | null;
+  overlay_fields: OverlayField[];
+  signer_count: 1 | 2;
   signer_role_label: string;
   is_active: boolean;
   version: number;
@@ -31,7 +66,8 @@ export interface ContractTemplateListItem {
   id: string;
   name: string;
   description: string | null;
-  default_signer_count: 1 | 2;
+  pdf_page_count: number | null;
+  signer_count: 1 | 2;
   is_active: boolean;
   updated_at: string;
 }
@@ -75,6 +111,7 @@ export interface Contract {
   filled_content_html: string;
   filled_content_hash: string;
   signed_pdf_path: string | null;
+  customer_inputs: Record<string, string | boolean> | null;
   link_token: string | null;
   link_expires_at: string | null;
   sent_at: string | null;
@@ -181,23 +218,40 @@ export interface SigningTokenPayload {
   exp: number;
 }
 
-// Signer-order-1 view returned by GET /api/sign/[token] to render the
+// Signer-order-N view returned by GET /api/sign/[token] to render the
 // public signing page. Strips fields the customer doesn't need to see.
 export interface PublicSigningView {
   contract: {
     id: string;
     title: string;
-    filled_content_html: string;
     status: ContractStatus;
     link_expires_at: string | null;
     signed_at: string | null;
     signed_pdf_path: string | null;
+    // Legacy: only populated for contracts authored before build 15d.
+    legacy_html: string | null;
   };
+  template: {
+    id: string;
+    pdf_url: string | null;          // signed URL of source template PDF
+    pdf_pages: PdfPage[] | null;
+    overlay_fields: OverlayField[];
+    signer_count: 1 | 2;
+    signer_role_label: string;
+  };
+  resolved_merge_values: Record<string, string>;
   signer: {
     id: string;
+    signer_order: 1 | 2;
     name: string;
     role_label: string | null;
+    signed_at: string | null;
   };
+  other_signers: {
+    id: string;
+    signer_order: 1 | 2;
+    signed_at: string | null;
+  }[];
   company: {
     name: string;
     phone: string;

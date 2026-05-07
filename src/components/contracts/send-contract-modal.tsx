@@ -27,13 +27,6 @@ interface Props {
   onSent: () => void | Promise<void>;
 }
 
-interface PreviewData {
-  html: string;
-  unresolvedFields: string[];
-  templateVersion: number;
-  defaultTitle: string;
-}
-
 export default function SendContractModal({
   open,
   onOpenChange,
@@ -52,15 +45,19 @@ export default function SendContractModal({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<PreviewData | null>(null);
   const [sending, setSending] = useState(false);
+
+  // Mirrors the server-side guard at /api/contracts/send/route.ts: the body
+  // must contain the signing-link merge field or the recipient's email goes
+  // out with no way to sign.
+  const bodyHasSigningLink =
+    emailBody.includes("{{signing_link}}") ||
+    /data-field-name=["']signing_link["']/i.test(emailBody);
 
   // Reset form whenever the modal reopens.
   useEffect(() => {
     if (!open) return;
     setSigners([{ name: defaultSignerName ?? "", email: defaultSignerEmail ?? "" }]);
-    setPreview(null);
   }, [open, defaultSignerName, defaultSignerEmail]);
 
   function updateSigner(idx: number, patch: Partial<SignerRow>) {
@@ -99,24 +96,9 @@ export default function SendContractModal({
 
   const setupIncomplete = !!settings && (!settings.send_from_email || !settings.send_from_name);
 
-  async function doPreview() {
+  function doPreview() {
     if (!templateId) return;
-    setPreviewing(true);
-    try {
-      const res = await fetch("/api/contracts/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId, jobId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Preview failed");
-      setPreview(data as PreviewData);
-      setPreviewOpen(true);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Preview failed");
-    } finally {
-      setPreviewing(false);
-    }
+    setPreviewOpen(true);
   }
 
   async function doSend() {
@@ -132,6 +114,10 @@ export default function SendContractModal({
     }
     if (!emailSubject.trim() || !emailBody.trim()) {
       toast.error("Email subject and body are required");
+      return;
+    }
+    if (!bodyHasSigningLink) {
+      toast.error("Email body must contain the {{signing_link}} placeholder");
       return;
     }
     setSending(true);
@@ -297,6 +283,11 @@ export default function SendContractModal({
             <p className="text-[11px] text-muted-foreground mt-1">
               {`{{signing_link}}`} and {`{{document_title}}`} resolve automatically when sent.
             </p>
+            {emailBody.trim() && !bodyHasSigningLink && (
+              <p className="text-[11px] text-red-600 mt-1">
+                Body is missing {`{{signing_link}}`} — the recipient won&apos;t have a way to sign. Add it back before sending.
+              </p>
+            )}
           </div>
         </div>
 
@@ -304,10 +295,10 @@ export default function SendContractModal({
           <button
             type="button"
             onClick={doPreview}
-            disabled={!templateId || previewing}
+            disabled={!templateId}
             className="order-2 sm:order-1 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-60"
           >
-            {previewing ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            <FileText size={14} />
             Preview Contract
           </button>
           <div className="order-1 sm:order-2 flex gap-2 ml-auto">
@@ -321,7 +312,7 @@ export default function SendContractModal({
             <button
               type="button"
               onClick={doSend}
-              disabled={sending || setupIncomplete || !templateId}
+              disabled={sending || setupIncomplete || !templateId || !bodyHasSigningLink}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all disabled:opacity-60"
             >
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -333,7 +324,8 @@ export default function SendContractModal({
         <PreviewContractModal
           open={previewOpen}
           onOpenChange={setPreviewOpen}
-          preview={preview}
+          templateId={templateId || null}
+          title={templates?.find((t) => t.id === templateId)?.name ?? null}
         />
       </DialogContent>
     </Dialog>
