@@ -7,6 +7,7 @@ import { checkSnapshot, touchEntity, roundMoney } from "@/lib/builder-shared";
 import { recalculateInvoiceTotals } from "@/lib/invoices";
 
 interface PutBody {
+  name?: string | null;
   description?: string;
   code?: string | null;
   quantity?: number;
@@ -55,6 +56,19 @@ export async function PUT(
     }
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.name !== undefined) {
+      if (body.name === null) {
+        patch.name = null;
+      } else if (typeof body.name !== "string") {
+        return NextResponse.json({ error: "name must be a string or null" }, { status: 400 });
+      } else {
+        const trimmed = body.name.trim();
+        if (trimmed.length > 200) {
+          return NextResponse.json({ error: "name too long (max 200)" }, { status: 400 });
+        }
+        patch.name = trimmed.length > 0 ? trimmed : null;
+      }
+    }
     if (body.description !== undefined) patch.description = body.description;
     if (body.code !== undefined) patch.code = body.code;
     if (body.quantity !== undefined) {
