@@ -47,6 +47,13 @@ export default function SendContractModal({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
+  // Mirrors the server-side guard at /api/contracts/send/route.ts: the body
+  // must contain the signing-link merge field or the recipient's email goes
+  // out with no way to sign.
+  const bodyHasSigningLink =
+    emailBody.includes("{{signing_link}}") ||
+    /data-field-name=["']signing_link["']/i.test(emailBody);
+
   // Reset form whenever the modal reopens.
   useEffect(() => {
     if (!open) return;
@@ -107,6 +114,10 @@ export default function SendContractModal({
     }
     if (!emailSubject.trim() || !emailBody.trim()) {
       toast.error("Email subject and body are required");
+      return;
+    }
+    if (!bodyHasSigningLink) {
+      toast.error("Email body must contain the {{signing_link}} placeholder");
       return;
     }
     setSending(true);
@@ -272,6 +283,11 @@ export default function SendContractModal({
             <p className="text-[11px] text-muted-foreground mt-1">
               {`{{signing_link}}`} and {`{{document_title}}`} resolve automatically when sent.
             </p>
+            {emailBody.trim() && !bodyHasSigningLink && (
+              <p className="text-[11px] text-red-600 mt-1">
+                Body is missing {`{{signing_link}}`} — the recipient won&apos;t have a way to sign. Add it back before sending.
+              </p>
+            )}
           </div>
         </div>
 
@@ -296,7 +312,7 @@ export default function SendContractModal({
             <button
               type="button"
               onClick={doSend}
-              disabled={sending || setupIncomplete || !templateId}
+              disabled={sending || setupIncomplete || !templateId || !bodyHasSigningLink}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all disabled:opacity-60"
             >
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

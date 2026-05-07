@@ -70,6 +70,19 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Guard-rail: the email body must contain the signing-link merge field
+  // (either as a {{signing_link}} token or a Tiptap pill with
+  // data-field-name="signing_link"). Without it, the resolver has nothing to
+  // substitute and the recipient gets an email with no way to sign.
+  const hasSigningLinkToken =
+    body.emailBody.includes("{{signing_link}}") ||
+    /data-field-name=["']signing_link["']/i.test(body.emailBody);
+  if (!hasSigningLinkToken) {
+    return NextResponse.json(
+      { error: "Email body must contain the {{signing_link}} placeholder so the recipient gets a sign-in link." },
+      { status: 400 },
+    );
+  }
 
   const supabase = createServiceClient();
   const orgId = await getActiveOrganizationId(authClient);
