@@ -55,7 +55,7 @@ export const styles = StyleSheet.create({
   tr: { flexDirection: "row", borderBottom: "1 solid #f3f4f6", paddingVertical: 6 },
   tdCode: { width: 60, paddingHorizontal: 6 },
   tdDesc: { flex: 3, paddingHorizontal: 6 },
-  tdName: { flex: 3, paddingHorizontal: 6, fontWeight: "bold" },
+  tdName: { fontWeight: "bold", marginBottom: 1 },
   tdQty: { width: 50, paddingHorizontal: 6, textAlign: "right" },
   tdUnit: { width: 50, paddingHorizontal: 6, textAlign: "left" },
   tdPrice: { width: 70, paddingHorizontal: 6, textAlign: "right" },
