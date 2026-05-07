@@ -63,6 +63,7 @@ export default function PdfCanvas({
         <Document
           file={pdfUrl}
           onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+          onLoadError={(error) => console.error("[pdf-canvas] Document onLoadError:", error)}
           loading={<div className="text-muted-foreground">Loading PDF…</div>}
           error={<div className="text-red-500">Failed to load PDF</div>}
         >
