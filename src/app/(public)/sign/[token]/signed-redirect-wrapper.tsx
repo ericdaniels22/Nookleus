@@ -1,7 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import ContractSignerView from "@/components/contracts/contract-signer-view";
+// TEMP DEBUG (revert me): bisecting SC→CC SSR 500. The original content is:
+//   import { useRouter } from "next/navigation";
+//   import ContractSignerView from "@/components/contracts/contract-signer-view";
+//   ...renders <ContractSignerView view={view} signToken={signToken} onSigned={handleSigned}/>
+// Stubbed below to a plain div with no extra imports. If this 500s, the
+// problem is the wrapper module itself / SC→CC handshake. If 200, the
+// problem is in ContractSignerView (or PdfCanvas/SignaturePadModal beneath it).
 import type { PublicSigningView } from "@/lib/contracts/types";
 
 interface Props {
@@ -10,21 +15,9 @@ interface Props {
 }
 
 export default function SignedRedirectWrapper({ view, signToken }: Props) {
-  const router = useRouter();
-
-  function handleSigned() {
-    // Re-fetch the SSR page so it picks up the latest contract status.
-    // If everyone has signed, the SSR page will render <SignedShell>; if
-    // there's still an unsigned co-signer, the page renders the next
-    // signer's context (matching email-link reuse semantics).
-    router.refresh();
-  }
-
   return (
-    <ContractSignerView
-      view={view}
-      signToken={signToken}
-      onSigned={handleSigned}
-    />
+    <div style={{ padding: "1rem", border: "2px solid #d4d4d8", borderRadius: 8, fontSize: 12 }}>
+      SIGN-PAGE-DEBUG (stub wrapper) view-title={view.contract.title} signToken-len={signToken.length}
+    </div>
   );
 }
