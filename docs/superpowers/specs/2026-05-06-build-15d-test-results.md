@@ -18,7 +18,7 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 | # | Test | Status | Notes |
 |---|------|--------|-------|
 | 1a | Click "+ Upload Contract PDF" → editor (Bug 1 verify) | ✅ | Fix `96eebeb` verified in AAA prod. New row "Untitled Template (2)" created (suffix logic skipped existing "Untitled Template" + "(copy 2)"). |
-| 1b | Upload AAA FM-7001 PDF | ⚠️ | Pages render (5 canvases × 918×1188 CSS px) but **Bug 2** — PDF canvas clips on both sides at typical laptop viewports (≤ ~1512 wide). Hardcoded `scale = 1.5` in `pdf-canvas.tsx:28` overflows available space. Blocks Tests 2–5 (field placement requires accurate visibility). |
+| 1b | Upload AAA FM-7001 PDF | ✅ | After Bug 2 fix `934883b` deployed. PDF renders at responsive scale 0.588 (360×466 CSS px per page) on AAA prod, full headings + body text legible. |
 | 2 | Place all 5 overlay fields | ⏭ | |
 | 3 | Move and resize a field | ⏭ | |
 | 4 | Add Input + Checkbox | ⏭ | |
@@ -45,7 +45,7 @@ Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
 
 **Spec:** Editor renders all 5 pages; page count badge shows "5 pages".
 
-**Result:** ⚠️ PARTIAL. PDF uploaded successfully onto template `60862e63-59dc-4529-84e2-84724774ea3a` ("Untitled Template (3)") via "Copy of RC Work Authorization.pdf" — 5 pages, 286 KB. Editor mounts `<PdfCanvas>` and renders all 5 pages as `<canvas>` elements at 918×1188 CSS px each (5 × hires backbuffer 1836×2376). Drag-onto-page palette + Template metadata + Inspector all render. **However:** Bug 2 below clips both sides of every page at a 1512 viewport, so user cannot see the full PDF width. Page count is implicitly 5 (5 canvases) but a numeric "5 pages" badge isn't displayed in the editor header (header shows "← Templates" + "v2"); spec language about a badge may be aspirational from the plan but not implemented in 14j shipped UI.
+**Result:** ✅ PASS after Bug 2 fix `934883b`. PDF uploaded onto template `60862e63-59dc-4529-84e2-84724774ea3a` ("Untitled Template (3)") via "Copy of RC Work Authorization.pdf" — 5 pages, 286 KB. After fix deployed, editor renders all 5 pages at responsive scale (0.588× on a 1512-CSS-px viewport, yielding 360×466 CSS px per page). All headings + body sections legible. Page count is implicit (5 canvases rendered) — there's no numeric "5 pages" badge in the editor header (header shows "← Templates" + "v2") so that part of the spec is aspirational vs shipped UI; not blocking. **Bug 2 caveat:** see below — fix changed the editor's working scale from a fixed 1.5× to fit-to-container, which on this viewport renders pages at ~60% of the original size. Field placement at small scale is workable but may feel cramped; UX refinement of editor column widths is a separate follow-up.
 
 ---
 
@@ -176,6 +176,30 @@ Six occurrences across roughly a five-minute window.
 1. Make `<PdfCanvas>` responsive: measure wrapper width via `ResizeObserver`, compute `scale = wrapperWidth / page.width_pt`, re-render on resize. Drop coordinates store PDF-points (line 73) so scale changes are safe.
 2. Cap `scale` at `Math.min(1.5, wrapperWidth / page.width_pt)` to retain crispness when there's room.
 3. Either way, also confirm `<ContractSignerView>` doesn't share the same flaw (signing pages run on customer browsers of unknown widths).
+
+**Fix shipped:** Commit `934883b` — implements (1) + (2). `<PdfCanvas>` now uses `ResizeObserver` to measure its wrapper, computes `fitScale = (containerWidth - 16) / maxPageWidthPt`, sets actual `scale = Math.min(maxScale=1.5, fitScale)`. `<Document>` render is gated until first measurement to avoid a double-render flash. Existing `scale` prop preserved as a max cap. Verified post-deploy: editor canvas now 360 CSS px on a 1512-px viewport (was 918), full PDF page visible. `<ContractSignerView>` automatically inherits the fix since it consumes the same `<PdfCanvas>`.
+
+**Editor-layout refinement (still open):** With the fit fix, the PDF page renders at ~60% of native size on a 1512 viewport because the editor's middle `<main>` is only 376 CSS px wide (FieldPalette ~360 + Inspector ~184 + ~250 settings sub-nav eat into the available 1304 page-main width). Author can still drop fields with sufficient accuracy (PDF-point coords, sub-pixel tolerable) but the cramped middle column is uncomfortable. Worth a follow-up to slim FieldPalette / Inspector or make them collapsible. Not blocking 15d ship.
+
+### Bug 3 — dropping any chip immediately deselects it (blocks editing)
+
+**Surfaced in:** Test 2 setup, while attempting to place fields after Bug 2 fix went live.
+
+**Symptom:** Author drags a chip from `<FieldPalette>`, drops on a PDF page. Chip appears at the drop location but is **not selected** — no resize handles, no trash button, inspector still says "Select a field to edit its properties." Author cannot configure the field.
+
+**Root cause:** `template-pdf-editor.tsx:197` puts an `onClick={() => setSelectedFieldId(null)}` on the editor's `<main>` (the click-anywhere-empty-to-deselect pattern). After drop, Chrome's HTML5 drag-and-drop machinery dispatches a click that bubbles from the freshly-mounted chip up to `<main>`, deselecting it. `OverlayFieldChip` had no `onClick` of its own, so nothing intercepted the bubble. Subsequent direct clicks on the chip would have suffered the same fate (click bubbles → main deselects).
+
+**Fix:** Commit `<incoming>` — add `onClick={(e) => e.stopPropagation()}` to the `<OverlayFieldChip>` outer div. Click on chip now stays at the chip; click on PDF background still bubbles to main and deselects (preserves existing UX).
+
+### Bug 4 — newly-dropped merge field blocks all auto-saves
+
+**Surfaced in:** Same drop session as Bug 3. Header showed "Save error" persistently after a merge chip was dropped.
+
+**Symptom:** Once any merge chip is dropped, every subsequent PATCH to `/api/settings/contract-templates/[id]` returns `400 invalid_overlay_fields`. The editor banner shows "Save error" and stays there until the offending merge field is given a `mergeFieldName` via the inspector — which Bug 3 prevented users from doing. Chicken-and-egg dead-end.
+
+**Root cause:** `template-pdf-editor.tsx:107-128` `onPageDrop` constructs the new field with default geometry but only fills type-specific required props for `signature` (signerOrder), `input`/`checkbox` (inputKey + inputLabel), and `label` (labelText). It leaves `merge` fields with no `mergeFieldName`. `overlay-validation.ts:60-61` then rejects the field with `missing_required_property`, the route's PATCH responds 400 `invalid_overlay_fields`, and the route layer rolls back. So any merge chip locks saves until a name is assigned.
+
+**Fix:** Same commit as Bug 3 — default `mergeFieldName` to `MERGE_FIELDS[0].name` (`"customer_name"`) on drop. Field now passes validation immediately; author changes the name via the inspector dropdown.
 
 ## Test artifacts to clean up (Task 29)
 

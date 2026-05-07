@@ -110,6 +110,7 @@ export default function OverlayFieldChip({
     <div
       ref={ref}
       onPointerDown={startMove}
+      onClick={(e) => e.stopPropagation()}
       className={`absolute border-2 rounded text-xs font-medium select-none flex items-center px-1.5 cursor-move ${
         TYPE_COLORS[field.type]
       } ${selected ? "ring-2 ring-[var(--brand-primary)]" : ""}`}

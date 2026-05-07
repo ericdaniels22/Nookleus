@@ -8,6 +8,7 @@ import PdfCanvas from "./pdf-canvas";
 import OverlayFieldChip from "./overlay-field-chip";
 import FieldPalette from "./field-palette";
 import FieldInspector from "./field-inspector";
+import { MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import type { ContractTemplate, OverlayField, OverlayFieldType } from "@/lib/contracts/types";
 
 interface Props {
@@ -121,6 +122,9 @@ export default function TemplatePdfEditor({ initial }: Props) {
         newField.inputLabel = type === "checkbox" ? "I agree" : "Field";
       }
       if (type === "label") newField.labelText = "Label";
+      // Default merge fields to the first known name so the validator passes on first drop.
+      // Authors change it in the inspector.
+      if (type === "merge") newField.mergeFieldName = MERGE_FIELDS[0].name;
       markDirty((prev) => ({ ...prev, overlay_fields: [...prev.overlay_fields, newField] }));
       setSelectedFieldId(id);
     },
