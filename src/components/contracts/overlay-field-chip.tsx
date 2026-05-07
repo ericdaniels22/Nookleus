@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef } from "react";
-import { Trash2 } from "lucide-react";
 import type { OverlayField } from "@/lib/contracts/types";
 
 interface Props {
@@ -10,7 +9,6 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   onChange: (next: OverlayField) => void;
-  onDelete: () => void;
   pageWidthPt: number;
   pageHeightPt: number;
 }
@@ -39,7 +37,6 @@ export default function OverlayFieldChip({
   selected,
   onSelect,
   onChange,
-  onDelete,
   pageWidthPt,
   pageHeightPt,
 }: Props) {
@@ -124,14 +121,6 @@ export default function OverlayFieldChip({
       <span className="truncate flex-1">{TYPE_LABEL[field.type](field)}</span>
       {selected && (
         <>
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onDelete}
-            className="ml-1 text-red-600 hover:bg-red-100 rounded p-0.5"
-          >
-            <Trash2 size={12} />
-          </button>
           {(["nw", "ne", "sw", "se"] as const).map((c) => (
             <span
               key={c}

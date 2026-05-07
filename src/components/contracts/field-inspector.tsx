@@ -1,5 +1,6 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
 import { MERGE_FIELD_CATEGORIES, mergeFieldsByCategory } from "@/lib/contracts/merge-fields";
 import type { OverlayField } from "@/lib/contracts/types";
 
@@ -7,9 +8,10 @@ interface Props {
   field: OverlayField | null;
   signerCount: 1 | 2;
   onChange: (next: OverlayField) => void;
+  onDelete: () => void;
 }
 
-export default function FieldInspector({ field, signerCount, onChange }: Props) {
+export default function FieldInspector({ field, signerCount, onChange, onDelete }: Props) {
   if (!field) {
     return (
       <aside className="w-72 border-l border-border bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -141,6 +143,17 @@ export default function FieldInspector({ field, signerCount, onChange }: Props) 
           />
         </div>
       )}
+
+      <div className="pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-700 border border-red-300 rounded hover:bg-red-50"
+        >
+          <Trash2 size={14} />
+          Delete field
+        </button>
+      </div>
     </aside>
   );
 }

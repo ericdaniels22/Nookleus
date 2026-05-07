@@ -231,7 +231,6 @@ export default function TemplatePdfEditor({ initial }: Props) {
                   selected={f.id === selectedFieldId}
                   onSelect={() => setSelectedFieldId(f.id)}
                   onChange={updateField}
-                  onDelete={() => deleteField(f.id)}
                   pageWidthPt={page.width_pt}
                   pageHeightPt={page.height_pt}
                 />
@@ -244,6 +243,7 @@ export default function TemplatePdfEditor({ initial }: Props) {
         field={selectedField}
         signerCount={template.signer_count}
         onChange={updateField}
+        onDelete={() => selectedFieldId && deleteField(selectedFieldId)}
       />
     </div>
   );
