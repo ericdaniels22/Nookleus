@@ -189,7 +189,7 @@ Six occurrences across roughly a five-minute window.
 
 **Root cause:** `template-pdf-editor.tsx:197` puts an `onClick={() => setSelectedFieldId(null)}` on the editor's `<main>` (the click-anywhere-empty-to-deselect pattern). After drop, Chrome's HTML5 drag-and-drop machinery dispatches a click that bubbles from the freshly-mounted chip up to `<main>`, deselecting it. `OverlayFieldChip` had no `onClick` of its own, so nothing intercepted the bubble. Subsequent direct clicks on the chip would have suffered the same fate (click bubbles → main deselects).
 
-**Fix:** Commit `<incoming>` — add `onClick={(e) => e.stopPropagation()}` to the `<OverlayFieldChip>` outer div. Click on chip now stays at the chip; click on PDF background still bubbles to main and deselects (preserves existing UX).
+**Fix:** Commit `2a2bc32` — added `onClick={(e) => e.stopPropagation()}` to the `<OverlayFieldChip>` outer div. Click on chip now stays at the chip; click on PDF background still bubbles to main and deselects (preserves existing UX). Verified post-deploy: clicking the "Signed date" chip selected it (ring-2 outline + trash icon visible) and populated the inspector ("DATE FIELD · Page 5 · 159, 170 · 215×28pt · Font size 12"). Tour of editor shows v37 (was v15) — many auto-saves succeeded post-fix.
 
 ### Bug 4 — newly-dropped merge field blocks all auto-saves
 
@@ -199,7 +199,7 @@ Six occurrences across roughly a five-minute window.
 
 **Root cause:** `template-pdf-editor.tsx:107-128` `onPageDrop` constructs the new field with default geometry but only fills type-specific required props for `signature` (signerOrder), `input`/`checkbox` (inputKey + inputLabel), and `label` (labelText). It leaves `merge` fields with no `mergeFieldName`. `overlay-validation.ts:60-61` then rejects the field with `missing_required_property`, the route's PATCH responds 400 `invalid_overlay_fields`, and the route layer rolls back. So any merge chip locks saves until a name is assigned.
 
-**Fix:** Same commit as Bug 3 — default `mergeFieldName` to `MERGE_FIELDS[0].name` (`"customer_name"`) on drop. Field now passes validation immediately; author changes the name via the inspector dropdown.
+**Fix:** Same commit `2a2bc32` — default `mergeFieldName` to `MERGE_FIELDS[0].name` (`"customer_name"`) on drop. Field now passes validation immediately; author changes the name via the inspector dropdown. Verified post-deploy: editor shows two merge chips with `{{customer_name}}` and `{{property_address}}` resolved (Eric re-targeted the second one via inspector after fix went live). No "Save error" banner; template at v37.
 
 ## Test artifacts to clean up (Task 29)
 
