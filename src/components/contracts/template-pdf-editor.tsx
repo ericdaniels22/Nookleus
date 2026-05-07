@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
+import { Minus, Plus } from "lucide-react";
 import TemplatePdfUploadZone from "./template-pdf-upload-zone";
 import PdfCanvas from "./pdf-canvas";
 import OverlayFieldChip from "./overlay-field-chip";
@@ -10,6 +11,10 @@ import FieldPalette from "./field-palette";
 import FieldInspector from "./field-inspector";
 import { MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import type { ContractTemplate, OverlayField, OverlayFieldType } from "@/lib/contracts/types";
+
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.25;
 
 interface Props {
   initial: ContractTemplate;
@@ -29,6 +34,7 @@ export default function TemplatePdfEditor({ initial }: Props) {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [zoom, setZoom] = useState(1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
 
@@ -207,19 +213,48 @@ export default function TemplatePdfEditor({ initial }: Props) {
             {savingState === "error" && "Save error"}
             {savingState === "idle" && "—"}
           </span>
-          <a
-            href={`/api/settings/contract-templates/${template.id}/preview`}
-            target="_blank"
-            rel="noopener"
-            className="text-xs text-[var(--brand-primary)] hover:underline"
-          >
-            Preview ↗
-          </a>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
+                }}
+                disabled={zoom <= ZOOM_MIN}
+                className="rounded border border-border p-1 text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Minus size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)));
+                }}
+                disabled={zoom >= ZOOM_MAX}
+                className="rounded border border-border p-1 text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <a
+              href={`/api/settings/contract-templates/${template.id}/preview`}
+              target="_blank"
+              rel="noopener"
+              className="text-xs text-[var(--brand-primary)] hover:underline"
+            >
+              Preview ↗
+            </a>
+          </div>
         </div>
         <PdfCanvas
           pdfUrl={pdfUrl}
           pdfPages={template.pdf_pages}
           overlayFields={template.overlay_fields}
+          zoom={zoom}
           onPageDrop={onPageDrop}
           renderOverlay={({ page, fields, scale }) => (
             <>
