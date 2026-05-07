@@ -82,7 +82,6 @@ export default async function SignPage({
     return <SignedShell view={view} company={company} />;
   }
 
-  // TEMP DEBUG: SignedRedirectWrapper is now a stubbed client component.
   return (
     <div className="min-h-screen py-10 px-4">
       <div className="max-w-3xl mx-auto">

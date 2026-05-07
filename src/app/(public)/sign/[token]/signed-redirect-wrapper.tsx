@@ -1,9 +1,5 @@
 "use client";
 
-// TEMP DEBUG (revert me): bisect 3 — re-enable the real wrapper but with
-// imports limited to ContractSignerView. Bisect 1 proved the page renders
-// without this. Bisect 2 proved a stub wrapper renders. So the failure is
-// inside ContractSignerView's import chain (PdfCanvas / SignaturePadModal).
 import { useRouter } from "next/navigation";
 import ContractSignerView from "@/components/contracts/contract-signer-view";
 import type { PublicSigningView } from "@/lib/contracts/types";
@@ -15,9 +11,15 @@ interface Props {
 
 export default function SignedRedirectWrapper({ view, signToken }: Props) {
   const router = useRouter();
+
   function handleSigned() {
+    // Re-fetch the SSR page so it picks up the latest contract status.
+    // If everyone has signed, the SSR page will render <SignedShell>; if
+    // there's still an unsigned co-signer, the page renders the next
+    // signer's context (matching email-link reuse semantics).
     router.refresh();
   }
+
   return (
     <ContractSignerView
       view={view}
