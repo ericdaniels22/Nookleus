@@ -26,6 +26,7 @@ import ComposeEmailModal from "@/components/compose-email";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
+import CaptureFab from "@/components/mobile/capture-fab";
 import {
   MapPin,
   Home,
@@ -315,6 +316,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
 
   return (
     <div className="max-w-6xl animate-fade-slide-up">
+      <CaptureFab jobId={jobId} />
       {/* Back link */}
       <Link
         href="/jobs"
