@@ -1,6 +1,7 @@
 "use client";
 
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEffect } from "react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -13,25 +14,32 @@ import {
   Undo,
   Redo,
 } from "lucide-react";
+import { tokenizeForEditor } from "@/components/contracts/tokenize-for-editor";
 
 interface TiptapEditorProps {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  extraExtensions?: Array<unknown>;
+  onReady?: (editor: Editor) => void;
 }
 
 export default function TiptapEditor({
   content,
   onChange,
   placeholder = "Type your message...",
+  extraExtensions,
+  onReady,
 }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit,
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((extraExtensions ?? []) as any[]),
     ],
-    content,
+    content: tokenizeForEditor(content),
     immediatelyRender: false,
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
@@ -43,6 +51,10 @@ export default function TiptapEditor({
       },
     },
   });
+
+  useEffect(() => {
+    if (editor && onReady) onReady(editor);
+  }, [editor, onReady]);
 
   if (!editor) return null;
 
