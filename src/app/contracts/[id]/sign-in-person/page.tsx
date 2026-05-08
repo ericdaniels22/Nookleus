@@ -3,33 +3,16 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import type { Contract, ContractSigner } from "@/lib/contracts/types";
-import TabletSigningForm from "./tablet-signing-form";
+import type { ContractSigner } from "@/lib/contracts/types";
+import { buildPublicSigningViewForContract } from "@/lib/contracts/build-public-signing-view";
+import InPersonSigningWrapper from "./in-person-signing-wrapper";
 
 interface CompanyBrand {
   name: string;
   phone: string;
   email: string;
   address: string;
-  logoUrl: string | null;
-}
-
-async function loadCompany(): Promise<CompanyBrand> {
-  const supabase = createServiceClient();
-  const { data } = await supabase
-    .from("company_settings")
-    .select("key, value")
-    .in("key", ["company_name", "phone", "email", "address", "logo_url"]);
-  const m = new Map<string, string | null>(
-    (data ?? []).map((r: { key: string; value: string | null }) => [r.key, r.value]),
-  );
-  return {
-    name: m.get("company_name") || "",
-    phone: m.get("phone") || "",
-    email: m.get("email") || "",
-    address: m.get("address") || "",
-    logoUrl: m.get("logo_url") || null,
-  };
+  logo_url: string | null;
 }
 
 // /contracts/[id]/sign-in-person — full-screen internal tablet view.
@@ -43,31 +26,44 @@ export default async function SignInPersonPage({
   const { id } = await params;
 
   const authClient = await createServerSupabaseClient();
-  const { data: { user }, error: authErr } = await authClient.auth.getUser();
+  const {
+    data: { user },
+    error: authErr,
+  } = await authClient.auth.getUser();
   if (authErr || !user) {
     redirect(`/login?next=/contracts/${id}/sign-in-person`);
   }
 
   const supabase = createServiceClient();
-  const [{ data: contract }, { data: signersRaw }, company] = await Promise.all([
+
+  // Quick load of contract + signers to determine status and pick the
+  // active (next unsigned) signer. Detailed view-shape construction
+  // happens via buildPublicSigningViewForContract once we know the active.
+  const [{ data: contract }, { data: signersRaw }] = await Promise.all([
     supabase
       .from("contracts")
-      .select("*")
+      .select("id, status, job_id")
       .eq("id", id)
-      .maybeSingle<Contract>(),
+      .maybeSingle<{ id: string; status: string; job_id: string }>(),
     supabase
       .from("contract_signers")
       .select("*")
       .eq("contract_id", id)
       .order("signer_order"),
-    loadCompany(),
   ]);
 
   if (!contract) {
-    return <ErrorShell title="Contract not found" subtitle="This signing session is no longer valid." />;
+    return (
+      <ErrorShell title="Contract not found" subtitle="This signing session is no longer valid." />
+    );
   }
   if (contract.status === "voided") {
-    return <ErrorShell title="This contract has been voided" subtitle="Return to the job to see history." />;
+    return (
+      <ErrorShell
+        title="This contract has been voided"
+        subtitle="Return to the job to see history."
+      />
+    );
   }
   if (contract.status === "signed") {
     redirect(`/contracts/${id}/sign-in-person/complete`);
@@ -75,40 +71,63 @@ export default async function SignInPersonPage({
 
   const signers = (signersRaw ?? []) as ContractSigner[];
   if (!signers.length) {
-    return <ErrorShell title="Contract has no signers" subtitle="Return to the job and recreate the contract." />;
+    return (
+      <ErrorShell
+        title="Contract has no signers"
+        subtitle="Return to the job and recreate the contract."
+      />
+    );
   }
   const active = signers.find((s) => !s.signed_at);
   if (!active) {
-    redirect(`/contracts/${id}/sign-in-person/complete`);
+    return redirect(`/contracts/${id}/sign-in-person/complete`);
   }
+
+  const result = await buildPublicSigningViewForContract(supabase, id, active.id);
+  if (!result.ok) {
+    if (result.error === "voided") {
+      return (
+        <ErrorShell
+          title="This contract has been voided"
+          subtitle="Return to the job to see history."
+        />
+      );
+    }
+    if (result.error === "template_not_found") {
+      return (
+        <ErrorShell
+          title="Template not found"
+          subtitle="The contract template is missing. Contact support."
+        />
+      );
+    }
+    return (
+      <ErrorShell title="Contract not available" subtitle="This signing session is no longer valid." />
+    );
+  }
+
+  const { view } = result;
+  const company: CompanyBrand = {
+    name: view.company.name,
+    phone: view.company.phone,
+    email: view.company.email,
+    address: view.company.address,
+    logo_url: view.company.logo_url,
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-6 py-8">
         <Link
-          href={`/jobs/${contract.job_id}`}
+          href={`/jobs/${result.contract.job_id}`}
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeft size={14} />
           Back to job
         </Link>
-        <HeaderBlock
-          company={company}
-          title={contract.title}
-        />
-        <TabletSigningForm
-          contractId={contract.id}
-          contractTitle={contract.title}
-          filledContentHtml={contract.filled_content_html}
-          signers={signers.map((s) => ({
-            id: s.id,
-            name: s.name,
-            role_label: s.role_label,
-            signer_order: s.signer_order,
-            signed_at: s.signed_at,
-          }))}
-          initialActiveSignerId={active!.id}
-        />
+        <HeaderBlock company={company} title={view.contract.title} />
+        {/* Client wrapper handles onSigned → push-to-complete or refresh */}
+        <InPersonSigningWrapper view={view} />
       </div>
     </div>
   );
@@ -118,10 +137,10 @@ function HeaderBlock({ company, title }: { company: CompanyBrand; title: string 
   return (
     <div className="flex items-start justify-between gap-4 mb-6 pb-4 border-b border-border">
       <div className="flex items-center gap-3 min-w-0">
-        {company.logoUrl ? (
+        {company.logo_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={company.logoUrl}
+            src={company.logo_url}
             alt={company.name || "Company logo"}
             className="w-10 h-10 rounded-md object-contain bg-white/5"
           />

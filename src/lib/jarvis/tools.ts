@@ -301,7 +301,8 @@ async function toolGetJobDetails(
   const { data: invoices } = await supabase
     .from("invoices")
     .select("*")
-    .eq("job_id", input.job_id);
+    .eq("job_id", input.job_id)
+    .is("deleted_at", null);
 
   // Payments
   const { data: payments } = await supabase
@@ -526,7 +527,8 @@ async function toolGetBusinessMetrics(
       .from("invoices")
       .select("total_amount")
       .in("job_id", ids)
-      .in("status", ["draft", "sent", "partial"]);
+      .in("status", ["draft", "sent", "partial"])
+      .is("deleted_at", null);
 
     const { data: receivedPayments } = await supabase
       .from("payments")

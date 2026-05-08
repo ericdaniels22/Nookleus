@@ -76,10 +76,22 @@ export async function PATCH(request: Request) {
     "payment_failed_internal_body_template",
     "refund_issued_internal_subject_template",
     "refund_issued_internal_body_template",
+    // Build 67c2 — estimate + invoice send templates
+    "estimate_send_subject_template",
+    "estimate_send_body_template",
+    "invoice_send_subject_template",
+    "invoice_send_body_template",
   ];
   for (const f of stringFields) {
-    if (typeof body[f] === "string") {
-      (patch as Record<string, unknown>)[f] = body[f];
+    const v = body[f];
+    if (typeof v === "string") {
+      if (v.length > 5000) {
+        return NextResponse.json(
+          { error: `${f} exceeds 5000 char limit` },
+          { status: 400 },
+        );
+      }
+      (patch as Record<string, unknown>)[f] = v;
     }
   }
   if (

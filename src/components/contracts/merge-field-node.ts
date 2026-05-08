@@ -1,8 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
-
-export interface MergeFieldOptions {
-  HTMLAttributes: Record<string, string>;
-}
+import { isKnownField } from "@/lib/contracts/merge-fields";
+import { EMAIL_EXTRA_MERGE_FIELDS } from "@/lib/contracts/email-merge-fields";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -12,32 +10,41 @@ declare module "@tiptap/core" {
   }
 }
 
-/**
- * Inline atomic node representing a merge-field token inside a contract
- * template. Renders as <span class="merge-field-pill" data-field-name="…">
- * so the resolver can match it later. Draggable so authors can reposition
- * tokens without retyping them; atomic so clicks and delete behave as a unit.
- */
-export const MergeField = Node.create<MergeFieldOptions>({
+const EMAIL_EXTRA_NAMES = new Set<string>(EMAIL_EXTRA_MERGE_FIELDS.map((f) => f.name));
+
+function isResolvable(name: string, paymentNames?: Set<string>): boolean {
+  if (isKnownField(name)) return true;
+  if (EMAIL_EXTRA_NAMES.has(name)) return true;
+  if (paymentNames?.has(name)) return true;
+  return false;
+}
+
+export interface MergeFieldNodeOptions {
+  // Optional set of additional resolvable field names for the payments editor
+  // (so payment-specific tokens don't render as warning pills).
+  extraResolvableNames?: Set<string>;
+}
+
+export const MergeFieldNode = Node.create<MergeFieldNodeOptions>({
   name: "mergeField",
   group: "inline",
   inline: true,
   atom: true,
-  draggable: true,
   selectable: true,
+  draggable: true,
 
   addOptions() {
-    return {
-      HTMLAttributes: {},
-    };
+    return { extraResolvableNames: undefined };
   },
 
   addAttributes() {
     return {
       fieldName: {
         default: "",
-        parseHTML: (element) => element.getAttribute("data-field-name") ?? "",
-        renderHTML: (attrs) => ({ "data-field-name": attrs.fieldName }),
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-field-name") ?? "",
+        renderHTML: (attrs) => ({
+          "data-field-name": String(attrs.fieldName ?? ""),
+        }),
       },
     };
   },
@@ -45,19 +52,24 @@ export const MergeField = Node.create<MergeFieldOptions>({
   parseHTML() {
     return [
       {
-        tag: "span[data-merge-field]",
+        tag: "span[data-field-name]",
+        getAttrs: (node) => {
+          const el = node as HTMLElement;
+          return { fieldName: el.getAttribute("data-field-name") ?? "" };
+        },
       },
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
-    const fieldName =
-      (HTMLAttributes["data-field-name"] as string | undefined) ?? "";
+  renderHTML({ node, HTMLAttributes }) {
+    const fieldName = String(node.attrs.fieldName ?? "");
+    const known = isResolvable(fieldName, this.options.extraResolvableNames);
     return [
       "span",
-      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+      mergeAttributes(HTMLAttributes, {
         class: "merge-field-pill",
-        "data-merge-field": "true",
+        "data-field-name": fieldName,
+        ...(known ? {} : { "data-unknown": "true" }),
       }),
       `{{${fieldName}}}`,
     ];
@@ -67,11 +79,17 @@ export const MergeField = Node.create<MergeFieldOptions>({
     return {
       insertMergeField:
         (fieldName: string) =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            attrs: { fieldName },
-          }),
+        ({ chain }) => {
+          return chain()
+            .insertContent({
+              type: this.name,
+              attrs: { fieldName },
+            })
+            .insertContent(" ")
+            .run();
+        },
     };
   },
 });
+
+export default MergeFieldNode;

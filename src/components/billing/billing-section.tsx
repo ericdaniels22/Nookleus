@@ -34,7 +34,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
         <h3 className="text-base font-semibold text-foreground">Billing</h3>
         <div className="flex items-center gap-2">
           <Link
-            href={`/invoices/new?jobId=${jobId}`}
+            href={`/jobs/${jobId}/invoices/new`}
             className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 border border-border hover:bg-accent transition-colors"
           >
             + Create Invoice

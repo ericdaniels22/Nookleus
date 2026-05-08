@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   const revenueDelta = range.priorStartISO ? computeDelta(current.revenue, prior.revenue) : null;
 
   // Outstanding AR: invoices not paid/draft, total - received-on-invoice.
-  const { data: allInvoices } = await supabase.from("invoices").select("id, total_amount, status, issued_date");
+  const { data: allInvoices } = await supabase.from("invoices").select("id, total_amount, status, issued_date").is("deleted_at", null);
   const { data: allPayments } = await supabase.from("payments").select("invoice_id, amount").eq("status", "received");
   const paidByInvoice = new Map<string, number>();
   for (const p of allPayments ?? []) {

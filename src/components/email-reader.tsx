@@ -59,7 +59,7 @@ function EmailBodyFrame({ html }: { html: string }) {
     <iframe
       ref={ref}
       title="Email body"
-      sandbox="allow-same-origin allow-popups"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       style={{ width: "100%", height, border: 0, display: "block" }}
     />
   );

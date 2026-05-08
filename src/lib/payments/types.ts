@@ -27,6 +27,11 @@ export interface PaymentEmailSettings {
   refund_issued_internal_subject_template: string;
   refund_issued_internal_body_template: string;
   internal_notification_to_email: string | null;
+  // Added in build67c2 — estimate + invoice send templates
+  estimate_send_subject_template: string;
+  estimate_send_body_template: string;
+  invoice_send_subject_template: string;
+  invoice_send_body_template: string;
 }
 
 // Extras the payment merge-field resolver layers on top of the shared
