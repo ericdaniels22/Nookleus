@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { writeContractEvent, getRequestIp, getRequestUserAgent } from "@/lib/contracts/audit";
-import { resolveMergeValues } from "@/lib/contracts/resolve-merge-values";
-import { stampPdf } from "@/lib/contracts/stamp-pdf";
+import { finalizeSignedContract } from "@/lib/contracts/finalize";
 import type { Contract, ContractSigner, ContractTemplate } from "@/lib/contracts/types";
 
 // POST /api/contracts/in-person
@@ -108,64 +107,20 @@ export async function POST(request: Request) {
 
   const { data: refreshedSigners } = await supabase
     .from("contract_signers")
-    .select("id, signer_order, signed_at, signature_image_path")
-    .eq("contract_id", contract.id);
+    .select("*")
+    .eq("contract_id", contract.id)
+    .order("signer_order");
   const allSigned = (refreshedSigners ?? []).every((s) => s.signed_at);
 
   if (allSigned && template.pdf_storage_path) {
-    const dataUrlsBySignerId: Record<string, string> = {};
-    const orderById: Record<string, 1 | 2> = {};
-    for (const s of refreshedSigners ?? []) {
-      if (!s.signature_image_path) continue;
-      const { data: blob } = await supabase.storage
-        .from("contract-pdfs")
-        .download(s.signature_image_path);
-      if (!blob) continue;
-      const buf = new Uint8Array(await blob.arrayBuffer());
-      const b64 = Buffer.from(buf).toString("base64");
-      dataUrlsBySignerId[s.id] = `data:image/png;base64,${b64}`;
-      orderById[s.id] = s.signer_order;
-    }
-
-    const { data: srcBlob } = await supabase.storage
-      .from("contract-pdfs")
-      .download(template.pdf_storage_path);
-    if (!srcBlob) {
-      return NextResponse.json({ error: "source_pdf_missing" }, { status: 500 });
-    }
-    const srcBytes = new Uint8Array(await srcBlob.arrayBuffer());
-
-    const resolved = await resolveMergeValues(supabase, contract.job_id, { signedAt });
-    const stamped = await stampPdf({
-      sourcePdfBytes: srcBytes,
-      pdfPages: template.pdf_pages ?? [],
-      overlayFields: template.overlay_fields,
-      resolvedMergeValues: resolved,
+    await finalizeSignedContract({
+      supabase,
+      contract,
+      template,
+      signers: (refreshedSigners ?? []) as ContractSigner[],
       customerInputs: mergedInputs,
-      signatureDataUrls: dataUrlsBySignerId,
-      signerOrderById: orderById,
       signedAt,
     });
-
-    const stampedPath = `${contract.organization_id}/contracts/${contract.id}-signed.pdf`;
-    const { error: stampedUploadErr } = await supabase.storage
-      .from("contract-pdfs")
-      .upload(stampedPath, stamped, { contentType: "application/pdf", upsert: true });
-    if (stampedUploadErr) {
-      return NextResponse.json(
-        { error: "stamped_upload_failed", detail: stampedUploadErr.message },
-        { status: 500 },
-      );
-    }
-
-    await supabase
-      .from("contracts")
-      .update({
-        status: "signed",
-        signed_pdf_path: stampedPath,
-        signed_at: signedAt.toISOString(),
-      })
-      .eq("id", contract.id);
   }
 
   try {
