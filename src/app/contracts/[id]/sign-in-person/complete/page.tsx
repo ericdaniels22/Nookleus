@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { CheckCircle2, Download, ArrowLeft, Eye } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
+import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
 import type { Contract } from "@/lib/contracts/types";
 
 export default async function SignInPersonCompletePage({
@@ -45,6 +46,8 @@ export default async function SignInPersonCompletePage({
       })
     : "—";
 
+  const filename = `${sanitizePdfFilename(contract.title)}.pdf`;
+
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-6 py-10">
       <div className="max-w-xl w-full bg-card border border-border rounded-2xl p-10 text-center">
@@ -57,8 +60,7 @@ export default async function SignInPersonCompletePage({
 
         {contract.signed_pdf_path && (
           <Link
-            href={`/api/contracts/${contract.id}/pdf?inline=1`}
-            target="_blank"
+            href={`/contracts/${contract.id}/view`}
             className="inline-flex items-center gap-2 text-sm text-[var(--brand-primary)] hover:underline mb-6"
           >
             <Eye size={14} /> View signed PDF
@@ -75,6 +77,7 @@ export default async function SignInPersonCompletePage({
           {contract.signed_pdf_path && (
             <a
               href={`/api/contracts/${contract.id}/pdf`}
+              download={filename}
               className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
             >
               <Download size={14} /> Download PDF
