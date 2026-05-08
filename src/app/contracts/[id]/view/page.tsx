@@ -4,6 +4,7 @@ import { ArrowLeft, Download } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
+import DownloadPdfButton from "@/components/contracts/download-pdf-button";
 import SignedPdfViewerClient from "@/components/contracts/signed-pdf-viewer-client";
 import type { Contract } from "@/lib/contracts/types";
 
@@ -105,13 +106,13 @@ export default async function ContractViewPage({
                 : `Signed ${signedLabel}`}
             </p>
           </div>
-          <a
-            href={`/api/contracts/${contract.id}/pdf`}
-            download={filename}
+          <DownloadPdfButton
+            pdfUrl={`/api/contracts/${contract.id}/pdf`}
+            filename={filename}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
           >
             <Download size={14} /> Download
-          </a>
+          </DownloadPdfButton>
         </div>
       </header>
 

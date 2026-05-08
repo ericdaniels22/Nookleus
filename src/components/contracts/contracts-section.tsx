@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import SendContractModal from "./send-contract-modal";
 import SignInPersonModal from "./sign-in-person-modal";
 import VoidContractDialog from "./void-contract-dialog";
+import DownloadPdfButton from "./download-pdf-button";
 import type { ContractListItem, ContractListSigner } from "@/lib/contracts/types";
 import { cn } from "@/lib/utils";
 import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
@@ -363,13 +364,13 @@ function ContractRow({
 
       <div className="flex items-center gap-1 shrink-0">
         {row.status === "signed" && row.signed_pdf_path && (
-          <a
-            href={`/api/contracts/${row.id}/pdf`}
-            download={`${sanitizePdfFilename(row.title)}.pdf`}
+          <DownloadPdfButton
+            pdfUrl={`/api/contracts/${row.id}/pdf`}
+            filename={`${sanitizePdfFilename(row.title)}.pdf`}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <Download size={12} /> Download
-          </a>
+          </DownloadPdfButton>
         )}
         {row.status === "signed" && (
           <Link

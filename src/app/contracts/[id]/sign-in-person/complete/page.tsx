@@ -4,6 +4,7 @@ import { CheckCircle2, Download, ArrowLeft, Eye } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
+import DownloadPdfButton from "@/components/contracts/download-pdf-button";
 import type { Contract } from "@/lib/contracts/types";
 
 export default async function SignInPersonCompletePage({
@@ -75,13 +76,13 @@ export default async function SignInPersonCompletePage({
             <ArrowLeft size={14} /> Return to Job
           </Link>
           {contract.signed_pdf_path && (
-            <a
-              href={`/api/contracts/${contract.id}/pdf`}
-              download={filename}
+            <DownloadPdfButton
+              pdfUrl={`/api/contracts/${contract.id}/pdf`}
+              filename={filename}
               className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
             >
               <Download size={14} /> Download PDF
-            </a>
+            </DownloadPdfButton>
           )}
         </div>
       </div>
