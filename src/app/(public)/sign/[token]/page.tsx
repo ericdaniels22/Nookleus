@@ -166,7 +166,7 @@ function HeaderBlock({ company }: { company: CompanyBrand }) {
         </div>
         <div className="flex items-center gap-1.5 text-xs public-muted">
           <Lock size={12} />
-          Secure signing powered by AAA Platform
+          Secure signing powered by Nookleus
         </div>
       </div>
     </div>

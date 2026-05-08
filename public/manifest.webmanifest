@@ -1,0 +1,11 @@
+{
+  "name": "Nookleus",
+  "short_name": "Nookleus",
+  "icons": [
+    { "src": "/nookleus-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/nookleus-icon.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#1B2B4B",
+  "background_color": "#0F172A",
+  "display": "standalone"
+}

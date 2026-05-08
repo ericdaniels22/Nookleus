@@ -16,8 +16,20 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "AAA Disaster Recovery — Platform",
-  description: "Business management platform for AAA Disaster Recovery",
+  title: {
+    default: "Nookleus",
+    template: "%s · Nookleus",
+  },
+  description: "Operations platform for service businesses.",
+  icons: {
+    icon: [
+      { url: "/nookleus-icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/nookleus-icon-16.png", sizes: "16x16", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/nookleus-icon-192.png",
+  },
+  manifest: "/manifest.webmanifest",
 };
 
 // viewport-fit=cover lets the layout viewport extend edge-to-edge on iOS so

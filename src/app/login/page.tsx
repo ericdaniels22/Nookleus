@@ -43,7 +43,14 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <Image src="/logo.png" alt="AAA Disaster Recovery" width={200} height={73} />
+          <Image
+            src="/nookleus-lockup.png"
+            alt="Nookleus"
+            width={200}
+            height={136}
+            priority
+            className="h-16 w-auto"
+          />
         </div>
 
         {/* Login card — force light mode for readability */}
@@ -52,7 +59,7 @@ export default function LoginPage() {
             Sign In
           </h1>
           <p className="text-sm text-muted-foreground text-center mb-6">
-            Enter your credentials to access the platform
+            Sign in to Nookleus
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -101,7 +108,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-white/30 mt-6">
-          AAA Platform v1.0
+          Nookleus
         </p>
       </div>
     </div>

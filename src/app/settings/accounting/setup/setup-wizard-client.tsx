@@ -527,7 +527,7 @@ export default function SetupWizardClient({
           <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
             <AlertTriangle className="text-amber-500 shrink-0" size={18} />
             <p className="text-xs text-amber-700">
-              Dry run mode is ON by default. For the next 7+ days, AAA Platform will track what WOULD sync to QuickBooks without actually making changes. Review the &quot;What would have synced&quot; log on the Accounting page&apos;s QuickBooks tab. When you&apos;re confident the mappings are correct, flip the switch to live mode.
+              Dry run mode is ON by default. For the next 7+ days, Nookleus will track what WOULD sync to QuickBooks without actually making changes. Review the &quot;What would have synced&quot; log on the Accounting page&apos;s QuickBooks tab. When you&apos;re confident the mappings are correct, flip the switch to live mode.
             </p>
           </div>
           <div className="flex items-center justify-between pt-2">

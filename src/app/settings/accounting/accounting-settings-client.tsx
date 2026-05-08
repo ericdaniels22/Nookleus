@@ -120,7 +120,7 @@ export default function AccountingSettingsClient({
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-foreground">Connect to QuickBooks</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Connecting will allow AAA Platform to create customers, invoices, and payments in your QuickBooks Online account. You&apos;ll configure a start date and review mappings before anything syncs.
+                Connecting will allow Nookleus to create customers, invoices, and payments in your QuickBooks Online account. You&apos;ll configure a start date and review mappings before anything syncs.
               </p>
               <a
                 href="/api/qb/authorize"
