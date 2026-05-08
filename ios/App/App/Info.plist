@@ -51,5 +51,9 @@
 	<string>Nookleus uses the camera to capture job-site photos that attach directly to the active job.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Nookleus may capture short voice notes alongside job-site photos. The microphone is not used unless you tap to record.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Nookleus uses the photo library to attach existing photos to jobs.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Nookleus saves captured photos to your photo library.</string>
 </dict>
 </plist>

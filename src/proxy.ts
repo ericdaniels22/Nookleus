@@ -63,6 +63,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|logo.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Excludes Next-internals, common image extensions, the pdf.js worker
+    // file at /pdf.worker.min.mjs (served from /public so the public
+    // /sign/[token] page can render contract PDFs without an auth-redirect
+    // dance), and the PWA manifest.webmanifest.
+    "/((?!_next/static|_next/image|favicon.ico|logo.png|manifest\\.webmanifest|pdf\\.worker\\.min\\.mjs|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

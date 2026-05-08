@@ -39,7 +39,7 @@ export async function calculateJobMargin(jobId: string): Promise<JobMargin> {
 
   const [jobRes, invoicesRes, paymentsRes, expensesRes] = await Promise.all([
     supabase.from("jobs").select("id, job_number, status, estimated_crew_labor_cost").eq("id", jobId).maybeSingle(),
-    supabase.from("invoices").select("total_amount").eq("job_id", jobId),
+    supabase.from("invoices").select("total_amount").eq("job_id", jobId).is("deleted_at", null),
     supabase.from("payments").select("amount").eq("job_id", jobId).eq("status", "received"),
     supabase.from("expenses").select("amount").eq("job_id", jobId),
   ]);
@@ -89,7 +89,7 @@ export async function aggregateMargins(
 
   const [jobsRes, invoicesRes, paymentsRes, expensesRes] = await Promise.all([
     supabase.from("jobs").select("id, job_number, status, estimated_crew_labor_cost, damage_type, property_address"),
-    supabase.from("invoices").select("job_id, total_amount, issued_date"),
+    supabase.from("invoices").select("job_id, total_amount, issued_date").is("deleted_at", null),
     supabase.from("payments").select("job_id, amount, received_date, status"),
     supabase.from("expenses").select("job_id, amount, expense_date"),
   ]);

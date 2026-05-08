@@ -60,7 +60,8 @@ async function buildArAgingCSV(): Promise<string> {
   const [invRes, payRes] = await Promise.all([
     supabase
       .from("invoices")
-      .select("id, job_id, invoice_number, total_amount, status, issued_date"),
+      .select("id, job_id, invoice_number, total_amount, status, issued_date")
+      .is("deleted_at", null),
     supabase.from("payments").select("invoice_id, amount").eq("status", "received"),
   ]);
   const paidByInvoice = new Map<string, number>();

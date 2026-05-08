@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, X, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import NotificationBell from "@/components/notification-bell";
@@ -32,6 +32,47 @@ export default function Sidebar() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Active-workspace branding. RLS scopes /api/settings/company to the
+  // active org, so this fetch returns whichever workspace the user is in.
+  const [companyName, setCompanyName] = useState<string>("");
+  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile) {
+      setCompanyName("");
+      setCompanyLogoUrl(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/settings/company")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { company_name?: string; logo_path?: string } | null) => {
+        if (cancelled || !data) return;
+        setCompanyName(data.company_name || "");
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (data.logo_path && supabaseUrl) {
+          setCompanyLogoUrl(
+            `${supabaseUrl}/storage/v1/object/public/company-assets/${data.logo_path}`,
+          );
+        } else {
+          setCompanyLogoUrl(null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
+  const companyInitials =
+    companyName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 3)
+      .toUpperCase() || "•";
+
   async function handleSignOut() {
     await signOut();
     router.push("/login");
@@ -52,8 +93,21 @@ export default function Sidebar() {
           is what consumers (AppShell, email inbox) assume when computing
           their own offsets. */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 gradient-sidebar border-b border-white/10 px-4 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="AAA Logo" width={120} height={44} className="h-9 w-auto" />
+        <div className="flex items-center gap-3 min-w-0">
+          {companyLogoUrl ? (
+            <Image
+              src={companyLogoUrl}
+              alt={companyName || "Workspace"}
+              width={120}
+              height={44}
+              className="h-9 w-auto"
+              unoptimized
+            />
+          ) : (
+            <span className="text-sm font-semibold text-white truncate max-w-[180px]">
+              {companyName || ""}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <NotificationBell />
@@ -85,13 +139,26 @@ export default function Sidebar() {
             collapsed ? "w-52 lg:w-16" : "w-52",
           )}
         >
+        {/* Nookleus mark — platform identity. The workspace logo below is tenant identity. */}
+        {!collapsed && (
+          <div className="shrink-0 px-3 pt-3 pb-1">
+            <Image
+              src="/nookleus-lockup-240w.png"
+              alt="Nookleus"
+              width={120}
+              height={82}
+              priority
+              className="h-6 w-auto opacity-90"
+            />
+          </div>
+        )}
         {/* Logo area */}
         {collapsed ? (
           <div className="shrink-0 px-2 py-2 border-b border-white/10 flex flex-col items-center gap-1.5 overflow-hidden">
             {/* Logo mark (AAA initials square) */}
             <div className="w-10 h-10 rounded-lg bg-[image:var(--gradient-primary)] flex items-center justify-center shrink-0 shadow-sm">
               <span className="text-[11px] font-bold text-white tracking-tight">
-                AAA
+                {companyInitials}
               </span>
             </div>
             <div className="hidden lg:flex flex-col items-center gap-1">
@@ -109,12 +176,20 @@ export default function Sidebar() {
           </div>
         ) : (
           <div className="shrink-0 px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2 overflow-hidden">
-            <Image
-              src="/logo.png"
-              alt="AAA Disaster Recovery"
-              width={120}
-              height={120}
-            />
+            {companyLogoUrl ? (
+              <Image
+                src={companyLogoUrl}
+                alt={companyName || "Workspace"}
+                width={120}
+                height={120}
+                className="h-auto w-auto max-h-16 max-w-[140px] object-contain"
+                unoptimized
+              />
+            ) : (
+              <span className="text-sm font-semibold text-white/90 truncate min-w-0">
+                {companyName || ""}
+              </span>
+            )}
             <div className="hidden lg:flex flex-col items-center gap-1 shrink-0">
               <NotificationBell />
               <button
@@ -250,7 +325,7 @@ export default function Sidebar() {
               </div>
             )
           ) : (
-            <p className="text-white/30 text-xs">AAA Platform v1.0</p>
+            <p className="text-white/30 text-xs">Nookleus</p>
           )}
         </div>
         </aside>

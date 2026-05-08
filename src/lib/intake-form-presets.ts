@@ -1,0 +1,91 @@
+import type { FieldPreset } from "./types";
+
+export const FIELD_PRESETS: FieldPreset[] = [
+  {
+    key: "phone",
+    name: "Phone",
+    icon: "Phone",
+    description: "Phone number with US format hint",
+    makeField: () => ({
+      type: "phone",
+      label: "Phone",
+      placeholder: "(555) 123-4567",
+      required: false,
+      is_default: false,
+      visible: true,
+    }),
+  },
+  {
+    key: "email",
+    name: "Email",
+    icon: "Mail",
+    description: "Email address",
+    makeField: () => ({
+      type: "email",
+      label: "Email",
+      placeholder: "name@example.com",
+      required: false,
+      is_default: false,
+      visible: true,
+    }),
+  },
+  {
+    key: "us_address",
+    name: "US Address",
+    icon: "MapPin",
+    description: "Single-line text for full street address",
+    makeField: () => ({
+      type: "text",
+      label: "Address",
+      placeholder: "123 Main St, Austin, TX 78701",
+      required: false,
+      is_default: false,
+      visible: true,
+    }),
+  },
+  {
+    key: "yes_no",
+    name: "Yes / No",
+    icon: "ToggleRight",
+    description: "Pill selector with Yes and No options",
+    makeField: () => ({
+      type: "pill",
+      label: "Yes or no?",
+      required: false,
+      is_default: false,
+      visible: true,
+      options: [
+        { value: "yes", label: "Yes" },
+        { value: "no", label: "No" },
+      ],
+    }),
+  },
+  {
+    key: "currency",
+    name: "Currency",
+    icon: "DollarSign",
+    description: "Number field for dollar amounts",
+    makeField: () => ({
+      type: "number",
+      label: "Amount",
+      placeholder: "0.00",
+      help_text: "Enter dollar amount",
+      required: false,
+      is_default: false,
+      visible: true,
+    }),
+  },
+  {
+    key: "date",
+    name: "Date",
+    icon: "Calendar",
+    description: "Date picker",
+    makeField: () => ({
+      type: "date",
+      label: "Date",
+      required: false,
+      is_default: false,
+      visible: true,
+    }),
+  },
+];

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { resolveMergeFields } from "@/lib/contracts/merge-fields";
 import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
 import { sendContractEmail } from "@/lib/contracts/email";
 import { generateSigningToken } from "@/lib/contracts/tokens";
 import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import type { ContractEmailSettings } from "@/lib/contracts/types";
+import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
 
 interface SendSignerInput {
   name: string;
@@ -70,6 +70,19 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Guard-rail: the email body must contain the signing-link merge field
+  // (either as a {{signing_link}} token or a Tiptap pill with
+  // data-field-name="signing_link"). Without it, the resolver has nothing to
+  // substitute and the recipient gets an email with no way to sign.
+  const hasSigningLinkToken =
+    body.emailBody.includes("{{signing_link}}") ||
+    /data-field-name=["']signing_link["']/i.test(body.emailBody);
+  if (!hasSigningLinkToken) {
+    return NextResponse.json(
+      { error: "Email body must contain the {{signing_link}} placeholder so the recipient gets a sign-in link." },
+      { status: 400 },
+    );
+  }
 
   const supabase = createServiceClient();
   const orgId = await getActiveOrganizationId(authClient);
@@ -97,13 +110,13 @@ export async function POST(request: Request) {
   // --- Fetch template ---
   const { data: tpl, error: tErr } = await supabase
     .from("contract_templates")
-    .select("id, name, content_html, version, is_active, signer_role_label")
+    .select("id, name, pdf_storage_path, version, is_active, signer_role_label")
     .eq("id", body.templateId)
     .eq("organization_id", orgId)
     .maybeSingle<{
       id: string;
       name: string;
-      content_html: string;
+      pdf_storage_path: string | null;
       version: number;
       is_active: boolean;
       signer_role_label: string | null;
@@ -114,8 +127,8 @@ export async function POST(request: Request) {
   if (!tpl.is_active) {
     return NextResponse.json({ error: "Template is archived" }, { status: 400 });
   }
-  if (!tpl.content_html?.trim()) {
-    return NextResponse.json({ error: "Template has no content" }, { status: 400 });
+  if (!tpl.pdf_storage_path) {
+    return NextResponse.json({ error: "Template has no PDF" }, { status: 400 });
   }
 
   // --- Confirm the job exists ---
@@ -129,9 +142,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: jErr?.message || "Job not found" }, { status: 404 });
   }
 
-  // --- Resolve merge fields ---
-  const { html: filledHtml } = await resolveMergeFields(supabase, tpl.content_html, body.jobId);
-  const filledHash = createHash("sha256").update(filledHtml).digest("hex");
+  const filledHtml = EMPTY_HTML;
+  const filledHash = EMPTY_HTML_SHA256;
 
   // --- Compute IDs, token, expiry ---
   const contractId = randomUUID();

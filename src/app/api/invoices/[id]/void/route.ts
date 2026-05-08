@@ -5,7 +5,8 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import type { InvoiceRow } from "@/lib/invoices/types";
+import type { InvoiceRow } from "@/lib/invoices";
+import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 export async function POST(
   _request: Request,
@@ -19,10 +20,12 @@ export async function POST(
   const service = createServiceClient();
   const { data: current } = await service
     .from("invoices")
-    .select("status")
+    .select("status, deleted_at")
     .eq("id", id)
-    .maybeSingle<{ status: string }>();
+    .maybeSingle<{ status: string; deleted_at: string | null }>();
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const trashed = assertNotTrashed(current);
+  if (trashed) return trashed;
   if (current.status === "voided") {
     return NextResponse.json({ error: "already voided" }, { status: 400 });
   }

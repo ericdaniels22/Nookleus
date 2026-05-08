@@ -2,12 +2,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
-import { InvoiceStatusPill } from "./invoice-status-pill";
-import type { InvoiceRow, InvoiceStatus } from "@/lib/invoices/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  formatStatusLabel,
+  getStatusBadgeClasses,
+} from "@/lib/estimate-status";
+import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
+import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
+import { daysLeft } from "@/lib/trash/days-left";
+import type { InvoiceRow, InvoiceStatus } from "@/lib/invoices";
 
-type StatusFilter = "all" | InvoiceStatus;
+type StatusFilter = "all" | InvoiceStatus | "trash";
 
 interface InvoiceWithJob extends InvoiceRow {
   jobs?: {
@@ -18,15 +30,37 @@ interface InvoiceWithJob extends InvoiceRow {
   };
 }
 
-const FILTER_TABS: StatusFilter[] = ["all", "draft", "sent", "partial", "paid", "voided"];
+const FILTER_TABS: StatusFilter[] = ["all", "draft", "sent", "partial", "paid", "voided", "trash"];
 
 export default function InvoiceListClient() {
   const [rows, setRows] = useState<InvoiceWithJob[]>([]);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [trashRows, setTrashRows] = useState<InvoiceWithJob[]>([]);
+  const [forceTarget, setForceTarget] = useState<InvoiceWithJob | null>(null);
+  const [isForceDeleting, setIsForceDeleting] = useState(false);
+  const [trashTarget, setTrashTarget] = useState<InvoiceWithJob | null>(null);
+  const [isTrashing, setIsTrashing] = useState(false);
+
+  const refreshTrash = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch("/api/invoices/trash");
+    if (!res.ok) {
+      toast.error("Failed to load trash");
+      setLoading(false);
+      return;
+    }
+    const data = (await res.json()) as { invoices: InvoiceWithJob[] };
+    setTrashRows(data.invoices);
+    setLoading(false);
+  }, []);
 
   const refresh = useCallback(async () => {
+    if (filter === "trash") {
+      await refreshTrash();
+      return;
+    }
     setLoading(true);
     const params = new URLSearchParams();
     if (filter !== "all") params.set("status", filter);
@@ -41,11 +75,60 @@ export default function InvoiceListClient() {
     const data = (await res.json()) as { rows: InvoiceWithJob[] };
     setRows(data.rows);
     setLoading(false);
-  }, [filter, search]);
+  }, [filter, search, refreshTrash]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const onTrash = useCallback(
+    async (reason: string | null) => {
+      if (!trashTarget || isTrashing) return;
+      setIsTrashing(true);
+      const res = await fetch(`/api/invoices/${trashTarget.id}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delete_reason: reason }),
+      });
+      setIsTrashing(false);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        toast.error(body?.error ?? "Failed to move to trash");
+        return;
+      }
+      toast.success(`Invoice ${trashTarget.invoice_number} moved to trash`);
+      setTrashTarget(null);
+      refresh();
+    },
+    [trashTarget, isTrashing, refresh],
+  );
+
+  const onRestore = useCallback(
+    async (r: InvoiceWithJob) => {
+      const res = await fetch(`/api/invoices/${r.id}/restore`, { method: "POST" });
+      if (!res.ok) {
+        toast.error("Failed to restore invoice");
+        return;
+      }
+      toast.success(`Invoice ${r.invoice_number} restored`);
+      await refreshTrash();
+    },
+    [refreshTrash],
+  );
+
+  const onForceDelete = useCallback(async () => {
+    if (!forceTarget || isForceDeleting) return;
+    setIsForceDeleting(true);
+    const res = await fetch(`/api/invoices/${forceTarget.id}`, { method: "DELETE" });
+    setIsForceDeleting(false);
+    setForceTarget(null);
+    if (!res.ok) {
+      toast.error("Failed to delete invoice");
+      return;
+    }
+    toast.success(`Invoice ${forceTarget.invoice_number} permanently deleted`);
+    await refreshTrash();
+  }, [forceTarget, isForceDeleting, refreshTrash]);
 
   return (
     <div className="p-6 space-y-5">
@@ -54,12 +137,6 @@ export default function InvoiceListClient() {
           <h1 className="text-2xl font-semibold">Invoices</h1>
           <p className="text-sm text-muted-foreground">All invoices across all jobs</p>
         </div>
-        <Link
-          href="/invoices/new"
-          className="px-4 py-2 rounded-lg bg-[#0F6E56] text-white text-sm font-medium hover:brightness-110 flex items-center gap-2"
-        >
-          <Plus size={14} /> New invoice
-        </Link>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -73,12 +150,12 @@ export default function InvoiceListClient() {
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
           >
-            {f === "all" ? "All" : f[0].toUpperCase() + f.slice(1)}
+            {f === "all" ? "All" : f === "trash" ? "Trash" : f[0].toUpperCase() + f.slice(1)}
           </button>
         ))}
         <input
           type="text"
-          placeholder="Search invoice #, memo, notes…"
+          placeholder="Search invoice #, title, memo…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="ml-auto border border-border rounded-lg px-3 py-1.5 bg-background text-sm w-72"
@@ -89,52 +166,162 @@ export default function InvoiceListClient() {
         <div className="py-12 text-center text-muted-foreground">
           <Loader2 className="animate-spin mx-auto mb-2" size={22} /> Loading…
         </div>
+      ) : filter === "trash" ? (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Invoice #</th>
+                <th className="text-left px-4 py-2 font-medium">Title</th>
+                <th className="text-left px-4 py-2 font-medium">Customer</th>
+                <th className="text-left px-4 py-2 font-medium">Job</th>
+                <th className="text-right px-4 py-2 font-medium">Total</th>
+                <th className="text-left px-4 py-2 font-medium">Status</th>
+                <th className="text-left px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trashRows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-8 text-muted-foreground">
+                    Trash is empty.
+                  </td>
+                </tr>
+              )}
+              {trashRows.map((r) => (
+                <tr key={r.id} className="border-t border-border opacity-60 bg-muted/30">
+                  <td className="px-4 py-2 font-mono text-xs">
+                    <Link href={`/invoices/${r.id}`} className="text-primary hover:underline">
+                      {r.invoice_number}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">{r.title || "—"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {[r.jobs?.contacts?.first_name, r.jobs?.contacts?.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "—"}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {r.jobs ? (r.jobs.property_address ?? r.jobs.job_number) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-right text-muted-foreground">
+                    ${Number(r.total_amount).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className="text-xs text-muted-foreground">
+                      In trash · {daysLeft(r.deleted_at)} days left
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="text-blue-600 text-xs hover:underline"
+                        onClick={() => void onRestore(r)}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        className="text-red-600 text-xs hover:underline"
+                        onClick={() => setForceTarget(r)}
+                      >
+                        Delete now
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Invoice</th>
+                <th className="text-left px-4 py-2 font-medium">Invoice #</th>
+                <th className="text-left px-4 py-2 font-medium">Title</th>
                 <th className="text-left px-4 py-2 font-medium">Customer</th>
                 <th className="text-left px-4 py-2 font-medium">Job</th>
+                <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Total</th>
                 <th className="text-left px-4 py-2 font-medium">Issued</th>
                 <th className="text-left px-4 py-2 font-medium">Due</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">QB</th>
+                <th className="px-4 py-2 font-medium w-10" />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <td colSpan={10} className="text-center py-8 text-muted-foreground">
                     No invoices match the current filters.
                   </td>
                 </tr>
               )}
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-border hover:bg-accent/30">
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 font-mono text-xs">
                     <Link href={`/invoices/${r.id}`} className="text-primary hover:underline">
                       {r.invoice_number}
                     </Link>
                   </td>
+                  <td className="px-4 py-2">{r.title || "—"}</td>
                   <td className="px-4 py-2">
                     {[r.jobs?.contacts?.first_name, r.jobs?.contacts?.last_name]
                       .filter(Boolean)
                       .join(" ") || "—"}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {r.jobs?.property_address ?? r.jobs?.job_number ?? "—"}
+                    {r.jobs ? (
+                      <Link
+                        href={`/jobs/${r.jobs.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {r.jobs.property_address ?? r.jobs.job_number}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${getStatusBadgeClasses(
+                        "invoice",
+                        r.status,
+                      )}`}
+                    >
+                      {formatStatusLabel("invoice", r.status)}
+                    </span>
                   </td>
                   <td className="px-4 py-2 text-right">${Number(r.total_amount).toFixed(2)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(r.issued_date)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(r.due_date)}</td>
-                  <td className="px-4 py-2">
-                    <InvoiceStatusPill status={r.status} />
-                  </td>
                   <td className="px-4 py-2 text-xs text-muted-foreground">
                     {r.qb_invoice_id ? `QB ${r.qb_invoice_id}` : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className="inline-flex items-center justify-center rounded-md h-7 w-7 p-0 hover:bg-accent hover:text-accent-foreground transition-colors"
+                        aria-label={`Actions for ${r.invoice_number}`}
+                      >
+                        <MoreVertical size={14} />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem render={<Link href={`/invoices/${r.id}`} />}>
+                          View
+                        </DropdownMenuItem>
+                        <DropdownMenuItem render={<Link href={`/invoices/${r.id}/edit`} />}>
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setTrashTarget(r)}
+                          className="text-destructive"
+                        >
+                          Trash
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}
@@ -142,6 +329,24 @@ export default function InvoiceListClient() {
           </table>
         </div>
       )}
+
+      <ForceDeleteConfirmDialog
+        open={forceTarget !== null}
+        onOpenChange={(open) => { if (!open) setForceTarget(null); }}
+        documentKind="invoice"
+        documentNumber={forceTarget?.invoice_number ?? ""}
+        onConfirm={onForceDelete}
+        isDeleting={isForceDeleting}
+      />
+
+      <TrashConfirmDialog
+        open={trashTarget !== null}
+        onOpenChange={(open) => { if (!open) setTrashTarget(null); }}
+        documentKind="invoice"
+        documentNumber={trashTarget?.invoice_number ?? ""}
+        onConfirm={onTrash}
+        isTrashing={isTrashing}
+      />
     </div>
   );
 }

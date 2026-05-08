@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
+import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
 import FinancialsTab from "@/components/job-detail/financials-tab";
+import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -140,7 +142,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
       supabase
         .from("invoices")
         .select("id, total_amount")
-        .eq("job_id", jobId),
+        .eq("job_id", jobId)
+        .is("deleted_at", null),
       supabase
         .from("photos")
         .select("*")
@@ -748,6 +751,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         existingAdjusterIds={(job.job_adjusters || []).map((ja) => ja.contact_id)}
         onSaved={fetchData}
       />
+
+      <EstimatesInvoicesSection jobId={jobId} />
 
       <JobFiles jobId={jobId} />
 
@@ -1619,7 +1624,7 @@ function AddAdjusterDialog({
     const timer = setTimeout(async () => {
       setSearching(true);
       const supabase = createClient();
-      const term = `%${search.trim()}%`;
+      const term = escapeOrFilterValue(`%${search.trim()}%`);
       const { data } = await supabase
         .from("contacts")
         .select("*")

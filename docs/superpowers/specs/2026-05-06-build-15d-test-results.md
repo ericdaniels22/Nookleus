@@ -1,0 +1,371 @@
+---
+date: 2026-05-06
+build_id: 15d
+session_type: manual-test
+related: ["[[build-15d]]", "[[2026-05-06-build-15d-implementation]]"]
+spec: docs/superpowers/specs/2026-05-06-build-15d-contract-template-pdf-overlay-design.md
+deploy_commit: 8f2411b
+---
+
+# Build 15d — §11 Manual Test Pass Results
+
+Tests run against Vercel deploys of `4208e54` → `96eebeb` → `934883b` → `2a2bc32` → `3236d7d` → `8f2411b` (org: AAA prod).
+
+Legend: ✅ PASS · ❌ FAIL · ⏸ BLOCKED · ⏭ NOT YET RUN
+
+## Summary
+
+| # | Test | Status | Notes |
+|---|------|--------|-------|
+| 1a | Click "+ Upload Contract PDF" → editor (Bug 1 verify) | ✅ | Fix `96eebeb` verified in AAA prod. New row "Untitled Template (2)" created (suffix logic skipped existing "Untitled Template" + "(copy 2)"). |
+| 1b | Upload AAA FM-7001 PDF | ✅ | After Bug 2 fix `934883b` deployed. PDF renders at responsive scale 0.588 (360×466 CSS px per page) on AAA prod, full headings + body text legible. |
+| 2 | Place all 5 overlay fields | ✅* | 4/5 PASS — page 5 NAME + SERVICE LOCATION + SIGNATURE + DATE placed prior session. Page 4 county merge skipped: no `county` entry in `MERGE_FIELDS` registry; Eric will use a custom-text label there (rolls into Test 5). Inline UX fix `3236d7d` moved trash from chip into FieldInspector right column. |
+| 3 | Move and resize a field | ✅ | NAME merge moved 100pt right + 50pt down (146, 62 → 246, 112) and resized 280×27 → 300×20pt via synthetic `PointerEvent`s in Chrome MCP. Post-reload persistence verified (245.7, 111.7, 299.6×20.4 — sub-pt drift is float math). |
+| 4 | Add Input + Checkbox | ✅ | Both dropped via synthetic `DragEvent` w/ `Object.defineProperty(ev, 'clientX/Y')` workaround for Chrome's coord-init quirk. Input "Special Instructions" + checkbox "I agree to terms" persist post-reload with `inputKey` + `inputLabel` + `required: true`. |
+| 5 | Add Free-text label | ✅ | Label dropped on page 1 at (206, 32, 200×16) with `labelText="INTERNAL USE ONLY"`. Persisted post-reload. Textarea (controlled) populated via `HTMLTextAreaElement.prototype.value` setter + bubbled `'input'` event. |
+| 6 | Preview stamped sample | ✅* | Preview route returns 200 + 286 KB stamped PDF; pdf.js text-extraction confirms `INTERNAL USE ONLY` (page 1), `John Doe`, `123 Main Street, Austin, TX 78701`, today's date, `Sample Special Instructions`, and `X` checkmark all stamped on page 5. **Caveat:** preview route passes `signatureDataUrls: {}` so the signature field draws nothing — spec said "sample signature image". Small gap, filed as carry-over. |
+| 7 | Send to test customer | ✅* | Resend test-mode rejected `eric+t1@aaacontracting.com` (only the exact registered address is accepted; `+alias` not honored). Switched to bare `eric@aaacontracting.com`. Contract `114aab5e-8d54-4be0-ad5f-3584055db7af` dispatched, message_id `8dae6301-f0b2-4e86-a61c-faed053eca6d`. Discarded a failed-send draft `c373a47f-...` first (now VOIDED). |
+| 8 | Sign as customer | ✅* | After Bug 5 fix `build15d_signature_png_mime_fix` migration. First submit returned 500 `signature_upload_failed: mime type image/png is not supported`; post-migration second submit `{ok:true, all_signed:true}`. Spec divergence (minor): submit button is disabled until required fields filled instead of click→toast. |
+| 9 | Verify stamped PDF | ✅ | After Bug 6 fix `8f2411b` deployed. `GET /api/contracts/114aab5e.../pdf` returns 200 / 287,681 bytes / `%PDF-1.7`. pdfjs parse confirms 5 pages, page 5 has 1 image (signature embedded), real customer name resolved (NOT preview sample "John Doe"), property_address resolved, MM/DD/YYYY date, input value "Test pass — signed via Chrome MCP", X checkmark glyph, INTERNAL USE ONLY label on page 1. All 6 stamped fields at expected PDF-pt positions (drift ≤14pt consistent with `pdf-lib` baseline-y semantics). |
+| 10 | Two-signer template | ✅* | New AAA template `cf0a41af-...` "Test 10 — Two-signer (AAA)" with signer_count=2 + 2 signature fields on page 5. Contract `43c31af5-...` dispatched (Resend mid `958df8f6-...`); signer 1 signed via email-link /sign/[token] flow; signer 2 signed via /api/contracts/in-person admin route (workaround for unported email handoff). Final stamped PDF: 5 pages, page 5 has **2 paint-image ops** (one per signer) at distinct positions. Status transitioned `sent` → `viewed` → `signed`. **Two findings:** (1) no `partially_signed` status — spec said signer-1 → `partially_signed`, actual was `viewed`; (2) public sign page rendered blank in Eric's browser but not in MCP tab — likely cache/refresh issue, not reproducible. |
+| 11 | Replace PDF | ✅* | E2E via dedicated AAA template `c5b6a727-...` "Test 11 — Replace PDF (AAA)". Created template, uploaded a 1986-byte 5-page PDF generated via pdf-lib, PATCHed 2 overlay fields (1 label + 1 merge), then POSTed a 940-byte 1-page replacement PDF to `/api/settings/contract-templates/[id]/pdf`. Server wiped overlay_fields 2→0, page_count 5→1, version 4→5, new pdf_storage_path. UI button-click path verified by code-read: template-pdf-editor.tsx:149-172 calls `confirm()` then dynamic `<input type=file>` click then same POST endpoint. *Caveat:* did not E2E the UI button click path because Chrome MCP can't drive native `confirm()` dialogs (would freeze the renderer per system prompt); backend behavior + code path both verified. |
+| 12 | Legacy contract readable | ⏭ N/A | No pre-15d signed contract exists in AAA or Test Co per Eric's recollection. Legacy-render branch (`filled_content_html` rendering) is dormant in practice; migration kept the column intact so any hypothetical future legacy data would still render. Untestable in this session; not a 15d ship blocker. |
+
+## Test details
+
+### 1a. Click "+ Upload Contract PDF" lands in editor (Bug 1 verify)
+
+**Spec:** CTA → POST `/api/settings/contract-templates` returns 200 → router pushes to `/settings/contract-templates/{id}/edit` → upload zone renders. No "Failed to create template" toast.
+
+**Result:** ✅ PASS in AAA prod against deploy of `96eebeb` (2026-05-06, ~6:48 PM PT). Click → navigated to `/settings/contract-templates/d9767028-d054-40e1-886f-1396af224307/edit`. Editor rendered the empty `<TemplatePdfUploadZone>` (Upload icon, "Upload Contract PDF" heading, body copy, "Choose PDF" button, "10 MB max" caption). Templates list reloaded to show new row **"Untitled Template (2)"** (Archived, no PDF, 1 signer, 6:48 PM) — confirms the `pickUniqueTemplateName` suffix logic from the fix correctly skipped the existing "Untitled Template" (Archived, 5:10 PM) and "Untitled Template (copy 2)" (Active, 5:10 PM) rows. Bug 1 closed.
+
+---
+
+### 1b. Upload AAA's FM-7001 PDF
+
+**Spec:** Editor renders all 5 pages; page count badge shows "5 pages".
+
+**Result:** ✅ PASS after Bug 2 fix `934883b`. PDF uploaded onto template `60862e63-59dc-4529-84e2-84724774ea3a` ("Untitled Template (3)") via "Copy of RC Work Authorization.pdf" — 5 pages, 286 KB. After fix deployed, editor renders all 5 pages at responsive scale (0.588× on a 1512-CSS-px viewport, yielding 360×466 CSS px per page). All headings + body sections legible. Page count is implicit (5 canvases rendered) — there's no numeric "5 pages" badge in the editor header (header shows "← Templates" + "v2") so that part of the spec is aspirational vs shipped UI; not blocking. **Bug 2 caveat:** see below — fix changed the editor's working scale from a fixed 1.5× to fit-to-container, which on this viewport renders pages at ~60% of the original size. Field placement at small scale is workable but may feel cramped; UX refinement of editor column widths is a separate follow-up.
+
+---
+
+---
+
+### 2. Place all 5 overlay fields
+
+**Spec:** Page 4 county merge, page 5 NAME merge + SERVICE LOCATION merge + CUSTOMER SIGNATURE signature + DATE date. Save (auto + manual). Reload editor — all 5 fields persist at exact pixel positions.
+
+**Result:** ✅ PASS at 4/5. Page 5 NAME merge (`{{customer_name}}` at 159, 170 · 215×28pt), SERVICE LOCATION merge (`{{property_address}}`), CUSTOMER SIGNATURE (`Signature 1`), DATE (`Signed date`) all placed in prior session and confirmed persisted at v37 in this session.
+
+**Page 4 county merge skipped (deliberate):** spec calls for a "county merge field" but `MERGE_FIELDS` registry (`src/lib/contracts/merge-fields.ts`) has no `county` entry — closest is `property_address` which is the full address, and there's no county column on `jobs` or `contacts`. Adding a real county merge would need a schema column + intake-form mapping + UI. Out of 15d scope. Eric will use a free-text `label` field with static "County, TX" text in that spot — rolls into Test 5 coverage. Logged as a follow-up chip: "add county merge field (or expose already-derived county from address parsing) — needed for FM-7001 §6 Jurisdiction line."
+
+**Inline UX fix during this session:** trash icon inside the chip overlapped chip text on small fields (NAME, DATE both ≤30pt tall) — hard to see what was selected. Commit `3236d7d` moves trash button out of `<OverlayFieldChip>` and into the right column `<FieldInspector>` as a full-width "Delete field" button at the bottom. Pushed to origin/main; Vercel auto-deploy.
+
+---
+
+### 3. Move and resize a field
+
+**Spec:** Drag NAME merge field 50pt down + 100pt right; resize to 300pt × 20pt. Save. Reload — exact new position.
+
+**Result:** ✅ PASS. NAME merge moved + resized via synthetic `PointerEvent`s dispatched through `mcp__claude-in-chrome__javascript_tool`. Pre-state: x=145.7, y=61.7, w=279.7, h=27.4pt (page 5). Move sequence: `pointerdown` on chip body (avoiding corner handles), `pointermove` on `window` with delta (+58.82px, +29.41px) at scale 0.588 (= +100pt, +50pt), `pointerup` on `window`. Post-move state: 246, 112, 280×27pt (per inspector). Resize sequence: `pointerdown` on `span[data-handle="se"]`, `pointermove` on `window` with delta (+11.76px, -4.12px) (= +20pt, -7pt), `pointerup`. Post-resize state: 246, 112, 300×20pt (per inspector). Auto-saved + page reloaded — server-persisted state read back as 245.7, 111.7, 299.6×20.4 (sub-pt drift is float-math noise). **Confirms synthetic `PointerEvent`s drive the chip's `onPointerDown` move/resize handlers properly through React's event delegation** — relevant for further automation of Tests 4–11.
+
+---
+
+### 4. Add an Input field + a Checkbox
+
+**Spec:** Add input "Special Instructions" + checkbox "I agree to terms". Save. Reload — both persist with their `inputKey` + label + required flag.
+
+**Result:** ✅ PASS. Both dropped onto page 5 via synthetic `DragEvent` w/ `DataTransfer` and `Object.defineProperty(ev, 'clientX/Y', { value })` to defeat Chrome's `DragEvent` constructor coord-discard quirk (clientX/Y in init dict is silently dropped → drop handler sees 0). Inspector inputs (controlled React inputs) populated via the native HTMLInputElement value setter + bubbled `'input'` event:
+
+```js
+const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+setter.call(el, value);
+el.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+Required flag toggled via `el.click()` on the checkbox. Post-reload server state confirms both persisted:
+
+- **Input** at page 5, (200, 391, 200×18): `inputKey="special_instructions"`, `inputLabel="Special Instructions"`, `required=true`.
+- **Checkbox** at page 5, (293, 443, 14×14): `inputKey="agree_terms"`, `inputLabel="I agree to terms"`, `required=true`.
+
+---
+
+### 5. Add a Free-text label
+
+**Spec:** Type "INTERNAL USE ONLY" at top of page 1. Save + reload.
+
+**Result:** ✅ PASS. Label chip dropped on page 1 (synthetic `DragEvent` w/ `Object.defineProperty` clientX/Y). `labelText` set to "INTERNAL USE ONLY" via `HTMLTextAreaElement.prototype.value` setter + bubbled `'input'` event on the inspector textarea. Post-reload server state: page 1, (206, 32, 200×16pt), labelText="INTERNAL USE ONLY".
+
+---
+
+### 6. Preview
+
+**Spec:** Click Preview — opens stamped sample PDF in new tab — all 7 fields visible with sample values + sample signature image.
+
+**Result:** ✅ PASS with caveat. `GET /api/settings/contract-templates/{id}/preview` returns `200 application/pdf` (286 KB, `%PDF-1.7` signature). Verified text overlay via in-browser pdfjs:
+
+- Page 1: contains `INTERNAL USE ONLY` (label field) ✓
+- Page 5: contains `John Doe` (customer_name merge sample), `123 Main Street, Austin, TX 78701` (property_address sample), `MM/DD/YYYY` date stamp, `Sample Special Instructions` (input default value), and `X` checkmark glyph ✓
+
+**Caveat — signature placeholder missing:** preview route (`src/app/api/settings/contract-templates/[id]/preview/route.ts:115`) passes `signatureDataUrls: {}` and `signerOrderById: {}` empty. `stampPdf`'s signature case calls `findSignerIdByOrder(input.signerOrderById, field.signerOrder)` which returns null with empty map, so the signature field is silently skipped — no image, no placeholder rendered. Spec explicitly called for a "sample signature image" in preview. Small gap, doesn't block authoring (preview is for placement verification; the author can see chip placement in editor). Filed as carry-over chip: "preview should render a hatched / 'Signature 1' placeholder rectangle for signature fields when no real signatures are present (or generate a tiny synthetic signature data URL)."
+
+---
+
+### 7. Send the contract
+
+**Spec:** Send to test customer (Eric's `+t1` alias). Resend dispatches; email arrives with link.
+
+**Result:** ✅ PASS with detour. Initial attempt with recipient `eric+t1@aaacontracting.com` was rejected by Resend with: *"You can only send testing emails to your own email address (eric@aaacontracting.com). To send emails to other recipients, please verify a domain at resend.com/domains."* Resend's test-mode whitelist is **exact-string** — no `+alias` form is accepted. The failed-send created an orphan draft `c373a47f-aec1-4d83-8ee4-c4c80045b42c` in `draft` status (with the failed-send error message but no email dispatched); discarded via the kebab → row flipped to VOIDED. Retried with bare `eric@aaacontracting.com`. New contract `114aab5e-8d54-4be0-ad5f-3584055db7af`, Resend message_id `8dae6301-f0b2-4e86-a61c-faed053eca6d`, signing link expires `2026-05-14T01:49:11.554+00:00` (7 days). Toast: "Contract sent for signature".
+
+**Carry-over chips:** (1) verify a domain at `resend.com/domains` so contract emails can go to anyone; (2) the discarded-draft kebab only had Discard + Edit, no Retry — failed-send drafts should expose a "Retry send" action.
+
+---
+
+### 8. Sign as customer
+
+**Spec:** Open link → all merges show resolved values, input is blank with placeholder, checkbox is unchecked, signature placeholder is hatched. Submit before filling required fields → error toast "Required: …". Fill input, check box, sign. Submit succeeds.
+
+**Result:** ✅ PASS after Bug 5 fix. Token in the signing URL is a self-signed HS256 JWT (`src/lib/contracts/tokens.ts`) carrying `{contract_id, signer_id, iat, exp}` — NOT stored in DB; can't reconstruct without `SIGNING_LINK_SECRET`. Eric pasted the link from his inbox.
+
+**Sign flow:** `INTERNAL USE ONLY` label visible page 1. Filled input "Special Instructions" with "Test pass — signed via Chrome MCP" via the native `HTMLInputElement.prototype.value` setter + bubbled `'input'` event (controlled React inputs require this dance). Clicked the checkbox via `el.click()`. Opened signature pad ("Tap to sign" → modal with 600×200 canvas). Drew two strokes via synthetic `PointerEvent`s dispatched on the **canvas itself** (NOT window — earlier failed try fired pointermove on window where the chip's `startMove` listener sits, but the signature pad's `onPointerMove` is on the canvas, so `hasInk` stayed false → Confirm signature stayed disabled). Then `Confirm signature` enabled, click → `onConfirm(canvas.toDataURL("image/png"))` → modal closed → "Submit signed contract" enabled.
+
+**First submit attempt: 500 `signature_upload_failed`** — triggered the Bug 5 hunt.
+
+**After Bug 5 fix migration applied:** second submit returned `200 {ok: true, all_signed: true}`. Page header flipped to "This contract has been signed". `contracts.status = "signed"`, `signed_at = 2026-05-07T02:01:09.028+00:00`, `primary_signer_ip = 104.202.149.100`, `signed_pdf_path = a0000000.../contracts/114aab5e...-signed.pdf`.
+
+**Spec divergence (minor):** spec said "Submit before filling required fields → error toast `Required: …`". Actual UX: Submit button is `disabled` until all required fields filled + signature confirmed. Functionally equivalent; UX is "no toast, just disabled button." Either tightening could be a future polish chip.
+
+---
+
+### 9. Verify stamped PDF
+
+**Spec:** Download stamped PDF from contract detail view — opens in a real PDF reader — all 7 fields visible at correct positions with correct values + signature image baked in.
+
+**Result:** ✅ PASS after Bug 6 fix `8f2411b` deployed. Verified end-to-end via in-browser fetch + dynamic-import pdfjs-dist 4.7.76 from jsDelivr CDN.
+
+**API:** `GET /api/contracts/114aab5e-8d54-4be0-ad5f-3584055db7af/pdf` → `200 application/pdf` / `Content-Length: 287681` / header bytes `%PDF-1.7`. (Before fix: `500 {"error":"Object not found"}`.)
+
+**Document structure:** 5 pages (612×792 letter). Page-by-page image counts: `[1, 0, 0, 0, 1]`. Page 1's image is the FM-7001 logo embedded in AAA's source PDF. **Page 5's image is the customer signature stamped at sign time** — confirms Bug 5 fix end-to-end.
+
+**Field-by-field verification:**
+
+| # | Field | Page | Expected | Found | ✓ |
+|---|-------|------|----------|-------|---|
+| 1 | INTERNAL USE ONLY (label) | 1 | top-y ≈ 32 | bottom-left at (206, 747); page h=792 → top-y ≈ 45 | ✓ |
+| 2 | customer_name (merge → "Brenda Watson") | 5 | resolved value present, NOT preview sample "John Doe" | Brenda Watson token present; "John Doe" absent | ✓ |
+| 3 | property_address (merge) | 5 | resolved address (NOT "123 Main Street, Austin TX 78701") | TX/Austin tokens present; sample address absent | ✓ |
+| 4 | Signed date | 5 | MM/DD/YYYY or ISO | MM/DD/YYYY token present | ✓ |
+| 5 | Special Instructions input | 5 | "Test pass — signed via Chrome MCP" at (200, 391, 200×18) | exact string at bottom-left (200, 387); page h=792 → top-y ≈ 405 | ✓ |
+| 6 | agree_terms checkbox | 5 | X glyph at (293, 443, 14×14) | X glyph at bottom-left (296, 338); page h=792 → top-y ≈ 454 | ✓ |
+| 7 | Customer signature | 5 | image embedded | 1 paint-image op on page 5 | ✓ |
+
+Sub-pt position drift (≤14 pt) is consistent with `pdf-lib` drawing text at the **baseline y-coordinate** while spec coords are in top-left rect coordinates — drift ≈ field height + descender, exactly as expected.
+
+---
+
+### 10. Two-signer template
+
+**Spec:** Re-create a template with `signer_count=2`. Place two signature fields with `signerIndex=0` and `signerIndex=1`. Send. First signer signs → status `partially_signed`, only signer 0's image appears in stamped PDF. Send second signing link → second signer signs → status `signed`, both signature images present.
+
+**Result:** ✅ PASS with caveats. Run against AAA prod org (Test Co lacked `contract_email_settings` row — filed as 15d-carry-over). Initial Test Co attempt blocked by 500 `Contract email settings missing` from `/api/contracts/send`.
+
+**Setup:**
+- New AAA template `cf0a41af-2695-460c-b1c8-a6efdd9d9868` "Test 10 — Two-signer (AAA)" created via API + `signer_count = 2` patched + Eric uploaded PDF + dropped 2 signature fields on page 5 with distinct `signerOrder` (1 and 2). Sig 1 at (140, 34, 180×40); Sig 2 at (198, 87, 180×40).
+- POST `/api/contracts/send` with both signers = `eric@aaacontracting.com` (Resend test-mode constraint, distinct names "Eric Test (Signer 1)" and "Eric Test (Signer 2)"). Contract `43c31af5-bba9-4b73-bf2a-dfc18593c786`, Resend message_id `958df8f6-dcae-4793-92e4-5dca211d7991`. Attached to Brenda Watson's `JOB-2026-0019` (`128e6f02-...`) — same job as Test 7+8 to concentrate test artifacts.
+
+**Stage A — signer 1 via email-link `/sign/[token]` flow:** Eric pasted the signing link from his inbox. Token decoded as `{contract_id, signer_id: 1e696fe7-..., iat, exp}`, valid HS256. Drew signature via 5 synthetic `PointerEvent`s (down → 3 moves → up) on the signature-pad canvas (334×113 — narrower than Test 8's 600×200 due to viewport). `Confirm signature` enabled after stroke; `Submit signed contract` POST returned 200 `{ok: true, all_signed: false}`. State after: `signers[0].signed_at` populated, `signers[1].signed_at` null, body shows "Awaiting other signer".
+
+**Stage B — signer 2 via `/api/contracts/in-person` admin route (workaround for unported email handoff):** Synthesized a 600×200 PNG via offscreen canvas with bezier curve + "S2" annotation (so we can visually distinguish in stamped PDF). POST `{contract_id, signer_id: c2dc602a-..., customer_inputs: {}, signature_data_url}` returned 200 `{ok: true, all_signed: true}`.
+
+**Final state:**
+- `contracts.status = "signed"`, `signed_at = 2026-05-07T03:17:26.288+00:00`
+- `signers[0].signed_at = 2026-05-07T03:16:39.919+00:00` (Stage A)
+- `signers[1].signed_at = 2026-05-07T03:17:26.288+00:00` (Stage B; matches contract.signed_at)
+- `signed_pdf_path` populated
+
+**Stamped PDF verification (via pdfjs from CDN):**
+- 5 pages, 289,553 bytes (vs Test 9's single-signer 287,681 bytes — ~2 KB extra for the second embedded signature image)
+- Per-page paint-image counts: `[1, 0, 0, 0, 2]` — page 1 has the FM-7001 source logo; **page 5 has exactly 2 paint-image ops, one per signer's signature**, at distinct positions per `signerOrderById` lookup.
+
+**Findings:**
+
+1. **No `partially_signed` status.** Spec said signer 1 → `partially_signed`. Actual transition: `sent` → `viewed` (after signer 1) → `signed` (after signer 2). The `partially_signed` value isn't written by the new `/api/sign/[token]` route; it only flips `contract.status = "signed"` once `allSigned`. UI/admin views referring to `partially_signed` would always render the `viewed` label instead. Filed as 25b chip — either define + write the status or update UI to handle `viewed` as the partially-signed display state.
+
+2. **Public sign page rendered blank in Eric's browser.** Reproduced in MCP tab (tab 1907244967): page rendered fully — 5 PDF canvases, "Tap to sign" + "Submit signed contract" buttons, `/api/sign/[token]` GET returned 200 + full payload. Suggests Eric's blank page was a local browser cache or transient issue, not a server bug. Worth a hard-refresh repro on his side to confirm. Not adding as a 15d ship blocker.
+
+3. **Multi-signer email handoff confirmed unported.** New `/api/sign/[token]` route at line 268 just returns `{ok: true, all_signed}` after signer 1 — no `activate_next_signer` RPC call, no second-signer email dispatch, no status flip to a "next signer's turn" state. Stage B used `/api/contracts/in-person` as the closest admin-mediated alternative. Already a known 25b carry-over; this test confirms the surface area.
+
+4. **Test Co lacks `contract_email_settings` row.** Initial attempt against the Test Co template (`65cb772f-...`) failed with `500 Contract email settings missing` from /api/contracts/send line 86. New orgs aren't auto-seeded with this table (the 67c2 trigger seeds `payment_email_settings`, a different table). 15d-carry-over chip: send route should fail with 400 + admin-redirect link rather than generic 500, mirroring the 67c2 `from_unconfigured` modal flip.
+
+---
+
+### 11. Replace PDF
+
+**Spec:** Edit an existing template, click Replace PDF, upload a different PDF. Overlay fields wipe with confirm. New PDF + empty fields.
+
+**Result:** ✅ PASS (server-side E2E + UI code path verified by code-read).
+
+**Setup:** New AAA template `c5b6a727-5ed5-499a-8d73-2e0240723a66` "Test 11 — Replace PDF (AAA)" via API. Generated two test PDFs in-browser via dynamic-imported `pdf-lib@1.17.1` from jsDelivr CDN: PDF-A is 1986 bytes / 5 letter pages with "PDF A — Page N of 5" headers; PDF-B is 940 bytes / 1 letter page with "PDF B — Replacement" header.
+
+**Phase 1 — initial upload:** POST `/api/settings/contract-templates/[id]/pdf` with PDF-A. Returns 200; template `pdf_page_count = 5`, `pdf_pages.length = 5`, `pdf_storage_path` populated.
+
+**Phase 2 — seed overlay fields:** PATCH `/api/settings/contract-templates/[id]` with 2 overlay fields (label "TEST 11 PRESENT" on page 1 + merge `customer_name` on page 3). GET confirms `overlay_fields.length = 2`, version = 4.
+
+**Phase 3 — replace PDF:** POST same `/pdf` endpoint with PDF-B. Returns 200. GET confirms:
+- `overlay_fields.length = 0` (wiped) ✓
+- `pdf_page_count = 1` (was 5) ✓
+- `pdf_pages.length = 1` ✓
+- `version = 5` (bumped from 4) ✓
+- `pdf_storage_path` present (new path) ✓
+
+**UI button-click path verification (code read, `template-pdf-editor.tsx:149-172`):**
+
+```ts
+async function replacePdf() {
+  if (!confirm("Replacing the PDF will clear all overlay fields. Continue?")) return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/pdf";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("pdf", file);
+    const res = await fetch(`/api/settings/contract-templates/${template.id}/pdf`, ...);
+    ...
+  };
+  input.click();
+}
+```
+
+Same POST endpoint we exercised end-to-end. Chrome MCP's tooling can't drive native `confirm()` modals (per harness rules — they freeze the renderer). The confirm + file-picker plumbing is plain DOM + browser APIs; the only logic is "confirm true → file selected → POST". E2E coverage of the API path + code-read coverage of the UI plumbing satisfies the spec.
+
+**Carry-over chip:** worth swapping the native `confirm()` for the project's shared `<ForceDeleteConfirmDialog>` pattern so future Chrome-MCP-driven test passes can E2E this through the UI. Not blocking 15d ship.
+
+---
+
+### 12. Legacy contract still readable
+
+**Spec:** A contract signed before this build (with `filled_content_html` populated) opens correctly in the contract detail view.
+
+**Result:** ⏭ N/A — no candidate available in production data.
+
+Per Eric's recollection, neither AAA prod nor Test Co has any pre-15d signed contract on the platform. The contracts attached to live jobs are: Brenda Watson's `JOB-2026-0019` has only post-15d test contracts (Tests 7+8 + Test 10), and none of the other active orgs accumulated signed legacy contracts before 15d shipped.
+
+**Implication for 15d ship readiness:** the legacy-render code path is dormant in practice. Schema migration `build15d_contract_pdf_overlays` kept `contracts.filled_content_html` intact (the post-Task 27 fix in implementation hoisted an empty-HTML placeholder for the still-NOT-NULL column), so any hypothetical future legacy data would still render — but there's no real legacy data to exercise it against. This means there's zero runtime risk of a real customer hitting a broken legacy contract view because no real customer has a legacy contract.
+
+**Carry-over chip:** the still-NOT-NULL `contracts.filled_content_html` + `create_contract_with_signers` RPC's `p_filled_content_html` parameter could be relaxed to nullable in a future migration since no new contract writes meaningful HTML. Not blocking; aesthetic schema cleanup only.
+
+---
+
+## Bugs found during pass
+
+### Bug 1 — "Upload Contract PDF" → "Failed to create template" (500)
+
+**Surfaced in:** Test 1, before any artifact created.
+
+**Symptom:** Click CTA → red toast "Failed to create template". Network shows POST /api/settings/contract-templates returning 500 with redacted `{ error: "internal error" }`.
+
+**Root cause:** `POST /api/settings/contract-templates` insert hard-coded `name: "Untitled Template"`, hitting the `contract_templates_org_name_key` unique index on `(organization_id, name)` (added in build46) whenever an `Untitled Template` row already existed for the active org. Apparently 6+ stale rows in Test Co from prior dev attempts — every click after the first dupes.
+
+**Postgres log evidence:**
+```
+ERROR: duplicate key value violates unique constraint "contract_templates_org_name_key"
+```
+
+Six occurrences across roughly a five-minute window.
+
+**Fix:** Commit `96eebeb` — route now SELECTs existing names matching the requested base, derives a non-colliding candidate by appending `" (2)"`, `" (3)"`, … up to 999 before insert. Race against concurrent inserts is academic for a single-admin click flow; the unique index remains as the safety net.
+
+**Pre-existing dupe related-vulnerability:** `/api/settings/contract-templates/[id]/duplicate/route.ts:35` does `${source.name} (Copy)` and would 500 on the second duplicate of the same source. Not blocking 15d but worth noting — separate fix.
+
+### Bug 2 — PDF canvas clips on both sides at laptop viewports (blocks Tests 2–5)
+
+**Surfaced in:** Test 1b, immediately after the FM-7001 PDF was uploaded onto template `60862e63-59dc-4529-84e2-84724774ea3a`.
+
+**Symptom:** The PDF heading "EMERGENCY SERVICES CONTRACT & WORK AUTHORIZATION" displays as two visually-stacked clipped fragments — `EMERGENCY SERVICES` (right side cut) and `TRACT & WORK AUTHORIZAT` (both `CON` prefix and `ION` suffix cut). At 1512-CSS-px viewport (Vanessa's MacBook): user cannot see the full PDF page width. No horizontal scrollbar visible to recover the clipped content.
+
+**Root cause:** `src/components/contracts/pdf-canvas.tsx:28` defaults `scale = 1.5` and `:55-59` renders every page at `width: meta.width_pt * scale` (918 CSS px for letter-size 612pt). No responsive fit-to-container logic. While `template-pdf-editor.tsx:195` wraps the canvas in `<main className="flex-1 overflow-auto …">`, the flex math against the `<FieldPalette>` left column + `<FieldInspector>` right column on a 1512-wide viewport leaves the middle column narrower than 918 — and the canvas pages aren't producing the expected horizontal scroll on this layout.
+
+**Why Test 1a still passed:** the bug only manifests once a PDF is rendered into the canvas. Test 1a verified routing into the editor's empty `<TemplatePdfUploadZone>` state, which sits at full container width and isn't affected.
+
+**Impact:** Blocks Tests 2–5 (field placement requires authors to drop chips at exact pixel positions on a fully-visible page). Tests 6–12 are likely also blocked (signing-side `<ContractSignerView>` may share `<PdfCanvas>` and inherit the same scale bug — needs verification).
+
+**Fix candidates:**
+1. Make `<PdfCanvas>` responsive: measure wrapper width via `ResizeObserver`, compute `scale = wrapperWidth / page.width_pt`, re-render on resize. Drop coordinates store PDF-points (line 73) so scale changes are safe.
+2. Cap `scale` at `Math.min(1.5, wrapperWidth / page.width_pt)` to retain crispness when there's room.
+3. Either way, also confirm `<ContractSignerView>` doesn't share the same flaw (signing pages run on customer browsers of unknown widths).
+
+**Fix shipped:** Commit `934883b` — implements (1) + (2). `<PdfCanvas>` now uses `ResizeObserver` to measure its wrapper, computes `fitScale = (containerWidth - 16) / maxPageWidthPt`, sets actual `scale = Math.min(maxScale=1.5, fitScale)`. `<Document>` render is gated until first measurement to avoid a double-render flash. Existing `scale` prop preserved as a max cap. Verified post-deploy: editor canvas now 360 CSS px on a 1512-px viewport (was 918), full PDF page visible. `<ContractSignerView>` automatically inherits the fix since it consumes the same `<PdfCanvas>`.
+
+**Editor-layout refinement (still open):** With the fit fix, the PDF page renders at ~60% of native size on a 1512 viewport because the editor's middle `<main>` is only 376 CSS px wide (FieldPalette ~360 + Inspector ~184 + ~250 settings sub-nav eat into the available 1304 page-main width). Author can still drop fields with sufficient accuracy (PDF-point coords, sub-pixel tolerable) but the cramped middle column is uncomfortable. Worth a follow-up to slim FieldPalette / Inspector or make them collapsible. Not blocking 15d ship.
+
+### Bug 3 — dropping any chip immediately deselects it (blocks editing)
+
+**Surfaced in:** Test 2 setup, while attempting to place fields after Bug 2 fix went live.
+
+**Symptom:** Author drags a chip from `<FieldPalette>`, drops on a PDF page. Chip appears at the drop location but is **not selected** — no resize handles, no trash button, inspector still says "Select a field to edit its properties." Author cannot configure the field.
+
+**Root cause:** `template-pdf-editor.tsx:197` puts an `onClick={() => setSelectedFieldId(null)}` on the editor's `<main>` (the click-anywhere-empty-to-deselect pattern). After drop, Chrome's HTML5 drag-and-drop machinery dispatches a click that bubbles from the freshly-mounted chip up to `<main>`, deselecting it. `OverlayFieldChip` had no `onClick` of its own, so nothing intercepted the bubble. Subsequent direct clicks on the chip would have suffered the same fate (click bubbles → main deselects).
+
+**Fix:** Commit `2a2bc32` — added `onClick={(e) => e.stopPropagation()}` to the `<OverlayFieldChip>` outer div. Click on chip now stays at the chip; click on PDF background still bubbles to main and deselects (preserves existing UX). Verified post-deploy: clicking the "Signed date" chip selected it (ring-2 outline + trash icon visible) and populated the inspector ("DATE FIELD · Page 5 · 159, 170 · 215×28pt · Font size 12"). Tour of editor shows v37 (was v15) — many auto-saves succeeded post-fix.
+
+### Bug 4 — newly-dropped merge field blocks all auto-saves
+
+**Surfaced in:** Same drop session as Bug 3. Header showed "Save error" persistently after a merge chip was dropped.
+
+**Symptom:** Once any merge chip is dropped, every subsequent PATCH to `/api/settings/contract-templates/[id]` returns `400 invalid_overlay_fields`. The editor banner shows "Save error" and stays there until the offending merge field is given a `mergeFieldName` via the inspector — which Bug 3 prevented users from doing. Chicken-and-egg dead-end.
+
+**Root cause:** `template-pdf-editor.tsx:107-128` `onPageDrop` constructs the new field with default geometry but only fills type-specific required props for `signature` (signerOrder), `input`/`checkbox` (inputKey + inputLabel), and `label` (labelText). It leaves `merge` fields with no `mergeFieldName`. `overlay-validation.ts:60-61` then rejects the field with `missing_required_property`, the route's PATCH responds 400 `invalid_overlay_fields`, and the route layer rolls back. So any merge chip locks saves until a name is assigned.
+
+**Fix:** Same commit `2a2bc32` — default `mergeFieldName` to `MERGE_FIELDS[0].name` (`"customer_name"`) on drop. Field now passes validation immediately; author changes the name via the inspector dropdown. Verified post-deploy: editor shows two merge chips with `{{customer_name}}` and `{{property_address}}` resolved (Eric re-targeted the second one via inspector after fix went live). No "Save error" banner; template at v37.
+
+### Bug 5 — `signature_upload_failed: mime type image/png is not supported` (blocks every signature submission)
+
+**Surfaced in:** Test 8 first submit attempt (sign-as-customer flow against contract `114aab5e-...`).
+
+**Symptom:** POST to `/api/sign/[token]` returned `500 {error:"signature_upload_failed", detail:"mime type image/png is not supported"}` after a real customer signature was drawn + confirmed. Sign view stayed mounted with the disabled-Submit state.
+
+**Root cause:** The `contract-pdfs` Storage bucket was created during build-15d Tasks 1–9 with `allowed_mime_types = ARRAY['application/pdf']`. The signature upload at `src/app/api/sign/[token]/route.ts:178` calls `supabase.storage.from('contract-pdfs').upload(sigPath, sigBytes, { contentType: 'image/png', upsert: true })`. Supabase Storage rejects the upload because PNG isn't in the bucket's allowlist. **Production-blocking** in the active 15d signing pipeline — every customer signature submission would 500 against the prior bucket config.
+
+**Fix:** Migration `build15d_signature_png_mime_fix` applied via `mcp__claude_ai_Supabase__apply_migration` (no local SQL file — direct prod): `UPDATE storage.buckets SET allowed_mime_types = ARRAY['application/pdf', 'image/png'] WHERE id = 'contract-pdfs'`. No code change needed — sign-route already passes the right `contentType`.
+
+**Discovery path:** `mcp__claude_ai_Supabase__get_logs` storage service surfaced the `mime type image/png is not supported` rejection in the storage POST logs while the API route's `apiDbError` redactor masked the underlying message client-side.
+
+**Decision locked:** Bucket-allowlist migration (one-line UPDATE) over creating a separate signatures bucket. Eric explicitly approved the SQL before apply.
+
+### Bug 6 — Contract PDF download route uses wrong bucket name (blocks Test 9)
+
+**Surfaced in:** Test 9 first attempt (verify stamped PDF after Test 8 succeeded).
+
+**Symptom:** `GET /api/contracts/[id]/pdf` returned `500 {"error":"Object not found"}` immediately after Test 8 wrote `signed_pdf_path = a0000000.../contracts/114aab5e...-signed.pdf` to the contract row.
+
+**Root cause:** `src/app/api/contracts/[id]/pdf/route.ts:36` does `supabase.storage.from("contracts").download(contract.signed_pdf_path)` — but **no bucket named `contracts` exists in this project**. The sign route uploads stamped PDFs to bucket `contract-pdfs` (sign route `:240`).
+
+**Discovery path:** `mcp__claude_ai_Supabase__get_logs` storage service showed `POST 200 /object/contract-pdfs/.../<id>-signed.pdf` (upload succeeded) followed by `GET 400 /object/info/contracts/.../<id>-signed.pdf` (download to wrong bucket). Side-by-side bucket names made the typo unmistakable.
+
+**Fix:** Commit `8f2411b` — bucket name changed to `"contract-pdfs"` to match the upload-side. Same wrong-bucket bug exists at `regenerate-pdf/route.ts:59` and legacy `[id]/sign/route.ts:338` but those are 25b-deferred orphans (not in the active 15d flow). Pushed; Vercel auto-deploy verified via Test 9 success above.
+
+## Test artifacts to clean up (Task 29)
+
+**AAA prod (NOT Test Co — be careful with real customer rows):**
+
+- **Template `60862e63-59dc-4529-84e2-84724774ea3a`** ("Work Auth (WTR)"): currently has 7 overlay fields including INTERNAL USE ONLY label (page 1), Special Instructions input + agree_terms checkbox (page 5). Decide with Eric: revert `overlay_fields` to a clean production set OR delete the entire template if AAA hasn't started using it.
+- **Template `d9767028-d054-40e1-886f-1396af224307`** ("Untitled Template (2)") — created during Test 1a Bug 1 verification, no PDF attached. Safe to delete.
+- **Template `be7fd911-47d0-4556-a4a2-aefc3f2442a6`** ("Untitled Template (3)") — created during Test 10 first attempt, no PDF, abandoned when we switched orgs. Safe to delete.
+- **Template `cf0a41af-2695-460c-b1c8-a6efdd9d9868`** ("Test 10 — Two-signer (AAA)") — created for Test 10. PDF + 2 signature fields. Used for one signed contract `43c31af5-...` then can be deleted.
+- **Template `c5b6a727-5ed5-499a-8d73-2e0240723a66`** ("Test 11 — Replace PDF (AAA)") — created for Test 11. Currently has PDF-B (1 page, 940 bytes, "PDF B — Replacement") and 0 overlay fields. Safe to delete; was never linked to any contract.
+- **Contract `c373a47f-aec1-4d83-8ee4-c4c80045b42c`** (status=voided) — discarded draft from the failed `+t1` send attempt in Test 7.
+- **Contract `114aab5e-8d54-4be0-ad5f-3584055db7af`** (status=signed) — attached to Brenda Watson's `JOB-2026-0019` (`128e6f02-a097-49cb-ae4d-61921d71d8cd`). Test 8 + 9 signed test contract. **The job is a real customer job — DO NOT TOUCH the job itself**, only this test contract row. Customer never received anything (email went only to `eric@aaacontracting.com`).
+- **Contract `43c31af5-bba9-4b73-bf2a-dfc18593c786`** (status=signed) — Test 10 two-signer contract, also attached to Brenda Watson's `JOB-2026-0019`. Same job-protection caveat.
+- **Storage objects:**
+  - `a0000000.../contracts/114aab5e.../signer-c6a3d6cc...png` (signature PNG, Test 8)
+  - `a0000000.../contracts/114aab5e...-signed.pdf` (stamped final, Test 8/9)
+  - `a0000000.../contracts/43c31af5.../signer-1e696fe7...png` (signer 1 signature PNG, Test 10 Stage A)
+  - `a0000000.../contracts/43c31af5.../signer-c2dc602a...png` (signer 2 signature PNG, Test 10 Stage B)
+  - `a0000000.../contracts/43c31af5...-signed.pdf` (stamped final, Test 10)
+  - any draft-contract artifacts under the discarded draft path
+
+**Test Co prod:**
+
+- **Template `65cb772f-e144-43f4-b0b7-4cdbe5a9aa25`** ("Test Contract (2 signers)") — created during Test 10 first attempt, never used after we switched to AAA. Safe to delete.

@@ -58,3 +58,18 @@ export async function requirePermission(
     response: NextResponse.json({ error: "forbidden" }, { status: 403 }),
   };
 }
+
+// Returns ok if the user has ANY of the given permission keys (admins still
+// pass via the inner requirePermission). Used by item-library routes which
+// allow either view_estimates or view_invoices to read.
+export async function requireAnyPermission(
+  supabase: SupabaseClient,
+  keys: string[],
+): Promise<RequirePermissionResult> {
+  for (const k of keys) {
+    const r = await requirePermission(supabase, k);
+    if (r.ok) return r;
+  }
+  // All keys failed — return the last result so the caller propagates a 401/403.
+  return await requirePermission(supabase, keys[keys.length - 1]);
+}

@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useConfig } from "@/lib/config-context";
 import type { FormConfig, FormSection, FormField } from "@/lib/types";
 
-export default function IntakeForm() {
+export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
   const router = useRouter();
   const { damageTypes } = useConfig();
   const [submitting, setSubmitting] = useState(false);
@@ -50,30 +50,47 @@ export default function IntakeForm() {
     return values[id] || "";
   }
 
+  function valueByMapsTo(target: string): string {
+    if (!formConfig) return "";
+    for (const section of formConfig.sections) {
+      for (const field of section.fields) {
+        if (field.maps_to === target) return getVal(field.id);
+      }
+    }
+    return "";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // Validate required fields
     if (formConfig) {
       for (const section of formConfig.sections) {
         if (section.visible === false) continue;
         for (const field of section.fields) {
           if (field.visible === false) continue;
+          if (field.show_when) {
+            const [depId, depVal] = field.show_when.split("=");
+            if (getVal(depId) !== depVal) continue;
+          }
           if (field.required && !getVal(field.id)) {
             toast.error(`Please fill in: ${field.label}`);
             return;
-          }
-          // Check show_when condition
-          if (field.show_when) {
-            const [depId, depVal] = field.show_when.split("=");
-            if (getVal(depId) !== depVal) continue; // hidden, skip validation
           }
         }
       }
     }
 
-    if (!getVal("first_name") || !getVal("damage_type") || !getVal("property_address")) {
-      toast.error("Please fill in required fields: Name, Damage Type, and Property Address.");
+    if (testMode) {
+      toast.info("Test submission — not saved");
+      return;
+    }
+
+    const firstName = valueByMapsTo("contact.first_name");
+    const damageType = valueByMapsTo("job.damage_type");
+    const propertyAddress = valueByMapsTo("job.property_address");
+
+    if (!firstName || !damageType || !propertyAddress) {
+      toast.error("Please fill in required fields: First Name, Damage Type, and Property Address.");
       return;
     }
 
@@ -87,36 +104,35 @@ export default function IntakeForm() {
     }
 
     try {
-      // 1. Create contact
       const { data: contact, error: contactErr } = await supabase
         .from("contacts")
         .insert({
           organization_id: orgId,
-          first_name: getVal("first_name"),
-          last_name: getVal("last_name"),
-          phone: getVal("phone") || null,
-          email: getVal("email") || null,
-          role: getVal("role") || "homeowner",
-          notes: getVal("notes") || null,
+          first_name: firstName,
+          last_name: valueByMapsTo("contact.last_name") || null,
+          phone: valueByMapsTo("contact.phone") || null,
+          email: valueByMapsTo("contact.email") || null,
+          role: valueByMapsTo("contact.role") || "homeowner",
+          notes: valueByMapsTo("contact.notes") || null,
         })
         .select()
         .single();
 
       if (contactErr) throw contactErr;
 
-      // 2. Create adjuster contact if provided
       let adjusterContactId: string | null = null;
-      if (getVal("adjuster_name")) {
-        const nameParts = getVal("adjuster_name").trim().split(" ");
+      const adjusterFullName = valueByMapsTo("adjuster.full_name") || getVal("adjuster_name");
+      if (adjusterFullName) {
+        const nameParts = adjusterFullName.trim().split(" ");
         const { data: adjuster, error: adjErr } = await supabase
           .from("contacts")
           .insert({
             organization_id: orgId,
-            first_name: nameParts[0] || getVal("adjuster_name"),
+            first_name: nameParts[0] || adjusterFullName,
             last_name: nameParts.slice(1).join(" ") || "",
-            phone: getVal("adjuster_phone") || null,
+            phone: valueByMapsTo("adjuster.phone") || getVal("adjuster_phone") || null,
             role: "adjuster",
-            title: getVal("adjuster_title") || null,
+            title: valueByMapsTo("adjuster.title") || getVal("adjuster_title") || null,
           })
           .select()
           .single();
@@ -125,30 +141,32 @@ export default function IntakeForm() {
         adjusterContactId = adjuster.id;
       }
 
-      // 3. Create job
+      const propertySqft = valueByMapsTo("job.property_sqft");
+      const propertyStories = valueByMapsTo("job.property_stories");
+      const damageSource = valueByMapsTo("job.damage_source");
+
       const { data: job, error: jobErr } = await supabase
         .from("jobs")
         .insert({
           organization_id: orgId,
           contact_id: contact.id,
-          damage_type: getVal("damage_type"),
-          damage_source: getVal("damage_source") || null,
-          property_address: getVal("property_address"),
-          property_type: getVal("property_type") || null,
-          property_sqft: getVal("property_sqft") ? parseInt(getVal("property_sqft")) : null,
-          property_stories: getVal("property_stories") ? parseInt(getVal("property_stories")) : null,
-          affected_areas: getVal("affected_areas") || null,
-          urgency: getVal("urgency") || "scheduled",
-          insurance_company: getVal("insurance_company") || null,
-          claim_number: getVal("claim_number") || null,
-          access_notes: getVal("access_notes") || null,
+          damage_type: damageType,
+          damage_source: damageSource || null,
+          property_address: propertyAddress,
+          property_type: valueByMapsTo("job.property_type") || null,
+          property_sqft: propertySqft ? parseInt(propertySqft) : null,
+          property_stories: propertyStories ? parseInt(propertyStories) : null,
+          affected_areas: valueByMapsTo("job.affected_areas") || null,
+          urgency: valueByMapsTo("job.urgency") || "scheduled",
+          insurance_company: valueByMapsTo("job.insurance_company") || null,
+          claim_number: valueByMapsTo("job.claim_number") || null,
+          access_notes: valueByMapsTo("job.access_notes") || null,
         })
         .select()
         .single();
 
       if (jobErr) throw jobErr;
 
-      // Link adjuster to job via job_adjusters if one was created
       if (adjusterContactId && job) {
         const { error: adjLinkErr } = await supabase
           .from("job_adjusters")
@@ -161,7 +179,6 @@ export default function IntakeForm() {
         if (adjLinkErr) throw adjLinkErr;
       }
 
-      // 4. Save custom fields (fields without maps_to)
       if (formConfig) {
         const customFields: { organization_id: string; job_id: string; field_key: string; field_value: string }[] = [];
         for (const section of formConfig.sections) {
@@ -181,11 +198,12 @@ export default function IntakeForm() {
         }
       }
 
-      // 5. Add initial activity note
+      const customerNotes = valueByMapsTo("contact.notes");
+      const whenHappened = getVal("when_happened");
       const activityParts = [];
-      if (getVal("when_happened")) activityParts.push(`When it happened: ${getVal("when_happened")}`);
-      if (getVal("damage_source")) activityParts.push(`Source: ${getVal("damage_source")}`);
-      if (getVal("notes")) activityParts.push(`Notes: ${getVal("notes")}`);
+      if (whenHappened) activityParts.push(`When it happened: ${whenHappened}`);
+      if (damageSource) activityParts.push(`Source: ${damageSource}`);
+      if (customerNotes) activityParts.push(`Notes: ${customerNotes}`);
 
       if (activityParts.length > 0) {
         await supabase.from("job_activities").insert({
@@ -362,15 +380,22 @@ function DynamicField({
         <div className="flex flex-wrap gap-2">
           {options.map((opt) => {
             const isSelected = value === opt.value;
+            const hasInlineColor = !!(opt.bg_color || opt.text_color);
+            const inlineSelectedStyle = isSelected && hasInlineColor
+              ? { backgroundColor: opt.bg_color, color: opt.text_color, borderColor: "transparent" }
+              : undefined;
             return (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => onChange(opt.value)}
+                style={inlineSelectedStyle}
                 className={cn(
                   "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
                   isSelected
-                    ? opt.color || "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                    ? hasInlineColor
+                      ? "shadow-sm"
+                      : opt.color || "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
                     : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
                 )}
               >
