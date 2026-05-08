@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/components/tiptap-editor";
 import { ChevronDown, Plus } from "lucide-react";
 import {
@@ -8,9 +9,14 @@ import {
   mergeFieldsByCategory,
 } from "@/lib/contracts/merge-fields";
 import {
+  PAYMENT_MERGE_FIELDS,
   PAYMENT_MERGE_FIELD_CATEGORIES,
   paymentMergeFieldsByCategory,
 } from "@/lib/payments/merge-fields";
+import { MergeFieldNode } from "@/components/contracts/merge-field-node";
+import MergeFieldInput, {
+  type MergeFieldInputHandle,
+} from "@/components/contracts/merge-field-input";
 
 export interface PaymentEmailTemplateFieldProps {
   label: string;
@@ -20,6 +26,13 @@ export interface PaymentEmailTemplateFieldProps {
   onSubjectChange: (v: string) => void;
   onBodyChange: (v: string) => void;
 }
+
+// Payment-specific token names. Threaded into both editor surfaces via
+// `extraResolvableNames` so payment tokens (e.g. {{invoice_number}},
+// {{amount_formatted}}) don't render as warning pills.
+const PAYMENT_NAMES: Set<string> = new Set(
+  PAYMENT_MERGE_FIELDS.map((f) => f.name),
+);
 
 export default function PaymentEmailTemplateField({
   label,
@@ -31,33 +44,27 @@ export default function PaymentEmailTemplateField({
 }: PaymentEmailTemplateFieldProps) {
   const [subjectMenuOpen, setSubjectMenuOpen] = useState(false);
   const [bodyMenuOpen, setBodyMenuOpen] = useState(false);
-  const subjectInputRef = useRef<HTMLInputElement | null>(null);
+  const subjectInputRef = useRef<MergeFieldInputHandle | null>(null);
+  const bodyEditorRef = useRef<Editor | null>(null);
 
   const contractGrouped = mergeFieldsByCategory();
   const paymentGrouped = paymentMergeFieldsByCategory();
 
   function insertIntoSubject(fieldName: string) {
-    const el = subjectInputRef.current;
-    const insert = `{{${fieldName}}}`;
-    if (!el) {
-      onSubjectChange(subject + insert);
-      setSubjectMenuOpen(false);
-      return;
-    }
-    const start = el.selectionStart ?? subject.length;
-    const end = el.selectionEnd ?? subject.length;
-    const next = subject.slice(0, start) + insert + subject.slice(end);
-    onSubjectChange(next);
+    subjectInputRef.current?.insertMergeField(fieldName);
     setSubjectMenuOpen(false);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + insert.length;
-      el.setSelectionRange(pos, pos);
-    });
   }
 
   function insertIntoBody(fieldName: string) {
-    onBodyChange(body + ` {{${fieldName}}}`);
+    const editor = bodyEditorRef.current;
+    if (!editor) return;
+    // Payment templates have no signing_link — always insert a pill node.
+    editor
+      .chain()
+      .focus()
+      .insertContent({ type: "mergeField", attrs: { fieldName } })
+      .insertContent(" ")
+      .run();
     setBodyMenuOpen(false);
   }
 
@@ -83,13 +90,12 @@ export default function PaymentEmailTemplateField({
             onPick={insertIntoSubject}
           />
         </div>
-        <input
+        <MergeFieldInput
           ref={subjectInputRef}
-          type="text"
           value={subject}
-          onChange={(e) => onSubjectChange(e.target.value)}
-          className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 focus:border-[var(--brand-primary)]"
+          onChange={onSubjectChange}
           placeholder="Subject line"
+          extraResolvableNames={PAYMENT_NAMES}
         />
       </div>
 
@@ -108,6 +114,12 @@ export default function PaymentEmailTemplateField({
           content={body}
           onChange={onBodyChange}
           placeholder="Email body. Use merge fields to insert data at send time."
+          extraExtensions={[
+            MergeFieldNode.configure({ extraResolvableNames: PAYMENT_NAMES }),
+          ]}
+          onReady={(editor) => {
+            bodyEditorRef.current = editor;
+          }}
         />
       </div>
     </div>
@@ -148,10 +160,11 @@ function MergeFieldDropdown({
                   <button
                     key={f.name}
                     type="button"
+                    title={`{{${f.name}}}`}
                     onClick={() => onPick(f.name)}
                     className="merge-field-pill cursor-pointer hover:brightness-110"
                   >
-                    {`{{${f.name}}}`}
+                    {f.label}
                   </button>
                 ))}
               </div>
@@ -167,10 +180,11 @@ function MergeFieldDropdown({
                   <button
                     key={f.name}
                     type="button"
+                    title={`{{${f.name}}}`}
                     onClick={() => onPick(f.name)}
                     className="merge-field-pill cursor-pointer hover:brightness-110"
                   >
-                    {`{{${f.name}}}`}
+                    {f.label}
                   </button>
                 ))}
               </div>

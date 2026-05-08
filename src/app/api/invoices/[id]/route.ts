@@ -1,228 +1,159 @@
-// GET /api/invoices/[id]     — detail with joined line items.
-// PATCH /api/invoices/[id]   — edit. Status-gated: draft allows everything;
-//                              sent/partial/paid require confirmLineItemEdit:true
-//                              to change line_items/totals/dates.
-//                              voided is read-only.
-// DELETE /api/invoices/[id]  — draft only; hard delete.
+// GET /api/invoices/[id]    — invoice + sections + items + job summary
+// PUT /api/invoices/[id]    — entity-level edit (title, statements, markup, discount, tax, dates)
+// DELETE /api/invoices/[id] — hard-purge (67d; soft-delete lives at POST /api/invoices/[id]/delete)
 
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import {
-  computeTotals,
-  type InvoiceLineItemInput,
-  type InvoiceRow,
-  type InvoiceWithItems,
-} from "@/lib/invoices/types";
+import { requirePermission } from "@/lib/permissions-api";
+import { apiDbError } from "@/lib/api-errors";
+import { checkSnapshot } from "@/lib/builder-shared";
+import { getInvoiceWithContents, recalculateInvoiceTotals } from "@/lib/invoices";
+import { purgeInvoiceStorage } from "@/lib/documents/purge";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requirePermission(supabase, "view_invoices");
+  if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle<InvoiceRow>();
-  if (!invoice) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const { data: items } = await supabase
-    .from("invoice_line_items")
-    .select("*")
-    .eq("invoice_id", id)
-    .order("sort_order", { ascending: true });
-
-  const { data: job } = await supabase
-    .from("jobs")
-    .select(
-      "id, job_number, property_address, damage_type, contact_id, contacts:contact_id(first_name, last_name, email)",
-    )
-    .eq("id", invoice.job_id)
-    .maybeSingle();
-
-  return NextResponse.json({
-    ...invoice,
-    line_items: items ?? [],
-    job: job ?? null,
-  });
+  try {
+    const invoice = await getInvoiceWithContents(supabase, id);
+    if (!invoice) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("id, job_number, property_address, damage_type, contact_id, contacts:contact_id(first_name, last_name, email)")
+      .eq("id", invoice.job_id)
+      .maybeSingle();
+    return NextResponse.json({ ...invoice, job: job ?? null });
+  } catch (e: unknown) {
+    return apiDbError(e instanceof Error ? e.message : String(e), "GET /api/invoices/[id]");
+  }
 }
 
-interface PatchBody {
-  issuedDate?: string;
-  dueDate?: string | null;
-  lineItems?: InvoiceLineItemInput[];
-  taxRate?: number;
-  poNumber?: string | null;
+interface PutBody {
+  title?: string;
+  opening_statement?: string | null;
+  closing_statement?: string | null;
+  issued_date?: string;
+  due_date?: string | null;
+  po_number?: string | null;
   memo?: string | null;
   notes?: string | null;
-  confirmLineItemEdit?: boolean;
+  markup_type?: "percent" | "amount" | "none";
+  markup_value?: number;
+  discount_type?: "percent" | "amount" | "none";
+  discount_value?: number;
+  tax_rate?: number;
+  updated_at_snapshot?: string;
 }
 
-export async function PATCH(
+export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requirePermission(supabase, "edit_invoices");
+  if (!auth.ok) return auth.response;
 
   const { id } = await context.params;
-  const body = (await request.json().catch(() => null)) as PatchBody | null;
+  const body = (await request.json().catch(() => null)) as PutBody | null;
   if (!body) return NextResponse.json({ error: "body required" }, { status: 400 });
 
-  const service = createServiceClient();
-  const { data: current } = await service
-    .from("invoices")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle<InvoiceRow>();
-  if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  if (current.status === "voided") {
-    return NextResponse.json({ error: "voided invoices are read-only" }, { status: 400 });
-  }
-
-  const wantsGatedChange =
-    body.issuedDate !== undefined
-    || body.dueDate !== undefined
-    || body.taxRate !== undefined
-    || body.lineItems !== undefined;
-
-  if (current.status !== "draft" && wantsGatedChange && !body.confirmLineItemEdit) {
-    return NextResponse.json(
-      { error: "confirmLineItemEdit required to change gated fields on a sent invoice" },
-      { status: 409 },
-    );
-  }
-
-  const patch: Record<string, unknown> = {};
-  if (body.poNumber !== undefined) patch.po_number = body.poNumber;
-  if (body.memo !== undefined) patch.memo = body.memo;
-  if (body.notes !== undefined) patch.notes = body.notes;
-  if (body.issuedDate !== undefined) patch.issued_date = body.issuedDate;
-  if (body.dueDate !== undefined) patch.due_date = body.dueDate;
-
-  // Recompute totals if line items or tax rate changed.
-  let lineRowsToReplace: Array<{
-    invoice_id: string;
-    sort_order: number;
-    description: string;
-    quantity: number;
-    unit_price: number;
-    amount: number;
-    xactimate_code: string | null;
-  }> | null = null;
-
-  if (body.lineItems || body.taxRate !== undefined) {
-    const items = body.lineItems
-      ? body.lineItems.map((li) => ({
-          description: String(li.description ?? "").trim(),
-          quantity: Number(li.quantity ?? 1),
-          unit_price: Number(li.unit_price ?? 0),
-          xactimate_code: li.xactimate_code?.toString().trim() || null,
-        }))
-      : null;
-
-    if (items) {
-      for (const li of items) {
-        if (!li.description) {
-          return NextResponse.json(
-            { error: "line item description is required" },
-            { status: 400 },
-          );
-        }
-      }
+  try {
+    const { stale, current } = await checkSnapshot(supabase, "invoices", id, body.updated_at_snapshot);
+    if (stale) {
+      return NextResponse.json(
+        { error: "stale_snapshot", current_updated_at: current },
+        { status: current === null ? 404 : 409 },
+      );
     }
 
-    const effectiveRate =
-      body.taxRate !== undefined ? Number(body.taxRate) : Number(current.tax_rate);
-    if (items) {
-      const { subtotal, taxAmount, total, lineAmounts } = computeTotals(items, effectiveRate);
-      patch.subtotal = subtotal;
-      patch.tax_amount = taxAmount;
-      patch.total_amount = total;
-      patch.tax_rate = effectiveRate;
-      const orgId = current.organization_id ?? (await getActiveOrganizationId(supabase));
-      lineRowsToReplace = items.map((li, idx) => ({
-        organization_id: orgId,
-        invoice_id: id,
-        sort_order: idx,
-        description: li.description,
-        quantity: li.quantity,
-        unit_price: li.unit_price,
-        amount: lineAmounts[idx],
-        xactimate_code: li.xactimate_code,
-      }));
-    } else {
-      // Only tax rate changed; recompute against existing line items.
-      const { data: existing } = await service
-        .from("invoice_line_items")
-        .select("amount")
-        .eq("invoice_id", id);
-      const subtotal = (existing ?? []).reduce((a, b) => a + Number(b.amount), 0);
-      const taxAmount = Math.round(subtotal * effectiveRate * 100) / 100;
-      patch.subtotal = Math.round(subtotal * 100) / 100;
-      patch.tax_amount = taxAmount;
-      patch.total_amount = Math.round((subtotal + taxAmount) * 100) / 100;
-      patch.tax_rate = effectiveRate;
-    }
-  }
-
-  if (lineRowsToReplace) {
-    const lineOrgId = current.organization_id ?? (await getActiveOrganizationId(supabase));
-    const { error: delErr } = await service
-      .from("invoice_line_items")
-      .delete()
-      .eq("invoice_id", id)
-      .eq("organization_id", lineOrgId);
-    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
-    const { error: insErr } = await service
-      .from("invoice_line_items")
-      .insert(lineRowsToReplace);
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
-  }
-
-  if (Object.keys(patch).length > 0) {
-    const { data: updated, error: updErr } = await service
+    const { data: trashedCheck } = await supabase
       .from("invoices")
-      .update(patch)
+      .select("deleted_at")
       .eq("id", id)
-      .select()
-      .single<InvoiceRow>();
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-    return NextResponse.json(updated);
-  }
+      .maybeSingle<{ deleted_at: string | null }>();
+    if (trashedCheck?.deleted_at) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
 
-  return NextResponse.json(current);
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.title !== undefined) patch.title = body.title;
+    if (body.opening_statement !== undefined) patch.opening_statement = body.opening_statement;
+    if (body.closing_statement !== undefined) patch.closing_statement = body.closing_statement;
+    if (body.issued_date !== undefined) patch.issued_date = body.issued_date;
+    if (body.due_date !== undefined) patch.due_date = body.due_date;
+    if (body.po_number !== undefined) patch.po_number = body.po_number;
+    if (body.memo !== undefined) patch.memo = body.memo;
+    if (body.notes !== undefined) patch.notes = body.notes;
+    if (body.markup_type !== undefined) patch.markup_type = body.markup_type;
+    if (body.markup_value !== undefined) patch.markup_value = Number(body.markup_value);
+    if (body.discount_type !== undefined) patch.discount_type = body.discount_type;
+    if (body.discount_value !== undefined) patch.discount_value = Number(body.discount_value);
+    if (body.tax_rate !== undefined) {
+      const tr = Number(body.tax_rate);
+      if (!Number.isFinite(tr) || tr < 0 || tr > 100) {
+        return NextResponse.json({ error: "tax_rate must be between 0 and 100" }, { status: 400 });
+      }
+      patch.tax_rate = tr;
+    }
+
+    const { data, error } = await supabase.from("invoices").update(patch).eq("id", id).select().single();
+    if (error) throw error;
+
+    const adjustmentTouched = body.markup_type !== undefined || body.markup_value !== undefined
+      || body.discount_type !== undefined || body.discount_value !== undefined
+      || body.tax_rate !== undefined;
+    if (adjustmentTouched) await recalculateInvoiceTotals(supabase, id);
+
+    return NextResponse.json(data);
+  } catch (e: unknown) {
+    return apiDbError(e instanceof Error ? e.message : String(e), "PUT /api/invoices/[id]");
+  }
 }
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
+  // 67d: DELETE is now a hard-purge. Soft-delete (the trash flow) lives at
+  // POST /api/invoices/[id]/delete.
   const { id } = await context.params;
-  const service = createServiceClient();
-  const { data: current } = await service
-    .from("invoices")
-    .select("status")
-    .eq("id", id)
-    .maybeSingle<{ status: string }>();
-  if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (current.status !== "draft") {
-    return NextResponse.json({ error: "only drafts can be deleted" }, { status: 400 });
-  }
+  const supabase = await createServerSupabaseClient();
+  const auth = await requirePermission(supabase, "manage_invoices");
+  if (!auth.ok) return auth.response;
 
-  const { error } = await service.from("invoices").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  const { data: row } = await supabase
+    .from("invoices")
+    .select("id, organization_id, invoice_number")
+    .eq("id", id)
+    .maybeSingle<{ id: string; organization_id: string; invoice_number: string }>();
+  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error: auditErr } = await supabase.from("contract_events").insert({
+    organization_id: row.organization_id,
+    contract_id: null,
+    signer_id: null,
+    event_type: "invoice_purged",
+    metadata: {
+      invoice_id: row.id,
+      invoice_number: row.invoice_number,
+      actor_email: user?.email ?? null,
+      purged_at: new Date().toISOString(),
+      reason: "force",
+    },
+  });
+  if (auditErr) console.warn("[api] invoice_purged audit insert failed:", auditErr.message);
+
+  const { storageRemoved, storageErrors } = await purgeInvoiceStorage(supabase, id);
+
+  const { error: deleteError } = await supabase.from("invoices").delete().eq("id", id);
+  if (deleteError) {
+    return apiDbError(deleteError.message, "DELETE /api/invoices/[id] purge", 500);
+  }
+  return NextResponse.json({ ok: true, storageRemoved, storageErrors });
 }

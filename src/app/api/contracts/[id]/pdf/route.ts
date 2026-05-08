@@ -33,7 +33,7 @@ export async function GET(
   }
 
   const { data, error } = await supabase.storage
-    .from("contracts")
+    .from("contract-pdfs")
     .download(contract.signed_pdf_path);
   if (error || !data) {
     return NextResponse.json(

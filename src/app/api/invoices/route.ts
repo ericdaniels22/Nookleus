@@ -1,27 +1,18 @@
 // GET /api/invoices — list with filters (jobId, status, search, limit, offset).
-// POST /api/invoices — create a draft invoice with line items in one atomic shot.
+// POST /api/invoices — create empty draft on a job; redirects via the page.
 
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
+import { requirePermission } from "@/lib/permissions-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import {
-  computeTotals,
-  type CreateInvoiceInput,
-  type InvoiceRow,
-  type InvoiceLineItemInput,
-} from "@/lib/invoices/types";
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString();
-}
+import { apiDbError } from "@/lib/api-errors";
+import { escapeOrFilterValue } from "@/lib/postgrest";
+import { createInvoice } from "@/lib/invoices";
 
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requirePermission(supabase, "view_invoices");
+  if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
   const jobId = url.searchParams.get("jobId");
@@ -30,100 +21,59 @@ export async function GET(request: Request) {
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
   const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
 
-  let query = supabase
+  let q = supabase
     .from("invoices")
     .select(
       "*, jobs!inner(id, job_number, property_address, contact_id, contacts:contact_id(first_name, last_name))",
       { count: "exact" },
     )
     .eq("organization_id", await getActiveOrganizationId(supabase))
+    .is("deleted_at", null)
     .order("issued_date", { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (jobId) query = query.eq("job_id", jobId);
-  if (status) query = query.eq("status", status);
+  if (jobId) q = q.eq("job_id", jobId);
+  if (status) q = q.eq("status", status);
   if (search) {
-    query = query.or(
-      `invoice_number.ilike.%${search}%,memo.ilike.%${search}%,notes.ilike.%${search}%`,
-    );
+    const safe = escapeOrFilterValue(search);
+    q = q.or(`invoice_number.ilike.%${safe}%,title.ilike.%${safe}%,memo.ilike.%${safe}%`);
   }
 
-  const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ rows: data ?? [], total: count ?? 0 });
+  try {
+    const { data, error, count } = await q;
+    if (error) throw error;
+    return NextResponse.json({ rows: data ?? [], total: count ?? 0 });
+  } catch (e: unknown) {
+    return apiDbError(e instanceof Error ? e.message : String(e), "GET /api/invoices list");
+  }
+}
+
+interface PostBody {
+  jobId: string;
+  title?: string;
 }
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requirePermission(supabase, "create_invoices");
+  if (!auth.ok) return auth.response;
 
-  const body = (await request.json().catch(() => null)) as CreateInvoiceInput | null;
+  const body = (await request.json().catch(() => null)) as PostBody | null;
   if (!body || typeof body.jobId !== "string") {
-    return NextResponse.json({ error: "jobId is required" }, { status: 400 });
-  }
-  if (!Array.isArray(body.lineItems) || body.lineItems.length === 0) {
-    return NextResponse.json({ error: "at least one line item is required" }, { status: 400 });
+    return NextResponse.json({ error: "jobId required" }, { status: 400 });
   }
 
-  const items: InvoiceLineItemInput[] = body.lineItems.map((li) => ({
-    description: String(li.description ?? "").trim(),
-    quantity: Number(li.quantity ?? 1),
-    unit_price: Number(li.unit_price ?? 0),
-    xactimate_code: li.xactimate_code?.toString().trim() || null,
-  }));
-  for (const li of items) {
-    if (!li.description) {
-      return NextResponse.json({ error: "line item description is required" }, { status: 400 });
+  try {
+    const orgId = await getActiveOrganizationId(supabase);
+    if (!orgId) {
+      return NextResponse.json({ error: "no active org" }, { status: 400 });
     }
+    const inv = await createInvoice(supabase, orgId, {
+      jobId: body.jobId,
+      title: typeof body.title === "string" ? body.title : "Invoice",
+    });
+    return NextResponse.json(inv);
+  } catch (e: unknown) {
+    return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/invoices create");
   }
-
-  const taxRate = Number(body.taxRate ?? 0);
-  const { subtotal, taxAmount, total, lineAmounts } = computeTotals(items, taxRate);
-
-  const issued = body.issuedDate ?? new Date().toISOString();
-  const due = body.dueDate === null ? null : (body.dueDate ?? addDays(issued, 30));
-
-  const orgId = await getActiveOrganizationId(supabase);
-  const service = createServiceClient();
-  const { data: inv, error: invErr } = await service
-    .from("invoices")
-    .insert({
-      organization_id: orgId,
-      job_id: body.jobId,
-      status: "draft",
-      issued_date: issued,
-      due_date: due,
-      subtotal,
-      tax_rate: taxRate,
-      tax_amount: taxAmount,
-      total_amount: total,
-      po_number: body.poNumber ?? null,
-      memo: body.memo ?? null,
-      notes: body.notes ?? null,
-    })
-    .select()
-    .single<InvoiceRow>();
-  if (invErr || !inv) {
-    return NextResponse.json({ error: invErr?.message ?? "insert failed" }, { status: 500 });
-  }
-
-  const rows = items.map((li, idx) => ({
-    organization_id: orgId,
-    invoice_id: inv.id,
-    sort_order: idx,
-    description: li.description,
-    quantity: li.quantity,
-    unit_price: li.unit_price,
-    amount: lineAmounts[idx],
-    xactimate_code: li.xactimate_code,
-  }));
-  const { error: liErr } = await service.from("invoice_line_items").insert(rows);
-  if (liErr) {
-    // Rollback: delete the parent invoice.
-    await service.from("invoices").delete().eq("id", inv.id);
-    return NextResponse.json({ error: liErr.message }, { status: 500 });
-  }
-
-  return NextResponse.json(inv);
 }

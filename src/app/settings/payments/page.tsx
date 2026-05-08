@@ -63,7 +63,7 @@ export default function PaymentEmailSettingsPage() {
         throw new Error(err.error || "Save failed");
       }
       setDirty(false);
-      toast.success("Payment email settings saved");
+      toast.success("Outgoing email settings saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -88,10 +88,10 @@ export default function PaymentEmailSettingsPage() {
         <div>
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Send size={18} className="text-[var(--brand-primary)]" />
-            Payment Email Settings
+            Outgoing Email Settings
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Controls how payment request and reminder emails are delivered.
+            From-address used for payment requests, estimate sends, and invoice sends.
           </p>
         </div>
         <button
@@ -337,6 +337,24 @@ export default function PaymentEmailSettingsPage() {
           patch("refund_issued_internal_subject_template", v)
         }
         onBodyChange={(v) => patch("refund_issued_internal_body_template", v)}
+      />
+
+      {/* Build 67c2 — Estimate + Invoice send templates */}
+      <PaymentEmailTemplateField
+        label="Estimate send"
+        description="Sent to the customer when you email an estimate from the read-only view. The selected PDF preset is attached automatically."
+        subject={settings.estimate_send_subject_template}
+        body={settings.estimate_send_body_template}
+        onSubjectChange={(v) => patch("estimate_send_subject_template", v)}
+        onBodyChange={(v) => patch("estimate_send_body_template", v)}
+      />
+      <PaymentEmailTemplateField
+        label="Invoice send"
+        description="Sent to the customer when you email an invoice from the read-only view. The selected PDF preset is attached automatically."
+        subject={settings.invoice_send_subject_template}
+        body={settings.invoice_send_body_template}
+        onSubjectChange={(v) => patch("invoice_send_subject_template", v)}
+        onBodyChange={(v) => patch("invoice_send_body_template", v)}
       />
 
       {/* Fee disclosure */}

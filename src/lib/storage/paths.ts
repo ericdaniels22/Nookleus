@@ -71,3 +71,11 @@ export function expenseReceiptPath(orgId: string, expenseId: string, filename: s
 export function profilePhotoPath(orgId: string, userId: string, ext: string): string {
   return `${orgId}/${userId}.${ext}`;
 }
+
+// estimate / invoice generated PDFs — pdfs bucket, canonical path overwrites on each export.
+export function estimatePdfPath(orgId: string, jobNumber: string, estimateNumber: string): string {
+  return `${orgId}/${jobNumber}/${estimateNumber}.pdf`;
+}
+export function invoicePdfPath(orgId: string, jobNumber: string, invoiceNumber: string): string {
+  return `${orgId}/${jobNumber}/${invoiceNumber}.pdf`;
+}

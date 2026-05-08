@@ -1,0 +1,30 @@
+-- ============================================================================
+-- Build 67c1 — T23 follow-up fix
+-- Add the missing `code` column to invoice_line_items.
+--
+-- Discovered during T23 manual test pass (Test 12). The 67b cleanup migration
+-- (`migration-build67b-cleanup.sql`) added `code` to estimate_line_items, and
+-- the `convert_estimate_to_invoice` RPC has been INSERTing into
+-- `invoice_line_items (..., code, ...)` since 67b cleanup landed. But neither
+-- 67b foundation nor 67b cleanup ever ALTER'd `invoice_line_items` to add the
+-- column — the column was assumed to exist on both tables but only ever
+-- existed on `estimate_line_items`.
+--
+-- The bug was latent because:
+--   - No real estimate conversions had happened in prod (0 invoices with
+--     line items at the time of this fix).
+--   - 67c1's T20 swapped the QB sync to select `code` from invoice_line_items
+--     instead of `xactimate_code`, but the QB sync also never ran against an
+--     invoice with line items.
+--   - T21 carry-forward of the convert RPC preserved the broken INSERT.
+--
+-- T23 Test 12 (DO-block convert + rollback) was the first path that
+-- exercised the INSERT and surfaced `column "code" of relation
+-- "invoice_line_items" does not exist`.
+--
+-- Fix: add the column. Nullable (matches `estimate_line_items.code` shape
+-- and TS type `code: string | null` in src/lib/types.ts:720). No backfill
+-- needed since prod has 0 invoice_line_items rows.
+-- ============================================================================
+
+ALTER TABLE invoice_line_items ADD COLUMN code text;

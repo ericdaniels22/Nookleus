@@ -17,6 +17,12 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import type { ContractTemplateListItem } from "@/lib/contracts/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function ContractTemplatesPage() {
   const { hasPermission, loading: authLoading } = useAuth();
@@ -25,7 +31,6 @@ export default function ContractTemplatesPage() {
 
   const [templates, setTemplates] = useState<ContractTemplateListItem[] | null>(null);
   const [creating, setCreating] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/settings/contract-templates");
@@ -43,15 +48,6 @@ export default function ContractTemplatesPage() {
       refresh();
     }
   }, [authLoading, allowed, refresh]);
-
-  // Close row menu on outside click.
-  useEffect(() => {
-    function onDocClick() {
-      setOpenMenuId(null);
-    }
-    if (openMenuId) document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [openMenuId]);
 
   async function handleCreate() {
     setCreating(true);
@@ -71,7 +67,6 @@ export default function ContractTemplatesPage() {
   }
 
   async function handleDuplicate(id: string) {
-    setOpenMenuId(null);
     const res = await fetch(`/api/settings/contract-templates/${id}/duplicate`, {
       method: "POST",
     });
@@ -84,7 +79,6 @@ export default function ContractTemplatesPage() {
   }
 
   async function handleToggleArchive(t: ContractTemplateListItem) {
-    setOpenMenuId(null);
     if (t.is_active) {
       // Archive via DELETE (soft, sets is_active=false).
       const res = await fetch(`/api/settings/contract-templates/${t.id}`, {
@@ -169,7 +163,7 @@ export default function ContractTemplatesPage() {
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all disabled:opacity-60"
         >
           {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          New Template
+          Upload Contract PDF
         </button>
       </div>
 
@@ -193,7 +187,7 @@ export default function ContractTemplatesPage() {
               <tr>
                 <th className="text-left font-medium px-4 py-3">Name</th>
                 <th className="text-left font-medium px-4 py-3 hidden md:table-cell">Description</th>
-                <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Signers</th>
+                <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Pages · Signers</th>
                 <th className="text-left font-medium px-4 py-3">Active</th>
                 <th className="text-left font-medium px-4 py-3 hidden sm:table-cell">Last Edited</th>
                 <th className="w-10" />
@@ -216,7 +210,21 @@ export default function ContractTemplatesPage() {
                   <td className="px-4 py-3 text-muted-foreground max-w-[28ch] truncate hidden md:table-cell">
                     {t.description || <span className="text-muted-foreground/50">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{t.default_signer_count}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs whitespace-nowrap">
+                      {t.pdf_page_count != null ? (
+                        <span>
+                          {t.pdf_page_count} {t.pdf_page_count === 1 ? "page" : "pages"}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/50">no PDF</span>
+                      )}
+                      <span>·</span>
+                      <span>
+                        {t.signer_count} signer{t.signer_count > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <label className="inline-flex items-center gap-2 cursor-pointer">
                       <input
@@ -239,41 +247,26 @@ export default function ContractTemplatesPage() {
                   <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
                     {formatLastEdited(t.updated_at)}
                   </td>
-                  <td className="px-2 py-3 relative text-right">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenMenuId(openMenuId === t.id ? null : t.id);
-                      }}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                      aria-label="Row actions"
-                    >
-                      <MoreHorizontal size={16} />
-                    </button>
-                    {openMenuId === t.id && (
-                      <div
-                        className="absolute right-2 top-10 z-10 w-40 rounded-lg border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
+                  <td className="px-2 py-3 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        aria-label={`Actions for ${t.name}`}
                       >
-                        <Link
-                          href={`/settings/contract-templates/${t.id}/edit`}
-                          className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"
+                        <MoreHorizontal size={16} />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          render={
+                            <Link href={`/settings/contract-templates/${t.id}/edit`} />
+                          }
                         >
                           <Pencil size={14} /> Edit
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicate(t.id)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
-                        >
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDuplicate(t.id)}>
                           <Copy size={14} /> Duplicate
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleArchive(t)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
-                        >
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleToggleArchive(t)}>
                           {t.is_active ? (
                             <>
                               <Archive size={14} /> Archive
@@ -283,9 +276,9 @@ export default function ContractTemplatesPage() {
                               <ArchiveRestore size={14} /> Restore
                             </>
                           )}
-                        </button>
-                      </div>
-                    )}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}

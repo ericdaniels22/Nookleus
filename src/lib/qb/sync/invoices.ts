@@ -60,7 +60,7 @@ interface LineItemRow {
   quantity: number;
   unit_price: number;
   amount: number;
-  xactimate_code: string | null;
+  code: string | null;
 }
 
 interface JobRow {
@@ -120,7 +120,7 @@ export async function syncInvoice(
 
   const { data: items } = await supabase
     .from("invoice_line_items")
-    .select("id, sort_order, description, quantity, unit_price, amount, xactimate_code")
+    .select("id, sort_order, description, quantity, unit_price, amount, code")
     .eq("invoice_id", invoice.id)
     .order("sort_order", { ascending: true });
   const lineItems = (items ?? []) as LineItemRow[];
@@ -141,8 +141,8 @@ export async function syncInvoice(
 
   const lines: QbInvoiceLine[] = lineItems.map((li) => ({
     Amount: Number(li.amount),
-    Description: li.xactimate_code
-      ? `[${li.xactimate_code}] ${li.description}`
+    Description: li.code
+      ? `[${li.code}] ${li.description}`
       : li.description,
     DetailType: "SalesItemLineDetail",
     SalesItemLineDetail: {

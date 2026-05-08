@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { resolveMergeFields } from "@/lib/contracts/merge-fields";
+import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
 
 interface SignerInput {
   name: string;
@@ -51,12 +51,12 @@ export async function POST(request: Request) {
 
   const { data: tpl, error: tErr } = await supabase
     .from("contract_templates")
-    .select("id, name, content_html, version, is_active, signer_role_label")
+    .select("id, name, pdf_storage_path, version, is_active, signer_role_label")
     .eq("id", body.templateId)
     .maybeSingle<{
       id: string;
       name: string;
-      content_html: string;
+      pdf_storage_path: string | null;
       version: number;
       is_active: boolean;
       signer_role_label: string | null;
@@ -67,8 +67,8 @@ export async function POST(request: Request) {
   if (!tpl.is_active) {
     return NextResponse.json({ error: "Template is archived" }, { status: 400 });
   }
-  if (!tpl.content_html?.trim()) {
-    return NextResponse.json({ error: "Template has no content" }, { status: 400 });
+  if (!tpl.pdf_storage_path) {
+    return NextResponse.json({ error: "Template has no PDF" }, { status: 400 });
   }
 
   const { data: job, error: jErr } = await supabase
@@ -80,8 +80,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: jErr?.message || "Job not found" }, { status: 404 });
   }
 
-  const { html: filledHtml } = await resolveMergeFields(supabase, tpl.content_html, body.jobId);
-  const filledHash = createHash("sha256").update(filledHtml).digest("hex");
+  const filledHtml = EMPTY_HTML;
+  const filledHash = EMPTY_HTML_SHA256;
 
   const contractId = randomUUID();
   const signerIds = body.signers.map(() => randomUUID());

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { requirePermission } from "@/lib/permissions-api";
+import { apiDbError } from "@/lib/api-errors";
+import type { OverlayField, PdfPage } from "@/lib/contracts/types";
+import { validateOverlayFields } from "@/lib/contracts/overlay-validation";
 
 // GET /api/settings/contract-templates/[id]
 export async function GET(
@@ -19,48 +24,72 @@ export async function GET(
   return NextResponse.json(data);
 }
 
-// PATCH /api/settings/contract-templates/[id] — update any of the editable
-// fields. Increments version whenever content changes so the send flow in
-// Build 15b can snapshot which template revision produced a given contract.
+// PATCH /api/settings/contract-templates/[id] — auto-save handler.
+// 409 stale-check via the version column (mirrors 67a auto-save).
+// overlay_fields validated server-side.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const supabase = await createServerSupabaseClient();
+  const gate = await requirePermission(supabase, "manage_contract_templates");
+  if (!gate.ok) return gate.response;
+  const orgId = await getActiveOrganizationId(supabase);
+
   const body = await request.json().catch(() => ({}));
 
-  const update: Record<string, unknown> = {};
-  if (typeof body.name === "string") update.name = body.name.slice(0, 120);
+  // Fetch existing for stale-check + validation context.
+  const { data: existing, error: fetchErr } = await supabase
+    .from("contract_templates")
+    .select("id, version, pdf_pages, signer_count")
+    .eq("id", id)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (fetchErr) return apiDbError(fetchErr.message, "PATCH template/[id] select");
+  if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+
+  // 409 stale-check.
+  const incomingVersion = Number(body.version);
+  if (Number.isFinite(incomingVersion) && incomingVersion !== existing.version) {
+    return NextResponse.json({ error: "stale", current: existing.version }, { status: 409 });
+  }
+
+  const update: Partial<{
+    name: string;
+    description: string | null;
+    signer_count: 1 | 2;
+    signer_role_label: string;
+    overlay_fields: OverlayField[];
+    is_active: boolean;
+    version: number;
+  }> = {};
+
+  if (typeof body.name === "string") update.name = body.name.trim().slice(0, 120);
   if (body.description === null || typeof body.description === "string") {
     update.description = body.description;
   }
-  if (body.default_signer_count === 1 || body.default_signer_count === 2) {
-    update.default_signer_count = body.default_signer_count;
+  if (body.signer_count === 1 || body.signer_count === 2) {
+    update.signer_count = body.signer_count;
   }
   if (typeof body.signer_role_label === "string") {
     update.signer_role_label = body.signer_role_label.slice(0, 120);
   }
+  if (Array.isArray(body.overlay_fields)) {
+    const errs = validateOverlayFields(
+      body.overlay_fields as OverlayField[],
+      (existing.pdf_pages ?? null) as PdfPage[] | null,
+      (update.signer_count ?? existing.signer_count) as 1 | 2,
+    );
+    if (errs.length) {
+      return NextResponse.json({ error: "invalid_overlay_fields", details: errs }, { status: 400 });
+    }
+    update.overlay_fields = body.overlay_fields as OverlayField[];
+  }
   if (typeof body.is_active === "boolean") update.is_active = body.is_active;
 
-  const contentChanged = body.content !== undefined || body.content_html !== undefined;
-  if (body.content !== undefined) update.content = body.content;
-  if (typeof body.content_html === "string") update.content_html = body.content_html;
-
-  const supabase = await createServerSupabaseClient();
-
-  if (contentChanged) {
-    // Atomic version bump alongside the content update.
-    const { data: existing, error: fetchErr } = await supabase
-      .from("contract_templates")
-      .select("version")
-      .eq("id", id)
-      .maybeSingle();
-    if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
-    if (!existing) {
-      return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    }
-    update.version = (existing.version ?? 1) + 1;
-  }
+  // Bump version on every successful save (overlay positions, name, etc.).
+  update.version = (existing.version ?? 1) + 1;
 
   const { data, error } = await supabase
     .from("contract_templates")
@@ -68,8 +97,8 @@ export async function PATCH(
     .eq("id", id)
     .select()
     .single();
+  if (error) return apiDbError(error.message, "PATCH template/[id] update");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
 
