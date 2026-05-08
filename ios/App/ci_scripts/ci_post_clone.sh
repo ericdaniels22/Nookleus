@@ -1,5 +1,7 @@
 #!/bin/sh
-set -e
+set -ex
+
+brew install node
 
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 
