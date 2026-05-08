@@ -22,6 +22,7 @@ import SignInPersonModal from "./sign-in-person-modal";
 import VoidContractDialog from "./void-contract-dialog";
 import type { ContractListItem, ContractListSigner } from "@/lib/contracts/types";
 import { cn } from "@/lib/utils";
+import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
 
 interface Props {
   jobId: string;
@@ -364,6 +365,7 @@ function ContractRow({
         {row.status === "signed" && row.signed_pdf_path && (
           <a
             href={`/api/contracts/${row.id}/pdf`}
+            download={`${sanitizePdfFilename(row.title)}.pdf`}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <Download size={12} /> Download
@@ -371,8 +373,7 @@ function ContractRow({
         )}
         {row.status === "signed" && (
           <Link
-            href={`/api/contracts/${row.id}/pdf?inline=1`}
-            target="_blank"
+            href={`/contracts/${row.id}/view`}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <Eye size={12} /> View
