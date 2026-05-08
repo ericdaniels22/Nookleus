@@ -26,11 +26,16 @@ export default function DownloadPdfButton({
 
   async function handle(e: React.MouseEvent<HTMLAnchorElement>) {
     if (typeof window === "undefined") return;
-    const standalone =
+    const cap = (window as Window & {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    }).Capacitor;
+    const inApp =
       window.matchMedia("(display-mode: standalone)").matches ||
-      // iOS Safari pre-PWA-spec property
-      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (!standalone) return; // desktop / browser tab — let <a download> do its thing
+      // iOS Safari pre-PWA-spec property (Add-to-Home-Screen)
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
+      // Capacitor WKWebView (TestFlight / App Store builds)
+      cap?.isNativePlatform?.() === true;
+    if (!inApp) return; // desktop / browser tab — let <a download> do its thing
     e.preventDefault();
     if (busy) return;
     setBusy(true);
