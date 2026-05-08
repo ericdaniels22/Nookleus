@@ -305,6 +305,18 @@
   outline-offset: 1px;
 }
 
+/* Unknown merge field — token doesn't match any known field name.
+ * Editor-only signal; the resolver still emits the standard "________"
+ * unresolved placeholder at send time. */
+.merge-field-pill[data-unknown="true"] {
+  background: rgba(239, 68, 68, 0.10);
+  color: rgb(252, 165, 165);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.ProseMirror .merge-field-pill[data-unknown="true"]:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
 /* Placeholder for fields without source data when the contract is previewed. */
 .merge-field-unresolved {
   display: inline-block;
@@ -316,6 +328,19 @@
   font-size: 0.9em;
   opacity: 0.7;
   letter-spacing: 0.05em;
+}
+
+/* Subject-line single-line editor — mimic the look of a plain <input>. */
+.merge-field-input-line .ProseMirror,
+.merge-field-input-line.ProseMirror {
+  min-height: auto;
+  outline: none;
+}
+.merge-field-input-line p {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Tiptap editor surface used by the contract-template editor. Prose defaults

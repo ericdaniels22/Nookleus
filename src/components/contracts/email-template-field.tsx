@@ -1,10 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/components/tiptap-editor";
 import { ChevronDown, Plus } from "lucide-react";
 import { MERGE_FIELD_CATEGORIES, mergeFieldsByCategory } from "@/lib/contracts/merge-fields";
 import { EMAIL_EXTRA_MERGE_FIELDS } from "@/lib/contracts/email-merge-fields";
+import { MergeFieldNode } from "@/components/contracts/merge-field-node";
+import MergeFieldInput, {
+  type MergeFieldInputHandle,
+} from "@/components/contracts/merge-field-input";
 
 export interface EmailTemplateFieldProps {
   label: string;
@@ -14,6 +19,8 @@ export interface EmailTemplateFieldProps {
   onSubjectChange: (v: string) => void;
   onBodyChange: (v: string) => void;
 }
+
+const SIGNING_LINK_HTML = `<a href="{{signing_link}}">Open document</a>`;
 
 export default function EmailTemplateField({
   label,
@@ -25,35 +32,34 @@ export default function EmailTemplateField({
 }: EmailTemplateFieldProps) {
   const [subjectMenuOpen, setSubjectMenuOpen] = useState(false);
   const [bodyMenuOpen, setBodyMenuOpen] = useState(false);
-  const subjectInputRef = useRef<HTMLInputElement | null>(null);
+  const subjectInputRef = useRef<MergeFieldInputHandle | null>(null);
+  const bodyEditorRef = useRef<Editor | null>(null);
 
   const grouped = mergeFieldsByCategory();
 
   function insertIntoSubject(fieldName: string) {
-    const el = subjectInputRef.current;
-    const insert = `{{${fieldName}}}`;
-    if (!el) {
-      onSubjectChange(subject + insert);
-      setSubjectMenuOpen(false);
-      return;
-    }
-    const start = el.selectionStart ?? subject.length;
-    const end = el.selectionEnd ?? subject.length;
-    const next = subject.slice(0, start) + insert + subject.slice(end);
-    onSubjectChange(next);
+    // Subject is single-line plain text — even signing_link goes in as a
+    // pill here. (Recipients rarely click a subject anyway; the body is
+    // where the clickable link belongs.)
+    subjectInputRef.current?.insertMergeField(fieldName);
     setSubjectMenuOpen(false);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + insert.length;
-      el.setSelectionRange(pos, pos);
-    });
   }
 
   function insertIntoBody(fieldName: string) {
-    const insert = `{{${fieldName}}}`;
-    // Append — for the body we rely on the user editing afterwards if they
-    // want it mid-sentence. Keeps the editor integration lightweight.
-    onBodyChange(body + ` ${insert}`);
+    const editor = bodyEditorRef.current;
+    if (!editor) return;
+    if (fieldName === "signing_link") {
+      // Special case: insert a clickable anchor whose href contains the
+      // token. Resolver swaps `{{signing_link}}` in the href at send time.
+      editor.chain().focus().insertContent(SIGNING_LINK_HTML).insertContent(" ").run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "mergeField", attrs: { fieldName } })
+        .insertContent(" ")
+        .run();
+    }
     setBodyMenuOpen(false);
   }
 
@@ -64,7 +70,6 @@ export default function EmailTemplateField({
         {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
 
-      {/* Subject */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-muted-foreground">Subject</label>
@@ -75,17 +80,14 @@ export default function EmailTemplateField({
             onPick={insertIntoSubject}
           />
         </div>
-        <input
+        <MergeFieldInput
           ref={subjectInputRef}
-          type="text"
           value={subject}
-          onChange={(e) => onSubjectChange(e.target.value)}
-          className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 focus:border-[var(--brand-primary)]"
+          onChange={onSubjectChange}
           placeholder="Subject line"
         />
       </div>
 
-      {/* Body */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-muted-foreground">Body</label>
@@ -100,6 +102,10 @@ export default function EmailTemplateField({
           content={body}
           onChange={onBodyChange}
           placeholder="Email body. Use merge fields to insert data at send time."
+          extraExtensions={[MergeFieldNode]}
+          onReady={(editor) => {
+            bodyEditorRef.current = editor;
+          }}
         />
       </div>
     </div>
@@ -137,10 +143,11 @@ function MergeFieldDropdown({
                 <button
                   key={f.name}
                   type="button"
+                  title={`{{${f.name}}}`}
                   onClick={() => onPick(f.name)}
                   className="merge-field-pill cursor-pointer hover:brightness-110"
                 >
-                  {`{{${f.name}}}`}
+                  {f.label}
                 </button>
               ))}
             </div>
@@ -155,10 +162,11 @@ function MergeFieldDropdown({
                   <button
                     key={f.name}
                     type="button"
+                    title={`{{${f.name}}}`}
                     onClick={() => onPick(f.name)}
                     className="merge-field-pill cursor-pointer hover:brightness-110"
                   >
-                    {`{{${f.name}}}`}
+                    {f.label}
                   </button>
                 ))}
               </div>
