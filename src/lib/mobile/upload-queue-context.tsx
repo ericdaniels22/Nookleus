@@ -28,6 +28,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
   const workerRef = useRef<UploadQueueWorker | null>(null);
   const networkRef = useRef<NetworkMonitor | null>(null);
   const bgSyncRef = useRef<BackgroundSyncRunner | null>(null);
+  const captureListenerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -79,6 +80,12 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
       appStateHandle = await App.addListener("appStateChange", ({ isActive }) => {
         if (isActive) worker.drain();
       });
+
+      const onCaptureWritten = () => {
+        void worker.scanAll().then(() => worker.drain());
+      };
+      window.addEventListener("65c-capture-written", onCaptureWritten);
+      captureListenerRef.current = onCaptureWritten;
     })();
 
     return () => {
@@ -86,6 +93,13 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
       networkRef.current?.stop();
       bgSyncRef.current?.stop();
       appStateHandle?.remove();
+      if (captureListenerRef.current) {
+        window.removeEventListener(
+          "65c-capture-written",
+          captureListenerRef.current,
+        );
+        captureListenerRef.current = null;
+      }
     };
   }, []);
 

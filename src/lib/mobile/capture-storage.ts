@@ -80,6 +80,10 @@ export async function writeCapture(args: {
     directory: DIRECTORY,
     encoding: Encoding.UTF8,
   });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("65c-capture-written"));
+  }
 }
 
 export async function readSidecar(
