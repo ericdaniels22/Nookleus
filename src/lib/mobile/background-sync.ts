@@ -13,6 +13,8 @@ export class BackgroundSyncRunner {
         const taskId = await BackgroundTask.beforeExit(async () => {
           try {
             await onWake(8000);
+          } catch (e) {
+            console.warn("[65c] bg-sync drain error", e);
           } finally {
             BackgroundTask.finish({ taskId });
           }
