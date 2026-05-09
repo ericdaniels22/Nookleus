@@ -64,10 +64,14 @@ These supersede plan §5.3's locked decisions where they conflict.
 ## Scope additions
 
 - **Bug fix in pass:** web `photo-upload.tsx` currently hard-codes
-  `taken_by: 'Eric'`. Replace with active user's
-  `user_profiles.full_name`. Mobile path uses the same source.
+  `taken_by: 'Eric'` (line 148). Replace with active user's
+  `user_profiles.full_name`. Mobile path uses the same source. Note:
+  the column also has a default of `'Eric'::text`; the in-pass change
+  passes a real value explicitly so the default never fires.
 - **Bug fix in pass:** web `photo-upload.tsx` does not yet write
   `uploaded_from`. After migration applies, set `uploaded_from: 'web'`.
+  (The `'web'` column default also covers any code path that omits it,
+  including the photo-annotator's restore-from-backup INSERT path.)
 - **Migration of existing 65b captures on Eric's device.** Any
   unencrypted `.jpg` files left over from 65b smoke get encrypted
   in-place on app launch by a one-time scan in
@@ -220,6 +224,7 @@ worker.drain({budgetMs?}):
   │ 2. decrypt: read .jpg.enc → cryptoVault.decrypt() → blob      │
   │ 3. EXIF: exifRead.readDimensions(blob) → {w, h, orient}       │
   │    (fallback to 0/0/1 on parse failure)                       │
+  │    only w/h are written to DB; orient kept on sidecar only    │
   │ 4. upload: supabase.storage.from('photos').upload(             │
   │      `${org}/${job}/${ts}-${rand6}.jpg`, blob,                 │
   │      {contentType: 'image/jpeg', upsert: false}                │
@@ -242,7 +247,7 @@ worker.drain({budgetMs?}):
     updateSidecar(); emitState(...)
 ```
 
-INSERT shape:
+INSERT shape (verified against `public.photos` columns 2026-05-08):
 
 ```ts
 {
@@ -251,13 +256,25 @@ INSERT shape:
   storage_path: `${org}/${job}/${ts}-${rand6}.jpg`,
   uploaded_from: 'mobile',
   client_capture_id: sidecar.client_capture_id,
-  taken_by: <user_profiles.full_name>,
+  taken_by: <user_profiles.full_name>,  // overrides column default 'Eric'::text
   taken_at: sidecar.taken_at,
   caption: sidecar.caption,
-  width, height, orientation, // from step 3
+  width,        // from step 3 (exifr)
+  height,       // from step 3 (exifr)
+  file_size: blob.size,
+  // media_type defaults to 'photo' at column level, omitted
   // thumbnail_path stays NULL (out of scope)
+  // annotated_path stays NULL (set later by annotator)
+  // before_after_pair_id / before_after_role stay NULL (set later by web pairing UI)
 }
 ```
+
+Note: `photos` table has NO `orientation` column. Sidecar's
+`orientation: number` field is read at upload (step 3) for future use
+but NOT written to DB. iOS Camera-preview returns already-rotated JPEGs
+in practice, so orientation defaults to 1 and the field is currently
+cosmetic. If a future build adds `photos.orientation`, the worker
+already has the value ready.
 
 Backoff schedule: `[1000, 5000, 30000]` ms by `retry_count`. After 3
 failures, sidecar stays `failed` until user-initiated retry from
