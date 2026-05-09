@@ -165,7 +165,7 @@ export async function updateSidecar(
   jobId: string,
   sessionId: string,
   captureId: string,
-  patch: Partial<Pick<CaptureSidecar, "caption" | "tag_ids">>,
+  patch: Partial<CaptureSidecar>,
 ): Promise<CaptureSidecar> {
   const current = await readSidecar(jobId, sessionId, captureId);
   const next: CaptureSidecar = { ...current, ...patch };
