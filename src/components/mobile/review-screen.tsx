@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Tag as TagIcon, Trash2, Type, X } from "lucide-react";
+import { CameraPreview } from "@capacitor-community/camera-preview";
 import {
   deleteCapture,
   listSessionCaptures,
@@ -51,6 +52,16 @@ export default function ReviewScreen({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Defensive: the camera-preview plugin (toBack: true path) attaches a
+  // UITapGestureRecognizer to the WKWebView and never removes it on stop().
+  // If we entered the review screen with the camera still alive (e.g. Done
+  // tapped before stopCamera resolved), the live feed remains rendered
+  // behind the WebView and the tap recognizer can interfere with routing.
+  // Force-stop on mount; ignore "already stopped" rejections.
+  useEffect(() => {
+    void CameraPreview.stop().catch(() => {});
+  }, []);
 
   const handleDelete = useCallback(
     async (captureId: string) => {
@@ -154,7 +165,10 @@ export default function ReviewScreen({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex flex-col bg-black text-white">
+    <div
+      className="fixed inset-0 z-[1000] flex flex-col bg-black text-white"
+      style={{ touchAction: "manipulation" }}
+    >
       <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
         <button
           type="button"
@@ -214,7 +228,7 @@ export default function ReviewScreen({
           </p>
         </div>
       ) : (
-        <div className="grid flex-1 grid-cols-3 gap-1 overflow-y-auto p-1">
+        <div className="grid flex-1 grid-cols-3 gap-3 overflow-y-auto p-3 [touch-action:pan-y]">
           {captures.map((capture) => (
             <ReviewTile
               key={capture.sidecar.client_capture_id}
@@ -340,41 +354,53 @@ function ReviewTile({
   onSwipeDelete,
 }: ReviewTileProps) {
   const [drag, setDrag] = useState(0);
-  const [pointerDownX, setPointerDownX] = useState<number | null>(null);
-  const [pointerMoved, setPointerMoved] = useState(false);
+  const pointerStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    moved: boolean;
+  } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (selectMode) return;
-    setPointerDownX(e.clientX);
-    setPointerMoved(false);
+    // Bind this pointer to this element so move/up/cancel are guaranteed to
+    // fire on the same tile that started the gesture, even if the finger
+    // drifts. Without explicit capture, iOS WebKit can route follow-up
+    // pointer events to an adjacent element on tightly-packed grids.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pointerStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      moved: false,
+    };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (pointerDownX === null) return;
-    const dx = e.clientX - pointerDownX;
-    if (Math.abs(dx) > 4) setPointerMoved(true);
+    const state = pointerStateRef.current;
+    if (state === null || state.pointerId !== e.pointerId) return;
+    const dx = e.clientX - state.startX;
+    if (Math.abs(dx) > 4) state.moved = true;
     setDrag(dx < 0 ? Math.max(dx, -SWIPE_DELETE_THRESHOLD - 24) : 0);
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const state = pointerStateRef.current;
+    if (state === null || state.pointerId !== e.pointerId) return;
+    pointerStateRef.current = null;
     if (drag <= -SWIPE_DELETE_THRESHOLD) {
       setDrag(0);
-      setPointerDownX(null);
       onSwipeDelete();
       return;
     }
-    if (!pointerMoved) {
-      // Treat as a tap.
+    if (!state.moved) {
       onTap();
     }
     setDrag(0);
-    setPointerDownX(null);
   };
 
   const showDeleteHint = drag <= -16;
 
   return (
-    <div className="relative aspect-square overflow-hidden bg-white/5">
+    <div className="relative aspect-square overflow-hidden rounded-md bg-white/5">
       {showDeleteHint && (
         <div className="absolute inset-y-0 right-0 flex w-20 items-center justify-center bg-red-600">
           <Trash2 className="h-5 w-5 text-white" />
@@ -386,11 +412,14 @@ function ReviewTile({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={() => {
+          pointerStateRef.current = null;
           setDrag(0);
-          setPointerDownX(null);
         }}
-        style={{ transform: `translateX(${drag}px)` }}
-        className="absolute inset-0 touch-pan-y bg-black"
+        style={{
+          transform: `translateX(${drag}px)`,
+          touchAction: "pan-y",
+        }}
+        className="absolute inset-0 bg-black"
       >
         <img
           src={capture.thumbnail_data_url}
