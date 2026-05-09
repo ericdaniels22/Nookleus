@@ -148,7 +148,7 @@ export default function CameraView({
   const persistCapture = useCallback(
     async (base64Data: string) => {
       const captureId = generateUuid();
-      const sidecar: CaptureSidecar = {
+      const sidecar = {
         client_capture_id: captureId,
         job_id: jobId,
         capture_session_id: sessionId,
