@@ -167,6 +167,14 @@ export class UploadQueueWorker {
     this.deps.onChange();
 
     try {
+      if (
+        typeof window !== "undefined" &&
+        window.localStorage?.getItem("65c-force-upload-fail") === "1"
+      ) {
+        const r = await fetch("/api/test/photo-upload-fail", { method: "POST" });
+        if (!r.ok) throw new Error(`synthetic_test_failure: HTTP ${r.status}`);
+      }
+
       const encR = await Filesystem.readFile({
         path: getEncryptedPhotoPath(job_id, capture_session_id, client_capture_id),
         directory: DIRECTORY,
