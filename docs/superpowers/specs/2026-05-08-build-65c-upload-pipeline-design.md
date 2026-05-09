@@ -525,3 +525,12 @@ the bg-fetch native dance is still useful (foreground-only sync).
   paths that don't know about the column produce correct rows even
   before the in-pass code change merges. Defensive default chosen
   deliberately.
+
+## Rollback for build65c_photos_mobile_fields
+
+```sql
+-- Rollback for build65c_photos_mobile_fields
+DROP INDEX IF EXISTS public.photos_org_client_capture_id_key;
+ALTER TABLE public.photos DROP COLUMN IF EXISTS client_capture_id;
+ALTER TABLE public.photos DROP COLUMN IF EXISTS uploaded_from;
+```
