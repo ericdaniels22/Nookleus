@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { migrateUnencryptedFiles } from "./crypto-vault";
@@ -27,6 +28,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
   const networkRef = useRef<NetworkMonitor | null>(null);
 
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
     let cancelled = false;
     let appStateHandle: { remove: () => Promise<void> } | null = null;
 

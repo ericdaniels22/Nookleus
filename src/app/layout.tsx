@@ -9,6 +9,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { NavOrderProvider } from "@/lib/nav-order-context";
 import { SidebarCollapseProvider } from "@/lib/sidebar-collapse-context";
 import AppShell from "@/components/app-shell";
+import { UploadQueueProvider } from "@/lib/mobile/upload-queue-context";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -52,15 +53,17 @@ export default function RootLayout({
       <body className="min-h-full bg-background" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
-            <ConfigProvider>
-              <NavOrderProvider>
-                <SidebarCollapseProvider>
-                  <BrandColorsProvider />
-                  <AppShell>{children}</AppShell>
-                  <Toaster />
-                </SidebarCollapseProvider>
-              </NavOrderProvider>
-            </ConfigProvider>
+            <UploadQueueProvider>
+              <ConfigProvider>
+                <NavOrderProvider>
+                  <SidebarCollapseProvider>
+                    <BrandColorsProvider />
+                    <AppShell>{children}</AppShell>
+                    <Toaster />
+                  </SidebarCollapseProvider>
+                </NavOrderProvider>
+              </ConfigProvider>
+            </UploadQueueProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
