@@ -105,6 +105,20 @@ export default function CameraView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The CameraPreview plugin renders the live feed *behind* the WebView
+  // (toBack: true). For it to be visible, body + html backgrounds must be
+  // transparent for the duration of the capture session.
+  useEffect(() => {
+    const prevBodyBg = document.body.style.backgroundColor;
+    const prevHtmlBg = document.documentElement.style.backgroundColor;
+    document.body.style.backgroundColor = "transparent";
+    document.documentElement.style.backgroundColor = "transparent";
+    return () => {
+      document.body.style.backgroundColor = prevBodyBg;
+      document.documentElement.style.backgroundColor = prevHtmlBg;
+    };
+  }, []);
+
   const handleFlip = useCallback(async () => {
     if (busy) return;
     const next = position === "rear" ? "front" : "rear";
