@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, Tag as TagIcon, Trash2, Type, X } from "lucide-react";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import {
@@ -19,8 +19,6 @@ interface ReviewScreenProps {
   onBackToCamera: () => void;
   onExit: () => void;
 }
-
-const SWIPE_DELETE_THRESHOLD = 80;
 
 export default function ReviewScreen({
   jobId,
@@ -234,9 +232,7 @@ export default function ReviewScreen({
               key={capture.sidecar.client_capture_id}
               capture={capture}
               isSelected={selected.has(capture.sidecar.client_capture_id)}
-              selectMode={selectMode}
               onTap={() => handleTileTap(capture)}
-              onSwipeDelete={() => handleDelete(capture.sidecar.client_capture_id)}
             />
           ))}
         </div>
@@ -341,104 +337,41 @@ export default function ReviewScreen({
 interface ReviewTileProps {
   capture: PendingCapture;
   isSelected: boolean;
-  selectMode: boolean;
   onTap: () => void;
-  onSwipeDelete: () => void;
 }
 
-function ReviewTile({
-  capture,
-  isSelected,
-  selectMode,
-  onTap,
-  onSwipeDelete,
-}: ReviewTileProps) {
-  const [drag, setDrag] = useState(0);
-  const pointerStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    moved: boolean;
-  } | null>(null);
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (selectMode) return;
-    // Bind this pointer to this element so move/up/cancel are guaranteed to
-    // fire on the same tile that started the gesture, even if the finger
-    // drifts. Without explicit capture, iOS WebKit can route follow-up
-    // pointer events to an adjacent element on tightly-packed grids.
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointerStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      moved: false,
-    };
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const state = pointerStateRef.current;
-    if (state === null || state.pointerId !== e.pointerId) return;
-    const dx = e.clientX - state.startX;
-    if (Math.abs(dx) > 4) state.moved = true;
-    setDrag(dx < 0 ? Math.max(dx, -SWIPE_DELETE_THRESHOLD - 24) : 0);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const state = pointerStateRef.current;
-    if (state === null || state.pointerId !== e.pointerId) return;
-    pointerStateRef.current = null;
-    if (drag <= -SWIPE_DELETE_THRESHOLD) {
-      setDrag(0);
-      onSwipeDelete();
-      return;
-    }
-    if (!state.moved) {
-      onTap();
-    }
-    setDrag(0);
-  };
-
-  const showDeleteHint = drag <= -16;
-
+// Plain block-level button as the tap target. Earlier versions used a
+// position-absolute button inside a wrapper div, which collided with a
+// known WebKit bug: hit-test bounds for absolute children of a scrollable
+// container can desync from the scroll offset, causing taps to land on
+// the wrong element once the grid scrolls. Side effect: swipe-to-delete
+// is removed from this layout. Delete paths preserved: Select mode +
+// batch delete in the footer; Delete button in the expanded photo view.
+function ReviewTile({ capture, isSelected, onTap }: ReviewTileProps) {
   return (
-    <div className="relative aspect-square overflow-hidden rounded-md bg-white/5">
-      {showDeleteHint && (
-        <div className="absolute inset-y-0 right-0 flex w-20 items-center justify-center bg-red-600">
-          <Trash2 className="h-5 w-5 text-white" />
+    <button
+      type="button"
+      onClick={onTap}
+      style={{ touchAction: "manipulation" }}
+      className="relative block aspect-square overflow-hidden rounded-md bg-black"
+    >
+      <img
+        src={capture.thumbnail_data_url}
+        alt=""
+        className="h-full w-full object-cover"
+      />
+      {isSelected && (
+        <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/40">
+          <Check className="h-10 w-10 text-white" />
         </div>
       )}
-      <button
-        type="button"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={() => {
-          pointerStateRef.current = null;
-          setDrag(0);
-        }}
-        style={{
-          transform: `translateX(${drag}px)`,
-          touchAction: "pan-y",
-        }}
-        className="absolute inset-0 bg-black"
-      >
-        <img
-          src={capture.thumbnail_data_url}
-          alt=""
-          className="h-full w-full object-cover"
-        />
-        {isSelected && (
-          <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/40">
-            <Check className="h-10 w-10 text-white" />
-          </div>
-        )}
-        {capture.sidecar.tag_ids.length > 0 && !isSelected && (
-          <div className="absolute bottom-1 left-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium">
-            {capture.sidecar.tag_ids.length} tag
-            {capture.sidecar.tag_ids.length === 1 ? "" : "s"}
-          </div>
-        )}
-      </button>
-    </div>
+      {capture.sidecar.tag_ids.length > 0 && !isSelected && (
+        <div className="absolute bottom-1 left-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium">
+          {capture.sidecar.tag_ids.length} tag
+          {capture.sidecar.tag_ids.length === 1 ? "" : "s"}
+        </div>
+      )}
+    </button>
   );
 }
 
