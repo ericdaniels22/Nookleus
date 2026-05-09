@@ -14,6 +14,7 @@
     "@anthropic-ai/sdk": "^0.86.1",
     "@base-ui/react": "^1.4.1",
     "@capacitor-community/camera-preview": "^8.0.1",
+    "@capacitor/app": "^8.1.0",
     "@capacitor/core": "^8.3.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.3.1",
