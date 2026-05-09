@@ -6,6 +6,7 @@ import { Capacitor } from "@capacitor/core";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { migrateUnencryptedFiles } from "./crypto-vault";
+import { BackgroundSyncRunner } from "./background-sync";
 import { NetworkMonitor } from "./network-monitor";
 import { UploadQueueWorker, type QueueCounts } from "./upload-queue";
 import type { CaptureSidecar } from "./capture-types";
@@ -26,6 +27,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
   const [list, setList] = useState<CaptureSidecar[]>([]);
   const workerRef = useRef<UploadQueueWorker | null>(null);
   const networkRef = useRef<NetworkMonitor | null>(null);
+  const bgSyncRef = useRef<BackgroundSyncRunner | null>(null);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -70,6 +72,10 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
       await network.start(() => worker.drain());
       networkRef.current = network;
 
+      const bgSync = new BackgroundSyncRunner();
+      await bgSync.start((budgetMs) => worker.drain({ budgetMs }));
+      bgSyncRef.current = bgSync;
+
       appStateHandle = await App.addListener("appStateChange", ({ isActive }) => {
         if (isActive) worker.drain();
       });
@@ -78,6 +84,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
     return () => {
       cancelled = true;
       networkRef.current?.stop();
+      bgSyncRef.current?.stop();
       appStateHandle?.remove();
     };
   }, []);

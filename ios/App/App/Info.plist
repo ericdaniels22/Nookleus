@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Nookleus</string>
+	<string>Nookleus</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,6 +24,18 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Nookleus uses the camera to capture job-site photos that attach directly to the active job.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nookleus may capture short voice notes alongside job-site photos. The microphone is not used unless you tap to record.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Nookleus saves captured photos to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Nookleus uses the photo library to attach existing photos to jobs.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -47,13 +59,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>NSCameraUsageDescription</key>
-	<string>Nookleus uses the camera to capture job-site photos that attach directly to the active job.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Nookleus may capture short voice notes alongside job-site photos. The microphone is not used unless you tap to record.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Nookleus uses the photo library to attach existing photos to jobs.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Nookleus saves captured photos to your photo library.</string>
 </dict>
 </plist>
