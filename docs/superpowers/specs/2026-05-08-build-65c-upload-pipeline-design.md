@@ -504,7 +504,7 @@ the bg-fetch native dance is still useful (foreground-only sync).
 
 ## Open questions for the implementation plan
 
-- Concrete Keychain plugin pick (one of three candidates listed above).
+- ~~Concrete Keychain plugin pick (one of three candidates listed above).~~ **Resolved 2026-05-08:** chose `capacitor-secure-storage-plugin@0.13.0` because it explicitly declares Capacitor 8 compatibility (`@capacitor/core: >=8.0.0`), is actively maintained (last publish 3 months ago), and has no peer-dep ceiling.
 - Whether to gate the `/api/_test/photo-upload-fail` route behind a
   build flag or rely on a temporary Supabase policy for the failure-path
   test. Build flag is cleaner; policy is more realistic.
