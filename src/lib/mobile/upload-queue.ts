@@ -51,23 +51,44 @@ export function isStaleUploadingClaim(
   return s.upload_state === "uploading" && s.worker_owner_pid !== currentPid;
 }
 
+const VALID_UPLOAD_STATES: ReadonlySet<string> = new Set([
+  "pending",
+  "uploading",
+  "failed",
+  "synced",
+]);
+
+export function needsUploadStateBackfill(
+  s: Pick<CaptureSidecar, "upload_state">,
+): boolean {
+  return !VALID_UPLOAD_STATES.has(s.upload_state as unknown as string);
+}
+
 export class UploadQueueWorker {
   private readonly thisPid: string;
   private deps: UploadQueueDeps;
   private inflight = 0;
   private items: Map<string, CaptureSidecar> = new Map();
+  // Pessimistic default: stay paused until NetworkMonitor confirms online.
+  // Prevents the build-65c Finding B failure mode where the worker would
+  // burn retry budgets against fetch() calls during known-offline state.
+  private isOnline = false;
 
   constructor(deps: UploadQueueDeps) {
     this.deps = deps;
     this.thisPid = crypto.randomUUID();
   }
 
-  /** Re-scan disk; recover orphaned `uploading` claims from prior worker pids. */
+  setOnline(online: boolean): void {
+    this.isOnline = online;
+  }
+
+  /** Re-scan disk; recover orphaned `uploading` claims + backfill legacy sidecars. */
   async scanAll(): Promise<void> {
     this.items.clear();
     const all = await listAllSidecars();
     for (const sc of all) {
-      if (isStaleUploadingClaim(sc, this.thisPid)) {
+      if (needsUploadStateBackfill(sc) || isStaleUploadingClaim(sc, this.thisPid)) {
         const recovered: CaptureSidecar = {
           ...sc,
           upload_state: "pending",
@@ -95,6 +116,7 @@ export class UploadQueueWorker {
   }
 
   async drain(opts: DrainOptions = {}): Promise<void> {
+    if (!this.isOnline) return;
     const startedAt = Date.now();
     const budget = opts.budgetMs ?? Infinity;
 

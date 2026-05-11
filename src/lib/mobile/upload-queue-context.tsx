@@ -67,10 +67,12 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
 
       await worker.scanAll();
       onChange();
-      worker.drain();
 
       const network = new NetworkMonitor();
-      await network.start(() => worker.drain());
+      await network.start((online) => {
+        worker.setOnline(online);
+        if (online) worker.drain();
+      });
       networkRef.current = network;
 
       const bgSync = new BackgroundSyncRunner();

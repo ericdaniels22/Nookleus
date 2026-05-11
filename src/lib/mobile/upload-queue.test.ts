@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computeBackoffMs, isStaleUploadingClaim } from "./upload-queue";
+import {
+  computeBackoffMs,
+  isStaleUploadingClaim,
+  needsUploadStateBackfill,
+} from "./upload-queue";
 
 describe("upload-queue pure logic", () => {
   describe("computeBackoffMs", () => {
@@ -42,6 +46,33 @@ describe("upload-queue pure logic", () => {
           "current-pid",
         ),
       ).toBe(false);
+    });
+  });
+
+  describe("needsUploadStateBackfill", () => {
+    it.each(["pending", "uploading", "failed", "synced"] as const)(
+      "false for valid state %s",
+      (state) => {
+        expect(needsUploadStateBackfill({ upload_state: state } as any)).toBe(
+          false,
+        );
+      },
+    );
+    it("true for 'unknown' (legacy pre-65c sidecars)", () => {
+      expect(needsUploadStateBackfill({ upload_state: "unknown" } as any)).toBe(
+        true,
+      );
+    });
+    it("true when upload_state is undefined", () => {
+      expect(needsUploadStateBackfill({} as any)).toBe(true);
+    });
+    it("true when upload_state is null", () => {
+      expect(needsUploadStateBackfill({ upload_state: null } as any)).toBe(
+        true,
+      );
+    });
+    it("true when upload_state is empty string", () => {
+      expect(needsUploadStateBackfill({ upload_state: "" } as any)).toBe(true);
     });
   });
 });

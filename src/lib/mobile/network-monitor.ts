@@ -3,11 +3,11 @@ import { Network } from "@capacitor/network";
 export class NetworkMonitor {
   private listenerHandle: { remove: () => Promise<void> } | null = null;
 
-  async start(onOnline: () => void): Promise<void> {
+  async start(onChange: (online: boolean) => void): Promise<void> {
     const status = await Network.getStatus();
-    if (status.connected) onOnline();
+    onChange(status.connected);
     const handle = await Network.addListener("networkStatusChange", (s) => {
-      if (s.connected) onOnline();
+      onChange(s.connected);
     });
     this.listenerHandle = handle;
   }
