@@ -116,6 +116,14 @@ export default function PhotoUploadModal({
     const orgId = await getActiveOrganizationId(supabase);
     let successCount = 0;
 
+    // Fetch current user and their profile once (before the loop)
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("full_name")
+      .eq("id", user!.id)
+      .maybeSingle();
+
     for (const filePreview of files) {
       const ext = filePreview.file.name.split(".").pop()?.toLowerCase() || "jpg";
       // Path: {org_id}/{job_id}/{timestamp}-rand.ext — the org_id prefix
@@ -144,8 +152,9 @@ export default function PhotoUploadModal({
           organization_id: orgId,
           job_id: jobId,
           storage_path: fileName,
+          uploaded_from: "web",
           caption: filePreview.caption || null,
-          taken_by: "Eric",
+          taken_by: profile?.full_name || user!.email || "unknown",
           media_type: mediaType,
           file_size: filePreview.file.size,
           before_after_role: filePreview.beforeAfterRole,

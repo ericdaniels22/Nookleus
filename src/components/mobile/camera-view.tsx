@@ -85,11 +85,13 @@ export default function CameraView({
   );
 
   const stopCamera = useCallback(async () => {
-    if (!startedRef.current) return;
+    // Don't gate on startedRef: if user exits between start() being called
+    // and start() resolving, startedRef is still false but the native camera
+    // is mid-startup. Always attempt stop; the catch covers not-started.
     try {
       await CameraPreview.stop();
-    } catch {
-      // Stop errors are non-fatal here.
+    } catch (err) {
+      console.warn("[65b] CameraPreview.stop failed", err);
     }
     startedRef.current = false;
   }, []);
@@ -148,7 +150,7 @@ export default function CameraView({
   const persistCapture = useCallback(
     async (base64Data: string) => {
       const captureId = generateUuid();
-      const sidecar: CaptureSidecar = {
+      const sidecar = {
         client_capture_id: captureId,
         job_id: jobId,
         capture_session_id: sessionId,

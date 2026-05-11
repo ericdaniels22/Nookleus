@@ -1,8 +1,20 @@
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import type { CaptureSidecar, PendingCapture } from "./capture-types";
+import { encrypt, decrypt } from "./crypto-vault";
 
 const ROOT = "pending-uploads";
 const DIRECTORY = Directory.Documents;
+
+type WritableSidecar = Omit<
+  CaptureSidecar,
+  "upload_state" | "retry_count" | "last_error" | "last_attempt_at" | "worker_owner_pid"
+> &
+  Partial<
+    Pick<
+      CaptureSidecar,
+      "upload_state" | "retry_count" | "last_error" | "last_attempt_at" | "worker_owner_pid"
+    >
+  >;
 
 export function getSessionDir(jobId: string, sessionId: string) {
   return `${ROOT}/${jobId}/${sessionId}`;
@@ -14,6 +26,10 @@ export function getPhotoPath(jobId: string, sessionId: string, captureId: string
 
 export function getSidecarPath(jobId: string, sessionId: string, captureId: string) {
   return `${getSessionDir(jobId, sessionId)}/${captureId}.json`;
+}
+
+export function getEncryptedPhotoPath(jobId: string, sessionId: string, captureId: string) {
+  return `${getSessionDir(jobId, sessionId)}/${captureId}.jpg.enc`;
 }
 
 async function ensureSessionDir(jobId: string, sessionId: string) {
@@ -30,22 +46,44 @@ async function ensureSessionDir(jobId: string, sessionId: string) {
 
 export async function writeCapture(args: {
   base64Data: string;
-  sidecar: CaptureSidecar;
+  sidecar: WritableSidecar;
 }): Promise<void> {
   const { base64Data, sidecar } = args;
   const { job_id, capture_session_id, client_capture_id } = sidecar;
   await ensureSessionDir(job_id, capture_session_id);
+
+  // Decode base64 → blob → encrypt → re-encode → write .jpg.enc
+  const plainBuf = base64ToBuf(base64Data);
+  const plainBlob = new Blob([plainBuf], { type: "image/jpeg" });
+  const encBlob = await encrypt(plainBlob);
+  const encB64 = bufToBase64(await encBlob.arrayBuffer());
+
   await Filesystem.writeFile({
-    path: getPhotoPath(job_id, capture_session_id, client_capture_id),
-    data: base64Data,
+    path: getEncryptedPhotoPath(job_id, capture_session_id, client_capture_id),
+    data: encB64,
     directory: DIRECTORY,
   });
+
+  // Sidecar: write upload-state defaults if caller didn't supply
+  const fullSidecar: CaptureSidecar = {
+    upload_state: "pending",
+    retry_count: 0,
+    last_error: null,
+    last_attempt_at: null,
+    worker_owner_pid: null,
+    ...sidecar,
+  } as CaptureSidecar;
+
   await Filesystem.writeFile({
     path: getSidecarPath(job_id, capture_session_id, client_capture_id),
-    data: JSON.stringify(sidecar, null, 2),
+    data: JSON.stringify(fullSidecar, null, 2),
     directory: DIRECTORY,
     encoding: Encoding.UTF8,
   });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("65c-capture-written"));
+  }
 }
 
 export async function readSidecar(
@@ -67,15 +105,24 @@ export async function readPhotoDataUrl(
   sessionId: string,
   captureId: string,
 ): Promise<string> {
-  const result = await Filesystem.readFile({
-    path: getPhotoPath(jobId, sessionId, captureId),
-    directory: DIRECTORY,
-  });
-  const base64 =
-    typeof result.data === "string"
-      ? result.data
-      : await blobToBase64(result.data);
-  return `data:image/jpeg;base64,${base64}`;
+  // Try encrypted first; fall back to plaintext if .enc missing.
+  const encPath = getEncryptedPhotoPath(jobId, sessionId, captureId);
+  const plainPath = getPhotoPath(jobId, sessionId, captureId);
+
+  try {
+    const r = await Filesystem.readFile({ path: encPath, directory: DIRECTORY });
+    const encB64 = typeof r.data === "string" ? r.data : await blobToBase64(r.data);
+    const encBlob = new Blob([base64ToBuf(encB64)]);
+    const plainBlob = await decrypt(encBlob);
+    const plainB64 = bufToBase64(await plainBlob.arrayBuffer());
+    return `data:image/jpeg;base64,${plainB64}`;
+  } catch {
+    // Fallback for any leftover unencrypted file (pre-migration smoke)
+    const r = await Filesystem.readFile({ path: plainPath, directory: DIRECTORY });
+    const plainB64 =
+      typeof r.data === "string" ? r.data : await blobToBase64(r.data);
+    return `data:image/jpeg;base64,${plainB64}`;
+  }
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -122,7 +169,7 @@ export async function updateSidecar(
   jobId: string,
   sessionId: string,
   captureId: string,
-  patch: Partial<Pick<CaptureSidecar, "caption" | "tag_ids">>,
+  patch: Partial<CaptureSidecar>,
 ): Promise<CaptureSidecar> {
   const current = await readSidecar(jobId, sessionId, captureId);
   const next: CaptureSidecar = { ...current, ...patch };
@@ -142,6 +189,10 @@ export async function deleteCapture(
 ): Promise<void> {
   await Promise.allSettled([
     Filesystem.deleteFile({
+      path: getEncryptedPhotoPath(jobId, sessionId, captureId),
+      directory: DIRECTORY,
+    }),
+    Filesystem.deleteFile({
       path: getPhotoPath(jobId, sessionId, captureId),
       directory: DIRECTORY,
     }),
@@ -150,4 +201,18 @@ export async function deleteCapture(
       directory: DIRECTORY,
     }),
   ]);
+}
+
+function base64ToBuf(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function bufToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
