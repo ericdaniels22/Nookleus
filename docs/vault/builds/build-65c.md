@@ -1,7 +1,7 @@
 ---
 build_id: 65c
 title: Mobile upload pipeline (sidecar queue + AAA prod uploads)
-status: open
+status: ready-to-merge
 phase: mobile
 started: 2026-05-08
 shipped: null
@@ -13,7 +13,19 @@ handoff: "[[2026-05-09-build-65c-test-2-findings]]"
 related: ["[[build-65a]]", "[[build-65b]]", "[[2026-05-08-build-65c-spec-and-plan]]", "[[2026-05-09-build-65c-impl-tasks-14-15-partial-16]]", "[[2026-05-09-build-65c-test-2-findings]]"]
 ---
 
-#status/open #area/mobile #build/65c
+#status/ready-to-merge #area/mobile #build/65c
+
+## Fix verification (2026-05-11)
+
+Commits `3d005f7` (fix) + `5785fb5` (this card) pushed to `build-65c-upload-pipeline`. Vercel preview rebuilt. Real-iPhone smoke against AAA prod:
+
+| Test | Captures | Landed | Result |
+|---|---|---|---|
+| Finding C backfill (87 pre-65c "unknown" sidecars) | 87 | **87** | ✅ |
+| Airplane-mode burst (5 baseline online + 30 offline) | 35 | **35** | ✅ — Finding B fix proven |
+| Retry-all-failed UI on the 52 originally stranded | 52 | **52** | ✅ — recovery path proven |
+
+**Zero data loss across 174 captures.** PR #52 unblocked.
 
 ## Scope
 
@@ -33,7 +45,7 @@ When the iPhone is fully offline, navigating the app (e.g., exiting camera) trig
 - **Option B:** Make existing shared `/jobs` offline-capable. Big rewrite + web-app risk.
 - **Option C:** Mobile landing + shared web routes deeper. Re-creates the bug as soon as the user navigates past landing.
 
-### Finding B — Partial upload-loss during airplane-mode burst (RESOLVED — H1 CONFIRMED, v1 BLOCKER)
+### Finding B — Partial upload-loss during airplane-mode burst (RESOLVED — H1 CONFIRMED, FIX SHIPPED 2026-05-11 commit `3d005f7`)
 
 **Observation:** Vanessa snapped ~100 captures in airplane mode; queue badge climbed steadily to 100 ✅. After reconnect, she observed only "a few of 100" photos in the in-app photos section.
 
