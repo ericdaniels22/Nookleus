@@ -302,22 +302,36 @@ export default function CameraView({
     >
       {/* Camera viewport: full-width, flush to screen top. The native */}
       {/* CameraPreview renders behind the WebView and extends up under the */}
-      {/* iOS status bar (which overlays on top). Top icons sit as overlays */}
-      {/* on the live preview. Only the BOTTOM corners are rounded (top is */}
-      {/* flush with the screen edge). */}
+      {/* iOS status bar (which overlays on top). Only the BOTTOM corners */}
+      {/* are rounded (top is flush with the screen edge). All controls now */}
+      {/* live below the camera in the bottom strip. */}
       <div className="relative shrink-0" style={{ aspectRatio: "3 / 4" }}>
         <div className="absolute inset-0" id="camera-preview-window" />
 
-        <button
-          type="button"
-          onClick={handleAbort}
-          className="absolute left-2 top-2 z-10 rounded-full p-2 text-white active:bg-white/10"
-          aria-label="Cancel capture"
-        >
-          <X className="h-6 w-6" />
-        </button>
+        {/* Bottom-corner masks: paint quarter-circle black wedges over the */}
+        {/* native camera's hard bottom corners so they look rounded. */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
+        />
+      </div>
 
-        <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+      <div className="flex flex-1 flex-col justify-between bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
+        {/* Camera-control row: X exit, flip, flash, mode, settings. */}
+        {/* Sits directly below the camera viewport. */}
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleAbort}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Cancel capture"
+          >
+            <X className="h-6 w-6" />
+          </button>
           <button
             type="button"
             onClick={handleFlip}
@@ -358,29 +372,18 @@ export default function CameraView({
           </button>
         </div>
 
-        {/* Bottom-corner masks: paint quarter-circle black wedges over the */}
-        {/* native camera's hard bottom corners so they look rounded. */}
-        <div
-          className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
-          style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
-        />
-        <div
-          className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
-          style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
-        />
-      </div>
+        {/* Bottom group: count above the action row, pushed to the bottom */}
+        {/* by the outer justify-between. */}
+        <div>
+          {count > 0 && (
+            <div className="mb-2 text-lg font-semibold text-white tabular-nums">
+              {count}
+            </div>
+          )}
 
-      <div className="flex flex-1 flex-col justify-end bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
-        {/* Count — upper-left of the footer */}
-        {count > 0 && (
-          <div className="mb-2 text-lg font-semibold text-white tabular-nums">
-            {count}
-          </div>
-        )}
-
-        {/* Action row: queue (left), shutter (center), done (right). */}
-        {/* Grid columns so the shutter sits dead-center regardless of side widths. */}
-        <div className="grid w-full grid-cols-3 items-center">
+          {/* Action row: queue (left), shutter (center), done (right). */}
+          {/* Grid columns so the shutter sits dead-center regardless of side widths. */}
+          <div className="grid w-full grid-cols-3 items-center">
           {/* Queue button */}
           <div className="justify-self-center">
             <button
@@ -429,6 +432,7 @@ export default function CameraView({
               Done
             </button>
           </div>
+        </div>
         </div>
       </div>
 
