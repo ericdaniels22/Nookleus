@@ -353,29 +353,32 @@ export default function CameraView({
           </div>
         )}
 
-        {/* Action row: queue (left), shutter (center), done (right) */}
-        <div className="flex w-full items-center justify-between gap-4">
+        {/* Action row: queue (left), shutter (center), done (right). */}
+        {/* Grid columns so the shutter sits dead-center regardless of side widths. */}
+        <div className="grid w-full grid-cols-3 items-center">
           {/* Queue button */}
-          <button
-            type="button"
-            onClick={() => setQueueSheetOpen(true)}
-            className="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur active:bg-white/25"
-            aria-label="Open upload queue"
-          >
-            <List className="h-5 w-5" />
-            {counts.failed > 0 && (
-              <span
-                className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
-                aria-label={`${counts.failed} upload${counts.failed === 1 ? "" : "s"} failed`}
-              />
-            )}
-            {counts.failed === 0 && counts.uploading + counts.pending > 0 && (
-              <span
-                className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400"
-                aria-label={`${counts.uploading + counts.pending} uploading`}
-              />
-            )}
-          </button>
+          <div className="justify-self-start">
+            <button
+              type="button"
+              onClick={() => setQueueSheetOpen(true)}
+              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur active:bg-white/25"
+              aria-label="Open upload queue"
+            >
+              <List className="h-5 w-5" />
+              {counts.failed > 0 && (
+                <span
+                  className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
+                  aria-label={`${counts.failed} upload${counts.failed === 1 ? "" : "s"} failed`}
+                />
+              )}
+              {counts.failed === 0 && counts.uploading + counts.pending > 0 && (
+                <span
+                  className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400"
+                  aria-label={`${counts.uploading + counts.pending} uploading`}
+                />
+              )}
+            </button>
+          </div>
 
           {/* Shutter */}
           <button
@@ -383,7 +386,7 @@ export default function CameraView({
             onClick={handleShutter}
             disabled={busy || pendingTag !== null}
             className={cn(
-              "h-20 w-20 rounded-full bg-white transition active:scale-95",
+              "h-20 w-20 justify-self-center rounded-full bg-white transition active:scale-95",
               "border-[3px] border-white/40",
               busy || pendingTag !== null ? "opacity-60" : "opacity-100",
             )}
@@ -391,14 +394,16 @@ export default function CameraView({
           />
 
           {/* Done pill */}
-          <button
-            type="button"
-            onClick={handleDone}
-            className="rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white backdrop-blur active:bg-white/25"
-            aria-label="Finish capture session"
-          >
-            Done
-          </button>
+          <div className="justify-self-end">
+            <button
+              type="button"
+              onClick={handleDone}
+              className="rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white backdrop-blur active:bg-white/25"
+              aria-label="Finish capture session"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
 
