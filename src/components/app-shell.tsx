@@ -14,6 +14,7 @@ const PUBLIC_ROUTES = ["/sign", "/pay"];
 // in-person signing handoff where the iPad is given to the customer.
 const INTERNAL_FULLSCREEN_PATTERNS: RegExp[] = [
   /^\/contracts\/[^/]+\/sign-in-person(\/|$)/,
+  /^\/jobs\/[^/]+\/capture(\/|$)/,
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
