@@ -352,10 +352,10 @@ export default function CameraView({
         <div className="flex-1 bg-black" />
       </div>
 
-      <div className="flex flex-col items-center bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
-        {/* Count above the action row */}
+      <div className="flex flex-col bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
+        {/* Count — upper-left of the footer */}
         {count > 0 && (
-          <div className="mb-3 text-3xl font-semibold text-white tabular-nums">
+          <div className="mb-2 text-lg font-semibold text-white tabular-nums">
             {count}
           </div>
         )}
