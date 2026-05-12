@@ -287,7 +287,7 @@ export default function CameraView({
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-[#0F6E56] px-6 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
+          className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
         >
           Back to job
         </button>
@@ -450,7 +450,7 @@ export default function CameraView({
               <button
                 type="button"
                 onClick={handleConfirmLeave}
-                className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
+                className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
               >
                 Leave
               </button>
@@ -468,7 +468,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={() => setSettingsOpen(false)}
-              className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
             >
               Close
             </button>
@@ -531,7 +531,7 @@ export default function CameraView({
               type="button"
               onClick={handleContinueAfterTag}
               disabled={busy}
-              className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
             >
               Continue
             </button>
