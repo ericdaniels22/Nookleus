@@ -386,7 +386,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={() => setQueueSheetOpen(true)}
-              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-[#0F6E56] text-white active:bg-[#0F6E56]/80"
+              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
               aria-label="Open upload queue"
             >
               <List className="h-5 w-5" />
@@ -419,11 +419,11 @@ export default function CameraView({
           />
 
           {/* Done pill */}
-          <div className="justify-self-end">
+          <div className="justify-self-center">
             <button
               type="button"
               onClick={handleDone}
-              className="rounded-full bg-[#0F6E56] px-6 py-3 text-sm font-medium text-white active:bg-[#0F6E56]/80"
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-3 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
               aria-label="Finish capture session"
             >
               Done
