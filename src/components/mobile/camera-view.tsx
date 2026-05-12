@@ -69,6 +69,7 @@ export default function CameraView({
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [queueSheetOpen, setQueueSheetOpen] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const startedRef = useRef(false);
 
   const startCamera = useCallback(
@@ -235,6 +236,16 @@ export default function CameraView({
   }, [onDone, stopCamera]);
 
   const handleAbort = useCallback(async () => {
+    if (count > 0) {
+      setShowLeaveConfirm(true);
+      return;
+    }
+    await stopCamera();
+    onAbort?.();
+  }, [count, onAbort, stopCamera]);
+
+  const handleConfirmLeave = useCallback(async () => {
+    setShowLeaveConfirm(false);
     await stopCamera();
     onAbort?.();
   }, [onAbort, stopCamera]);
@@ -407,6 +418,35 @@ export default function CameraView({
         </div>
       </div>
 
+      {showLeaveConfirm && (
+        <div className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/60 px-6">
+          <div
+            className="w-full max-w-sm rounded-2xl p-6 text-white"
+            style={{ backgroundColor: "#0F6E56" }}
+          >
+            <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
+            <p className="mb-6 text-sm text-white/85">
+              Your {count} photo{count === 1 ? "" : "s"} will still upload.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="rounded-full bg-white/15 px-5 py-2 text-sm font-medium text-white active:bg-white/25"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLeave}
+                className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div
           className="absolute inset-x-0 bottom-0 z-[1020] rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5"
