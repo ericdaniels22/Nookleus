@@ -290,7 +290,17 @@ export default function CameraView({
           >
             <RotateCw className="h-5 w-5" />
           </button>
-          {/* Flash, mode, settings to be added in Tasks 9-11 */}
+          <button
+            type="button"
+            onClick={cycleFlash}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label={`Flash ${flash}`}
+          >
+            {flash === "off" && <ZapOff className="h-5 w-5" />}
+            {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
+            {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
+          </button>
+          {/* Mode toggle + settings still to come */}
         </div>
       </div>
 
