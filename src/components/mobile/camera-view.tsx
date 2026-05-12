@@ -366,8 +366,15 @@ export default function CameraView({
             aria-label="Capture photo"
           />
 
-          {/* Done pill — Task 15 */}
-          <div className="w-20" />
+          {/* Done pill */}
+          <button
+            type="button"
+            onClick={handleDone}
+            className="rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white backdrop-blur active:bg-white/25"
+            aria-label="Finish capture session"
+          >
+            Done
+          </button>
         </div>
       </div>
 
