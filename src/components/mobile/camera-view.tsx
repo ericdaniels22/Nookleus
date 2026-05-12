@@ -471,7 +471,10 @@ export default function CameraView({
         </div>
       )}
       {pendingTag && (
-        <div className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl bg-black/80 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
+        <div
+          className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur"
+          style={{ backgroundColor: "rgba(15, 110, 86, 0.95)" }}
+        >
           <h3 className="mb-3 text-sm font-medium">Tag this photo</h3>
           <input
             type="text"
@@ -526,7 +529,7 @@ export default function CameraView({
               type="button"
               onClick={handleContinueAfterTag}
               disabled={busy}
-              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-black"
+              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
             >
               Continue
             </button>
