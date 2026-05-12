@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   Check,
+  Flashlight,
   RotateCw,
   X,
   Zap,
   ZapOff,
-  Bolt,
 } from "lucide-react";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import type { CameraPreviewFlashMode } from "@capacitor-community/camera-preview";
@@ -26,12 +26,12 @@ interface CameraViewProps {
   onAbort?: () => void;
 }
 
-type FlashMode = "off" | "auto" | "on";
+type FlashMode = "off" | "on" | "torch";
 
 const FLASH_NEXT: Record<FlashMode, FlashMode> = {
-  off: "auto",
-  auto: "on",
-  on: "off",
+  off: "on",
+  on: "torch",
+  torch: "off",
 };
 
 function generateUuid(): string {
@@ -286,8 +286,8 @@ export default function CameraView({
           aria-label={`Flash ${flash}`}
         >
           {flash === "off" && <ZapOff className="h-5 w-5" />}
-          {flash === "auto" && <Bolt className="h-5 w-5" />}
           {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
+          {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
         </button>
       </div>
 
