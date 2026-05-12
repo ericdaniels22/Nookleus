@@ -286,7 +286,6 @@ export default function CameraView({
     <div
       id="camera-preview-mount"
       className="fixed inset-0 z-[1000] flex flex-col text-white"
-      style={{ backgroundColor: "#0F6E56" }}
     >
       <div
         className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3"
@@ -344,16 +343,19 @@ export default function CameraView({
         </div>
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      {/* Green letterbox bars wrap a transparent 4:3 rectangle so the native */}
+      {/* CameraPreview view (rendered behind the WebView with toBack:true) shows through. */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex-1" style={{ backgroundColor: "#0F6E56" }} />
         <div
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl"
+          className="shrink-0 overflow-hidden rounded-2xl"
           id="camera-preview-window"
           style={{
             aspectRatio: "3 / 4",
             width: "100%",
-            maxHeight: "100%",
           }}
         />
+        <div className="flex-1" style={{ backgroundColor: "#0F6E56" }} />
       </div>
 
       <div
