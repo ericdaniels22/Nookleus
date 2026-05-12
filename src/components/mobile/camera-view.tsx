@@ -267,43 +267,23 @@ export default function CameraView({
       className="fixed inset-0 z-[1000] flex flex-col text-white"
       style={{ backgroundColor: "#0F6E56" }}
     >
-      <div className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)]">
+      <div
+        className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3"
+        style={{ backgroundColor: "#0F6E56" }}
+      >
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-black/50 p-2 backdrop-blur"
+          className="rounded-full p-2 text-white active:bg-white/10"
           aria-label="Cancel capture"
         >
-          <X className="h-5 w-5" />
+          <X className="h-6 w-6" />
         </button>
 
-        <div
-          role="tablist"
-          aria-label="Capture mode"
-          className="flex items-center rounded-full bg-black/50 p-1 text-xs font-medium backdrop-blur"
-        >
-          <ModeButton
-            active={mode === "rapid"}
-            onClick={() => setMode("rapid")}
-            label="Rapid"
-          />
-          <ModeButton
-            active={mode === "tag-after"}
-            onClick={() => setMode("tag-after")}
-            label="Tag after"
-          />
+        {/* Top-right cluster — flip, flash, mode, settings will be added in Tasks 8-11 */}
+        <div className="flex items-center gap-2">
+          {/* Placeholders — replaced in subsequent tasks */}
         </div>
-
-        <button
-          type="button"
-          onClick={cycleFlash}
-          className="rounded-full bg-black/50 p-2 backdrop-blur"
-          aria-label={`Flash ${flash}`}
-        >
-          {flash === "off" && <ZapOff className="h-5 w-5" />}
-          {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
-          {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
-        </button>
       </div>
 
       <div className="relative flex-1 overflow-hidden">
