@@ -284,7 +284,7 @@ export default function CameraView({
       id="camera-preview-mount"
       className="fixed inset-0 z-[1000] flex flex-col text-white"
     >
-      <div className="flex items-center justify-between gap-3 bg-black px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3">
+      <div className="flex items-center justify-between gap-3 bg-black px-4 pt-2 pb-2">
         <button
           type="button"
           onClick={handleAbort}
