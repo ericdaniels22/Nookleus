@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   Flashlight,
+  Gauge,
   List,
   RotateCw,
   Settings,
@@ -344,7 +345,7 @@ export default function CameraView({
             {mode === "tag-after" ? (
               <Tag className="h-5 w-5" />
             ) : (
-              <Zap className="h-5 w-5" />
+              <Gauge className="h-5 w-5" />
             )}
           </button>
           <button
