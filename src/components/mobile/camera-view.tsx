@@ -394,7 +394,7 @@ export default function CameraView({
             disabled={busy || pendingTag !== null}
             className={cn(
               "h-20 w-20 justify-self-center rounded-full bg-white transition active:scale-95",
-              "border-[3px] border-[#0F6E56]/60",
+              "border-[5px] border-[#0F6E56]/60",
               busy || pendingTag !== null ? "opacity-60" : "opacity-100",
             )}
             aria-label="Capture photo"
