@@ -258,20 +258,23 @@ export default function CameraView({
 
   if (permissionError) {
     return (
-      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black px-6 text-center text-white">
-        <Camera className="mb-4 h-12 w-12 opacity-60" />
+      <div
+        className="fixed inset-0 z-[1000] flex flex-col items-center justify-center px-6 text-center text-white"
+        style={{ backgroundColor: "#0F6E56" }}
+      >
+        <Camera className="mb-4 h-12 w-12 opacity-70" />
         <h2 className="mb-2 text-xl font-semibold">Camera unavailable</h2>
-        <p className="mb-4 max-w-sm text-sm opacity-80">
+        <p className="mb-4 max-w-sm text-sm text-white/85">
           {permissionError}
         </p>
-        <p className="mb-6 max-w-sm text-xs opacity-60">
+        <p className="mb-6 max-w-sm text-xs text-white/65">
           If you previously denied camera access, open iOS Settings &rarr;
           Nookleus &rarr; Camera and re-enable it, then return to this screen.
         </p>
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-white/20 px-6 py-2 text-sm font-medium"
+          className="rounded-full bg-white px-6 py-2 text-sm font-medium text-[#0F6E56]"
         >
           Back to job
         </button>
