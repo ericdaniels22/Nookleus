@@ -6,6 +6,7 @@ import {
   Check,
   Flashlight,
   RotateCw,
+  Tag,
   X,
   Zap,
   ZapOff,
@@ -300,7 +301,19 @@ export default function CameraView({
             {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
             {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
           </button>
-          {/* Mode toggle + settings still to come */}
+          <button
+            type="button"
+            onClick={() => setMode(mode === "tag-after" ? "rapid" : "tag-after")}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label={`Mode: ${mode === "tag-after" ? "Tag after" : "Rapid"} — tap to switch`}
+          >
+            {mode === "tag-after" ? (
+              <Tag className="h-5 w-5" />
+            ) : (
+              <Zap className="h-5 w-5" />
+            )}
+          </button>
+          {/* Settings still to come */}
         </div>
       </div>
 
@@ -412,31 +425,6 @@ export default function CameraView({
         </div>
       )}
     </div>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1 transition",
-        active ? "bg-white text-black" : "text-white/80",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 
