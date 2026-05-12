@@ -75,34 +75,41 @@ export default function CameraView({
   const startCamera = useCallback(
     async (nextPosition: "rear" | "front" = position) => {
       try {
-        // Measure the actual rendered top/bottom strip positions so the native
-        // camera view aligns exactly with the CSS camera-window wrapper.
-        // Camera sits right below the top strip (no vertical centering).
-        const mount = document.getElementById("camera-preview-mount");
-        const topStripEl = mount?.firstElementChild as HTMLElement | undefined;
-        const bottomStripEl = mount?.lastElementChild as HTMLElement | undefined;
-        const topRect = topStripEl?.getBoundingClientRect();
-        const bottomRect = bottomStripEl?.getBoundingClientRect();
+        // The native CameraPreview adds its previewView as a subview of the
+        // WKWebView's superview (= iOS root view, origin at screen top-left).
+        // Our CSS lives inside the WebView, which Capacitor's
+        // contentInset:'automatic' offsets below the status bar by
+        // env(safe-area-inset-top) — so CSS y=0 ≈ screen y=safeAreaTop.
+        //
+        // Layout: camera is full-width and flush to the screen top so the
+        // iOS status bar overlays directly on the live preview. We render
+        // the native rect from screen (0,0) down to safeAreaTop + cssHeight
+        // so its bottom edge aligns with the bottom of the CSS viewport
+        // (where the corner masks live). x=0, y=0 also dodges the plugin's
+        // odd `x/UIScreen.main.scale` division on iOS — both stay 0.
+        const probe = document.createElement("div");
+        probe.style.cssText =
+          "position:fixed;top:0;height:env(safe-area-inset-top,0px);width:0;pointer-events:none;visibility:hidden;";
+        document.body.appendChild(probe);
+        const safeAreaTop = probe.getBoundingClientRect().height;
+        probe.remove();
+
+        const windowEl = document.getElementById("camera-preview-window");
+        const cssRect = windowEl?.getBoundingClientRect();
         const screenW = window.innerWidth;
-        const screenH = window.innerHeight;
-        const sideBufferPt = 8;
-        const topStripBottom = topRect ? topRect.bottom : 100;
-        const bottomStripTop = bottomRect ? bottomRect.top : screenH - 130;
-        const availableW = screenW - 2 * sideBufferPt;
-        const availableH = bottomStripTop - topStripBottom;
-        const viewportW = Math.min(availableW, Math.round((availableH * 3) / 4));
-        const viewportH = Math.round((viewportW * 4) / 3);
-        const offsetX = Math.round((screenW - viewportW) / 2);
-        const offsetY = Math.round(topStripBottom);
+        const cssWidth = cssRect ? Math.round(cssRect.width) : screenW;
+        const cssHeight = cssRect
+          ? Math.round(cssRect.height)
+          : Math.round((screenW * 4) / 3);
 
         await CameraPreview.start({
           position: nextPosition,
           parent: "camera-preview-mount",
           toBack: true,
-          width: viewportW,
-          height: viewportH,
-          x: offsetX,
-          y: offsetY,
+          width: cssWidth,
+          height: Math.round(cssHeight + safeAreaTop),
+          x: 0,
+          y: 0,
           disableAudio: true,
         });
         startedRef.current = true;
@@ -292,18 +299,24 @@ export default function CameraView({
       id="camera-preview-mount"
       className="fixed inset-0 z-[1000] flex flex-col text-white"
     >
-      <div className="flex items-center justify-between gap-3 bg-black px-4 pt-2 pb-2">
+      {/* Camera viewport: full-width, flush to screen top. The native */}
+      {/* CameraPreview renders behind the WebView and extends up under the */}
+      {/* iOS status bar (which overlays on top). Top icons sit as overlays */}
+      {/* on the live preview. Only the BOTTOM corners are rounded (top is */}
+      {/* flush with the screen edge). */}
+      <div className="relative shrink-0" style={{ aspectRatio: "3 / 4" }}>
+        <div className="absolute inset-0" id="camera-preview-window" />
+
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full p-2 text-white active:bg-white/10"
+          className="absolute left-2 top-2 z-10 rounded-full p-2 text-white active:bg-white/10"
           aria-label="Cancel capture"
         >
           <X className="h-6 w-6" />
         </button>
 
-        {/* Top-right cluster — flip, flash, mode, settings will be added in Tasks 8-11 */}
-        <div className="flex items-center gap-2">
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
           <button
             type="button"
             onClick={handleFlip}
@@ -343,44 +356,20 @@ export default function CameraView({
             <Settings className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Bottom-corner masks: paint quarter-circle black wedges over the */}
+        {/* native camera's hard bottom corners so they look rounded. */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
+        />
       </div>
 
-      {/* Black letterbox bars wrap a transparent 4:3 rectangle so the native */}
-      {/* CameraPreview view (rendered behind the WebView with toBack:true) shows through. */}
-      {/* No top spacer: camera sits flush below the top strip. All extra space */}
-      {/* lands as a single bottom spacer between the camera and the footer. */}
-      {/* w-2 side bars give the viewport a slight inset from the screen edge. */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex shrink-0 items-stretch">
-          <div className="w-2 bg-black" />
-          {/* Camera viewport: the inset:0 div is transparent so the native */}
-          {/* CameraPreview shows through; 4 corner masks paint quarter-circles */}
-          {/* of black to make the visible camera rectangle appear rounded. */}
-          <div className="relative flex-1" style={{ aspectRatio: "3 / 4" }}>
-            <div className="absolute inset-0" id="camera-preview-window" />
-            <div
-              className="pointer-events-none absolute left-0 top-0 h-6 w-6"
-              style={{ background: "radial-gradient(circle at 100% 100%, transparent 24px, #000 25px)" }}
-            />
-            <div
-              className="pointer-events-none absolute right-0 top-0 h-6 w-6"
-              style={{ background: "radial-gradient(circle at 0% 100%, transparent 24px, #000 25px)" }}
-            />
-            <div
-              className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
-              style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
-            />
-            <div
-              className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
-              style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
-            />
-          </div>
-          <div className="w-2 bg-black" />
-        </div>
-        <div className="flex-1 bg-black" />
-      </div>
-
-      <div className="flex flex-col bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
+      <div className="flex flex-1 flex-col justify-end bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
         {/* Count — upper-left of the footer */}
         {count > 0 && (
           <div className="mb-2 text-lg font-semibold text-white tabular-nums">
