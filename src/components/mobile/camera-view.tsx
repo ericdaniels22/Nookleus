@@ -382,7 +382,7 @@ export default function CameraView({
         {/* Grid columns so the shutter sits dead-center regardless of side widths. */}
         <div className="grid w-full grid-cols-3 items-center">
           {/* Queue button */}
-          <div className="justify-self-start">
+          <div className="justify-self-center">
             <button
               type="button"
               onClick={() => setQueueSheetOpen(true)}
