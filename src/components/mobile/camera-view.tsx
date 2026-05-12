@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
-  Check,
   Flashlight,
   RotateCw,
   Settings,
@@ -338,36 +337,28 @@ export default function CameraView({
         />
       </div>
 
-      <div className="flex items-center justify-between gap-4 px-6 pb-[max(env(safe-area-inset-bottom),24px)]">
-        <button
-          type="button"
-          onClick={handleFlip}
-          className="rounded-full bg-black/50 p-3 backdrop-blur"
-          aria-label="Flip camera"
-        >
-          <RotateCw className="h-5 w-5" />
-        </button>
+      <div
+        className="flex flex-col items-center px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3"
+        style={{ backgroundColor: "#0F6E56" }}
+      >
+        {/* Count above the action row */}
+        {count > 0 && (
+          <div className="mb-3 text-3xl font-semibold text-white tabular-nums">
+            {count}
+          </div>
+        )}
 
-        <button
-          type="button"
-          onClick={handleShutter}
-          disabled={busy || pendingTag !== null}
-          className={cn(
-            "h-20 w-20 rounded-full border-4 border-white bg-white/30 backdrop-blur transition active:scale-95",
-            busy || pendingTag !== null ? "opacity-60" : "opacity-100",
-          )}
-          aria-label="Capture photo"
-        />
+        {/* Action row: queue (left), shutter (center), done (right) */}
+        <div className="flex w-full items-center justify-between gap-4">
+          {/* Queue button — Task 16 */}
+          <div className="w-20" />
 
-        <button
-          type="button"
-          onClick={handleDone}
-          className="flex flex-col items-center gap-1 rounded-full bg-black/50 px-4 py-3 backdrop-blur"
-          aria-label="Finish capture session"
-        >
-          <Check className="h-5 w-5" />
-          <span className="text-xs font-medium">{count}</span>
-        </button>
+          {/* Shutter — Task 13 */}
+          <div className="h-20 w-20" />
+
+          {/* Done pill — Task 15 */}
+          <div className="w-20" />
+        </div>
       </div>
 
       {settingsOpen && (
