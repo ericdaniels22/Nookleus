@@ -6,6 +6,7 @@ import {
   Check,
   Flashlight,
   RotateCw,
+  Settings,
   Tag,
   X,
   Zap,
@@ -63,6 +64,7 @@ export default function CameraView({
   const [captionDraft, setCaptionDraft] = useState("");
   const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const startedRef = useRef(false);
 
   const startCamera = useCallback(
@@ -313,7 +315,14 @@ export default function CameraView({
               <Zap className="h-5 w-5" />
             )}
           </button>
-          {/* Settings still to come */}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Camera settings"
+          >
+            <Settings className="h-5 w-5" />
+          </button>
         </div>
       </div>
 
@@ -361,6 +370,26 @@ export default function CameraView({
         </button>
       </div>
 
+      {settingsOpen && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-[1020] rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5"
+          style={{ backgroundColor: "rgba(15, 110, 86, 0.95)" }}
+        >
+          <h3 className="mb-3 text-base font-semibold">Camera settings</h3>
+          <p className="mb-6 text-sm text-white/80">
+            Settings will appear here in a future update.
+          </p>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(false)}
+              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {pendingTag && (
         <div className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl bg-black/80 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
           <h3 className="mb-3 text-sm font-medium">Tag this photo</h3>
