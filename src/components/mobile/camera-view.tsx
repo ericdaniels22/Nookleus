@@ -250,7 +250,8 @@ export default function CameraView({
   return (
     <div
       id="camera-preview-mount"
-      className="fixed inset-0 z-[1000] flex flex-col bg-black/30 text-white"
+      className="fixed inset-0 z-[1000] flex flex-col text-white"
+      style={{ backgroundColor: "#0F6E56" }}
     >
       <div className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)]">
         <button
@@ -291,7 +292,17 @@ export default function CameraView({
         </button>
       </div>
 
-      <div className="flex-1" />
+      <div className="relative flex-1 overflow-hidden">
+        <div
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl"
+          id="camera-preview-window"
+          style={{
+            aspectRatio: "3 / 4",
+            width: "100%",
+            maxHeight: "100%",
+          }}
+        />
+      </div>
 
       <div className="flex items-center justify-between gap-4 px-6 pb-[max(env(safe-area-inset-bottom),24px)]">
         <button
