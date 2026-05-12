@@ -258,10 +258,7 @@ export default function CameraView({
 
   if (permissionError) {
     return (
-      <div
-        className="fixed inset-0 z-[1000] flex flex-col items-center justify-center px-6 text-center text-white"
-        style={{ backgroundColor: "#0F6E56" }}
-      >
+      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black px-6 text-center text-white">
         <Camera className="mb-4 h-12 w-12 opacity-70" />
         <h2 className="mb-2 text-xl font-semibold">Camera unavailable</h2>
         <p className="mb-4 max-w-sm text-sm text-white/85">
@@ -274,7 +271,7 @@ export default function CameraView({
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-white px-6 py-2 text-sm font-medium text-[#0F6E56]"
+          className="rounded-full bg-[#0F6E56] px-6 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
         >
           Back to job
         </button>
@@ -287,10 +284,7 @@ export default function CameraView({
       id="camera-preview-mount"
       className="fixed inset-0 z-[1000] flex flex-col text-white"
     >
-      <div
-        className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3"
-        style={{ backgroundColor: "#0F6E56" }}
-      >
+      <div className="flex items-center justify-between gap-3 bg-black px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3">
         <button
           type="button"
           onClick={handleAbort}
@@ -343,10 +337,10 @@ export default function CameraView({
         </div>
       </div>
 
-      {/* Green letterbox bars wrap a transparent 4:3 rectangle so the native */}
+      {/* Black letterbox bars wrap a transparent 4:3 rectangle so the native */}
       {/* CameraPreview view (rendered behind the WebView with toBack:true) shows through. */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex-1" style={{ backgroundColor: "#0F6E56" }} />
+        <div className="flex-1 bg-black" />
         <div
           className="shrink-0 overflow-hidden rounded-2xl"
           id="camera-preview-window"
@@ -355,13 +349,10 @@ export default function CameraView({
             width: "100%",
           }}
         />
-        <div className="flex-1" style={{ backgroundColor: "#0F6E56" }} />
+        <div className="flex-1 bg-black" />
       </div>
 
-      <div
-        className="flex flex-col items-center px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3"
-        style={{ backgroundColor: "#0F6E56" }}
-      >
+      <div className="flex flex-col items-center bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
         {/* Count above the action row */}
         {count > 0 && (
           <div className="mb-3 text-3xl font-semibold text-white tabular-nums">
@@ -377,7 +368,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={() => setQueueSheetOpen(true)}
-              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur active:bg-white/25"
+              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-[#0F6E56] text-white active:bg-[#0F6E56]/80"
               aria-label="Open upload queue"
             >
               <List className="h-5 w-5" />
@@ -414,7 +405,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={handleDone}
-              className="rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white backdrop-blur active:bg-white/25"
+              className="rounded-full bg-[#0F6E56] px-6 py-3 text-sm font-medium text-white active:bg-[#0F6E56]/80"
               aria-label="Finish capture session"
             >
               Done
@@ -424,11 +415,8 @@ export default function CameraView({
       </div>
 
       {showLeaveConfirm && (
-        <div className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/60 px-6">
-          <div
-            className="w-full max-w-sm rounded-2xl p-6 text-white"
-            style={{ backgroundColor: "#0F6E56" }}
-          >
+        <div className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/70 px-6">
+          <div className="w-full max-w-sm rounded-2xl bg-black p-6 text-white">
             <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
             <p className="mb-6 text-sm text-white/85">
               Your {count} photo{count === 1 ? "" : "s"} will still upload.
@@ -444,7 +432,7 @@ export default function CameraView({
               <button
                 type="button"
                 onClick={handleConfirmLeave}
-                className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
+                className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
               >
                 Leave
               </button>
@@ -453,10 +441,7 @@ export default function CameraView({
         </div>
       )}
       {settingsOpen && (
-        <div
-          className="absolute inset-x-0 bottom-0 z-[1020] rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5"
-          style={{ backgroundColor: "rgba(15, 110, 86, 0.95)" }}
-        >
+        <div className="absolute inset-x-0 bottom-0 z-[1020] rounded-t-2xl bg-black/95 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
           <h3 className="mb-3 text-base font-semibold">Camera settings</h3>
           <p className="mb-6 text-sm text-white/80">
             Settings will appear here in a future update.
@@ -465,7 +450,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={() => setSettingsOpen(false)}
-              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
+              className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
             >
               Close
             </button>
@@ -473,10 +458,7 @@ export default function CameraView({
         </div>
       )}
       {pendingTag && (
-        <div
-          className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur"
-          style={{ backgroundColor: "rgba(15, 110, 86, 0.95)" }}
-        >
+        <div className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl bg-black/95 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
           <h3 className="mb-3 text-sm font-medium">Tag this photo</h3>
           <input
             type="text"
@@ -531,7 +513,7 @@ export default function CameraView({
               type="button"
               onClick={handleContinueAfterTag}
               disabled={busy}
-              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-[#0F6E56]"
+              className="rounded-full bg-[#0F6E56] px-5 py-2 text-sm font-medium text-white active:bg-[#0F6E56]/80"
             >
               Continue
             </button>
