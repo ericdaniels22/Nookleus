@@ -75,14 +75,16 @@ export default function CameraView({
   const startCamera = useCallback(
     async (nextPosition: "rear" | "front" = position) => {
       try {
-        // Compute 4:3 portrait viewport: width = full screen width, height = width * 4/3
-        // Clamp to available area between top strip (~90pt) and bottom strip (~150pt).
+        // Compute 4:3 portrait viewport: width = screen - 2*side buffer, height = width * 4/3.
+        // Clamp to available area between top strip and bottom strip.
         const screenW = window.innerWidth;
         const screenH = window.innerHeight;
+        const sideBufferPt = 8;
         const topStripPt = 90;
         const bottomStripPt = 150;
+        const availableW = screenW - 2 * sideBufferPt;
         const availableH = screenH - topStripPt - bottomStripPt;
-        const viewportW = Math.min(screenW, Math.round((availableH * 3) / 4));
+        const viewportW = Math.min(availableW, Math.round((availableH * 3) / 4));
         const viewportH = Math.round((viewportW * 4) / 3);
         const offsetX = Math.round((screenW - viewportW) / 2);
         const offsetY = topStripPt + Math.round((availableH - viewportH) / 2);
@@ -339,16 +341,20 @@ export default function CameraView({
 
       {/* Black letterbox bars wrap a transparent 4:3 rectangle so the native */}
       {/* CameraPreview view (rendered behind the WebView with toBack:true) shows through. */}
+      {/* w-2 side bars give the viewport a slight inset from the screen edge. */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex-1 bg-black" />
-        <div
-          className="shrink-0 overflow-hidden rounded-2xl"
-          id="camera-preview-window"
-          style={{
-            aspectRatio: "3 / 4",
-            width: "100%",
-          }}
-        />
+        <div className="flex shrink-0 items-stretch">
+          <div className="w-2 bg-black" />
+          <div
+            className="flex-1 overflow-hidden rounded-3xl"
+            id="camera-preview-window"
+            style={{
+              aspectRatio: "3 / 4",
+            }}
+          />
+          <div className="w-2 bg-black" />
+        </div>
         <div className="flex-1 bg-black" />
       </div>
 
