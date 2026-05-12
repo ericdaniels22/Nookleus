@@ -86,6 +86,7 @@ Driven by Vanessa's request after the 65c smoke tests: "I want the UI to look mo
 - **LiDAR mode** (Scan/Measure) using ARKit + RoomPlan — native Swift Capacitor plugin work. **Sizing:** 1-2 weeks for point-to-point distance measurement; 3-4 weeks for full room scanning. LiDAR-only iPhone Pro models (12 Pro+). Adds a 3rd mode to the toggle (Tag/Rapid/LiDAR) when ready.
 - **Tag-after flow redesign** — bottom-sheet vs full-screen preview, tag picker UX, caption affordance, gesture handling. Separate grilling session.
 - **Additional capture modes** (Video, Scan, Walkthrough) — only when underlying features exist. Don't ship empty buttons.
+- **Zoom selector (.5x / 1x / 3x buttons)** — surfaced again 2026-05-11 during 65b.2 execute session; deferred. `@capacitor-community/camera-preview` v8.0.1 exposes no JS zoom method and opens only `.builtInWideAngleCamera` (so .5x ultra-wide and 3x telephoto lenses are unreachable). Path: patch-package the plugin to (a) add `setZoom(factor)` JS method, (b) prefer `.builtInTripleCamera` / `.builtInDualWideCamera` when available so a single `videoZoomFactor` switches lenses. Sizing: ~1-2 hr. Caveats: requires Xcode rebuild loop (breaks the Vercel-preview iteration mode used in 65b.2); lens availability varies per iPhone model (non-Pro = no telephoto; pre-iPhone-11 = no ultra-wide) so the UI needs device-aware button states; SPM `Package.swift` is cap-sync-managed (see memory `project_capacitor_plugins_npm_declaration`).
 
 ## Source
 
