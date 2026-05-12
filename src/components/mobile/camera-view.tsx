@@ -67,12 +67,26 @@ export default function CameraView({
   const startCamera = useCallback(
     async (nextPosition: "rear" | "front" = position) => {
       try {
+        // Compute 4:3 portrait viewport: width = full screen width, height = width * 4/3
+        // Clamp to available area between top strip (~90pt) and bottom strip (~150pt).
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        const topStripPt = 90;
+        const bottomStripPt = 150;
+        const availableH = screenH - topStripPt - bottomStripPt;
+        const viewportW = Math.min(screenW, Math.round((availableH * 3) / 4));
+        const viewportH = Math.round((viewportW * 4) / 3);
+        const offsetX = Math.round((screenW - viewportW) / 2);
+        const offsetY = topStripPt + Math.round((availableH - viewportH) / 2);
+
         await CameraPreview.start({
           position: nextPosition,
           parent: "camera-preview-mount",
           toBack: true,
-          width: window.innerWidth,
-          height: window.innerHeight,
+          width: viewportW,
+          height: viewportH,
+          x: offsetX,
+          y: offsetY,
           disableAudio: true,
         });
         startedRef.current = true;
