@@ -353,8 +353,18 @@ export default function CameraView({
           {/* Queue button — Task 16 */}
           <div className="w-20" />
 
-          {/* Shutter — Task 13 */}
-          <div className="h-20 w-20" />
+          {/* Shutter */}
+          <button
+            type="button"
+            onClick={handleShutter}
+            disabled={busy || pendingTag !== null}
+            className={cn(
+              "h-20 w-20 rounded-full bg-white transition active:scale-95",
+              "border-[3px] border-white/40",
+              busy || pendingTag !== null ? "opacity-60" : "opacity-100",
+            )}
+            aria-label="Capture photo"
+          />
 
           {/* Done pill — Task 15 */}
           <div className="w-20" />
