@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   Flashlight,
+  List,
   RotateCw,
   Settings,
   Tag,
@@ -17,6 +18,8 @@ import { writeCapture } from "@/lib/mobile/capture-storage";
 import type { CaptureMode, CaptureSidecar } from "@/lib/mobile/capture-types";
 import { useCaptureMode } from "@/lib/mobile/use-capture-mode";
 import { usePhotoTags } from "@/lib/mobile/use-photo-tags";
+import { useUploadQueue } from "@/lib/mobile/upload-queue-context";
+import { UploadQueueSheet } from "@/components/mobile/upload-queue-sheet";
 import { cn } from "@/lib/utils";
 
 interface CameraViewProps {
@@ -53,6 +56,7 @@ export default function CameraView({
 }: CameraViewProps) {
   const [mode, setMode] = useCaptureMode();
   const { tags, loading: tagsLoading, error: tagsError } = usePhotoTags();
+  const { counts } = useUploadQueue();
   const [position, setPosition] = useState<"rear" | "front">("rear");
   const [flash, setFlash] = useState<FlashMode>("off");
   const [count, setCount] = useState(0);
@@ -64,6 +68,7 @@ export default function CameraView({
   const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [queueSheetOpen, setQueueSheetOpen] = useState(false);
   const startedRef = useRef(false);
 
   const startCamera = useCallback(
@@ -350,8 +355,27 @@ export default function CameraView({
 
         {/* Action row: queue (left), shutter (center), done (right) */}
         <div className="flex w-full items-center justify-between gap-4">
-          {/* Queue button — Task 16 */}
-          <div className="w-20" />
+          {/* Queue button */}
+          <button
+            type="button"
+            onClick={() => setQueueSheetOpen(true)}
+            className="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur active:bg-white/25"
+            aria-label="Open upload queue"
+          >
+            <List className="h-5 w-5" />
+            {counts.failed > 0 && (
+              <span
+                className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
+                aria-label={`${counts.failed} upload${counts.failed === 1 ? "" : "s"} failed`}
+              />
+            )}
+            {counts.failed === 0 && counts.uploading + counts.pending > 0 && (
+              <span
+                className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400"
+                aria-label={`${counts.uploading + counts.pending} uploading`}
+              />
+            )}
+          </button>
 
           {/* Shutter */}
           <button
@@ -461,6 +485,7 @@ export default function CameraView({
           </div>
         </div>
       )}
+      <UploadQueueSheet open={queueSheetOpen} onOpenChange={setQueueSheetOpen} />
     </div>
   );
 }
