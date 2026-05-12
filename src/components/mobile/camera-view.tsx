@@ -75,19 +75,25 @@ export default function CameraView({
   const startCamera = useCallback(
     async (nextPosition: "rear" | "front" = position) => {
       try {
-        // Compute 4:3 portrait viewport: width = screen - 2*side buffer, height = width * 4/3.
-        // Clamp to available area between top strip and bottom strip.
+        // Measure the actual rendered top/bottom strip positions so the native
+        // camera view aligns exactly with the CSS camera-window wrapper.
+        // Camera sits right below the top strip (no vertical centering).
+        const mount = document.getElementById("camera-preview-mount");
+        const topStripEl = mount?.firstElementChild as HTMLElement | undefined;
+        const bottomStripEl = mount?.lastElementChild as HTMLElement | undefined;
+        const topRect = topStripEl?.getBoundingClientRect();
+        const bottomRect = bottomStripEl?.getBoundingClientRect();
         const screenW = window.innerWidth;
         const screenH = window.innerHeight;
         const sideBufferPt = 8;
-        const topStripPt = 90;
-        const bottomStripPt = 150;
+        const topStripBottom = topRect ? topRect.bottom : 100;
+        const bottomStripTop = bottomRect ? bottomRect.top : screenH - 130;
         const availableW = screenW - 2 * sideBufferPt;
-        const availableH = screenH - topStripPt - bottomStripPt;
+        const availableH = bottomStripTop - topStripBottom;
         const viewportW = Math.min(availableW, Math.round((availableH * 3) / 4));
         const viewportH = Math.round((viewportW * 4) / 3);
         const offsetX = Math.round((screenW - viewportW) / 2);
-        const offsetY = topStripPt + Math.round((availableH - viewportH) / 2);
+        const offsetY = Math.round(topStripBottom);
 
         await CameraPreview.start({
           position: nextPosition,
@@ -341,9 +347,10 @@ export default function CameraView({
 
       {/* Black letterbox bars wrap a transparent 4:3 rectangle so the native */}
       {/* CameraPreview view (rendered behind the WebView with toBack:true) shows through. */}
+      {/* No top spacer: camera sits flush below the top strip. All extra space */}
+      {/* lands as a single bottom spacer between the camera and the footer. */}
       {/* w-2 side bars give the viewport a slight inset from the screen edge. */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex-1 bg-black" />
         <div className="flex shrink-0 items-stretch">
           <div className="w-2 bg-black" />
           {/* Camera viewport: the inset:0 div is transparent so the native */}
