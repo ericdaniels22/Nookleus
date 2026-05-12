@@ -346,13 +346,28 @@ export default function CameraView({
         <div className="flex-1 bg-black" />
         <div className="flex shrink-0 items-stretch">
           <div className="w-2 bg-black" />
-          <div
-            className="flex-1 overflow-hidden rounded-3xl"
-            id="camera-preview-window"
-            style={{
-              aspectRatio: "3 / 4",
-            }}
-          />
+          {/* Camera viewport: the inset:0 div is transparent so the native */}
+          {/* CameraPreview shows through; 4 corner masks paint quarter-circles */}
+          {/* of black to make the visible camera rectangle appear rounded. */}
+          <div className="relative flex-1" style={{ aspectRatio: "3 / 4" }}>
+            <div className="absolute inset-0" id="camera-preview-window" />
+            <div
+              className="pointer-events-none absolute left-0 top-0 h-6 w-6"
+              style={{ background: "radial-gradient(circle at 100% 100%, transparent 24px, #000 25px)" }}
+            />
+            <div
+              className="pointer-events-none absolute right-0 top-0 h-6 w-6"
+              style={{ background: "radial-gradient(circle at 0% 100%, transparent 24px, #000 25px)" }}
+            />
+            <div
+              className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
+              style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
+            />
+            <div
+              className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
+              style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
+            />
+          </div>
           <div className="w-2 bg-black" />
         </div>
         <div className="flex-1 bg-black" />
