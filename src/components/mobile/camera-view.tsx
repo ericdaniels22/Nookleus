@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
-  Check,
+  Flashlight,
+  Gauge,
+  List,
   RotateCw,
+  Settings,
+  Tag,
   X,
   Zap,
   ZapOff,
-  Bolt,
 } from "lucide-react";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import type { CameraPreviewFlashMode } from "@capacitor-community/camera-preview";
@@ -16,6 +19,8 @@ import { writeCapture } from "@/lib/mobile/capture-storage";
 import type { CaptureMode, CaptureSidecar } from "@/lib/mobile/capture-types";
 import { useCaptureMode } from "@/lib/mobile/use-capture-mode";
 import { usePhotoTags } from "@/lib/mobile/use-photo-tags";
+import { useUploadQueue } from "@/lib/mobile/upload-queue-context";
+import { UploadQueueSheet } from "@/components/mobile/upload-queue-sheet";
 import { cn } from "@/lib/utils";
 
 interface CameraViewProps {
@@ -26,12 +31,12 @@ interface CameraViewProps {
   onAbort?: () => void;
 }
 
-type FlashMode = "off" | "auto" | "on";
+type FlashMode = "off" | "on" | "torch";
 
 const FLASH_NEXT: Record<FlashMode, FlashMode> = {
-  off: "auto",
-  auto: "on",
-  on: "off",
+  off: "on",
+  on: "torch",
+  torch: "off",
 };
 
 function generateUuid(): string {
@@ -52,6 +57,7 @@ export default function CameraView({
 }: CameraViewProps) {
   const [mode, setMode] = useCaptureMode();
   const { tags, loading: tagsLoading, error: tagsError } = usePhotoTags();
+  const { counts } = useUploadQueue();
   const [position, setPosition] = useState<"rear" | "front">("rear");
   const [flash, setFlash] = useState<FlashMode>("off");
   const [count, setCount] = useState(0);
@@ -62,17 +68,49 @@ export default function CameraView({
   const [captionDraft, setCaptionDraft] = useState("");
   const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [queueSheetOpen, setQueueSheetOpen] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const startedRef = useRef(false);
 
   const startCamera = useCallback(
     async (nextPosition: "rear" | "front" = position) => {
       try {
+        // The native CameraPreview adds its previewView as a subview of the
+        // WKWebView's superview (= iOS root view, origin at screen top-left).
+        // Our CSS lives inside the WebView, which Capacitor's
+        // contentInset:'automatic' offsets below the status bar by
+        // env(safe-area-inset-top) — so CSS y=0 ≈ screen y=safeAreaTop.
+        //
+        // Layout: camera is full-width and flush to the screen top so the
+        // iOS status bar overlays directly on the live preview. We render
+        // the native rect from screen (0,0) down to safeAreaTop + cssHeight
+        // so its bottom edge aligns with the bottom of the CSS viewport
+        // (where the corner masks live). x=0, y=0 also dodges the plugin's
+        // odd `x/UIScreen.main.scale` division on iOS — both stay 0.
+        const probe = document.createElement("div");
+        probe.style.cssText =
+          "position:fixed;top:0;height:env(safe-area-inset-top,0px);width:0;pointer-events:none;visibility:hidden;";
+        document.body.appendChild(probe);
+        const safeAreaTop = probe.getBoundingClientRect().height;
+        probe.remove();
+
+        const windowEl = document.getElementById("camera-preview-window");
+        const cssRect = windowEl?.getBoundingClientRect();
+        const screenW = window.innerWidth;
+        const cssWidth = cssRect ? Math.round(cssRect.width) : screenW;
+        const cssHeight = cssRect
+          ? Math.round(cssRect.height)
+          : Math.round((screenW * 4) / 3);
+
         await CameraPreview.start({
           position: nextPosition,
           parent: "camera-preview-mount",
           toBack: true,
-          width: window.innerWidth,
-          height: window.innerHeight,
+          width: cssWidth,
+          height: Math.round(cssHeight + safeAreaTop),
+          x: 0,
+          y: 0,
           disableAudio: true,
         });
         startedRef.current = true;
@@ -214,6 +252,16 @@ export default function CameraView({
   }, [onDone, stopCamera]);
 
   const handleAbort = useCallback(async () => {
+    if (count > 0) {
+      setShowLeaveConfirm(true);
+      return;
+    }
+    await stopCamera();
+    onAbort?.();
+  }, [count, onAbort, stopCamera]);
+
+  const handleConfirmLeave = useCallback(async () => {
+    setShowLeaveConfirm(false);
     await stopCamera();
     onAbort?.();
   }, [onAbort, stopCamera]);
@@ -227,19 +275,19 @@ export default function CameraView({
   if (permissionError) {
     return (
       <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black px-6 text-center text-white">
-        <Camera className="mb-4 h-12 w-12 opacity-60" />
+        <Camera className="mb-4 h-12 w-12 opacity-70" />
         <h2 className="mb-2 text-xl font-semibold">Camera unavailable</h2>
-        <p className="mb-4 max-w-sm text-sm opacity-80">
+        <p className="mb-4 max-w-sm text-sm text-white/85">
           {permissionError}
         </p>
-        <p className="mb-6 max-w-sm text-xs opacity-60">
+        <p className="mb-6 max-w-sm text-xs text-white/65">
           If you previously denied camera access, open iOS Settings &rarr;
           Nookleus &rarr; Camera and re-enable it, then return to this screen.
         </p>
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-white/20 px-6 py-2 text-sm font-medium"
+          className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
         >
           Back to job
         </button>
@@ -250,83 +298,189 @@ export default function CameraView({
   return (
     <div
       id="camera-preview-mount"
-      className="fixed inset-0 z-[1000] flex flex-col bg-black/30 text-white"
+      className="fixed inset-0 z-[1000] flex flex-col text-white"
     >
-      <div className="flex items-center justify-between gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)]">
-        <button
-          type="button"
-          onClick={handleAbort}
-          className="rounded-full bg-black/50 p-2 backdrop-blur"
-          aria-label="Cancel capture"
-        >
-          <X className="h-5 w-5" />
-        </button>
+      {/* Camera viewport: full-width, flush to screen top. The native */}
+      {/* CameraPreview renders behind the WebView and extends up under the */}
+      {/* iOS status bar (which overlays on top). Only the BOTTOM corners */}
+      {/* are rounded (top is flush with the screen edge). All controls now */}
+      {/* live below the camera in the bottom strip. */}
+      <div className="relative shrink-0" style={{ aspectRatio: "3 / 4" }}>
+        <div className="absolute inset-0" id="camera-preview-window" />
 
+        {/* Bottom-corner masks: paint quarter-circle black wedges over the */}
+        {/* native camera's hard bottom corners so they look rounded. */}
         <div
-          role="tablist"
-          aria-label="Capture mode"
-          className="flex items-center rounded-full bg-black/50 p-1 text-xs font-medium backdrop-blur"
-        >
-          <ModeButton
-            active={mode === "rapid"}
-            onClick={() => setMode("rapid")}
-            label="Rapid"
-          />
-          <ModeButton
-            active={mode === "tag-after"}
-            onClick={() => setMode("tag-after")}
-            label="Tag after"
-          />
+          className="pointer-events-none absolute bottom-0 left-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 100% 0%, transparent 24px, #000 25px)" }}
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 right-0 h-6 w-6"
+          style={{ background: "radial-gradient(circle at 0% 0%, transparent 24px, #000 25px)" }}
+        />
+      </div>
+
+      <div className="flex flex-1 flex-col justify-between bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3">
+        {/* Camera-control row: X exit, flip, flash, mode, settings. */}
+        {/* Sits directly below the camera viewport. */}
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleAbort}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Cancel capture"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <button
+            type="button"
+            onClick={handleFlip}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Flip camera"
+          >
+            <RotateCw className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={cycleFlash}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label={`Flash ${flash}`}
+          >
+            {flash === "off" && <ZapOff className="h-5 w-5" />}
+            {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
+            {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode(mode === "tag-after" ? "rapid" : "tag-after")}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label={`Mode: ${mode === "tag-after" ? "Tag after" : "Rapid"} — tap to switch`}
+          >
+            {mode === "tag-after" ? (
+              <Tag className="h-5 w-5" />
+            ) : (
+              <Gauge className="h-5 w-5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Camera settings"
+          >
+            <Settings className="h-5 w-5" />
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={cycleFlash}
-          className="rounded-full bg-black/50 p-2 backdrop-blur"
-          aria-label={`Flash ${flash}`}
-        >
-          {flash === "off" && <ZapOff className="h-5 w-5" />}
-          {flash === "auto" && <Bolt className="h-5 w-5" />}
-          {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
-        </button>
-      </div>
-
-      <div className="flex-1" />
-
-      <div className="flex items-center justify-between gap-4 px-6 pb-[max(env(safe-area-inset-bottom),24px)]">
-        <button
-          type="button"
-          onClick={handleFlip}
-          className="rounded-full bg-black/50 p-3 backdrop-blur"
-          aria-label="Flip camera"
-        >
-          <RotateCw className="h-5 w-5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={handleShutter}
-          disabled={busy || pendingTag !== null}
-          className={cn(
-            "h-20 w-20 rounded-full border-4 border-white bg-white/30 backdrop-blur transition active:scale-95",
-            busy || pendingTag !== null ? "opacity-60" : "opacity-100",
+        {/* Bottom group: count above the action row, pushed to the bottom */}
+        {/* by the outer justify-between. */}
+        <div>
+          {count > 0 && (
+            <div className="mb-2 text-lg font-semibold text-white tabular-nums">
+              {count}
+            </div>
           )}
-          aria-label="Capture photo"
-        />
 
-        <button
-          type="button"
-          onClick={handleDone}
-          className="flex flex-col items-center gap-1 rounded-full bg-black/50 px-4 py-3 backdrop-blur"
-          aria-label="Finish capture session"
-        >
-          <Check className="h-5 w-5" />
-          <span className="text-xs font-medium">{count}</span>
-        </button>
+          {/* Action row: queue (left), shutter (center), done (right). */}
+          {/* Grid columns so the shutter sits dead-center regardless of side widths. */}
+          <div className="grid w-full grid-cols-3 items-center">
+          {/* Queue button */}
+          <div className="justify-self-center">
+            <button
+              type="button"
+              onClick={() => setQueueSheetOpen(true)}
+              className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+              aria-label="Open upload queue"
+            >
+              <List className="h-5 w-5" />
+              {counts.failed > 0 && (
+                <span
+                  className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
+                  aria-label={`${counts.failed} upload${counts.failed === 1 ? "" : "s"} failed`}
+                />
+              )}
+              {counts.failed === 0 && counts.uploading + counts.pending > 0 && (
+                <span
+                  className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400"
+                  aria-label={`${counts.uploading + counts.pending} uploading`}
+                />
+              )}
+            </button>
+          </div>
+
+          {/* Shutter */}
+          <button
+            type="button"
+            onClick={handleShutter}
+            disabled={busy || pendingTag !== null}
+            className={cn(
+              "h-20 w-20 justify-self-center rounded-full bg-white transition active:scale-95",
+              "border-[5px] border-[#0F6E56]/60",
+              busy || pendingTag !== null ? "opacity-60" : "opacity-100",
+            )}
+            aria-label="Capture photo"
+          />
+
+          {/* Done pill */}
+          <div className="justify-self-center">
+            <button
+              type="button"
+              onClick={handleDone}
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-3 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+              aria-label="Finish capture session"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+        </div>
       </div>
 
+      {showLeaveConfirm && (
+        <div className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/70 px-6">
+          <div className="w-full max-w-sm rounded-2xl bg-black p-6 text-white">
+            <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
+            <p className="mb-6 text-sm text-white/85">
+              Your {count} photo{count === 1 ? "" : "s"} will still upload.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="rounded-full bg-white/15 px-5 py-2 text-sm font-medium text-white active:bg-white/25"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLeave}
+                className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {settingsOpen && (
+        <div className="absolute inset-x-0 bottom-0 z-[1020] rounded-t-2xl bg-black/95 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
+          <h3 className="mb-3 text-base font-semibold">Camera settings</h3>
+          <p className="mb-6 text-sm text-white/80">
+            Settings will appear here in a future update.
+          </p>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(false)}
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {pendingTag && (
-        <div className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl bg-black/80 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
+        <div className="absolute inset-x-0 bottom-0 z-[1010] rounded-t-2xl bg-black/95 px-5 pb-[max(env(safe-area-inset-bottom),20px)] pt-5 backdrop-blur">
           <h3 className="mb-3 text-sm font-medium">Tag this photo</h3>
           <input
             type="text"
@@ -381,39 +535,15 @@ export default function CameraView({
               type="button"
               onClick={handleContinueAfterTag}
               disabled={busy}
-              className="rounded-full bg-white px-5 py-2 text-sm font-medium text-black"
+              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
             >
               Continue
             </button>
           </div>
         </div>
       )}
+      <UploadQueueSheet open={queueSheetOpen} onOpenChange={setQueueSheetOpen} />
     </div>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1 transition",
-        active ? "bg-white text-black" : "text-white/80",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

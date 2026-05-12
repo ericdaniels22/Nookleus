@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { CaptureMode } from "./capture-types";
 
 const STORAGE_KEY = "mobile-capture-mode";
-const DEFAULT_MODE: CaptureMode = "rapid";
+const DEFAULT_MODE: CaptureMode = "tag-after";
 
 function isCaptureMode(value: unknown): value is CaptureMode {
   return value === "rapid" || value === "tag-after";
