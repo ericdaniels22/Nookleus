@@ -282,7 +282,15 @@ export default function CameraView({
 
         {/* Top-right cluster — flip, flash, mode, settings will be added in Tasks 8-11 */}
         <div className="flex items-center gap-2">
-          {/* Placeholders — replaced in subsequent tasks */}
+          <button
+            type="button"
+            onClick={handleFlip}
+            className="rounded-full p-2 text-white active:bg-white/10"
+            aria-label="Flip camera"
+          >
+            <RotateCw className="h-5 w-5" />
+          </button>
+          {/* Flash, mode, settings to be added in Tasks 9-11 */}
         </div>
       </div>
 
