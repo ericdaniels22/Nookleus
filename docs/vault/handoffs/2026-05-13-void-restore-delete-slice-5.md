@@ -366,3 +366,67 @@ from this slice family.
   - `src/components/contracts/contracts-section.tsx` (menu item + handler + both dialogs migrated to `ConfirmDialog`)
   - `src/components/contracts/contracts-section.test.tsx` (3 new perm-delete tests)
   - `src/lib/contracts/__test-utils__/supabase-fake.ts` (`storage.remove` + `storageRemovals` tracker)
+
+## Post-handoff hotfix — commit `afbfa2a`
+
+Right after this handoff was written, Eric hit a prod 500 voiding a
+signed contract (`f872b080-155a-49d8-bea5-ea2f07d2a824`) whose canonical
+PDF was missing from the `contracts` bucket. Slice #60's
+`writeVoidWatermarkSidecar` was hard-failing the storage download with
+"Object not found" and bubbling that to the route as a 500.
+
+The sidecar exists only to mark the canonical "voided" — if the canonical
+isn't there, the sidecar is moot, and the load-bearing action (status
+flip + signing-link kill via the HTTP 410 path) should not be blocked.
+
+**Fix shipped in commit `afbfa2a`** `contracts: tolerate missing canonical PDF when voiding signed contracts`:
+
+- `src/lib/contracts/pdf-void-sidecar.ts` exports a new
+  `CanonicalPdfNotFoundError` class. It's thrown specifically when the
+  storage download error message matches `/not found/i`. Other download
+  errors (rate-limit, perms, etc.) still throw a generic `Error`.
+- `src/app/api/contracts/[id]/void/route.ts` catches
+  `CanonicalPdfNotFoundError`, `console.warn`s the orphan path
+  (`[void] canonical PDF missing for contract ${id} at ${path}; voiding without sidecar`),
+  and falls through to the `void_contract` RPC. The status flip happens;
+  the signing link dies. Generic errors still 500 as before.
+- `src/lib/contracts/pdf-void-sidecar.test.ts` — the old
+  "throws when the canonical PDF cannot be downloaded" test was split
+  into two: (a) throws specifically `CanonicalPdfNotFoundError` on
+  `not found` messages; (b) throws a generic `Error` on other download
+  errors (and the rejection is asserted NOT to be a
+  `CanonicalPdfNotFoundError` instance).
+- `src/app/api/contracts/[id]/void/route.test.ts` — added a
+  missing-canonical test: voiding a `signed` contract whose blob is
+  not seeded returns 200, attempts the download (positive: we tried),
+  uploads nothing, and still fires the `void_contract` RPC.
+
+**Tests at hotfix end**: **81 passing across 12 files** (was 79/12 at
+session-end before the hotfix — **+2 tests across 1 expanded sidecar
+test file + 1 expanded void route test file**). Typecheck + lint clean.
+Vercel deploy on `afbfa2a` succeeded
+([deploy](https://vercel.com/nookleus/nookleus/HirWNi797uREvBs3Z1yrUsAYZarv));
+Eric re-tried the void in prod and it worked.
+
+**Diagnostic detour worth recording**: the prod query that found this
+revealed **5 orphan rows in test org `a0000000-0000-4000-8000-000000000001`**,
+all with `status='signed'` + `signed_pdf_path` set + the actual file
+missing in the bucket. Path scheme on the orphans is
+`<orgId>/contracts/<contractId>-signed.pdf` (3 real-org signed contracts
+in other orgs use `<orgId>/<contractId>.pdf` — shorter, no `contracts/`
+prefix, no `-signed` suffix). The two-scheme split looks like seed data
+inserted via SQL without a real upload, and is not addressed by this
+hotfix — the orphans remain in the DB but the void path tolerates them.
+A code-side path-scheme audit is queued as an open thread for a future
+session.
+
+**New open thread (carried forward from hotfix)**: investigate whether
+the test-org orphan rows ever had real PDFs (likely no), and whether
+the path-scheme split (`<org>/contracts/<id>-signed.pdf` vs
+`<org>/<id>.pdf`) is intentional or an artifact of two upload code
+paths. If the latter, consolidate. Low priority — soft-skip in the
+void route is the load-bearing protection.
+
+**Mechanical state at hotfix end**: branch `main` HEAD `afbfa2a`, in
+sync with `origin/main`; this section was appended after the slice-5
+vault commit landed. One more vault commit on top after this edit.
