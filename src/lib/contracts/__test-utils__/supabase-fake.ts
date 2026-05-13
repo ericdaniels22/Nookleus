@@ -27,6 +27,7 @@ interface FakeState {
     options?: unknown;
   }[];
   storageDownloads: { bucket: string; path: string }[];
+  storageRemovals: { bucket: string; paths: string[] }[];
   rpcCalls: { name: string; args: unknown }[];
   selectFromCalls: string[];
 }
@@ -46,6 +47,7 @@ export function makeSupabaseFake(): SupabaseFake {
     storageBlobs: {},
     storageUploads: [],
     storageDownloads: [],
+    storageRemovals: [],
     rpcCalls: [],
     selectFromCalls: [],
   };
@@ -148,6 +150,16 @@ export function makeSupabaseFake(): SupabaseFake {
             const err = state.errors[`storage.${bucket}.upload`];
             if (err) return { data: null, error: err };
             return { data: { path }, error: null };
+          },
+          async remove(paths: string[]) {
+            state.storageRemovals.push({ bucket, paths });
+            const err = state.errors[`storage.${bucket}.remove`];
+            if (err) return { data: null, error: err };
+            for (const p of paths) delete state.storageBlobs[`${bucket}/${p}`];
+            return {
+              data: paths.map((name) => ({ name })),
+              error: null,
+            };
           },
         };
       },

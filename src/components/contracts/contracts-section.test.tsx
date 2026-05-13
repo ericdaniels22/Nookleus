@@ -162,6 +162,101 @@ describe("ContractsSection three-dot menu — Delete draft (#61)", () => {
   });
 });
 
+describe("ContractsSection three-dot menu — Permanently delete voided (#63)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows BOTH 'Restore' and 'Permanently delete' on a voided row, and opens a confirm dialog (no DELETE fired yet)", async () => {
+    const fetchSpy = stubFetch([makeVoidedRow()]);
+
+    render(
+      <ContractsSection
+        jobId="job-1"
+        customerEmail={null}
+        customerName={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Roof Replacement Agreement")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /row actions/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /^restore$/i }),
+    ).toBeDefined();
+    const permDeleteItem = await screen.findByRole("button", {
+      name: /permanently delete/i,
+    });
+
+    fireEvent.click(permDeleteItem);
+
+    // Light confirmation must appear; no DELETE fired before confirmation.
+    const confirmBtn = await screen.findByRole("button", {
+      name: /^delete$/i,
+    });
+    expect(confirmBtn).toBeDefined();
+    expect(calledDelete(fetchSpy, "/api/contracts/c-1")).toBe(false);
+  });
+
+  it("fires DELETE /api/contracts/[id] after confirming the dialog", async () => {
+    const fetchSpy = stubFetch([makeVoidedRow()]);
+
+    render(
+      <ContractsSection
+        jobId="job-1"
+        customerEmail={null}
+        customerName={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Roof Replacement Agreement")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /row actions/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /permanently delete/i }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => {
+      expect(calledDelete(fetchSpy, "/api/contracts/c-1")).toBe(true);
+    });
+  });
+
+  it("dismisses the confirmation dialog with Cancel and does not call DELETE", async () => {
+    const fetchSpy = stubFetch([makeVoidedRow()]);
+
+    render(
+      <ContractsSection
+        jobId="job-1"
+        customerEmail={null}
+        customerName={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Roof Replacement Agreement")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /row actions/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /permanently delete/i }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /cancel/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /^delete$/i })).toBeNull();
+    });
+    expect(calledDelete(fetchSpy, "/api/contracts/c-1")).toBe(false);
+  });
+});
+
 describe("ContractsSection three-dot menu — Restore voided (#62)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

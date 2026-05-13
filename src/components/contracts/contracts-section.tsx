@@ -16,12 +16,14 @@ import {
   Pencil,
   Check,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import SendContractModal from "./send-contract-modal";
 import SignInPersonModal from "./sign-in-person-modal";
 import VoidContractDialog from "./void-contract-dialog";
 import DownloadPdfButton from "./download-pdf-button";
+import ConfirmDialog from "./confirm-dialog";
 import type { ContractListItem, ContractListSigner } from "@/lib/contracts/types";
 import { cn } from "@/lib/utils";
 import { sanitizePdfFilename } from "@/lib/contracts/pdf-filename";
@@ -40,6 +42,8 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
   const [menuId, setMenuId] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<ContractListItem | null>(null);
   const [deleteDraftTarget, setDeleteDraftTarget] =
+    useState<ContractListItem | null>(null);
+  const [permDeleteTarget, setPermDeleteTarget] =
     useState<ContractListItem | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -140,6 +144,27 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
     }
   }
 
+  async function handlePermanentlyDelete(id: string) {
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/contracts/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        throw new Error("Session expired — sign in again and retry.");
+      }
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      toast.success("Contract permanently deleted");
+      await refresh();
+      onChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed", {
+        duration: 6000,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleRestore(id: string) {
     setBusyId(id);
     setMenuId(null);
@@ -227,6 +252,10 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
                 setMenuId(null);
               }}
               onRestore={() => handleRestore(row.id)}
+              onPermanentlyDelete={() => {
+                setPermDeleteTarget(row);
+                setMenuId(null);
+              }}
             />
           ))}
         </div>
@@ -262,69 +291,44 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
         }}
       />
 
-      <DeleteDraftDialog
-        contract={deleteDraftTarget}
-        onClose={() => setDeleteDraftTarget(null)}
+      <ConfirmDialog
+        open={!!deleteDraftTarget}
+        ariaLabel="Delete draft contract"
+        title="Delete draft?"
+        body="This draft was never sent to a customer. Deleting it removes the row for good."
+        onCancel={() => setDeleteDraftTarget(null)}
         onConfirm={async () => {
           const target = deleteDraftTarget;
           setDeleteDraftTarget(null);
           if (target) await handleDeleteDraft(target.id);
         }}
       />
-    </div>
-  );
-}
 
-// ---------- Delete-draft confirmation ----------
-//
-// Light confirmation per #61 — no payment-block check, no tombstone, the
-// row simply disappears. Shape kept inline; once slice #63 introduces the
-// permanently-delete confirm we'll extract a shared ConfirmDialog.
-
-function DeleteDraftDialog({
-  contract,
-  onClose,
-  onConfirm,
-}: {
-  contract: ContractListItem | null;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  if (!contract) return null;
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Delete draft contract"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-base font-semibold text-foreground">Delete draft?</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          This draft was never sent to a customer. Deleting it removes the row
-          for good.
-        </p>
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 border border-border text-foreground hover:bg-accent transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-red-500/90 text-white hover:bg-red-500 transition-colors"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+      <ConfirmDialog
+        open={!!permDeleteTarget}
+        ariaLabel="Permanently delete contract"
+        title={
+          <>
+            <AlertTriangle size={16} className="text-red-400" />
+            Permanently delete?
+          </>
+        }
+        body={
+          <>
+            Are you sure? This will permanently remove{" "}
+            <span className="text-foreground font-medium">
+              {permDeleteTarget?.title}
+            </span>
+            , including the signed PDF. This can&apos;t be undone.
+          </>
+        }
+        onCancel={() => setPermDeleteTarget(null)}
+        onConfirm={async () => {
+          const target = permDeleteTarget;
+          setPermDeleteTarget(null);
+          if (target) await handlePermanentlyDelete(target.id);
+        }}
+      />
     </div>
   );
 }
@@ -342,6 +346,7 @@ interface RowProps {
   onDeleteDraft: () => void;
   onVoid: () => void;
   onRestore: () => void;
+  onPermanentlyDelete: () => void;
 }
 
 const STATUS_STYLES: Record<ContractListItem["status"], { wrap: string; label: string; text: string }> = {
@@ -387,6 +392,7 @@ function ContractRow({
   onDeleteDraft,
   onVoid,
   onRestore,
+  onPermanentlyDelete,
 }: RowProps) {
   const style = STATUS_STYLES[row.status];
   const isVoided = row.status === "voided";
@@ -532,13 +538,22 @@ function ContractRow({
                 </button>
               )}
               {isVoided && (
-                <button
-                  type="button"
-                  onClick={onRestore}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
-                >
-                  <RotateCcw size={14} /> Restore
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onRestore}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                  >
+                    <RotateCcw size={14} /> Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onPermanentlyDelete}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left text-red-300"
+                  >
+                    <Trash2 size={14} /> Permanently delete
+                  </button>
+                </>
               )}
               {row.status === "draft" && (
                 <button
