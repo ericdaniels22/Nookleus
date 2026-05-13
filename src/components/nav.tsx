@@ -32,6 +32,23 @@ export default function Sidebar() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Lock body scroll while the mobile overlay is open (issue #36). Without
+  // this, the body scrolls under the fixed overlay+aside on iOS WebKit. The
+  // overlay's `backdrop-blur` then fails to repaint reliably during the
+  // scroll — the body's near-white `--background` flashes through, and
+  // overscroll-bounce snaps the aside's height enough to shift the
+  // workspace switcher + sign-out footer. The aside is also `h-dvh`
+  // (dynamic viewport) and the nav region uses `overscroll-contain` as
+  // defense in depth against scroll-chaining from the inner list.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobileOpen]);
+
   // Active-workspace branding. RLS scopes /api/settings/company to the
   // active org, so this fetch returns whichever workspace the user is in.
   const [companyName, setCompanyName] = useState<string>("");
@@ -132,7 +149,7 @@ export default function Sidebar() {
       <Tooltip.Provider delay={300}>
         <aside
           className={cn(
-            "fixed top-0 left-0 z-40 h-full gradient-sidebar flex flex-col transition-[transform,width] duration-200 ease-out",
+            "fixed top-0 left-0 z-40 h-dvh gradient-sidebar flex flex-col transition-[transform,width] duration-200 ease-out",
             "lg:translate-x-0",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
             // Mobile overlay is always full sidebar width. Collapse only applies at lg+.
@@ -207,7 +224,7 @@ export default function Sidebar() {
 
         {/* Navigation. No top padding so the first item sits flush with the
             logo area's bottom border. */}
-        <nav className="scrollbar-subtle flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-4 space-y-1">
+        <nav className="scrollbar-subtle flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3 pb-4 space-y-1">
           {sortedNavItems.map((item) => {
             const isActive =
               item.href === "/"
