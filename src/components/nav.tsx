@@ -32,20 +32,39 @@ export default function Sidebar() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Lock body scroll while the mobile overlay is open (issue #36). Without
-  // this, the body scrolls under the fixed overlay+aside on iOS WebKit. The
-  // overlay's `backdrop-blur` then fails to repaint reliably during the
-  // scroll — the body's near-white `--background` flashes through, and
-  // overscroll-bounce snaps the aside's height enough to shift the
-  // workspace switcher + sign-out footer. The aside is also `h-dvh`
-  // (dynamic viewport) and the nav region uses `overscroll-contain` as
-  // defense in depth against scroll-chaining from the inner list.
+  // Lock body scroll while the mobile overlay is open (issue #36). On iOS
+  // WKWebView, `overflow: hidden` on body is NOT sufficient — the WebView's
+  // own scroll view still scrolls the document. The bulletproof pattern is
+  // `position: fixed` + a negative `top` equal to the current scrollY, which
+  // makes the body element itself non-scrollable while preserving the visual
+  // scroll position. On cleanup we restore the original styles and scrollTo
+  // the saved position so the user lands exactly where they were before
+  // opening the menu. Without this lock the body scrolls under the fixed
+  // overlay+aside; the overlay's `backdrop-blur` then fails to repaint
+  // reliably during the scroll (body's near-white background flashes
+  // through) and the workspace switcher + sign-out footer appear to shift
+  // as the body moves underneath. `h-dvh` on the aside and
+  // `overscroll-contain` on the inner nav are defense in depth.
   useEffect(() => {
     if (!mobileOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const previous = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previous;
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.width = previous.width;
+      body.style.overflow = previous.overflow;
+      window.scrollTo(0, scrollY);
     };
   }, [mobileOpen]);
 
