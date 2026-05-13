@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { writeVoidWatermarkSidecar } from "@/lib/contracts/pdf-void-sidecar";
+import {
+  writeVoidWatermarkSidecar,
+  CanonicalPdfNotFoundError,
+} from "@/lib/contracts/pdf-void-sidecar";
 import {
   assertJobHasNoPayments,
   JobHasPaymentsError,
@@ -66,12 +69,21 @@ export async function POST(
     try {
       await writeVoidWatermarkSidecar(supabase, contract.signed_pdf_path);
     } catch (e) {
-      return NextResponse.json(
-        {
-          error: `Failed to watermark signed PDF: ${e instanceof Error ? e.message : String(e)}`,
-        },
-        { status: 500 },
-      );
+      if (e instanceof CanonicalPdfNotFoundError) {
+        // Orphan row: contract.signed_pdf_path is set but the file is gone
+        // (or was never uploaded — seed/test rows do this). Soft-skip the
+        // sidecar; the status flip below is what kills the signing link.
+        console.warn(
+          `[void] canonical PDF missing for contract ${id} at ${contract.signed_pdf_path}; voiding without sidecar`,
+        );
+      } else {
+        return NextResponse.json(
+          {
+            error: `Failed to watermark signed PDF: ${e instanceof Error ? e.message : String(e)}`,
+          },
+          { status: 500 },
+        );
+      }
     }
   }
 

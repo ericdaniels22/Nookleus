@@ -96,6 +96,7 @@ export type ContractEventType =
   | "signed"
   | "reminder_sent"
   | "voided"
+  | "restored"
   | "expired";
 
 export type ContractEmailProvider = "resend" | "email_account";

@@ -5,6 +5,9 @@ import { requirePermission } from "@/lib/permissions-api";
 import { apiDbError } from "@/lib/api-errors";
 import type { OverlayField, PdfPage } from "@/lib/contracts/types";
 import { validateOverlayFields } from "@/lib/contracts/overlay-validation";
+import { buildMergeFieldRegistry } from "@/lib/contracts/merge-field-registry";
+import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
+import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/contract-templates/[id]
 export async function GET(
@@ -76,10 +79,22 @@ export async function PATCH(
     update.signer_role_label = body.signer_role_label.slice(0, 120);
   }
   if (Array.isArray(body.overlay_fields)) {
+    const { data: form } = await supabase
+      .from("form_config")
+      .select("config")
+      .eq("organization_id", orgId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ config: FormConfig }>();
+    const formConfig: FormConfig = form?.config ?? { sections: [] };
+    const registry = buildMergeFieldRegistry(formConfig, SYSTEM_MERGE_FIELDS);
+    const knownMergeNames = new Set(registry.map((r) => r.slug));
+
     const errs = validateOverlayFields(
       body.overlay_fields as OverlayField[],
       (existing.pdf_pages ?? null) as PdfPage[] | null,
       (update.signer_count ?? existing.signer_count) as 1 | 2,
+      knownMergeNames,
     );
     if (errs.length) {
       return NextResponse.json({ error: "invalid_overlay_fields", details: errs }, { status: 400 });

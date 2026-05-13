@@ -7,6 +7,7 @@ vi.mock("./pdf-void-watermark", () => ({
 import {
   writeVoidWatermarkSidecar,
   computeVoidSidecarPath,
+  CanonicalPdfNotFoundError,
 } from "./pdf-void-sidecar";
 
 interface PendingError {
@@ -121,14 +122,31 @@ describe("writeVoidWatermarkSidecar", () => {
     expect(canonicalUploads).toHaveLength(0);
   });
 
-  it("throws when the canonical PDF cannot be downloaded", async () => {
+  it("throws CanonicalPdfNotFoundError when the canonical PDF is missing (storage 'not found')", async () => {
     const fake = makeFake({
-      downloadError: { message: "object not found" },
+      downloadError: { message: "Object not found" },
     });
 
     await expect(
       writeVoidWatermarkSidecar(fake.client as never, "missing/path.pdf"),
-    ).rejects.toThrow(/missing\/path\.pdf|failed to load|object not found/i);
+    ).rejects.toThrow(CanonicalPdfNotFoundError);
+
+    expect(fake.state.uploads).toHaveLength(0);
+  });
+
+  it("throws a generic Error when the canonical PDF download fails for non-not-found reasons", async () => {
+    const fake = makeFake({
+      downloadError: { message: "rate limited" },
+    });
+
+    const promise = writeVoidWatermarkSidecar(
+      fake.client as never,
+      "org-1/c-1-signed.pdf",
+    );
+    await expect(promise).rejects.toThrow(/rate limited|failed to load/i);
+    await expect(promise).rejects.not.toBeInstanceOf(
+      CanonicalPdfNotFoundError,
+    );
 
     expect(fake.state.uploads).toHaveLength(0);
   });

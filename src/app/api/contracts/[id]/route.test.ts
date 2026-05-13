@@ -11,132 +11,11 @@ vi.mock("@/lib/supabase-api", () => ({
 import { DELETE } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-
-// ---------- Supabase fake -----------------------------------------------
-//
-// Modeled on void/route.test.ts. Tracks: row reads via .from().select(),
-// rpc calls, and storage ops. Slice #61 only deletes drafts so the
-// payment-block + storage surface is scoped down to the minimum the
-// route under test actually exercises. The voided branch (storage
-// cleanup, payment-block) lands in slice #63 and will extend this fake.
-
-type Row = Record<string, unknown>;
-type PendingError = { message: string } | null;
-
-interface FakeState {
-  rows: Record<string, Row[]>;
-  errors: Record<string, PendingError>;
-  rpcCalls: { name: string; args: unknown }[];
-  selectFromCalls: string[];
-}
-
-function makeServiceFake() {
-  const state: FakeState = {
-    rows: {},
-    errors: {},
-    rpcCalls: [],
-    selectFromCalls: [],
-  };
-
-  function matchesFilters(row: Row, filters: Record<string, unknown>): boolean {
-    for (const [k, v] of Object.entries(filters)) {
-      if (Array.isArray(v)) {
-        if (!v.includes(row[k] as never)) return false;
-      } else if (row[k] !== v) return false;
-    }
-    return true;
-  }
-
-  function selectBuilder(table: string, opts?: { count?: string; head?: boolean }) {
-    const filters: Record<string, unknown> = {};
-    const builder = {
-      eq(col: string, val: unknown) {
-        filters[col] = val;
-        return builder;
-      },
-      in(col: string, vals: unknown[]) {
-        filters[col] = vals;
-        return builder;
-      },
-      async maybeSingle() {
-        const err = state.errors[`${table}.select`];
-        if (err) return { data: null, error: err };
-        const row = (state.rows[table] ?? []).find((r) =>
-          matchesFilters(r, filters),
-        );
-        return { data: row ?? null, error: null };
-      },
-      then(
-        resolve: (v: {
-          data: unknown;
-          error: PendingError;
-          count?: number;
-        }) => unknown,
-      ): unknown {
-        const err = state.errors[`${table}.select`];
-        if (err) return resolve({ data: null, error: err });
-        const rows = (state.rows[table] ?? []).filter((r) =>
-          matchesFilters(r, filters),
-        );
-        if (opts?.count === "exact") {
-          return resolve({ data: rows, error: null, count: rows.length });
-        }
-        return resolve({ data: rows, error: null });
-      },
-    };
-    return builder;
-  }
-
-  const client = {
-    from(table: string) {
-      return {
-        select(_cols?: string, opts?: { count?: string; head?: boolean }) {
-          void _cols;
-          state.selectFromCalls.push(table);
-          return selectBuilder(table, opts);
-        },
-      };
-    },
-    async rpc(name: string, args: unknown) {
-      state.rpcCalls.push({ name, args });
-      const err = state.errors[`rpc.${name}`];
-      if (err) return { data: null, error: err };
-      return { data: null, error: null };
-    },
-  };
-
-  return {
-    client,
-    state,
-    seed(table: string, rows: Row[]) {
-      state.rows[table] = state.rows[table] ?? [];
-      state.rows[table].push(...rows);
-    },
-    setError(key: string, err: PendingError) {
-      state.errors[key] = err;
-    },
-  };
-}
-
-function makeAuthedFake(userId = "user-1") {
-  return {
-    auth: {
-      async getUser() {
-        return { data: { user: { id: userId } }, error: null };
-      },
-    },
-  };
-}
-
-function makeUnauthedFake() {
-  return {
-    auth: {
-      async getUser() {
-        return { data: { user: null }, error: { message: "no session" } };
-      },
-    },
-  };
-}
+import {
+  makeSupabaseFake,
+  makeAuthedFake,
+  makeUnauthedFake,
+} from "@/lib/contracts/__test-utils__/supabase-fake";
 
 function makeRequest(): Request {
   return new Request("http://test/api/contracts/c-1", {
@@ -150,7 +29,7 @@ function paramsFor(id: string) {
 
 // ---------- Tests --------------------------------------------------------
 
-describe("DELETE /api/contracts/[id] — draft branch", () => {
+describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -159,7 +38,7 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeUnauthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
 
     const res = await DELETE(makeRequest(), paramsFor("c-1"));
@@ -170,7 +49,7 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
 
     const res = await DELETE(makeRequest(), paramsFor("c-1"));
@@ -178,13 +57,13 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
     expect(service.state.rpcCalls).toHaveLength(0);
   });
 
-  it.each(["sent", "viewed", "signed", "expired", "voided"] as const)(
-    "returns 409 when contract status is %s (only draft is deletable in #61)",
+  it.each(["sent", "viewed", "signed", "expired"] as const)(
+    "returns 409 when contract status is %s (alive contracts must be voided first)",
     async (status) => {
       vi.mocked(createServerSupabaseClient).mockResolvedValue(
         makeAuthedFake() as never,
       );
-      const service = makeServiceFake();
+      const service = makeSupabaseFake();
       service.seed("contracts", [
         {
           id: "c-1",
@@ -205,7 +84,7 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -235,11 +114,121 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
     expect(service.state.selectFromCalls).not.toContain("payments");
   });
 
+  it("permanently deletes a voided contract: removes canonical + sidecar from storage, runs payment-block, then calls delete_contract RPC", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_pdf_path: "orgs/o/contracts/c-1/signed.pdf",
+      },
+    ]);
+    // No invoices on this job — payment-block passes trivially.
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+
+    // Payment-block must have run on the voided branch (positive assertion).
+    expect(service.state.selectFromCalls).toContain("invoices");
+
+    // Storage removal hits both keys, in the contracts bucket.
+    expect(service.state.storageRemovals).toEqual([
+      {
+        bucket: "contracts",
+        paths: [
+          "orgs/o/contracts/c-1/signed.pdf",
+          "orgs/o/contracts/c-1/signed.pdf.voided.pdf",
+        ],
+      },
+    ]);
+
+    // Single delete_contract RPC call follows storage cleanup.
+    expect(service.state.rpcCalls).toEqual([
+      {
+        name: "delete_contract",
+        args: { p_contract_id: "c-1" },
+      },
+    ]);
+  });
+
+  it("returns 409 when voided contract's job has recorded payments (payment-block fires)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_pdf_path: "orgs/o/contracts/c-1/signed.pdf",
+      },
+    ]);
+    service.seed("invoices", [{ id: "inv-1", job_id: "job-1" }]);
+    service.seed("payments", [{ id: "pay-1", invoice_id: "inv-1" }]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(409);
+    expect(service.state.rpcCalls).toHaveLength(0);
+    expect(service.state.storageRemovals).toHaveLength(0);
+  });
+
+  it("permanently deletes a voided-without-signed-PDF contract without touching storage", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        // Voided before signing — no canonical to clean up.
+        signed_pdf_path: null,
+      },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+    expect(service.state.storageRemovals).toHaveLength(0);
+    expect(service.state.rpcCalls).toEqual([
+      { name: "delete_contract", args: { p_contract_id: "c-1" } },
+    ]);
+  });
+
+  it("returns 500 when storage.remove fails on a voided contract and does NOT call the RPC (storage-first order)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_pdf_path: "orgs/o/contracts/c-1/signed.pdf",
+      },
+    ]);
+    service.setError("storage.contracts.remove", { message: "s3 boom" });
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(500);
+    expect(service.state.rpcCalls).toHaveLength(0);
+  });
+
   it("returns 500 when delete_contract RPC fails", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -253,5 +242,28 @@ describe("DELETE /api/contracts/[id] — draft branch", () => {
 
     const res = await DELETE(makeRequest(), paramsFor("c-1"));
     expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when delete_contract RPC fails on the voided branch (storage already removed)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_pdf_path: "orgs/o/contracts/c-1/signed.pdf",
+      },
+    ]);
+    service.setError("rpc.delete_contract", { message: "boom" });
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(500);
+    // Storage was removed first; blob is orphaned but the DB row survives
+    // for a manual retry.
+    expect(service.state.storageRemovals).toHaveLength(1);
   });
 });

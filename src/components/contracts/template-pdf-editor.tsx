@@ -9,8 +9,13 @@ import PdfCanvas from "./pdf-canvas";
 import OverlayFieldChip from "./overlay-field-chip";
 import FieldPalette from "./field-palette";
 import FieldInspector from "./field-inspector";
-import { MERGE_FIELDS } from "@/lib/contracts/merge-fields";
+import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
+import {
+  buildMergeFieldRegistry,
+  type MergeFieldDefinition,
+} from "@/lib/contracts/merge-field-registry";
 import type { ContractTemplate, OverlayField, OverlayFieldType } from "@/lib/contracts/types";
+import type { FormConfig } from "@/lib/types";
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
@@ -35,8 +40,28 @@ export default function TemplatePdfEditor({ initial }: Props) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [zoom, setZoom] = useState(1);
+  const [mergeRegistry, setMergeRegistry] = useState<MergeFieldDefinition[]>(
+    () => buildMergeFieldRegistry({ sections: [] }, SYSTEM_MERGE_FIELDS),
+  );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/intake-form")
+      .then((r) => r.json())
+      .then((j: { config?: FormConfig }) => {
+        if (cancelled) return;
+        const cfg: FormConfig = j?.config ?? { sections: [] };
+        setMergeRegistry(buildMergeFieldRegistry(cfg, SYSTEM_MERGE_FIELDS));
+      })
+      .catch(() => {
+        // Fall back to system-only registry; UI still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,11 +155,11 @@ export default function TemplatePdfEditor({ initial }: Props) {
       if (type === "label") newField.labelText = "Label";
       // Default merge fields to the first known name so the validator passes on first drop.
       // Authors change it in the inspector.
-      if (type === "merge") newField.mergeFieldName = MERGE_FIELDS[0].name;
+      if (type === "merge") newField.mergeFieldName = mergeRegistry[0]?.slug ?? "";
       markDirty((prev) => ({ ...prev, overlay_fields: [...prev.overlay_fields, newField] }));
       setSelectedFieldId(id);
     },
-    [template.pdf_pages],
+    [template.pdf_pages, mergeRegistry],
   );
 
   function updateField(next: OverlayField) {
@@ -277,6 +302,7 @@ export default function TemplatePdfEditor({ initial }: Props) {
       <FieldInspector
         field={selectedField}
         signerCount={template.signer_count}
+        mergeRegistry={mergeRegistry}
         onChange={updateField}
         onDelete={() => selectedFieldId && deleteField(selectedFieldId)}
       />
