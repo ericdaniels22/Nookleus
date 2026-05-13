@@ -32,7 +32,7 @@ export async function PATCH(
 
   // If password is being updated, encrypt it
   const updates: Record<string, unknown> = {};
-  const allowedFields = ["label", "email_address", "display_name", "provider", "imap_host", "imap_port", "smtp_host", "smtp_port", "username", "is_active", "is_default", "signature"];
+  const allowedFields = ["label", "email_address", "display_name", "provider", "imap_host", "imap_port", "smtp_host", "smtp_port", "username", "is_active", "is_default", "signature", "color"];
 
   for (const field of allowedFields) {
     if (body[field] !== undefined) {
@@ -52,7 +52,7 @@ export async function PATCH(
     .from("email_accounts")
     .update(updates)
     .eq("id", id)
-    .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, last_synced_at, created_at, updated_at")
+    .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, created_at, updated_at")
     .single();
 
   if (error) {

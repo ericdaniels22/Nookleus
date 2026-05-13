@@ -73,6 +73,8 @@ interface EmailReaderProps {
   onForward: (email: Email) => void;
   onStarToggle: (id: string, starred: boolean) => void;
   onActioned?: () => void;
+  accountColorById?: Map<string, string>;
+  showAccountBar?: boolean;
 }
 
 interface JobOption {
@@ -89,6 +91,8 @@ export default function EmailReader({
   onForward,
   onStarToggle,
   onActioned,
+  accountColorById,
+  showAccountBar,
 }: EmailReaderProps) {
   const [thread, setThread] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,6 +102,9 @@ export default function EmailReader({
   const [jobSearch, setJobSearch] = useState("");
   const [jobResults, setJobResults] = useState<JobOption[]>([]);
   const jobPickerRef = useRef<HTMLDivElement>(null);
+  // Per-email-id, so we only refetch each email's attachments once even
+  // when the user opens it within the first ~3 seconds of a sync.
+  const hasPolledAttachmentsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     loadThread();
@@ -193,6 +200,25 @@ export default function EmailReader({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [jobPickerOpen]);
 
+  // One-shot poll for attachments. When an email has `has_attachments=true`
+  // but no rows in `email_attachments` yet, the after() upload is mid-flight.
+  // Refetch once at 1.5s — usually long enough to catch the upload.
+  useEffect(() => {
+    const needsPoll = thread.filter((e) => {
+      if (!expandedIds.has(e.id)) return false;
+      if (!e.has_attachments) return false;
+      if (e.attachments && e.attachments.length > 0) return false;
+      if (hasPolledAttachmentsRef.current.has(e.id)) return false;
+      return true;
+    });
+    if (needsPoll.length === 0) return;
+    for (const e of needsPoll) hasPolledAttachmentsRef.current.add(e.id);
+    const t = setTimeout(() => loadThread(), 1500);
+    return () => clearTimeout(t);
+    // loadThread is stable-ish (closure over emailId only, set on mount).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread, expandedIds]);
+
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -213,9 +239,17 @@ export default function EmailReader({
   if (thread.length === 0) return null;
 
   const latestEmail = thread[thread.length - 1];
+  const accountColor = accountColorById?.get(latestEmail.account_id);
 
   return (
     <div className="flex flex-col h-full min-w-0">
+      {showAccountBar && accountColor && (
+        <div
+          className="w-full h-[3px] shrink-0"
+          style={{ backgroundColor: accountColor }}
+          aria-hidden
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card shrink-0">
         <button
@@ -433,38 +467,48 @@ export default function EmailReader({
                     )}
                   </div>
 
-                  {/* Attachments */}
-                  {email.attachments && email.attachments.length > 0 && (
+                  {/* Attachments — list when uploaded, "Downloading…" placeholder
+                       briefly while after() finishes the post-response upload. */}
+                  {email.has_attachments && (
                     <div className="px-4 py-3 border-t border-gray-100">
-                      <p className="text-xs font-medium text-[#666] mb-2 flex items-center gap-1">
-                        <Paperclip size={12} />
-                        {email.attachments.length} attachment{email.attachments.length !== 1 ? "s" : ""}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {email.attachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={`/api/email/attachments/${att.id}`}
-                            download={att.filename}
-                            className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors group"
-                          >
-                            <FileIcon size={16} className="text-[#2B5EA7] shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm text-[#333] truncate max-w-[200px]">
-                                {att.filename}
-                              </p>
-                              {att.file_size && (
-                                <p className="text-[10px] text-[#999]">
-                                  {att.file_size > 1024 * 1024
-                                    ? `${(att.file_size / (1024 * 1024)).toFixed(1)}MB`
-                                    : `${(att.file_size / 1024).toFixed(0)}KB`}
-                                </p>
-                              )}
-                            </div>
-                            <Download size={14} className="text-[#999] group-hover:text-[#2B5EA7] shrink-0" />
-                          </a>
-                        ))}
-                      </div>
+                      {email.attachments && email.attachments.length > 0 ? (
+                        <>
+                          <p className="text-xs font-medium text-[#666] mb-2 flex items-center gap-1">
+                            <Paperclip size={12} />
+                            {email.attachments.length} attachment{email.attachments.length !== 1 ? "s" : ""}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {email.attachments.map((att) => (
+                              <a
+                                key={att.id}
+                                href={`/api/email/attachments/${att.id}`}
+                                download={att.filename}
+                                className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors group"
+                              >
+                                <FileIcon size={16} className="text-[#2B5EA7] shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-sm text-[#333] truncate max-w-[200px]">
+                                    {att.filename}
+                                  </p>
+                                  {att.file_size && (
+                                    <p className="text-[10px] text-[#999]">
+                                      {att.file_size > 1024 * 1024
+                                        ? `${(att.file_size / (1024 * 1024)).toFixed(1)}MB`
+                                        : `${(att.file_size / 1024).toFixed(0)}KB`}
+                                    </p>
+                                  )}
+                                </div>
+                                <Download size={14} className="text-[#999] group-hover:text-[#2B5EA7] shrink-0" />
+                              </a>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-xs text-[#999] flex items-center gap-2">
+                          <Paperclip size={12} />
+                          Downloading…
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

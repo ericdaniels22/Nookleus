@@ -263,6 +263,7 @@ export interface EmailAccount {
   signature: string | null;
   is_active: boolean;
   is_default: boolean;
+  color: string | null;
   last_synced_at: string | null;
   last_synced_uid: number | null;
   created_at: string;
