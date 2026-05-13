@@ -1,15 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/components/tiptap-editor";
 import { ChevronDown, Plus } from "lucide-react";
-import { MERGE_FIELD_CATEGORIES, mergeFieldsByCategory } from "@/lib/contracts/merge-fields";
+import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
+import {
+  buildMergeFieldRegistry,
+  type MergeFieldDefinition,
+} from "@/lib/contracts/merge-field-registry";
 import { EMAIL_EXTRA_MERGE_FIELDS } from "@/lib/contracts/email-merge-fields";
 import { MergeFieldNode } from "@/components/contracts/merge-field-node";
 import MergeFieldInput, {
   type MergeFieldInputHandle,
 } from "@/components/contracts/merge-field-input";
+import type { FormConfig } from "@/lib/types";
 
 export interface EmailTemplateFieldProps {
   label: string;
@@ -21,6 +26,8 @@ export interface EmailTemplateFieldProps {
 }
 
 const SIGNING_LINK_HTML = `<a href="{{signing_link}}">Open document</a>`;
+
+const EMAIL_EXTRA_NAMES = new Set<string>(EMAIL_EXTRA_MERGE_FIELDS.map((f) => f.name));
 
 export default function EmailTemplateField({
   label,
@@ -35,12 +42,36 @@ export default function EmailTemplateField({
   const subjectInputRef = useRef<MergeFieldInputHandle | null>(null);
   const bodyEditorRef = useRef<Editor | null>(null);
 
-  const grouped = mergeFieldsByCategory();
+  const [registry, setRegistry] = useState<MergeFieldDefinition[]>(
+    () => buildMergeFieldRegistry({ sections: [] }, SYSTEM_MERGE_FIELDS),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/intake-form")
+      .then((r) => r.json())
+      .then((j: { config?: FormConfig }) => {
+        if (cancelled) return;
+        const cfg: FormConfig = j?.config ?? { sections: [] };
+        setRegistry(buildMergeFieldRegistry(cfg, SYSTEM_MERGE_FIELDS));
+      })
+      .catch(() => {
+        // System-only fallback already set; UI still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const resolvableNames = useMemo(() => {
+    const set = new Set<string>(EMAIL_EXTRA_NAMES);
+    for (const f of registry) set.add(f.slug);
+    return set;
+  }, [registry]);
+
+  const grouped = useMemo(() => groupBySection(registry), [registry]);
 
   function insertIntoSubject(fieldName: string) {
-    // Subject is single-line plain text — even signing_link goes in as a
-    // pill here. (Recipients rarely click a subject anyway; the body is
-    // where the clickable link belongs.)
     subjectInputRef.current?.insertMergeField(fieldName);
     setSubjectMenuOpen(false);
   }
@@ -49,8 +80,6 @@ export default function EmailTemplateField({
     const editor = bodyEditorRef.current;
     if (!editor) return;
     if (fieldName === "signing_link") {
-      // Special case: insert a clickable anchor whose href contains the
-      // token. Resolver swaps `{{signing_link}}` in the href at send time.
       editor.chain().focus().insertContent(SIGNING_LINK_HTML).insertContent(" ").run();
     } else {
       editor
@@ -85,6 +114,7 @@ export default function EmailTemplateField({
           value={subject}
           onChange={onSubjectChange}
           placeholder="Subject line"
+          extraResolvableNames={resolvableNames}
         />
       </div>
 
@@ -102,7 +132,9 @@ export default function EmailTemplateField({
           content={body}
           onChange={onBodyChange}
           placeholder="Email body. Use merge fields to insert data at send time."
-          extraExtensions={[MergeFieldNode]}
+          extraExtensions={[
+            MergeFieldNode.configure({ extraResolvableNames: resolvableNames }),
+          ]}
           onReady={(editor) => {
             bodyEditorRef.current = editor;
           }}
@@ -110,6 +142,24 @@ export default function EmailTemplateField({
       </div>
     </div>
   );
+}
+
+interface SectionGroup {
+  section: string;
+  fields: { name: string; label: string }[];
+}
+
+function groupBySection(registry: MergeFieldDefinition[]): SectionGroup[] {
+  const order: string[] = [];
+  const byName = new Map<string, { name: string; label: string }[]>();
+  for (const f of registry) {
+    if (!byName.has(f.section)) {
+      order.push(f.section);
+      byName.set(f.section, []);
+    }
+    byName.get(f.section)!.push({ name: f.slug, label: f.label });
+  }
+  return order.map((section) => ({ section, fields: byName.get(section)! }));
 }
 
 function MergeFieldDropdown({
@@ -120,7 +170,7 @@ function MergeFieldDropdown({
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
-  grouped: ReturnType<typeof mergeFieldsByCategory>;
+  grouped: SectionGroup[];
   onPick: (fieldName: string) => void;
 }) {
   return (
@@ -152,13 +202,13 @@ function MergeFieldDropdown({
               ))}
             </div>
           </div>
-          {MERGE_FIELD_CATEGORIES.map((cat) => (
-            <div key={cat} className="mb-2 last:mb-0">
+          {grouped.map((group) => (
+            <div key={group.section} className="mb-2 last:mb-0">
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {cat}
+                {group.section}
               </div>
               <div className="flex flex-wrap gap-1">
-                {grouped[cat].map((f) => (
+                {group.fields.map((f) => (
                   <button
                     key={f.name}
                     type="button"

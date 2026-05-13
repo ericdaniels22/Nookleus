@@ -1,17 +1,3 @@
-export type MergeFieldCategory =
-  | "Customer"
-  | "Property"
-  | "Job"
-  | "Insurance"
-  | "Company";
-
-export interface MergeFieldDefinition {
-  name: string;
-  label: string;
-  category: MergeFieldCategory;
-  description?: string;
-}
-
 export type OverlayFieldType =
   | "merge"
   | "signature"
