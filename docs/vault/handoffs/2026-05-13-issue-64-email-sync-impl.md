@@ -204,6 +204,50 @@ These remain open from the prior handoffs:
   future folder additions (IDLE push, real-time, etc.). It already
   handles the UIDVALIDITY-recovery edge cleanly.
 
+## Post-handoff fix (still 2026-05-13)
+
+Eric immediately retested after the handoff and reported "emails not
+entering my inbox anymore after sync." Direct DB probe via Supabase MCP
+showed the symptom: `email_folder_state` had a `sent` row for
+`eric@aaacontracting.com` and a `trash` row (from `/api/email/sync-folder`)
+but **no `inbox` row** for either account, even though 15 inbox rows
+had landed in `emails` at 21:03:50 from the first sync. Every sync was
+re-bootstrapping because the bookmark never persisted, then no-op'ing
+because the bootstrap dedup found all 15 already in DB.
+
+**Root cause**: `/api/email/sync` ran `Promise.all` over inbox+sent on
+the **same ImapFlow client**. `imapflow`'s `mailboxOpen` shares the
+connection's active-mailbox state — two concurrent `mailboxOpen` calls
+race, one overwrites the other, and the in-flight `fetch` reads the
+wrong mailbox. The README explicitly says "use `getMailboxLock` for
+safe concurrent access"; bare `mailboxOpen` + `fetch` requires serial
+scheduling. The spec's "Inbox + Sent in parallel" wording was wrong for
+a single connection — the spec's own timing budget already assumed
+serial (~900ms total = connect + open + check + close × 2 + logout).
+
+**Fix** (commit `7351167` `email(sync): serialize inbox+sent on shared
+imapflow client (#64)`): replace `Promise.all(folders.map(...))` with
+`for...of await` over the per-folder block in `/api/email/sync`.
+Multi-account parallelism is unaffected — that fan-out happens at the
+client layer where each account opens its own connection. Vercel
+redeployed; Eric retested + confirmed new mail flows and the
+`email_folder_state.inbox` row now persists at the expected UID
+bookmark (19625 for `aaacontracting`, 15 for `aaadisasterrecovery`).
+
+**No new test** — the bug lives in the route's scheduling, not in
+`syncFolderIncremental`. The module itself ASSUMES single-mailbox-at-
+a-time on the passed-in client; tests already enforce that contract.
+A route-level integration test was out of scope per the original spec
+("Tests for the thin glue routes are integration-only; their unit-test
+value is low"). The commit message itself is the durable record of the
+hypothesis-that-turned-out-correct, per the `/diagnose` skill.
+
+**What would have prevented it**: tighter spec-to-implementation
+mapping. The spec used "in parallel" loosely; the budget contradicted
+it. Could also harden `syncFolderIncremental` itself to use
+`getMailboxLock` so the module is robust to caller misuse — filed as a
+future hardening note but not done in this fix.
+
 ## Links
 
 - **PR:** [Nookleus#71](https://github.com/ericdaniels22/Nookleus/pull/71) — closes #64.
