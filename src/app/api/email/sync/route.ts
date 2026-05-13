@@ -1,39 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { decrypt } from "@/lib/encryption";
-import { ImapFlow, FetchMessageObject } from "imapflow";
+import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
-import { simpleParser, Attachment } from "mailparser";
 import { categorizeEmail, type CategoryRule, type Category } from "@/lib/email-categorizer";
 import { emailAttachmentPath } from "@/lib/storage/paths";
+import { syncFolderIncremental, type EmailFolderState } from "@/lib/email/sync-folder-incremental";
 
-interface ParsedEmail {
-  uid: number;
-  messageId: string;
-  threadId: string;
-  fromAddr: string;
-  fromName: string | null;
-  toAddresses: { email: string; name?: string }[];
-  ccAddresses: { email: string; name?: string }[];
-  subject: string;
-  bodyText: string | null;
-  bodyHtml: string | null;
-  snippet: string | null;
-  hasAttachments: boolean;
-  receivedAt: Date;
-  parsedAttachments: Attachment[];
-  headers: Record<string, string>;
-}
-
-// Map IMAP folder names to our normalized folder enum
+// Map IMAP folder names to our normalized folder enum.
+// Kept for backfill Pass 2 (reverse-lookup of folder→imap path) and for
+// resolving which IMAP path corresponds to "inbox" / "sent" at sync time.
 function mapFolder(imapPath: string): string {
   const lower = imapPath.toLowerCase().replace(/^(\[gmail\]|inbox)\/?/i, "").trim();
   const original = imapPath.toLowerCase();
-
-  // Exact match on full path first
   if (original === "inbox") return "inbox";
-
-  // Match by known keywords
   if (lower === "sent" || lower === "sent messages" || lower === "sent items" || lower === "sent mail")
     return "sent";
   if (lower === "drafts" || lower === "draft") return "drafts";
@@ -43,33 +23,28 @@ function mapFolder(imapPath: string): string {
     return "spam";
   if (lower === "archive" || lower === "all mail" || lower === "archives")
     return "archive";
-
-  // Fallback: broader keyword matching
   if (original.includes("sent")) return "sent";
   if (original.includes("draft")) return "drafts";
   if (original.includes("trash") || original.includes("deleted")) return "trash";
   if (original.includes("spam") || original.includes("junk")) return "spam";
   if (original.includes("archive") || original.includes("all mail")) return "archive";
-
-  // Store anything else as lowercase
   return original;
 }
 
-// Folders to sync — covers Hostinger, Network Solutions, Gmail, Outlook
-const SYNC_FOLDERS = [
-  "INBOX",
-  "Sent", "Sent Messages", "Sent Items", "INBOX.Sent",
-  "[Gmail]/Sent Mail",
-  "Drafts", "[Gmail]/Drafts", "INBOX.Drafts",
-  "Trash", "Deleted Items", "[Gmail]/Trash", "INBOX.Trash",
-  "Junk", "Spam", "[Gmail]/Spam", "INBOX.Spam", "INBOX.Junk",
-  "Archive", "[Gmail]/All Mail",
-];
-
-// POST /api/email/sync — sync emails for a specific account
+// POST /api/email/sync — sync emails for a specific account.
+//
 // Body: { accountId: string, maxPerFolder?: number }
+//
+// Steady-state behavior: opens IMAP, fetches UIDs above each folder's
+// stored bookmark for Inbox + Sent only, batch-inserts the new emails,
+// updates the bookmark. Attachment uploads continue in after() so they
+// don't block the response.
+//
+// First sync per account also runs the one-time category backfill (Pass
+// 1 + Pass 2) — that path is intentionally not optimized.
 export async function POST(request: NextRequest) {
-  const { accountId, maxPerFolder = 100 } = await request.json();
+  const startedAt = Date.now();
+  const { accountId, maxPerFolder = 50 } = await request.json();
 
   if (!accountId) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
@@ -87,9 +62,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
 
-  // The account row carries the organization_id. Every row we insert during
-  // this sync (emails, email_attachments) is scoped to that org and every
-  // cross-table read is filtered by it.
   const orgId: string = account.organization_id;
 
   let password: string;
@@ -105,7 +77,13 @@ export async function POST(request: NextRequest) {
   let client: ImapFlow | null = null;
   let totalSynced = 0;
   let totalMatched = 0;
+  let foldersSynced = 0;
   const errors: string[] = [];
+  // Collected during sync; uploaded after the response via after().
+  const attachmentJobs: Array<{
+    emailId: string;
+    parsedAttachments: import("mailparser").Attachment[];
+  }> = [];
 
   try {
     client = new ImapFlow({
@@ -151,8 +129,6 @@ export async function POST(request: NextRequest) {
 
     const matcherCache: MatcherCache = { jobs, contacts };
 
-    // Pre-fetch category rules (once for entire sync). Bucket-D: include
-    // NULL-org defaults as well as this org's overrides.
     const { data: rulesData } = await supabase
       .from("category_rules")
       .select("match_type, match_value, category")
@@ -160,20 +136,15 @@ export async function POST(request: NextRequest) {
       .eq("is_active", true);
     const categoryRules = (rulesData || []) as CategoryRule[];
 
-    // Discover available IMAP folders up front (needed for backfill Pass 2
-    // which re-fetches headers, as well as for the main folder loop below).
+    // Folder discovery — needed by both backfill Pass 2 and the new
+    // incremental sync below.
     const folders = await client.list();
     const folderPaths = folders.map((f) => f.path);
 
-    // One-time per-account backfill of historical emails.
-    // Paginates by keyset (id) because the category filter shrinks as rows
-    // get updated — offset-based pagination would skip rows.
-    //
-    // Pass 1: use stored from_address/subject/body_text (fast, no IMAP)
-    // Pass 2: re-fetch headers from IMAP for any remaining general emails
-    //         (catches List-Unsubscribe and other header-based rules)
+    // ---- One-time per-account category backfill (Pass 1 + Pass 2) ----
+    // Kept intact, intentionally not optimized. Only runs on first sync.
     if (!account.category_backfill_completed_at) {
-      // ---- Pass 1: body/subject/domain-based backfill ----
+      // Pass 1: body/subject/domain-based
       let lastId: string | null = null;
       while (true) {
         let batchQuery = supabase
@@ -189,14 +160,13 @@ export async function POST(request: NextRequest) {
         }
 
         const { data: oldEmails } = await batchQuery;
-
         if (!oldEmails || oldEmails.length === 0) break;
 
         const byCategory = new Map<Category, string[]>();
         for (const e of oldEmails as { id: string; from_address: string; subject: string; body_text: string | null }[]) {
           const cat = categorizeEmail(
             { from_address: e.from_address, subject: e.subject, body_text: e.body_text },
-            categoryRules
+            categoryRules,
           );
           if (cat !== "general") {
             if (!byCategory.has(cat)) byCategory.set(cat, []);
@@ -208,15 +178,11 @@ export async function POST(request: NextRequest) {
           await supabase.from("emails").update({ category: cat }).in("id", ids);
         }
 
-        // Advance the keyset cursor to the last id we saw.
         lastId = (oldEmails[oldEmails.length - 1] as { id: string }).id;
-
         if (oldEmails.length < 200) break;
       }
 
-      // ---- Pass 2: IMAP header re-fetch for remaining general emails ----
-      // Only needed if we have header-based rules (e.g. list-unsubscribe).
-      // Cap at 500 re-fetches per sync to bound runtime.
+      // Pass 2: IMAP header re-fetch for header-rule categories.
       const hasHeaderRules = categoryRules.some((r) => r.match_type === "header");
       if (hasHeaderRules) {
         const { data: remainingEmails } = await supabase
@@ -229,7 +195,6 @@ export async function POST(request: NextRequest) {
           .limit(500);
 
         if (remainingEmails && remainingEmails.length > 0) {
-          // Group by IMAP folder so we only open each mailbox once
           const byFolder = new Map<string, { id: string; uid: number; fromAddr: string; subject: string; bodyText: string | null }[]>();
           for (const e of remainingEmails as { id: string; from_address: string; subject: string; body_text: string | null; folder: string; uid: number }[]) {
             if (!byFolder.has(e.folder)) byFolder.set(e.folder, []);
@@ -242,33 +207,31 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          // Map our normalized folder name back to an IMAP path we can open
           const imapFolderPath = new Map<string, string>();
           for (const path of folderPaths) {
             const mapped = mapFolder(path);
             if (!imapFolderPath.has(mapped)) imapFolderPath.set(mapped, path);
           }
 
-          for (const [folderName, emails] of byFolder) {
+          for (const [folderName, emailsInFolder] of byFolder) {
             const imapPath = imapFolderPath.get(folderName);
             if (!imapPath) continue;
 
             try {
               await client.mailboxOpen(imapPath);
-              const uidsToFetch = emails.map((e) => e.uid).join(",");
-              const emailByUid = new Map(emails.map((e) => [e.uid, e]));
+              const uidsToFetch = emailsInFolder.map((e) => e.uid).join(",");
+              const emailByUid = new Map(emailsInFolder.map((e) => [e.uid, e]));
               const updatesByCategory = new Map<Category, string[]>();
 
               try {
                 for await (const msg of client.fetch(
                   uidsToFetch,
                   { uid: true, headers: true },
-                  { uid: true }
+                  { uid: true },
                 )) {
                   const matchedEmail = emailByUid.get(msg.uid);
                   if (!matchedEmail) continue;
 
-                  // Parse headers — ImapFlow returns a Buffer or Headers map
                   const msgHeaders: Record<string, string> = {};
                   if (msg.headers) {
                     const raw = msg.headers.toString("utf-8");
@@ -291,7 +254,7 @@ export async function POST(request: NextRequest) {
                       headers: msgHeaders,
                       body_text: matchedEmail.bodyText,
                     },
-                    categoryRules
+                    categoryRules,
                   );
 
                   if (cat !== "general") {
@@ -321,146 +284,74 @@ export async function POST(request: NextRequest) {
         .eq("id", accountId);
     }
 
-    // Determine which folders to sync
-    const foldersToSync: string[] = [];
-    for (const wanted of SYNC_FOLDERS) {
-      const match = folderPaths.find(
-        (p) => p.toLowerCase() === wanted.toLowerCase()
-      );
-      if (match) foldersToSync.push(match);
+    // ---- Incremental sync: Inbox + Sent only ----
+    const imapPathByFolder = new Map<string, string>();
+    for (const path of folderPaths) {
+      const normalized = mapFolder(path);
+      if ((normalized === "inbox" || normalized === "sent") && !imapPathByFolder.has(normalized)) {
+        imapPathByFolder.set(normalized, path);
+      }
     }
-    // Always include INBOX
-    if (!foldersToSync.some((f) => f.toLowerCase() === "inbox")) {
-      foldersToSync.unshift("INBOX");
-    }
+    // Inbox is the one folder every IMAP server must have; fall back to
+    // the literal name if discovery missed it (e.g. permissions quirks).
+    if (!imapPathByFolder.has("inbox")) imapPathByFolder.set("inbox", "INBOX");
 
-    for (const folderPath of foldersToSync) {
-      try {
-        const mailbox = await client.mailboxOpen(folderPath);
-        const folder = mapFolder(folderPath);
+    // Load existing bookmark state for this account up-front so each
+    // folder sync just consults the in-memory map.
+    const { data: stateRows } = await supabase
+      .from("email_folder_state")
+      .select("*")
+      .eq("account_id", accountId);
+    const stateByFolder = new Map<string, EmailFolderState>(
+      (stateRows || []).map((r: EmailFolderState) => [r.folder, r]),
+    );
 
-        // Batch fetch known message IDs for dedup
-        const { data: knownEmails } = await supabase
-          .from("emails")
-          .select("message_id")
-          .eq("account_id", accountId)
-          .eq("folder", folder);
-        const knownMessageIds = new Set((knownEmails || []).map((e: { message_id: string }) => e.message_id));
+    // imapflow serializes mailboxOpens internally, so Promise.all here
+    // just lets the two folders queue without separate awaits. Net time
+    // is still ~sequential on a single connection.
+    const perFolderResults = await Promise.all(
+      Array.from(imapPathByFolder.entries()).map(async ([folder, imapPath]) => {
+        const result = await syncFolderIncremental({
+          client: client!,
+          account: { id: accountId, organization_id: orgId },
+          folder,
+          imapPath,
+          state: stateByFolder.get(folder) ?? null,
+          bootstrapLimit: maxPerFolder,
+        });
 
-        // Always fetch last N messages by sequence number and rely on
-        // batch dedup to skip known messages. This avoids the cross-folder
-        // UID bug (UIDs are per-mailbox, not global).
-        const totalMessages = mailbox.exists || 0;
-        if (totalMessages === 0) {
-          await client.mailboxClose();
-          continue;
-        }
-        const startSeq = Math.max(1, totalMessages - maxPerFolder + 1);
-        const range = `${startSeq}:*`;
-
-        const messages: FetchMessageObject[] = [];
-        try {
-          for await (const msg of client.fetch(
-            range,
-            { uid: true, envelope: true, source: true, bodyStructure: true }
-          )) {
-            messages.push(msg);
-            if (messages.length >= maxPerFolder) break;
-          }
-        } catch {
-          // Empty range
-        }
-
-        // Parse all messages first
-        const parsed: ParsedEmail[] = [];
-
-        for (const msg of messages) {
-          try {
-            const uid = msg.uid;
-            const messageId = msg.envelope?.messageId || "uid-" + uid + "-" + folderPath;
-
-            // In-memory dedup check
-            if (knownMessageIds.has(messageId)) continue;
-
-            let bodyText = "";
-            let bodyHtml = "";
-            let hasAttachments = false;
-            let msgAttachments: Attachment[] = [];
-
-            const msgHeaders: Record<string, string> = {};
-            if (msg.source) {
-              const parsedMsg = await simpleParser(msg.source);
-              bodyText = parsedMsg.text || "";
-              bodyHtml = typeof parsedMsg.html === "string" ? parsedMsg.html : "";
-              msgAttachments = parsedMsg.attachments || [];
-              hasAttachments = msgAttachments.length > 0;
-              // Flatten mailparser headers Map to a lowercased plain object
-              if (parsedMsg.headers) {
-                for (const [key, value] of parsedMsg.headers) {
-                  msgHeaders[key.toLowerCase()] = String(value);
-                }
-              }
-            }
-
-            if (!hasAttachments && msg.bodyStructure) {
-              hasAttachments = checkAttachments(msg.bodyStructure);
-            }
-
-            const envelope = msg.envelope;
-            if (!envelope) continue;
-
-            const fromAddr = envelope.from?.[0]?.address || "";
-            const fromName = envelope.from?.[0]?.name || "";
-            const subject = envelope.subject || "";
-            const date = envelope.date || new Date();
-
-            const toAddresses = (envelope.to || []).map((a) => ({
-              email: a.address || "",
-              name: a.name || undefined,
-            }));
-            const ccAddresses = (envelope.cc || []).map((a) => ({
-              email: a.address || "",
-              name: a.name || undefined,
-            }));
-
-            const threadId = envelope.inReplyTo || messageId;
-            const snippet = bodyText
-              .replace(/\r?\n/g, " ")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 200);
-
-            parsed.push({
-              uid,
-              messageId,
-              threadId,
-              fromAddr,
-              fromName: fromName || null,
-              toAddresses,
-              ccAddresses,
-              subject,
-              bodyText: bodyText || null,
-              bodyHtml: bodyHtml || null,
-              snippet: snippet || null,
-              hasAttachments,
-              receivedAt: date,
-              parsedAttachments: msgAttachments,
-              headers: msgHeaders,
-            });
-          } catch (msgErr) {
-            errors.push(folderPath + ": " + (msgErr instanceof Error ? msgErr.message : "unknown"));
-          }
+        // Targeted dedup, bootstrap-only. Steady-state UIDs above the
+        // bookmark are by definition new.
+        let candidates = result.newEmails;
+        if (result.bootstrapped && candidates.length > 0) {
+          const ids = candidates.map((c) => c.messageId);
+          const { data: known } = await supabase
+            .from("emails")
+            .select("message_id")
+            .eq("account_id", accountId)
+            .eq("folder", folder)
+            .in("message_id", ids);
+          const knownSet = new Set(
+            (known || []).map((e: { message_id: string }) => e.message_id),
+          );
+          candidates = candidates.filter((c) => !knownSet.has(c.messageId));
         }
 
-        // Batch insert emails
-        if (parsed.length > 0) {
-          const rows = parsed.map((p) => {
+        let synced = 0;
+        let matched = 0;
+
+        if (candidates.length > 0) {
+          const rows = candidates.map((p) => {
             const match = matchEmailToJob(
               matcherCache,
-              { from_address: p.fromAddr, to_addresses: p.toAddresses, subject: p.subject, body_text: p.bodyText },
-              account.email_address
+              {
+                from_address: p.fromAddr,
+                to_addresses: p.toAddresses,
+                subject: p.subject,
+                body_text: p.bodyText,
+              },
+              account.email_address,
             );
-
             const category = categorizeEmail(
               {
                 from_address: p.fromAddr,
@@ -468,9 +359,8 @@ export async function POST(request: NextRequest) {
                 headers: p.headers,
                 body_text: p.bodyText,
               },
-              categoryRules
+              categoryRules,
             );
-
             return {
               organization_id: orgId,
               account_id: accountId,
@@ -503,60 +393,57 @@ export async function POST(request: NextRequest) {
             .select("id, message_id");
 
           if (insertError) {
-            errors.push(folderPath + " batch insert: " + insertError.message);
+            errors.push(`${folder} batch insert: ${insertError.message}`);
           } else if (insertedEmails) {
-            totalSynced += insertedEmails.length;
-            const matchedCount = rows.filter((r) => r.job_id).length;
-            totalMatched += matchedCount;
-
-            // Save attachments for emails that have them
+            synced = insertedEmails.length;
+            matched = rows.filter((r) => r.job_id).length;
             const emailIdByMessageId = new Map(
-              insertedEmails.map((e: { id: string; message_id: string }) => [e.message_id, e.id])
+              insertedEmails.map((e: { id: string; message_id: string }) => [
+                e.message_id,
+                e.id,
+              ]),
             );
-
-            for (const p of parsed) {
+            for (const p of candidates) {
               if (p.parsedAttachments.length === 0) continue;
               const emailId = emailIdByMessageId.get(p.messageId);
               if (!emailId) continue;
-
-              for (const att of p.parsedAttachments) {
-                try {
-                  const storagePath = emailAttachmentPath(orgId, accountId, emailId, att.filename || "attachment");
-                  await supabase.storage
-                    .from("email-attachments")
-                    .upload(storagePath, att.content, {
-                      contentType: att.contentType || "application/octet-stream",
-                      upsert: true,
-                    });
-                  await supabase.from("email_attachments").insert({
-                    organization_id: orgId,
-                    email_id: emailId,
-                    filename: att.filename || "attachment",
-                    content_type: att.contentType || null,
-                    file_size: att.size || null,
-                    storage_path: storagePath,
-                  });
-                } catch {
-                  // Non-fatal: skip attachment save errors
-                }
-              }
+              attachmentJobs.push({
+                emailId,
+                parsedAttachments: p.parsedAttachments,
+              });
             }
           }
         }
 
-        await client.mailboxClose();
-      } catch (folderErr) {
-        // Some folders may not exist on this server, skip them
-        errors.push("Folder " + folderPath + ": " + (folderErr instanceof Error ? folderErr.message : "skipped"));
-      }
-    }
+        // Persist the new bookmark. Skip when mailbox open failed —
+        // syncFolderIncremental returns newState=null in that case so
+        // the existing row stays intact.
+        if (result.newState) {
+          const { error: stateErr } = await supabase
+            .from("email_folder_state")
+            .upsert(result.newState, { onConflict: "account_id,folder" });
+          if (stateErr) {
+            errors.push(`${folder} state upsert: ${stateErr.message}`);
+          }
+        }
 
-    // Update sync state
+        for (const e of result.errors) {
+          errors.push(`${folder}: ${e}`);
+        }
+
+        return { folder, synced, matched };
+      }),
+    );
+
+    for (const r of perFolderResults) {
+      totalSynced += r.synced;
+      totalMatched += r.matched;
+    }
+    foldersSynced = perFolderResults.length;
+
     await supabase
       .from("email_accounts")
-      .update({
-        last_synced_at: new Date().toISOString(),
-      })
+      .update({ last_synced_at: new Date().toISOString() })
       .eq("id", accountId);
 
     await client.logout();
@@ -567,24 +454,58 @@ export async function POST(request: NextRequest) {
         total_synced: totalSynced,
         total_matched: totalMatched,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
+
+  // Deferred attachment uploads — Fluid Compute keeps the function alive
+  // long enough for these to finish without holding up the response.
+  if (attachmentJobs.length > 0) {
+    after(async () => {
+      for (const job of attachmentJobs) {
+        await Promise.all(
+          job.parsedAttachments.map(async (att) => {
+            try {
+              const storagePath = emailAttachmentPath(
+                orgId,
+                accountId,
+                job.emailId,
+                att.filename || "attachment",
+              );
+              await supabase.storage
+                .from("email-attachments")
+                .upload(storagePath, att.content, {
+                  contentType: att.contentType || "application/octet-stream",
+                  upsert: true,
+                });
+              await supabase.from("email_attachments").insert({
+                organization_id: orgId,
+                email_id: job.emailId,
+                filename: att.filename || "attachment",
+                content_type: att.contentType || null,
+                file_size: att.size || null,
+                storage_path: storagePath,
+              });
+            } catch (uploadErr) {
+              console.warn(
+                `[email-sync] attachment-upload-fail email=${job.emailId} ${uploadErr instanceof Error ? uploadErr.message : "unknown"}`,
+              );
+            }
+          }),
+        );
+      }
+    });
+  }
+
+  const duration = Date.now() - startedAt;
+  console.log(
+    `[email-sync] account=${accountId} synced=${totalSynced} matched=${totalMatched} duration=${duration}ms`,
+  );
 
   return NextResponse.json({
     total_synced: totalSynced,
     total_matched: totalMatched,
-    folders_synced: SYNC_FOLDERS.length,
+    folders_synced: foldersSynced,
     errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
   });
-}
-
-// Recursively check bodyStructure for attachments
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function checkAttachments(structure: any): boolean {
-  if (structure.disposition === "attachment") return true;
-  if (structure.childNodes) {
-    return structure.childNodes.some((child: any) => checkAttachments(child));
-  }
-  return false;
 }

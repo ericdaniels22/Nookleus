@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { EMAIL_PROVIDERS } from "@/lib/types";
+import {
+  ACCOUNT_COLOR_PALETTE,
+  ACCOUNT_COLOR_FALLBACK,
+} from "@/lib/email/assign-account-color";
 
 interface EmailAccount {
   id: string;
@@ -32,6 +36,7 @@ interface EmailAccount {
   username: string;
   is_active: boolean;
   is_default: boolean;
+  color: string | null;
   last_synced_at: string | null;
   created_at: string;
 }
@@ -146,6 +151,16 @@ export default function EmailSettingsPage() {
     if (!confirm("Remove this email account?")) return;
     await fetch(`/api/email/accounts/${id}`, { method: "DELETE" });
     fetchAccounts();
+  }
+
+  async function updateColor(id: string, color: string) {
+    // Optimistic update so the swatch reflects immediately.
+    setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, color } : a)));
+    await fetch(`/api/email/accounts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ color }),
+    });
   }
 
   async function handleSync(id: string) {
@@ -312,6 +327,50 @@ export default function EmailSettingsPage() {
                   <Server size={12} />
                   SMTP: {account.smtp_host}:{account.smtp_port}
                 </div>
+              </div>
+
+              {/* Color indicator picker — drives the inbox bar in /email when 2+
+                  active accounts are connected. */}
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-muted-foreground/60">Color</span>
+                <div className="flex items-center gap-1.5">
+                  {ACCOUNT_COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => updateColor(account.id, c)}
+                      className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${
+                        account.color === c
+                          ? "border-foreground"
+                          : "border-transparent"
+                      }`}
+                      style={{ backgroundColor: c }}
+                      title={c}
+                      aria-label={`Set color to ${c}`}
+                    />
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={account.color ?? ACCOUNT_COLOR_FALLBACK}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+                      updateColor(account.id, v);
+                    } else {
+                      // Allow editing the field to be in-progress; only
+                      // commit when it parses as a full hex.
+                      setAccounts((prev) =>
+                        prev.map((a) =>
+                          a.id === account.id ? { ...a, color: v } : a,
+                        ),
+                      );
+                    }
+                  }}
+                  maxLength={7}
+                  className="w-20 px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  aria-label="Hex color"
+                />
               </div>
 
               {account.last_synced_at && (

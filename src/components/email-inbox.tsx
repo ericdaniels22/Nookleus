@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { format, isToday, isYesterday } from "date-fns";
 import {
@@ -23,6 +23,10 @@ import EmailReader from "@/components/email-reader";
 import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
 import CategoryTabs, { type CategoryFilter } from "@/components/email/category-tabs";
+import { useEmailSync } from "@/lib/email/use-email-sync";
+
+const LAZY_REFRESH_FOLDERS = new Set(["drafts", "trash", "spam", "archive"]);
+const LAZY_REFRESH_THROTTLE_MS = 30_000;
 
 interface FolderCounts {
   [key: string]: { total: number; unread: number };
@@ -50,7 +54,6 @@ export default function EmailInbox() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
 
@@ -326,52 +329,97 @@ export default function EmailInbox() {
     loadCounts();
   }, [loadCounts]);
 
-  // Auto-sync on mount (debounced: skip if synced < 60s ago)
+  // Refresh accounts (to pick up new last_synced_at after a sync).
+  const refreshAccounts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/email/accounts");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAccounts(data.filter((a: EmailAccount) => a.is_active));
+      }
+    } catch {
+      // silent — indicator just stays stale until next refresh
+    }
+  }, []);
+
+  // doSync = the work a sync click (or auto-sync) actually performs.
+  // Multi-account fan-out in parallel, then refresh UI state.
+  const doSync = useCallback(async () => {
+    const toSync = selectedAccountId
+      ? accounts.filter((a) => a.id === selectedAccountId)
+      : accounts;
+    if (toSync.length === 0) return;
+
+    let totalSynced = 0;
+    const failures: string[] = [];
+    const results = await Promise.allSettled(
+      toSync.map((acc) =>
+        fetch("/api/email/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId: acc.id }),
+        })
+          .then((res) => res.json())
+          .then((data: { total_synced?: number }) => ({
+            acc,
+            synced: data.total_synced ?? 0,
+          })),
+      ),
+    );
+    for (const [i, r] of results.entries()) {
+      if (r.status === "fulfilled") {
+        totalSynced += r.value.synced;
+      } else {
+        failures.push(toSync[i]?.label ?? "account");
+      }
+    }
+    if (failures.length > 0) {
+      // Bubble up so hook flags syncFailed and Sync click bubbles via try/catch.
+      throw new Error(`sync failed for ${failures.join(", ")}`);
+    }
+    // Toast only on visible sync. The hook's `syncing` state distinguishes
+    // visible from silent — but `doSync` doesn't see that flag. Spec says
+    // silent failures should not toast either way. Skip toasts here; let
+    // the indicator and spinner communicate freshness.
+    void totalSynced; // intentionally unused — value is observed via list/counts refresh
+
+    await Promise.all([loadEmails(), loadCounts(), refreshAccounts()]);
+  }, [accounts, selectedAccountId, loadEmails, loadCounts, refreshAccounts]);
+
+  const { syncing, lastSyncedAt, syncFailed, syncSilent, syncVisible } =
+    useEmailSync({
+      accounts,
+      selectedAccountId: selectedAccountId || null,
+      doSync,
+      autoSync: false, // parent triggers once accounts have loaded
+    });
+
+  // Auto-sync once after accounts arrive, respecting the 60s debounce.
   const hasAutoSynced = useRef(false);
   useEffect(() => {
     if (hasAutoSynced.current || accounts.length === 0) return;
     hasAutoSynced.current = true;
 
-    // Check if any account was synced recently
     const now = Date.now();
     const recentlySynced = accounts.some((acc) => {
       if (!acc.last_synced_at) return false;
       return now - new Date(acc.last_synced_at).getTime() < 60_000;
     });
-
     if (!recentlySynced) {
-      handleSync();
+      void syncSilent();
     }
-  }, [accounts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accounts, syncSilent]);
 
-  // Sync all accounts
-  async function handleSync() {
-    if (syncing) return;
-    setSyncing(true);
-    const toSync = selectedAccountId
-      ? accounts.filter((a) => a.id === selectedAccountId)
-      : accounts;
-
-    let totalSynced = 0;
-    for (const acc of toSync) {
-      try {
-        const res = await fetch("/api/email/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountId: acc.id }),
-        });
-        const data = await res.json();
-        totalSynced += data.total_synced || 0;
-      } catch {
-        toast.error(`Sync failed for ${acc.label}`);
-      }
+  // Sync button handler — promotes any in-flight silent sync to visible.
+  const handleSync = useCallback(async () => {
+    try {
+      await syncVisible();
+    } catch {
+      // syncFailed already flagged by the hook; visible toast for the click.
+      toast.error("Sync failed");
     }
-
-    toast.success(`Synced ${totalSynced} new email${totalSynced !== 1 ? "s" : ""}`);
-    setSyncing(false);
-    loadEmails();
-    loadCounts();
-  }
+  }, [syncVisible]);
 
   // Mark all as read
   async function handleMarkAllRead() {
@@ -519,12 +567,35 @@ export default function EmailInbox() {
     setComposeOpen(true);
   }
 
+  // Per-folder timestamp so we don't thrash sync-folder on rapid tab flips.
+  const lazyRefreshTsRef = useRef<Map<string, number>>(new Map());
+
   function handleFolderChange(key: string) {
     setFolder(key);
     setPage(1);
     setSelectedEmailId(null);
     setSelectedIds(new Set());
     setCategory("general");
+
+    if (!LAZY_REFRESH_FOLDERS.has(key)) return;
+    const last = lazyRefreshTsRef.current.get(key) ?? 0;
+    if (Date.now() - last < LAZY_REFRESH_THROTTLE_MS) return;
+    lazyRefreshTsRef.current.set(key, Date.now());
+    fetch("/api/email/sync-folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        folder: key,
+        accountId: selectedAccountId || undefined,
+      }),
+    })
+      .then(() => {
+        loadEmails();
+        loadCounts();
+      })
+      .catch(() => {
+        // silent: existing rows still render; user can hit Sync explicitly
+      });
   }
 
   function handleCategoryChange(cat: CategoryFilter) {
@@ -533,6 +604,16 @@ export default function EmailInbox() {
     setSelectedEmailId(null);
     setSelectedIds(new Set());
   }
+
+  const accountColorById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accounts) {
+      if (a.color) map.set(a.id, a.color);
+    }
+    return map;
+  }, [accounts]);
+  // Bar appears once there's more than one connected account to distinguish.
+  const showAccountBar = accounts.length >= 2;
 
   return (
     <div className="h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] lg:h-screen flex flex-col">
@@ -583,6 +664,15 @@ export default function EmailInbox() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
+          <LastSyncedIndicator
+            syncing={syncing}
+            lastSyncedAt={lastSyncedAt}
+            syncFailed={syncFailed}
+            onRetry={handleSync}
+            accountsLoaded={accounts.length > 0}
+            scopeAccounts={accounts}
+            selectedAccountId={selectedAccountId}
+          />
           <button
             onClick={handleSync}
             disabled={syncing || accounts.length === 0}
@@ -773,6 +863,8 @@ export default function EmailInbox() {
                   isSelected={email.id === selectedEmailId}
                   isChecked={selectedIds.has(email.id)}
                   folder={folder}
+                  accountColor={accountColorById.get(email.account_id)}
+                  showAccountBar={showAccountBar}
                   onSelect={() => handleSelectEmail(email)}
                   onStar={() =>
                     handleStarToggle(email.id, !email.is_starred)
@@ -819,6 +911,8 @@ export default function EmailInbox() {
                 setPage(1);
                 loadCounts();
               }}
+              accountColorById={accountColorById}
+              showAccountBar={showAccountBar}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/60">
@@ -850,6 +944,95 @@ export default function EmailInbox() {
       />
     </div>
   );
+}
+
+function LastSyncedIndicator({
+  syncing,
+  lastSyncedAt,
+  syncFailed,
+  onRetry,
+  accountsLoaded,
+  scopeAccounts,
+  selectedAccountId,
+}: {
+  syncing: boolean;
+  lastSyncedAt: Date | null;
+  syncFailed: boolean;
+  onRetry: () => void;
+  accountsLoaded: boolean;
+  scopeAccounts: EmailAccount[];
+  selectedAccountId: string;
+}) {
+  // Tick once every 30s so the relative time string ("2 min ago") refreshes
+  // without polling anything server-side. The interval count itself is
+  // unused — its sole purpose is to trigger a re-render.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!accountsLoaded) return null;
+
+  if (syncing) {
+    return (
+      <span className="text-xs text-muted-foreground/70">Syncing…</span>
+    );
+  }
+
+  if (syncFailed) {
+    return (
+      <button
+        onClick={onRetry}
+        className="text-xs text-destructive hover:underline"
+      >
+        Sync failed — retry
+      </button>
+    );
+  }
+
+  // Prefer the hook's lastSyncedAt (most recent in-session sync), fall
+  // back to whatever the accounts row reports for the selected scope.
+  const fromAccounts = deriveLatestFromAccounts(
+    scopeAccounts,
+    selectedAccountId,
+  );
+  const display = lastSyncedAt ?? fromAccounts;
+  if (!display) return null;
+
+  return (
+    <span className="text-xs text-muted-foreground/70">
+      Last synced: {formatRelative(display)}
+    </span>
+  );
+}
+
+function deriveLatestFromAccounts(
+  accounts: EmailAccount[],
+  selectedAccountId: string,
+): Date | null {
+  const inScope = selectedAccountId
+    ? accounts.filter((a) => a.id === selectedAccountId)
+    : accounts;
+  let best: Date | null = null;
+  for (const a of inScope) {
+    if (!a.last_synced_at) continue;
+    const d = new Date(a.last_synced_at);
+    if (!best || d > best) best = d;
+  }
+  return best;
+}
+
+function formatRelative(d: Date): string {
+  const seconds = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (seconds < 30) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function ResizeHandle({
@@ -892,6 +1075,8 @@ function EmailRow({
   isSelected,
   isChecked,
   folder,
+  accountColor,
+  showAccountBar,
   onSelect,
   onStar,
   onToggleCheck,
@@ -900,6 +1085,8 @@ function EmailRow({
   isSelected: boolean;
   isChecked: boolean;
   folder: string;
+  accountColor?: string;
+  showAccountBar: boolean;
   onSelect: () => void;
   onStar: () => void;
   onToggleCheck: () => void;
@@ -913,7 +1100,7 @@ function EmailRow({
   return (
     <div
       onClick={onSelect}
-      className={`flex items-start gap-3 px-4 py-3 cursor-pointer border-b border-border/50 transition-colors ${
+      className={`relative flex items-start gap-3 px-4 py-3 cursor-pointer border-b border-border/50 transition-colors ${
         isSelected
           ? "bg-primary/5 border-l-2 border-l-primary"
           : email.is_read
@@ -921,6 +1108,14 @@ function EmailRow({
           : "bg-primary/5 hover:bg-primary/10"
       }`}
     >
+      {showAccountBar && accountColor && !isSelected && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-[3px]"
+          style={{ backgroundColor: accountColor }}
+          aria-hidden
+        />
+      )}
+
       {/* Checkbox + Star (stacked) */}
       <div className="flex flex-col items-center gap-1.5 mt-0.5 shrink-0">
         <input
