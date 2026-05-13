@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { stampVoidWatermark } from "@/lib/contracts/pdf-void-watermark";
+import { writeVoidWatermarkSidecar } from "@/lib/contracts/pdf-void-sidecar";
+import {
+  assertJobHasNoPayments,
+  JobHasPaymentsError,
+} from "@/lib/contracts/payment-block";
 import type { Contract } from "@/lib/contracts/types";
 
 // POST /api/contracts/[id]/void
 // Body: { reason?: string }
-// Build 15c additions:
-//   * Blocks voids when any invoice on the same job has a recorded payment.
-//     Rationale: a signed work authorization is the basis for billing;
-//     voiding after payment breaks the audit chain. Eric has to refund or
-//     void the payment first.
-//   * For contracts that are already 'signed', downloads the stored PDF,
-//     stamps a diagonal "VOIDED" watermark, and re-uploads at the same
-//     path before flipping status. Preserves signed_at + signed_pdf_path
-//     for audit.
+//
+// Lifecycle:
+//   * Blocks voids when any invoice on the same job has a recorded payment
+//     (shared with permanent-delete via assertJobHasNoPayments).
+//   * For contracts that are already 'signed', writes the "VOIDED"
+//     watermark to a sidecar storage key (canonical.pdf.voided.pdf),
+//     leaving the canonical signed PDF untouched. This is what makes
+//     restore-after-void of a signed contract recoverable — the canonical
+//     key is always the clean original.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -43,18 +47,10 @@ export async function POST(
     return NextResponse.json({ error: "Already voided" }, { status: 409 });
   }
 
-  // --- Block if any invoice on this job has a payment on record ---
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select("id")
-    .eq("job_id", contract.job_id);
-  const invoiceIds = (invoices ?? []).map((r: { id: string }) => r.id);
-  if (invoiceIds.length > 0) {
-    const { count: paymentCount } = await supabase
-      .from("payments")
-      .select("id", { count: "exact", head: true })
-      .in("invoice_id", invoiceIds);
-    if ((paymentCount ?? 0) > 0) {
+  try {
+    await assertJobHasNoPayments(supabase, contract.job_id);
+  } catch (e) {
+    if (e instanceof JobHasPaymentsError) {
       return NextResponse.json(
         {
           error:
@@ -63,24 +59,12 @@ export async function POST(
         { status: 409 },
       );
     }
+    throw e;
   }
 
-  // --- If already signed, watermark the stored PDF in place ---
   if (contract.status === "signed" && contract.signed_pdf_path) {
     try {
-      const dl = await supabase.storage
-        .from("contracts")
-        .download(contract.signed_pdf_path);
-      if (!dl.data) throw new Error("Failed to load existing PDF");
-      const existing = new Uint8Array(await dl.data.arrayBuffer());
-      const stamped = await stampVoidWatermark(existing);
-      const { error: upErr } = await supabase.storage
-        .from("contracts")
-        .upload(contract.signed_pdf_path, stamped, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-      if (upErr) throw new Error(upErr.message);
+      await writeVoidWatermarkSidecar(supabase, contract.signed_pdf_path);
     } catch (e) {
       return NextResponse.json(
         {

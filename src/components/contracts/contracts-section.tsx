@@ -70,8 +70,8 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
     function onDoc() {
       setMenuId(null);
     }
-    if (menuId) document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    if (menuId) document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
   }, [menuId]);
 
   async function handleRemind(id: string) {
