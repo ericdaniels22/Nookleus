@@ -15,172 +15,11 @@ vi.mock("@/lib/supabase-api", () => ({
 import { POST } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-
-// ---------- Supabase fake -----------------------------------------------
-
-type Row = Record<string, unknown>;
-type PendingError = { message: string } | null;
-
-interface FakeState {
-  rows: Record<string, Row[]>;
-  errors: Record<string, PendingError>;
-  storageBlobs: Record<string, Uint8Array>;
-  storageUploads: { bucket: string; path: string; bytes: Uint8Array; options?: unknown }[];
-  storageDownloads: { bucket: string; path: string }[];
-  rpcCalls: { name: string; args: unknown }[];
-}
-
-function makeServiceFake() {
-  const state: FakeState = {
-    rows: {},
-    errors: {},
-    storageBlobs: {},
-    storageUploads: [],
-    storageDownloads: [],
-    rpcCalls: [],
-  };
-
-  function matchesFilters(row: Row, filters: Record<string, unknown>): boolean {
-    for (const [k, v] of Object.entries(filters)) {
-      if (Array.isArray(v)) {
-        if (!v.includes(row[k] as never)) return false;
-      } else if (row[k] !== v) return false;
-    }
-    return true;
-  }
-
-  function selectBuilder(table: string, opts?: { count?: string; head?: boolean }) {
-    const filters: Record<string, unknown> = {};
-    const builder = {
-      eq(col: string, val: unknown) {
-        filters[col] = val;
-        return builder;
-      },
-      in(col: string, vals: unknown[]) {
-        filters[col] = vals;
-        return builder;
-      },
-      async maybeSingle() {
-        const err = state.errors[`${table}.select`];
-        if (err) return { data: null, error: err };
-        const row = (state.rows[table] ?? []).find((r) =>
-          matchesFilters(r, filters),
-        );
-        return { data: row ?? null, error: null };
-      },
-      then(
-        resolve: (v: {
-          data: unknown;
-          error: PendingError;
-          count?: number;
-        }) => unknown,
-      ): unknown {
-        const err = state.errors[`${table}.select`];
-        if (err) return resolve({ data: null, error: err });
-        const rows = (state.rows[table] ?? []).filter((r) =>
-          matchesFilters(r, filters),
-        );
-        if (opts?.count === "exact") {
-          return resolve({ data: rows, error: null, count: rows.length });
-        }
-        return resolve({ data: rows, error: null });
-      },
-    };
-    return builder;
-  }
-
-  const client = {
-    from(table: string) {
-      return {
-        select(_cols?: string, opts?: { count?: string; head?: boolean }) {
-          void _cols;
-          return selectBuilder(table, opts);
-        },
-      };
-    },
-    storage: {
-      from(bucket: string) {
-        return {
-          async download(path: string) {
-            state.storageDownloads.push({ bucket, path });
-            const err = state.errors[`storage.${bucket}.download`];
-            if (err) return { data: null, error: err };
-            const bytes = state.storageBlobs[`${bucket}/${path}`];
-            if (!bytes) {
-              return {
-                data: null,
-                error: { message: `not found: ${path}` },
-              };
-            }
-            return {
-              data: {
-                async arrayBuffer() {
-                  return bytes.buffer.slice(
-                    bytes.byteOffset,
-                    bytes.byteOffset + bytes.byteLength,
-                  );
-                },
-              },
-              error: null,
-            };
-          },
-          async upload(path: string, data: Uint8Array, options?: unknown) {
-            state.storageUploads.push({
-              bucket,
-              path,
-              bytes: data,
-              options,
-            });
-            const err = state.errors[`storage.${bucket}.upload`];
-            if (err) return { data: null, error: err };
-            return { data: { path }, error: null };
-          },
-        };
-      },
-    },
-    async rpc(name: string, args: unknown) {
-      state.rpcCalls.push({ name, args });
-      const err = state.errors[`rpc.${name}`];
-      if (err) return { data: null, error: err };
-      return { data: null, error: null };
-    },
-  };
-
-  return {
-    client,
-    state,
-    seed(table: string, rows: Row[]) {
-      state.rows[table] = state.rows[table] ?? [];
-      state.rows[table].push(...rows);
-    },
-    seedBlob(key: string, bytes: Uint8Array) {
-      state.storageBlobs[key] = bytes;
-    },
-    setError(key: string, err: PendingError) {
-      state.errors[key] = err;
-    },
-  };
-}
-
-function makeAuthedFake(userId = "user-1") {
-  return {
-    auth: {
-      async getUser() {
-        return { data: { user: { id: userId } }, error: null };
-      },
-    },
-  };
-}
-
-function makeUnauthedFake() {
-  return {
-    auth: {
-      async getUser() {
-        return { data: { user: null }, error: { message: "no session" } };
-      },
-    },
-  };
-}
+import {
+  makeSupabaseFake,
+  makeAuthedFake,
+  makeUnauthedFake,
+} from "@/lib/contracts/__test-utils__/supabase-fake";
 
 function makeRequest(body: unknown = {}): Request {
   return new Request("http://test/api/contracts/c-1/void", {
@@ -205,7 +44,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeUnauthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
 
     const res = await POST(makeRequest(), paramsFor("c-1"));
@@ -216,7 +55,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
 
     const res = await POST(makeRequest(), paramsFor("c-1"));
@@ -227,7 +66,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -246,7 +85,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -268,7 +107,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -299,7 +138,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     service.seed("contracts", [
       {
         id: "c-1",
@@ -324,7 +163,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     const canonicalPath = "org-1/contracts/c-1-signed.pdf";
     service.seed("contracts", [
       {
@@ -373,7 +212,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
     );
-    const service = makeServiceFake();
+    const service = makeSupabaseFake();
     const canonicalPath = "org-1/contracts/c-1-signed.pdf";
     service.seed("contracts", [
       {

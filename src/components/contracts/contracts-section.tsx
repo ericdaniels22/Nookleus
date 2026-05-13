@@ -15,6 +15,7 @@ import {
   Ban,
   Pencil,
   Check,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import SendContractModal from "./send-contract-modal";
@@ -139,6 +140,30 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
     }
   }
 
+  async function handleRestore(id: string) {
+    setBusyId(id);
+    setMenuId(null);
+    try {
+      const res = await fetch(`/api/contracts/${id}/restore`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        throw new Error("Session expired — sign in again and retry.");
+      }
+      if (!res.ok) throw new Error(data.error || "Restore failed");
+      toast.success("Contract restored");
+      await refresh();
+      onChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Restore failed", {
+        duration: 6000,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const count = rows?.length ?? 0;
 
   return (
@@ -201,6 +226,7 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
                 setVoidTarget(row);
                 setMenuId(null);
               }}
+              onRestore={() => handleRestore(row.id)}
             />
           ))}
         </div>
@@ -315,6 +341,7 @@ interface RowProps {
   onRemind: () => void;
   onDeleteDraft: () => void;
   onVoid: () => void;
+  onRestore: () => void;
 }
 
 const STATUS_STYLES: Record<ContractListItem["status"], { wrap: string; label: string; text: string }> = {
@@ -359,6 +386,7 @@ function ContractRow({
   onRemind,
   onDeleteDraft,
   onVoid,
+  onRestore,
 }: RowProps) {
   const style = STATUS_STYLES[row.status];
   const isVoided = row.status === "voided";
@@ -468,56 +496,63 @@ function ContractRow({
           </button>
         )}
 
-        {!isVoided && (
-          <div className="relative">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMenuToggle();
-              }}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              aria-label="Row actions"
+        <div className="relative">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMenuToggle();
+            }}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            aria-label="Row actions"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute right-0 top-7 z-20 w-44 rounded-lg border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
-              <MoreHorizontal size={14} />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute right-0 top-7 z-20 w-44 rounded-lg border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {row.status === "draft" && (
-                  <button
-                    type="button"
-                    onClick={onDeleteDraft}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left text-red-300"
-                  >
-                    <Trash2 size={14} /> Delete draft
-                  </button>
-                )}
-                {row.status !== "draft" && (
-                  <button
-                    type="button"
-                    onClick={onVoid}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left text-red-300"
-                  >
-                    <Ban size={14} /> Void contract
-                  </button>
-                )}
-                {row.status === "draft" && (
-                  <button
-                    type="button"
-                    disabled
-                    title="Edit flow lands post-15c"
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground/60 cursor-not-allowed"
-                  >
-                    <Pencil size={14} /> Edit
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              {row.status === "draft" && (
+                <button
+                  type="button"
+                  onClick={onDeleteDraft}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left text-red-300"
+                >
+                  <Trash2 size={14} /> Delete draft
+                </button>
+              )}
+              {row.status !== "draft" && row.status !== "voided" && (
+                <button
+                  type="button"
+                  onClick={onVoid}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left text-red-300"
+                >
+                  <Ban size={14} /> Void contract
+                </button>
+              )}
+              {isVoided && (
+                <button
+                  type="button"
+                  onClick={onRestore}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                >
+                  <RotateCcw size={14} /> Restore
+                </button>
+              )}
+              {row.status === "draft" && (
+                <button
+                  type="button"
+                  disabled
+                  title="Edit flow lands post-15c"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground/60 cursor-not-allowed"
+                >
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
