@@ -306,11 +306,19 @@ export async function POST(request: NextRequest) {
       (stateRows || []).map((r: EmailFolderState) => [r.folder, r]),
     );
 
-    // imapflow serializes mailboxOpens internally, so Promise.all here
-    // just lets the two folders queue without separate awaits. Net time
-    // is still ~sequential on a single connection.
-    const perFolderResults = await Promise.all(
-      Array.from(imapPathByFolder.entries()).map(async ([folder, imapPath]) => {
+    // SEQUENTIAL, not Promise.all: imapflow's `mailboxOpen` is NOT safe
+    // to call concurrently on a single connection. The active mailbox is
+    // shared state, so two parallel `mailboxOpen` calls race — one
+    // overwrites the other and the in-flight `fetch` ends up reading the
+    // wrong mailbox. (Idiomatic concurrent access uses `getMailboxLock`;
+    // bare `mailboxOpen` + `fetch` requires serial scheduling.) Spec's
+    // own timing budget (open/check/close per folder, ~900ms total)
+    // already assumed serial — the "in parallel" phrasing was wrong for
+    // a single connection. Multi-account parallel still works because
+    // each account opens its own client (see email-inbox.tsx).
+    const perFolderResults: { folder: string; synced: number; matched: number }[] = [];
+    for (const [folder, imapPath] of imapPathByFolder.entries()) {
+      const r = await (async () => {
         const result = await syncFolderIncremental({
           client: client!,
           account: { id: accountId, organization_id: orgId },
@@ -432,8 +440,9 @@ export async function POST(request: NextRequest) {
         }
 
         return { folder, synced, matched };
-      }),
-    );
+      })();
+      perFolderResults.push(r);
+    }
 
     for (const r of perFolderResults) {
       totalSynced += r.synced;
