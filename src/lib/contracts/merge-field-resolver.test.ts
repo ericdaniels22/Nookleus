@@ -233,6 +233,88 @@ describe("resolveMergeFieldValues", () => {
     });
   });
 
+  it("resolves system customer_name (full) and customer_address (= property_address) legacy synonyms", async () => {
+    const fake = makeSupabaseFake();
+    fake.seed("jobs", [
+      {
+        id: "job-1",
+        contact_id: "contact-1",
+        property_address: "742 Evergreen Terrace",
+      },
+    ]);
+    fake.seed("contacts", [
+      { id: "contact-1", first_name: "Alice", last_name: "Smith" },
+    ]);
+
+    const registry: MergeFieldDefinition[] = [
+      {
+        slug: "customer_name",
+        label: "Customer Name",
+        section: "System",
+        source: { kind: "system", key: "customer_name" },
+      },
+      {
+        slug: "customer_address",
+        label: "Customer Address",
+        section: "System",
+        source: { kind: "system", key: "customer_address" },
+      },
+    ];
+
+    const values = await resolveMergeFieldValues(
+      fake.client as unknown as SupabaseClient,
+      "job-1",
+      registry,
+    );
+
+    expect(values).toEqual({
+      customer_name: "Alice Smith",
+      customer_address: "742 Evergreen Terrace",
+    });
+  });
+
+  it("coerces non-string column values (e.g. integer property_sqft) to strings", async () => {
+    // Regression: prod sign page crashed with "value.replace is not a function"
+    // because jobs.property_sqft is an INTEGER column. The resolver returned
+    // the raw number, and resolve-merge-values.ts then called .replace() on
+    // it. All downstream consumers assume Record<string, string | null>.
+    const fake = makeSupabaseFake();
+    fake.seed("jobs", [
+      {
+        id: "job-1",
+        contact_id: null,
+        property_sqft: 1500,
+        property_stories: 2,
+      },
+    ]);
+
+    const registry: MergeFieldDefinition[] = [
+      {
+        slug: "property_sqft",
+        label: "Sqft",
+        section: "Property",
+        source: { kind: "maps_to", column: "job.property_sqft" },
+      },
+      {
+        slug: "property_stories",
+        label: "Stories",
+        section: "Property",
+        source: { kind: "maps_to", column: "job.property_stories" },
+      },
+    ];
+
+    const values = await resolveMergeFieldValues(
+      fake.client as unknown as SupabaseClient,
+      "job-1",
+      registry,
+    );
+
+    expect(values).toEqual({
+      property_sqft: "1500",
+      property_stories: "2",
+    });
+  });
+
   it("title-cases damage_type/property_type values when the field has no options (legacy)", async () => {
     const fake = makeSupabaseFake();
     fake.seed("jobs", [

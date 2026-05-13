@@ -33,6 +33,7 @@ function fullName(row: ContactRow | null): string | null {
 function resolveSystem(
   key: string,
   job: JobRow | null,
+  contact: ContactRow | null,
   adjuster: ContactRow | null,
   settings: Map<string, string | null>,
 ): string | null {
@@ -41,6 +42,15 @@ function resolveSystem(
       return formatDate(new Date().toISOString());
     case "intake_date":
       return formatDate((job?.created_at as string | null | undefined) ?? null);
+    case "customer_name":
+      // Composite synonym: full name from the linked contact. Pre-#67
+      // buildMergeFieldValues computed this inline; new registry has no
+      // slot since there's no contacts.full_name column to alias against.
+      return fullName(contact);
+    case "customer_address":
+      // Composite synonym: property_address doubles as the customer's
+      // address for homeowner jobs (legacy fallback).
+      return job ? ((job.property_address as string | null | undefined) ?? null) : null;
     case "adjuster_name":
       return fullName(adjuster);
     case "adjuster_phone":
@@ -83,6 +93,7 @@ export async function resolveMergeFieldValues(
   supabase: SupabaseClient,
   jobId: string,
   registry: MergeFieldDefinition[],
+  organizationId: string | null = null,
 ): Promise<Record<string, string | null>> {
   const out: Record<string, string | null> = {};
   for (const def of registry) out[def.slug] = null;
@@ -114,10 +125,14 @@ export async function resolveMergeFieldValues(
     }
   }
 
-  const { data: settingsRows } = await supabase
+  let settingsQuery = supabase
     .from("company_settings")
     .select("key, value")
     .in("key", ["company_name", "phone", "email", "address", "license"]);
+  if (organizationId) {
+    settingsQuery = settingsQuery.eq("organization_id", organizationId);
+  }
+  const { data: settingsRows } = await settingsQuery;
   const settings = new Map<string, string | null>();
   for (const r of (settingsRows ?? []) as { key: string; value: string | null }[]) {
     settings.set(r.key, r.value);
@@ -148,8 +163,12 @@ export async function resolveMergeFieldValues(
     if (def.source.kind === "maps_to") {
       const [table, column] = def.source.column.split(".");
       const row = table === "contact" ? contact : table === "job" ? job : null;
-      const raw = row ? (row[column] as string | null | undefined) : null;
-      const labeled = applyOptionLabel(raw ?? null, def.options);
+      // Coerce: numeric/boolean columns (e.g. job.property_sqft, job.property_stories)
+      // arrive as their native JS type. Downstream consumers call .replace() on
+      // the result and assume Record<string, string | null>, so we normalise here.
+      const rawValue = row ? row[column] : null;
+      const raw = rawValue == null ? null : String(rawValue);
+      const labeled = applyOptionLabel(raw, def.options);
       out[def.slug] =
         labeled != null && !def.options && LEGACY_TITLECASE_COLUMNS.has(column)
           ? titleCaseSnake(labeled)
@@ -158,7 +177,7 @@ export async function resolveMergeFieldValues(
       const raw = customFieldMap.get(def.source.field_key) ?? null;
       out[def.slug] = applyOptionLabel(raw, def.options);
     } else if (def.source.kind === "system") {
-      out[def.slug] = resolveSystem(def.source.key, job, adjuster, settings);
+      out[def.slug] = resolveSystem(def.source.key, job, contact, adjuster, settings);
     }
   }
 

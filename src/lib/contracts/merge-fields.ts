@@ -58,6 +58,12 @@ export function isKnownField(name: string): boolean {
 export const SYSTEM_MERGE_FIELDS: MergeFieldDefinition[] = [
   { slug: "date_today", label: "Today's Date", section: "System", source: { kind: "system", key: "date_today" } },
   { slug: "intake_date", label: "Intake Date", section: "System", source: { kind: "system", key: "intake_date" } },
+  // Composite legacy synonyms: pre-#67 buildMergeFieldValues computed these
+  // inline. customer_name = contact.first_name + " " + last_name;
+  // customer_address = job.property_address. Kept as system-source so
+  // existing contract templates that reference them keep resolving.
+  { slug: "customer_name", label: "Customer Name", section: "System", source: { kind: "system", key: "customer_name" } },
+  { slug: "customer_address", label: "Customer Address", section: "System", source: { kind: "system", key: "customer_address" } },
   { slug: "adjuster_name", label: "Adjuster Name", section: "System", source: { kind: "system", key: "adjuster_name" } },
   { slug: "adjuster_phone", label: "Adjuster Phone", section: "System", source: { kind: "system", key: "adjuster_phone" } },
   { slug: "company_name", label: "Company Name", section: "System", source: { kind: "system", key: "company_name" } },
@@ -69,13 +75,19 @@ export const SYSTEM_MERGE_FIELDS: MergeFieldDefinition[] = [
 
 async function fetchLatestFormConfig(
   supabase: SupabaseClient,
+  organizationId: string | null,
 ): Promise<FormConfig> {
-  const { data } = await supabase
+  // Service-role callers (e.g. /sign/[token]) bypass RLS, so without an
+  // explicit org filter this query returns the global-max-version row —
+  // which on multi-org installs leaks a foreign org's intake schema into
+  // the merge registry.
+  let query = supabase
     .from("form_config")
     .select("config")
     .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ config: FormConfig }>();
+    .limit(1);
+  if (organizationId) query = query.eq("organization_id", organizationId);
+  const { data } = await query.maybeSingle<{ config: FormConfig }>();
   return data?.config ?? { sections: [] };
 }
 
@@ -83,9 +95,16 @@ export async function buildMergeFieldValues(
   supabase: SupabaseClient,
   jobId: string,
 ): Promise<Record<string, string | null>> {
-  const formConfig = await fetchLatestFormConfig(supabase);
+  const { data: jobOrg } = await supabase
+    .from("jobs")
+    .select("organization_id")
+    .eq("id", jobId)
+    .maybeSingle<{ organization_id: string | null }>();
+  const orgId = jobOrg?.organization_id ?? null;
+
+  const formConfig = await fetchLatestFormConfig(supabase, orgId);
   const registry = buildMergeFieldRegistry(formConfig, SYSTEM_MERGE_FIELDS);
-  return resolveMergeFieldValues(supabase, jobId, registry);
+  return resolveMergeFieldValues(supabase, jobId, registry, orgId);
 }
 
 const UNRESOLVED_SPAN = '<span class="merge-field-unresolved">________</span>';
