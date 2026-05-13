@@ -1,56 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FormConfig } from "@/lib/types";
-import type { MergeFieldCategory, MergeFieldDefinition as LegacyMergeFieldDefinition } from "./types";
 import { buildMergeFieldRegistry, type MergeFieldDefinition } from "./merge-field-registry";
 import { resolveMergeFieldValues } from "./merge-field-resolver";
-
-// Legacy hardcoded list — kept exported during the registry migration for
-// UI consumers (field-palette / field-inspector / template-pdf-editor)
-// that haven't switched to the registry yet. After UI migration this can
-// be deleted along with mergeFieldsByCategory / isKnownField.
-export const MERGE_FIELDS: LegacyMergeFieldDefinition[] = [
-  { name: "customer_name", label: "Customer Name", category: "Customer" },
-  { name: "customer_first_name", label: "Customer First Name", category: "Customer" },
-  { name: "customer_email", label: "Customer Email", category: "Customer" },
-  { name: "customer_phone", label: "Customer Phone", category: "Customer" },
-  { name: "customer_address", label: "Customer Address", category: "Customer" },
-  { name: "property_address", label: "Property Address", category: "Property" },
-  { name: "property_type", label: "Property Type", category: "Property" },
-  { name: "job_number", label: "Job Number", category: "Job" },
-  { name: "damage_type", label: "Damage Type", category: "Job" },
-  { name: "damage_source", label: "Damage Source", category: "Job" },
-  { name: "date_today", label: "Today's Date", category: "Job" },
-  { name: "intake_date", label: "Intake Date", category: "Job" },
-  { name: "affected_areas", label: "Affected Areas", category: "Job" },
-  { name: "insurance_company", label: "Insurance Company", category: "Insurance" },
-  { name: "claim_number", label: "Claim Number", category: "Insurance" },
-  { name: "adjuster_name", label: "Adjuster Name", category: "Insurance" },
-  { name: "adjuster_phone", label: "Adjuster Phone", category: "Insurance" },
-  { name: "company_name", label: "Company Name", category: "Company" },
-  { name: "company_phone", label: "Company Phone", category: "Company" },
-  { name: "company_email", label: "Company Email", category: "Company" },
-  { name: "company_address", label: "Company Address", category: "Company" },
-  { name: "company_license", label: "Company License", category: "Company" },
-];
-
-export const MERGE_FIELD_CATEGORIES: MergeFieldCategory[] = [
-  "Customer",
-  "Property",
-  "Job",
-  "Insurance",
-  "Company",
-];
-
-export function mergeFieldsByCategory(): Record<MergeFieldCategory, LegacyMergeFieldDefinition[]> {
-  const grouped = {} as Record<MergeFieldCategory, LegacyMergeFieldDefinition[]>;
-  for (const cat of MERGE_FIELD_CATEGORIES) grouped[cat] = [];
-  for (const field of MERGE_FIELDS) grouped[field.category].push(field);
-  return grouped;
-}
-
-export function isKnownField(name: string): boolean {
-  return MERGE_FIELDS.some((f) => f.name === name);
-}
 
 // The 9 system-source merge fields that are always available regardless of
 // form_config. Mirrors the names and labels in MERGE_FIELDS but with the

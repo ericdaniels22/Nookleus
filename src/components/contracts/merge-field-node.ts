@@ -1,6 +1,4 @@
 import { Node, mergeAttributes } from "@tiptap/core";
-import { isKnownField } from "@/lib/contracts/merge-fields";
-import { EMAIL_EXTRA_MERGE_FIELDS } from "@/lib/contracts/email-merge-fields";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -10,18 +8,12 @@ declare module "@tiptap/core" {
   }
 }
 
-const EMAIL_EXTRA_NAMES = new Set<string>(EMAIL_EXTRA_MERGE_FIELDS.map((f) => f.name));
-
-function isResolvable(name: string, paymentNames?: Set<string>): boolean {
-  if (isKnownField(name)) return true;
-  if (EMAIL_EXTRA_NAMES.has(name)) return true;
-  if (paymentNames?.has(name)) return true;
-  return false;
-}
-
 export interface MergeFieldNodeOptions {
-  // Optional set of additional resolvable field names for the payments editor
-  // (so payment-specific tokens don't render as warning pills).
+  // Set of slugs that should render as resolved (not warning). Callers
+  // build this from the registry (intake form_config + system fields) plus
+  // any context-specific extras (signing_link, payment tokens, etc.).
+  // When empty, every pill renders with `data-unknown` — matches the empty
+  // registry SSR fallback used before the mount-effect fetch lands.
   extraResolvableNames?: Set<string>;
 }
 
@@ -63,7 +55,7 @@ export const MergeFieldNode = Node.create<MergeFieldNodeOptions>({
 
   renderHTML({ node, HTMLAttributes }) {
     const fieldName = String(node.attrs.fieldName ?? "");
-    const known = isResolvable(fieldName, this.options.extraResolvableNames);
+    const known = this.options.extraResolvableNames?.has(fieldName) ?? false;
     return [
       "span",
       mergeAttributes(HTMLAttributes, {

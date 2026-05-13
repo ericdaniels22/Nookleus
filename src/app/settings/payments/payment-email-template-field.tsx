@@ -1,13 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/components/tiptap-editor";
 import { ChevronDown, Plus } from "lucide-react";
+import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import {
-  MERGE_FIELD_CATEGORIES,
-  mergeFieldsByCategory,
-} from "@/lib/contracts/merge-fields";
+  buildMergeFieldRegistry,
+  type MergeFieldDefinition,
+} from "@/lib/contracts/merge-field-registry";
 import {
   PAYMENT_MERGE_FIELDS,
   PAYMENT_MERGE_FIELD_CATEGORIES,
@@ -17,6 +18,7 @@ import { MergeFieldNode } from "@/components/contracts/merge-field-node";
 import MergeFieldInput, {
   type MergeFieldInputHandle,
 } from "@/components/contracts/merge-field-input";
+import type { FormConfig } from "@/lib/types";
 
 export interface PaymentEmailTemplateFieldProps {
   label: string;
@@ -27,9 +29,6 @@ export interface PaymentEmailTemplateFieldProps {
   onBodyChange: (v: string) => void;
 }
 
-// Payment-specific token names. Threaded into both editor surfaces via
-// `extraResolvableNames` so payment tokens (e.g. {{invoice_number}},
-// {{amount_formatted}}) don't render as warning pills.
 const PAYMENT_NAMES: Set<string> = new Set(
   PAYMENT_MERGE_FIELDS.map((f) => f.name),
 );
@@ -47,7 +46,34 @@ export default function PaymentEmailTemplateField({
   const subjectInputRef = useRef<MergeFieldInputHandle | null>(null);
   const bodyEditorRef = useRef<Editor | null>(null);
 
-  const contractGrouped = mergeFieldsByCategory();
+  const [registry, setRegistry] = useState<MergeFieldDefinition[]>(
+    () => buildMergeFieldRegistry({ sections: [] }, SYSTEM_MERGE_FIELDS),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/intake-form")
+      .then((r) => r.json())
+      .then((j: { config?: FormConfig }) => {
+        if (cancelled) return;
+        const cfg: FormConfig = j?.config ?? { sections: [] };
+        setRegistry(buildMergeFieldRegistry(cfg, SYSTEM_MERGE_FIELDS));
+      })
+      .catch(() => {
+        // System-only fallback already set.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const resolvableNames = useMemo(() => {
+    const set = new Set<string>(PAYMENT_NAMES);
+    for (const f of registry) set.add(f.slug);
+    return set;
+  }, [registry]);
+
+  const grouped = useMemo(() => groupBySection(registry), [registry]);
   const paymentGrouped = paymentMergeFieldsByCategory();
 
   function insertIntoSubject(fieldName: string) {
@@ -85,8 +111,8 @@ export default function PaymentEmailTemplateField({
           <MergeFieldDropdown
             open={subjectMenuOpen}
             setOpen={setSubjectMenuOpen}
-            contractGrouped={contractGrouped}
             paymentGrouped={paymentGrouped}
+            grouped={grouped}
             onPick={insertIntoSubject}
           />
         </div>
@@ -95,7 +121,7 @@ export default function PaymentEmailTemplateField({
           value={subject}
           onChange={onSubjectChange}
           placeholder="Subject line"
-          extraResolvableNames={PAYMENT_NAMES}
+          extraResolvableNames={resolvableNames}
         />
       </div>
 
@@ -105,8 +131,8 @@ export default function PaymentEmailTemplateField({
           <MergeFieldDropdown
             open={bodyMenuOpen}
             setOpen={setBodyMenuOpen}
-            contractGrouped={contractGrouped}
             paymentGrouped={paymentGrouped}
+            grouped={grouped}
             onPick={insertIntoBody}
           />
         </div>
@@ -115,7 +141,7 @@ export default function PaymentEmailTemplateField({
           onChange={onBodyChange}
           placeholder="Email body. Use merge fields to insert data at send time."
           extraExtensions={[
-            MergeFieldNode.configure({ extraResolvableNames: PAYMENT_NAMES }),
+            MergeFieldNode.configure({ extraResolvableNames: resolvableNames }),
           ]}
           onReady={(editor) => {
             bodyEditorRef.current = editor;
@@ -126,17 +152,35 @@ export default function PaymentEmailTemplateField({
   );
 }
 
+interface SectionGroup {
+  section: string;
+  fields: { name: string; label: string }[];
+}
+
+function groupBySection(registry: MergeFieldDefinition[]): SectionGroup[] {
+  const order: string[] = [];
+  const byName = new Map<string, { name: string; label: string }[]>();
+  for (const f of registry) {
+    if (!byName.has(f.section)) {
+      order.push(f.section);
+      byName.set(f.section, []);
+    }
+    byName.get(f.section)!.push({ name: f.slug, label: f.label });
+  }
+  return order.map((section) => ({ section, fields: byName.get(section)! }));
+}
+
 function MergeFieldDropdown({
   open,
   setOpen,
-  contractGrouped,
   paymentGrouped,
+  grouped,
   onPick,
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
-  contractGrouped: ReturnType<typeof mergeFieldsByCategory>;
   paymentGrouped: ReturnType<typeof paymentMergeFieldsByCategory>;
+  grouped: SectionGroup[];
   onPick: (fieldName: string) => void;
 }) {
   return (
@@ -170,13 +214,13 @@ function MergeFieldDropdown({
               </div>
             </div>
           ))}
-          {MERGE_FIELD_CATEGORIES.map((cat) => (
-            <div key={cat} className="mb-2 last:mb-0">
+          {grouped.map((group) => (
+            <div key={group.section} className="mb-2 last:mb-0">
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {cat}
+                {group.section}
               </div>
               <div className="flex flex-wrap gap-1">
-                {contractGrouped[cat].map((f) => (
+                {group.fields.map((f) => (
                   <button
                     key={f.name}
                     type="button"
