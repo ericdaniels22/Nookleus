@@ -1,5 +1,4 @@
 import type { OverlayField, PdfPage } from "./types";
-import { MERGE_FIELDS } from "./merge-fields";
 
 export interface ValidationError {
   fieldId: string | null;
@@ -21,11 +20,11 @@ export function validateOverlayFields(
   fields: OverlayField[],
   pdfPages: PdfPage[] | null,
   signerCount: 1 | 2,
+  knownMergeNames: Set<string>,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const seenIds = new Set<string>();
   const seenInputKeys = new Set<string>();
-  const knownMergeNames = new Set(MERGE_FIELDS.map((m) => m.name));
 
   for (const f of fields) {
     if (seenIds.has(f.id)) {

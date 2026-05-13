@@ -319,6 +319,7 @@ export interface FormField {
   options?: FormFieldOption[];
   options_source?: string;
   show_when?: string;
+  merge_field_slug?: string;
 }
 
 export interface FormSection {

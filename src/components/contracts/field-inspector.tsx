@@ -1,17 +1,33 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
-import { MERGE_FIELD_CATEGORIES, mergeFieldsByCategory } from "@/lib/contracts/merge-fields";
+import type { MergeFieldDefinition } from "@/lib/contracts/merge-field-registry";
 import type { OverlayField } from "@/lib/contracts/types";
 
 interface Props {
   field: OverlayField | null;
   signerCount: 1 | 2;
+  mergeRegistry: MergeFieldDefinition[];
   onChange: (next: OverlayField) => void;
   onDelete: () => void;
 }
 
-export default function FieldInspector({ field, signerCount, onChange, onDelete }: Props) {
+function groupBySection(
+  registry: MergeFieldDefinition[],
+): { section: string; entries: MergeFieldDefinition[] }[] {
+  const sections: string[] = [];
+  const map = new Map<string, MergeFieldDefinition[]>();
+  for (const def of registry) {
+    if (!map.has(def.section)) {
+      sections.push(def.section);
+      map.set(def.section, []);
+    }
+    map.get(def.section)!.push(def);
+  }
+  return sections.map((s) => ({ section: s, entries: map.get(s)! }));
+}
+
+export default function FieldInspector({ field, signerCount, mergeRegistry, onChange, onDelete }: Props) {
   if (!field) {
     return (
       <aside className="w-72 border-l border-border bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -20,7 +36,7 @@ export default function FieldInspector({ field, signerCount, onChange, onDelete 
     );
   }
 
-  const grouped = mergeFieldsByCategory();
+  const grouped = groupBySection(mergeRegistry);
 
   return (
     <aside className="w-72 border-l border-border bg-muted/30 p-4 space-y-4 overflow-y-auto">
@@ -43,11 +59,11 @@ export default function FieldInspector({ field, signerCount, onChange, onDelete 
             className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-border bg-background"
           >
             <option value="">— select —</option>
-            {MERGE_FIELD_CATEGORIES.map((cat) => (
-              <optgroup key={cat} label={cat}>
-                {grouped[cat].map((f) => (
-                  <option key={f.name} value={f.name}>
-                    {f.label} — {`{{${f.name}}}`}
+            {grouped.map((g) => (
+              <optgroup key={g.section} label={g.section}>
+                {g.entries.map((f) => (
+                  <option key={f.slug} value={f.slug}>
+                    {f.label} — {`{{${f.slug}}}`}
                   </option>
                 ))}
               </optgroup>
