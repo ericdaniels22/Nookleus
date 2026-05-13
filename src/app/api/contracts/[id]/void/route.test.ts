@@ -208,6 +208,40 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     });
   });
 
+  it("voids a signed contract with a missing canonical PDF: soft-skips sidecar, calls RPC, does NOT 500", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake() as never,
+    );
+    const service = makeSupabaseFake();
+    const canonicalPath = "orgs/o/contracts/c-1/signed.pdf";
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "signed",
+        signed_pdf_path: canonicalPath,
+      },
+    ]);
+    // NOTE: no seedBlob — the fake will return { error: 'not found: ...' }
+    // for the canonical download, simulating prod orphan rows.
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await POST(makeRequest({ reason: "stale row" }), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+
+    // Download attempted (we tried), but no upload happened.
+    expect(service.state.storageDownloads).toEqual([
+      { bucket: "contracts", path: canonicalPath },
+    ]);
+    expect(service.state.storageUploads).toHaveLength(0);
+
+    // RPC still fired — the void itself is the load-bearing action.
+    expect(service.state.rpcCalls[0]).toMatchObject({
+      name: "void_contract",
+      args: { p_contract_id: "c-1", p_reason: "stale row" },
+    });
+  });
+
   it("returns 500 when the sidecar upload fails", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       makeAuthedFake() as never,
