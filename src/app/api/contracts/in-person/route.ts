@@ -113,7 +113,7 @@ export async function POST(request: Request) {
   const allSigned = (refreshedSigners ?? []).every((s) => s.signed_at);
 
   if (allSigned && template.pdf_storage_path) {
-    await finalizeSignedContract({
+    const finalizeResult = await finalizeSignedContract({
       supabase,
       contract,
       template,
@@ -121,6 +121,14 @@ export async function POST(request: Request) {
       customerInputs: mergedInputs,
       signedAt,
     });
+    const { summary } = finalizeResult.notifications;
+    if (summary.failed > 0 || summary.skipped > 0) {
+      console.warn("[in-person] finalize notifications had non-sent outcomes", {
+        contract_id: contract.id,
+        was_already_finalized: finalizeResult.wasAlreadyFinalized,
+        summary,
+      });
+    }
   }
 
   try {
