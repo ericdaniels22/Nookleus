@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { findBlockedRemovals } from "@/lib/contracts/form-config-removal-guard";
+import type { FormConfig } from "@/lib/types";
 
 // POST /api/settings/intake-form/restore — copy an older version forward as a new row.
 // Never mutates or deletes prior versions.
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
 
   const { data: latest, error: latestErr } = await supabase
     .from("form_config")
-    .select("version")
+    .select("version, config")
     .eq("organization_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
@@ -38,6 +40,24 @@ export async function POST(request: Request) {
 
   if (latestErr) {
     return NextResponse.json({ error: latestErr.message }, { status: 500 });
+  }
+
+  // Restoring an older version effectively removes any fields that exist on
+  // the current latest version but are absent from the target. Block the
+  // restore if any of those removed fields are referenced by contract
+  // templates.
+  const priorConfig: FormConfig | null = latest?.config ?? null;
+  try {
+    const blocked = await findBlockedRemovals(supabase, priorConfig, target.config);
+    if (blocked.length > 0) {
+      return NextResponse.json(
+        { error: "field_referenced_by_templates", blocked },
+        { status: 409 },
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Reference check failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 
   const nextVersion = (latest?.version ?? 0) + 1;

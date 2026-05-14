@@ -146,7 +146,7 @@ describe("buildMergeFieldRegistry", () => {
     });
   });
 
-  it("excludes fields where visible is false", () => {
+  it("keeps fields where visible is false but marks them hidden", () => {
     const formConfig: FormConfig = {
       sections: [
         {
@@ -175,10 +175,13 @@ describe("buildMergeFieldRegistry", () => {
 
     const registry = buildMergeFieldRegistry(formConfig, []);
 
-    expect(registry.map((r) => r.slug)).toEqual(["first_name"]);
+    expect(registry.map((r) => ({ slug: r.slug, hidden: r.hidden ?? false }))).toEqual([
+      { slug: "first_name", hidden: false },
+      { slug: "middle_name", hidden: true },
+    ]);
   });
 
-  it("excludes fields from sections where visible is false", () => {
+  it("marks fields in hidden sections as hidden but keeps them in the registry", () => {
     const formConfig: FormConfig = {
       sections: [
         {
@@ -200,7 +203,15 @@ describe("buildMergeFieldRegistry", () => {
 
     const registry = buildMergeFieldRegistry(formConfig, []);
 
-    expect(registry).toEqual([]);
+    expect(registry).toEqual([
+      {
+        slug: "secret",
+        label: "Secret",
+        section: "Hidden",
+        source: { kind: "maps_to", column: "job.secret" },
+        hidden: true,
+      },
+    ]);
   });
 
   it("carries pill options through with their labels", () => {

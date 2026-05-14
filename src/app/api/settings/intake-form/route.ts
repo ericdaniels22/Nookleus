@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { findBlockedRemovals } from "@/lib/contracts/form-config-removal-guard";
+import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/intake-form — fetch latest form config for the active org.
 export async function GET() {
@@ -28,14 +30,33 @@ export async function POST(request: Request) {
   const supabase = await createServerSupabaseClient();
   const orgId = await getActiveOrganizationId(supabase);
 
-  // Get current max version for this org
+  // Get current latest version + config for this org
   const { data: current } = await supabase
     .from("form_config")
-    .select("version")
+    .select("version, config")
     .eq("organization_id", orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  const priorConfig: FormConfig | null = current?.config ?? null;
+
+  // Block deletes that would orphan contract-template merge references.
+  try {
+    const blocked = await findBlockedRemovals(supabase, priorConfig, config);
+    if (blocked.length > 0) {
+      return NextResponse.json(
+        {
+          error: "field_referenced_by_templates",
+          blocked,
+        },
+        { status: 409 },
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Reference check failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
   const nextVersion = (current?.version ?? 0) + 1;
 

@@ -18,6 +18,7 @@ function groupBySection(
   const sections: string[] = [];
   const map = new Map<string, MergeFieldDefinition[]>();
   for (const def of registry) {
+    if (def.hidden) continue;
     if (!map.has(def.section)) {
       sections.push(def.section);
       map.set(def.section, []);

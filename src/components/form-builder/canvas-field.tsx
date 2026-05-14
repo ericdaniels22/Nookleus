@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Eye, EyeOff, Copy, Trash2, Lock } from "lucide-react";
+import { GripVertical, Eye, EyeOff, Copy, Trash2, Lock, FileText, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FormField } from "@/lib/types";
+import { useFieldUsage } from "./usage-context";
 
 export function CanvasField({
   field,
@@ -12,6 +14,7 @@ export function CanvasField({
   onSelect,
   onToggleRequired,
   onToggleVisibility,
+  onHide,
   onDuplicate,
   onDelete,
 }: {
@@ -20,9 +23,25 @@ export function CanvasField({
   onSelect: () => void;
   onToggleRequired: () => void;
   onToggleVisibility: () => void;
+  onHide: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const slug = field.merge_field_slug ?? field.id;
+  const usage = useFieldUsage(slug);
+  const usageCount = usage.length;
+  const [showUsageList, setShowUsageList] = useState(false);
+  const [showDeleteBlock, setShowDeleteBlock] = useState(false);
+  const isVisible = field.visible !== false;
+
+  function handleDeleteClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (usageCount > 0) {
+      setShowDeleteBlock(true);
+      return;
+    }
+    onDelete();
+  }
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: field.id, data: { type: "field", fieldId: field.id } });
 
@@ -58,7 +77,7 @@ export function CanvasField({
         </button>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1">
+          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
             <label className="text-sm font-medium text-foreground">{field.label}</label>
             <button
               onClick={(e) => {
@@ -76,10 +95,38 @@ export function CanvasField({
               {field.required ? "Required" : "Optional"}
             </button>
             {isDefault && <Lock size={10} className="text-muted-foreground/40" />}
+            {usageCount > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUsageList((v) => !v);
+                }}
+                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 transition-colors"
+                title={`Used by ${usageCount} contract template${usageCount === 1 ? "" : "s"}`}
+              >
+                <FileText size={10} />
+                Used by {usageCount}
+              </button>
+            )}
           </div>
           <FieldPreview field={field} />
           {field.help_text && (
             <p className="text-[11px] text-muted-foreground mt-1">{field.help_text}</p>
+          )}
+          {showUsageList && usageCount > 0 && (
+            <ul
+              onClick={(e) => e.stopPropagation()}
+              className="mt-2 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-[11px] space-y-0.5"
+            >
+              {usage.map((t) => (
+                <li key={t.id} className="text-foreground">
+                  {t.name}
+                  {!t.is_active && (
+                    <span className="ml-1 text-muted-foreground italic">(inactive)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 
@@ -106,10 +153,7 @@ export function CanvasField({
           </button>
           {!isDefault && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
+              onClick={handleDeleteClick}
               className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
               aria-label="Delete field"
             >
@@ -118,6 +162,69 @@ export function CanvasField({
           )}
         </div>
       </div>
+
+      {showDeleteBlock && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowDeleteBlock(false);
+          }}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-3">
+              <AlertTriangle size={20} className="text-destructive shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  Can&apos;t delete &quot;{field.label}&quot;
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This field is referenced by {usageCount} contract template
+                  {usageCount === 1 ? "" : "s"}. Deleting it would break the
+                  merge field on those templates.
+                </p>
+              </div>
+            </div>
+            <ul className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs space-y-1 max-h-40 overflow-y-auto mb-4">
+              {usage.map((t) => (
+                <li key={t.id} className="text-foreground">
+                  {t.name}
+                  {!t.is_active && (
+                    <span className="ml-1 text-muted-foreground italic">(inactive)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground mb-3">
+              Either remove this merge field from the templates above first, or
+              hide the field instead. Hidden fields stay in the registry so
+              existing contracts keep resolving.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowDeleteBlock(false)}
+                className="px-3 h-9 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              {isVisible && (
+                <button
+                  onClick={() => {
+                    onHide();
+                    setShowDeleteBlock(false);
+                  }}
+                  className="px-3 h-9 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+                >
+                  Hide instead
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
