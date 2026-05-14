@@ -32,23 +32,33 @@ export default function Sidebar() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Soft body-scroll lock while the mobile overlay is open (issue #36).
-  // `overflow: hidden` on body is a no-op in iOS WKWebView — the WebView's
-  // own scroll view still scrolls the document — but it works on Android
-  // browsers and desktop. We previously tried `position: fixed` for a
-  // hard iOS lock (commit 6573561), but it broke Capacitor's
-  // `contentInset: 'automatic'`: with body removed from normal flow, the
-  // WebView no longer inset the content for the iPhone safe area, so the
-  // sidebar slid up under the status bar. On iOS we now accept that the
-  // body may scroll behind the overlay and hide it visually via a
-  // near-opaque overlay (no `backdrop-blur`, which was the actual paint-
-  // glitch culprit).
+  // Hard body-scroll lock while the mobile overlay is open (issue #36).
+  // `overflow: hidden` alone is a no-op in iOS WKWebView, so we use the
+  // `position: fixed` + negative-top dance to lock the body element itself.
+  // Capacitor's `contentInset: "automatic"` is bypassed while body is out
+  // of normal flow, so the aside compensates with its own
+  // `pt/pb-[env(safe-area-inset-*)]` (added below) — that way the sidebar
+  // still renders below the iPhone status bar and above the home indicator.
   useEffect(() => {
     if (!mobileOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const previous = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previous;
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.width = previous.width;
+      body.style.overflow = previous.overflow;
+      window.scrollTo(0, scrollY);
     };
   }, [mobileOpen]);
 
@@ -152,7 +162,7 @@ export default function Sidebar() {
       <Tooltip.Provider delay={300}>
         <aside
           className={cn(
-            "fixed top-0 left-0 z-40 h-dvh gradient-sidebar flex flex-col transition-[transform,width] duration-200 ease-out",
+            "fixed top-0 left-0 z-40 h-dvh gradient-sidebar flex flex-col transition-[transform,width] duration-200 ease-out pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             "lg:translate-x-0",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
             // Mobile overlay is always full sidebar width. Collapse only applies at lg+.
