@@ -32,39 +32,23 @@ export default function Sidebar() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Lock body scroll while the mobile overlay is open (issue #36). On iOS
-  // WKWebView, `overflow: hidden` on body is NOT sufficient — the WebView's
-  // own scroll view still scrolls the document. The bulletproof pattern is
-  // `position: fixed` + a negative `top` equal to the current scrollY, which
-  // makes the body element itself non-scrollable while preserving the visual
-  // scroll position. On cleanup we restore the original styles and scrollTo
-  // the saved position so the user lands exactly where they were before
-  // opening the menu. Without this lock the body scrolls under the fixed
-  // overlay+aside; the overlay's `backdrop-blur` then fails to repaint
-  // reliably during the scroll (body's near-white background flashes
-  // through) and the workspace switcher + sign-out footer appear to shift
-  // as the body moves underneath. `h-dvh` on the aside and
-  // `overscroll-contain` on the inner nav are defense in depth.
+  // Soft body-scroll lock while the mobile overlay is open (issue #36).
+  // `overflow: hidden` on body is a no-op in iOS WKWebView — the WebView's
+  // own scroll view still scrolls the document — but it works on Android
+  // browsers and desktop. We previously tried `position: fixed` for a
+  // hard iOS lock (commit 6573561), but it broke Capacitor's
+  // `contentInset: 'automatic'`: with body removed from normal flow, the
+  // WebView no longer inset the content for the iPhone safe area, so the
+  // sidebar slid up under the status bar. On iOS we now accept that the
+  // body may scroll behind the overlay and hide it visually via a
+  // near-opaque overlay (no `backdrop-blur`, which was the actual paint-
+  // glitch culprit).
   useEffect(() => {
     if (!mobileOpen) return;
-    const scrollY = window.scrollY;
-    const body = document.body;
-    const previous = {
-      position: body.style.position,
-      top: body.style.top,
-      width: body.style.width,
-      overflow: body.style.overflow,
-    };
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
-    body.style.overflow = "hidden";
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      body.style.position = previous.position;
-      body.style.top = previous.top;
-      body.style.width = previous.width;
-      body.style.overflow = previous.overflow;
-      window.scrollTo(0, scrollY);
+      document.body.style.overflow = previous;
     };
   }, [mobileOpen]);
 
@@ -159,7 +143,7 @@ export default function Sidebar() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-md"
+          className="lg:hidden fixed inset-0 z-40 bg-black/85"
           onClick={() => setMobileOpen(false)}
         />
       )}
