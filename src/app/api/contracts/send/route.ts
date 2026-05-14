@@ -7,8 +7,10 @@ import { sendContractEmail } from "@/lib/contracts/email";
 import { generateSigningToken } from "@/lib/contracts/tokens";
 import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import type { ContractEmailSettings } from "@/lib/contracts/types";
+import type { ContractEmailSettings, OverlayField } from "@/lib/contracts/types";
 import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
+import { buildMergeFieldValues } from "@/lib/contracts/merge-fields";
+import { evaluateAutoCheckboxes } from "@/lib/contracts/auto-checkbox-evaluator";
 
 interface SendSignerInput {
   name: string;
@@ -110,7 +112,7 @@ export async function POST(request: Request) {
   // --- Fetch template ---
   const { data: tpl, error: tErr } = await supabase
     .from("contract_templates")
-    .select("id, name, pdf_storage_path, version, is_active, signer_role_label")
+    .select("id, name, pdf_storage_path, version, is_active, signer_role_label, overlay_fields")
     .eq("id", body.templateId)
     .eq("organization_id", orgId)
     .maybeSingle<{
@@ -120,6 +122,7 @@ export async function POST(request: Request) {
       version: number;
       is_active: boolean;
       signer_role_label: string | null;
+      overlay_fields: OverlayField[] | null;
     }>();
   if (tErr || !tpl) {
     return NextResponse.json({ error: tErr?.message || "Template not found" }, { status: 404 });
@@ -191,6 +194,36 @@ export async function POST(request: Request) {
       { error: `Failed to create contract: ${rpcErr.message}` },
       { status: 500 },
     );
+  }
+
+  // --- Auto-fill checkboxes bound to intake data ---
+  // Stamp the pre-determined ticks into customer_inputs at draft time so the
+  // signer view can render them as locked/non-interactive and the eventual
+  // stamped PDF reflects them. The RPC has no customer_inputs param so we
+  // patch separately; this is a no-op when the template has no auto-bound
+  // checkboxes.
+  const overlayFields = tpl.overlay_fields ?? [];
+  const hasAutoFill = overlayFields.some(
+    (f) => f.type === "checkbox" && f.autoFillBinding,
+  );
+  if (hasAutoFill) {
+    try {
+      const resolvedValues = await buildMergeFieldValues(supabase, body.jobId);
+      const evaluation = evaluateAutoCheckboxes(overlayFields, resolvedValues);
+      if (Object.keys(evaluation.inputs).length > 0) {
+        await supabase
+          .from("contracts")
+          .update({ customer_inputs: evaluation.inputs })
+          .eq("id", contractId);
+      }
+    } catch (e) {
+      // Non-fatal: contract is created, auto-fill just didn't run. The
+      // signer will see them as un-ticked.
+      console.error("[contracts/send] auto-checkbox evaluation failed", {
+        contractId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   // --- Resolve email body + send (to signer 1 only) ---

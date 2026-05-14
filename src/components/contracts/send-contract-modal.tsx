@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import TiptapEditor from "@/components/tiptap-editor";
 import PreviewContractModal from "./preview-contract-modal";
-import { Loader2, Send, FileText, Plus, Trash2 } from "lucide-react";
+import { Loader2, Send, FileText, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import type { ContractTemplateListItem, ContractEmailSettings } from "@/lib/contracts/types";
 
@@ -46,6 +46,9 @@ export default function SendContractModal({
   const [emailBody, setEmailBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [unresolvedAutoCheckboxes, setUnresolvedAutoCheckboxes] = useState<
+    { inputKey: string; mergeFieldName: string }[]
+  >([]);
 
   // Mirrors the server-side guard at /api/contracts/send/route.ts: the body
   // must contain the signing-link merge field or the recipient's email goes
@@ -93,6 +96,31 @@ export default function SendContractModal({
   useEffect(() => {
     if (open) load();
   }, [open, load]);
+
+  // Pre-flight: ask the server which auto-fill checkboxes won't resolve for
+  // this job, so we can warn before send. Cheap: one extra request whenever
+  // the template selection changes.
+  useEffect(() => {
+    if (!open || !templateId || !jobId) {
+      setUnresolvedAutoCheckboxes([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/contracts/preflight?jobId=${encodeURIComponent(jobId)}&templateId=${encodeURIComponent(templateId)}`,
+    )
+      .then((r) => (r.ok ? r.json() : { unresolvedAutoCheckboxes: [] }))
+      .then((d) => {
+        if (cancelled) return;
+        setUnresolvedAutoCheckboxes(d.unresolvedAutoCheckboxes ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setUnresolvedAutoCheckboxes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, templateId, jobId]);
 
   const setupIncomplete = !!settings && (!settings.send_from_email || !settings.send_from_name);
 
@@ -159,6 +187,23 @@ export default function SendContractModal({
         {setupIncomplete && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
             Contract email settings are incomplete — set a send-from address in Settings → Contracts first.
+          </div>
+        )}
+
+        {unresolvedAutoCheckboxes.length > 0 && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+            <div>
+              <div className="font-medium">
+                Auto-fill checkboxes missing intake data
+              </div>
+              <div className="mt-0.5">
+                {unresolvedAutoCheckboxes
+                  .map((u) => `${u.inputKey} (from {${u.mergeFieldName}})`)
+                  .join(", ")}
+                . These will send un-ticked.
+              </div>
+            </div>
           </div>
         )}
 

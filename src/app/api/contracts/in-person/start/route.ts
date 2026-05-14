@@ -3,6 +3,9 @@ import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
+import { buildMergeFieldValues } from "@/lib/contracts/merge-fields";
+import { evaluateAutoCheckboxes } from "@/lib/contracts/auto-checkbox-evaluator";
+import type { OverlayField } from "@/lib/contracts/types";
 
 interface SignerInput {
   name: string;
@@ -51,7 +54,7 @@ export async function POST(request: Request) {
 
   const { data: tpl, error: tErr } = await supabase
     .from("contract_templates")
-    .select("id, name, pdf_storage_path, version, is_active, signer_role_label")
+    .select("id, name, pdf_storage_path, version, is_active, signer_role_label, overlay_fields")
     .eq("id", body.templateId)
     .maybeSingle<{
       id: string;
@@ -60,6 +63,7 @@ export async function POST(request: Request) {
       version: number;
       is_active: boolean;
       signer_role_label: string | null;
+      overlay_fields: OverlayField[] | null;
     }>();
   if (tErr || !tpl) {
     return NextResponse.json({ error: tErr?.message || "Template not found" }, { status: 404 });
@@ -114,6 +118,32 @@ export async function POST(request: Request) {
       { error: `Failed to create contract: ${rpcErr.message}` },
       { status: 500 },
     );
+  }
+
+  // --- Auto-fill checkboxes bound to intake data ---
+  // See /api/contracts/send/route.ts for the analogous block; iPad in-person
+  // contracts use the same evaluation path so the signer sees the right
+  // pre-ticked state when the device opens the sign page.
+  const overlayFields = tpl.overlay_fields ?? [];
+  const hasAutoFill = overlayFields.some(
+    (f) => f.type === "checkbox" && f.autoFillBinding,
+  );
+  if (hasAutoFill) {
+    try {
+      const resolvedValues = await buildMergeFieldValues(supabase, body.jobId);
+      const evaluation = evaluateAutoCheckboxes(overlayFields, resolvedValues);
+      if (Object.keys(evaluation.inputs).length > 0) {
+        await supabase
+          .from("contracts")
+          .update({ customer_inputs: evaluation.inputs })
+          .eq("id", contractId);
+      }
+    } catch (e) {
+      console.error("[contracts/in-person/start] auto-checkbox evaluation failed", {
+        contractId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   return NextResponse.json({ contractId });

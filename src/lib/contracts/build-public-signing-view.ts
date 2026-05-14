@@ -80,6 +80,7 @@ async function buildViewFromBundle(
       legacy_html: template.pdf_storage_path
         ? null
         : (contract.filled_content_html ?? null),
+      customer_inputs: contract.customer_inputs ?? null,
     },
     template: {
       id: template.id,

@@ -172,6 +172,7 @@ export async function POST(
 
   const missing = template.overlay_fields
     .filter((f) => {
+      if (f.type === "checkbox" && f.autoFillBinding) return false;
       if (f.type === "input" && f.required && !customerInputs[f.inputKey ?? ""]) return true;
       if (f.type === "checkbox" && f.required && customerInputs[f.inputKey ?? ""] !== true) return true;
       return false;
