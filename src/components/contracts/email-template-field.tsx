@@ -153,6 +153,7 @@ function groupBySection(registry: MergeFieldDefinition[]): SectionGroup[] {
   const order: string[] = [];
   const byName = new Map<string, { name: string; label: string }[]>();
   for (const f of registry) {
+    if (f.hidden) continue;
     if (!byName.has(f.section)) {
       order.push(f.section);
       byName.set(f.section, []);

@@ -54,6 +54,21 @@ export function useFormConfig() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: next }),
       });
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        const blocked: { label: string; references: { name: string }[] }[] =
+          body?.blocked ?? [];
+        const names = blocked
+          .flatMap((b) => b.references.map((r) => r.name))
+          .filter((v, i, arr) => arr.indexOf(v) === i);
+        const fieldList = blocked.map((b) => `"${b.label}"`).join(", ");
+        toast.error(
+          `Can't remove ${fieldList || "field"} — referenced by: ${names.join(", ")}. Refreshing.`,
+        );
+        setStatus({ kind: "error", message: "field_referenced_by_templates" });
+        window.location.reload();
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       lastSavedRef.current = JSON.stringify(next);

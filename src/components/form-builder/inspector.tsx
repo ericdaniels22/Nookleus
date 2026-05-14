@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { X, Lock } from "lucide-react";
+import { X, Lock, AlertTriangle } from "lucide-react";
 import type { FormField } from "@/lib/types";
+import { useFieldUsage } from "./usage-context";
 
 const FIELD_TYPES: { value: FormField["type"]; label: string }[] = [
   { value: "text", label: "Text" },
@@ -78,6 +79,25 @@ export function Inspector({
   const isDefault = !!field.is_default;
   const hasOptions = field.type === "select" || field.type === "pill";
   const [newOption, setNewOption] = useState("");
+  const slug = field.merge_field_slug ?? field.id;
+  const usage = useFieldUsage(slug);
+  const [pendingMapsTo, setPendingMapsTo] = useState<string | null>(null);
+
+  function handleMapsToChange(rawValue: string) {
+    const newValue = rawValue || "";
+    if ((field.maps_to ?? "") === newValue) return;
+    if (usage.length > 0) {
+      setPendingMapsTo(newValue);
+      return;
+    }
+    onUpdate({ maps_to: newValue || undefined });
+  }
+
+  function confirmMapsTo() {
+    if (pendingMapsTo === null) return;
+    onUpdate({ maps_to: pendingMapsTo || undefined });
+    setPendingMapsTo(null);
+  }
 
   function addOption() {
     if (!newOption.trim()) return;
@@ -133,6 +153,21 @@ export function Inspector({
             value={field.label}
             onChange={(e) => onUpdate({ label: e.target.value })}
             className="h-9"
+          />
+        </div>
+
+        <div>
+          <label
+            className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1"
+            title="Field ID is fixed after first save. Renaming would orphan downstream merge-field references on contract templates."
+          >
+            Field ID <Lock size={10} className="text-muted-foreground/60" />
+          </label>
+          <Input
+            value={field.merge_field_slug ?? field.id}
+            readOnly
+            disabled
+            className="h-9 font-mono text-xs cursor-not-allowed opacity-70"
           />
         </div>
 
@@ -258,7 +293,7 @@ export function Inspector({
           <label className="block text-xs font-medium text-muted-foreground mb-1">Maps to</label>
           <select
             value={field.maps_to || ""}
-            onChange={(e) => onUpdate({ maps_to: e.target.value || undefined })}
+            onChange={(e) => handleMapsToChange(e.target.value)}
             className="w-full h-9 rounded-lg border border-border bg-card px-2 text-sm text-foreground"
           >
             <option value="">— Custom field —</option>
@@ -275,6 +310,51 @@ export function Inspector({
           </p>
         </div>
       </div>
+
+      {pendingMapsTo !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full p-5">
+            <div className="flex items-start gap-3 mb-3">
+              <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  Change &quot;Maps to&quot; for a referenced field?
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  &quot;{field.label}&quot; is used by {usage.length} contract template
+                  {usage.length === 1 ? "" : "s"}. Re-routing it changes which
+                  column delivers the value when these templates resolve their
+                  merge fields.
+                </p>
+              </div>
+            </div>
+            <ul className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs space-y-1 max-h-40 overflow-y-auto mb-4">
+              {usage.map((t) => (
+                <li key={t.id} className="text-foreground">
+                  {t.name}
+                  {!t.is_active && (
+                    <span className="ml-1 text-muted-foreground italic">(inactive)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingMapsTo(null)}
+                className="px-3 h-9 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmMapsTo}
+                className="px-3 h-9 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+              >
+                Change anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

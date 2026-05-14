@@ -150,6 +150,7 @@ export function CanvasSection({
               onToggleVisibility={() =>
                 onUpdateField(field.id, { visible: field.visible === false })
               }
+              onHide={() => onUpdateField(field.id, { visible: false })}
               onDuplicate={() => onDuplicateField(field.id)}
               onDelete={() => onDeleteField(field.id)}
             />

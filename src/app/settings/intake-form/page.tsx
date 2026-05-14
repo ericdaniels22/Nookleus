@@ -1,19 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Palette } from "@/components/form-builder/palette";
 import { Canvas, type ViewMode } from "@/components/form-builder/canvas";
 import { Inspector } from "@/components/form-builder/inspector";
 import { VersionPill } from "@/components/form-builder/version-pill";
 import { useFormConfig } from "@/components/form-builder/use-form-config";
+import { UsageProvider, useUsageRefetch } from "@/components/form-builder/usage-context";
 import { FIELD_PRESETS } from "@/lib/intake-form-presets";
 import type { FormField } from "@/lib/types";
 
 export default function IntakeFormBuilderPage() {
+  return (
+    <UsageProvider>
+      <IntakeFormBuilderInner />
+    </UsageProvider>
+  );
+}
+
+function IntakeFormBuilderInner() {
   const { config, setConfig, loading, status, saveNow } = useFormConfig();
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("edit");
   const isTesting = viewMode === "test";
+  const refetchUsage = useUsageRefetch();
+  const prevStatusKindRef = useRef(status.kind);
+  useEffect(() => {
+    if (prevStatusKindRef.current === "saving" && status.kind === "idle") {
+      refetchUsage();
+    }
+    prevStatusKindRef.current = status.kind;
+  }, [status.kind, refetchUsage]);
 
   function refresh() {
     window.location.reload();

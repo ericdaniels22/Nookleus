@@ -160,7 +160,10 @@ export default function TemplatePdfEditor({ initial }: Props) {
       if (type === "label") newField.labelText = "Label";
       // Default merge fields to the first known name so the validator passes on first drop.
       // Authors change it in the inspector.
-      if (type === "merge") newField.mergeFieldName = mergeRegistry[0]?.slug ?? "";
+      if (type === "merge") {
+        newField.mergeFieldName =
+          mergeRegistry.find((r) => !r.hidden)?.slug ?? "";
+      }
       markDirty((prev) => ({ ...prev, overlay_fields: [...prev.overlay_fields, newField] }));
       setSelectedFieldId(id);
     },
