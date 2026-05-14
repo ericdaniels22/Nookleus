@@ -159,6 +159,24 @@ describe("evaluateAutoCheckboxes", () => {
     expect(result.unresolved).toEqual([]);
   });
 
+  it("matches against raw option values, not display labels (regression for #70 smoke bug)", () => {
+    // Wiring fix: send/preflight routes call buildMergeFieldRawValues, NOT
+    // buildMergeFieldValues, because the labeled variant returns "Single
+    // Family" for property_type=single_family, and matchValues stores raw
+    // values. This test asserts the evaluator's contract: if you pass raw
+    // values matching the stored matchValues, it ticks.
+    const fields = [
+      checkbox("residential", "is_residential", {
+        mergeFieldName: "property_type",
+        matchValues: ["single_family", "multi_family", "condo"],
+      }),
+    ];
+    const labeled = { property_type: "Single Family" };  // wrong shape — must NOT match
+    const raw = { property_type: "single_family" };       // right shape — must match
+    expect(evaluateAutoCheckboxes(fields, labeled).inputs).toEqual({ is_residential: false });
+    expect(evaluateAutoCheckboxes(fields, raw).inputs).toEqual({ is_residential: true });
+  });
+
   it("treats an empty matchValues array as never-ticked (defensive against bad data)", () => {
     const fields = [
       checkbox("a", "is_residential", {

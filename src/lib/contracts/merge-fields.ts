@@ -58,6 +58,27 @@ export async function buildMergeFieldValues(
   return resolveMergeFieldValues(supabase, jobId, registry, orgId);
 }
 
+// Auto-fill checkboxes (#70) match against raw option values, not display
+// labels. This variant skips applyOptionLabel + LEGACY_TITLECASE_COLUMNS
+// so pill-typed fields return the underlying value (e.g. "single_family"
+// instead of "Single Family"). Used by the contracts send + in-person
+// start + preflight routes for evaluateAutoCheckboxes.
+export async function buildMergeFieldRawValues(
+  supabase: SupabaseClient,
+  jobId: string,
+): Promise<Record<string, string | null>> {
+  const { data: jobOrg } = await supabase
+    .from("jobs")
+    .select("organization_id")
+    .eq("id", jobId)
+    .maybeSingle<{ organization_id: string | null }>();
+  const orgId = jobOrg?.organization_id ?? null;
+
+  const formConfig = await fetchLatestFormConfig(supabase, orgId);
+  const registry = buildMergeFieldRegistry(formConfig, SYSTEM_MERGE_FIELDS);
+  return resolveMergeFieldValues(supabase, jobId, registry, orgId, { rawValues: true });
+}
+
 const UNRESOLVED_SPAN = '<span class="merge-field-unresolved">________</span>';
 
 function escapeHtml(s: string): string {

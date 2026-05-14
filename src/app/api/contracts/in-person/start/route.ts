@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
-import { buildMergeFieldValues } from "@/lib/contracts/merge-fields";
+import { buildMergeFieldRawValues } from "@/lib/contracts/merge-fields";
 import { evaluateAutoCheckboxes } from "@/lib/contracts/auto-checkbox-evaluator";
 import type { OverlayField } from "@/lib/contracts/types";
 
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
   );
   if (hasAutoFill) {
     try {
-      const resolvedValues = await buildMergeFieldValues(supabase, body.jobId);
+      const resolvedValues = await buildMergeFieldRawValues(supabase, body.jobId);
       const evaluation = evaluateAutoCheckboxes(overlayFields, resolvedValues);
       if (Object.keys(evaluation.inputs).length > 0) {
         await supabase

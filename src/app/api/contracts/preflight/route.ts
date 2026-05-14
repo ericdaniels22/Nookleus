@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import { buildMergeFieldValues } from "@/lib/contracts/merge-fields";
+import { buildMergeFieldRawValues } from "@/lib/contracts/merge-fields";
 import { evaluateAutoCheckboxes } from "@/lib/contracts/auto-checkbox-evaluator";
 import type { OverlayField } from "@/lib/contracts/types";
 
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ unresolvedAutoCheckboxes: [] });
   }
 
-  const resolvedValues = await buildMergeFieldValues(supabase, jobId);
+  const resolvedValues = await buildMergeFieldRawValues(supabase, jobId);
   const evaluation = evaluateAutoCheckboxes(overlayFields, resolvedValues);
 
   const detail = evaluation.unresolved.map((inputKey) => {

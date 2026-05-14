@@ -89,11 +89,20 @@ function applyOptionLabel(
   return match ? match.label : raw;
 }
 
+export interface ResolveOptions {
+  // When true, pill-typed fields return their raw option value instead of
+  // the display label, and LEGACY_TITLECASE_COLUMNS skip title-casing. Used
+  // by auto-fill checkbox evaluation (#70), where matchValues are stored as
+  // raw values and the resolver must match them byte-for-byte.
+  rawValues?: boolean;
+}
+
 export async function resolveMergeFieldValues(
   supabase: SupabaseClient,
   jobId: string,
   registry: MergeFieldDefinition[],
   organizationId: string | null = null,
+  opts: ResolveOptions = {},
 ): Promise<Record<string, string | null>> {
   const out: Record<string, string | null> = {};
   for (const def of registry) out[def.slug] = null;
@@ -168,14 +177,18 @@ export async function resolveMergeFieldValues(
       // the result and assume Record<string, string | null>, so we normalise here.
       const rawValue = row ? row[column] : null;
       const raw = rawValue == null ? null : String(rawValue);
-      const labeled = applyOptionLabel(raw, def.options);
-      out[def.slug] =
-        labeled != null && !def.options && LEGACY_TITLECASE_COLUMNS.has(column)
-          ? titleCaseSnake(labeled)
-          : labeled;
+      if (opts.rawValues) {
+        out[def.slug] = raw;
+      } else {
+        const labeled = applyOptionLabel(raw, def.options);
+        out[def.slug] =
+          labeled != null && !def.options && LEGACY_TITLECASE_COLUMNS.has(column)
+            ? titleCaseSnake(labeled)
+            : labeled;
+      }
     } else if (def.source.kind === "job_custom_fields") {
       const raw = customFieldMap.get(def.source.field_key) ?? null;
-      out[def.slug] = applyOptionLabel(raw, def.options);
+      out[def.slug] = opts.rawValues ? raw : applyOptionLabel(raw, def.options);
     } else if (def.source.kind === "system") {
       out[def.slug] = resolveSystem(def.source.key, job, contact, adjuster, settings);
     }

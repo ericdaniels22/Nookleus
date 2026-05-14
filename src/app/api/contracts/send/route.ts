@@ -9,7 +9,7 @@ import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import type { ContractEmailSettings, OverlayField } from "@/lib/contracts/types";
 import { EMPTY_HTML, EMPTY_HTML_SHA256 } from "@/lib/contracts/constants";
-import { buildMergeFieldValues } from "@/lib/contracts/merge-fields";
+import { buildMergeFieldRawValues } from "@/lib/contracts/merge-fields";
 import { evaluateAutoCheckboxes } from "@/lib/contracts/auto-checkbox-evaluator";
 
 interface SendSignerInput {
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
   );
   if (hasAutoFill) {
     try {
-      const resolvedValues = await buildMergeFieldValues(supabase, body.jobId);
+      const resolvedValues = await buildMergeFieldRawValues(supabase, body.jobId);
       const evaluation = evaluateAutoCheckboxes(overlayFields, resolvedValues);
       if (Object.keys(evaluation.inputs).length > 0) {
         await supabase
