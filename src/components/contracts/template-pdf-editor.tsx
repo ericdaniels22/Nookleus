@@ -14,6 +14,7 @@ import {
   buildMergeFieldRegistry,
   type MergeFieldDefinition,
 } from "@/lib/contracts/merge-field-registry";
+import { isPanThresholdExceeded } from "@/lib/contracts/pan-threshold";
 import type { ContractTemplate, OverlayField, OverlayFieldType } from "@/lib/contracts/types";
 import type { FormConfig } from "@/lib/types";
 
@@ -45,6 +46,10 @@ export default function TemplatePdfEditor({ initial }: Props) {
   );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const suppressClickRef = useRef(false);
+  const [panning, setPanning] = useState(false);
+  const panEnabled = zoom > 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +167,61 @@ export default function TemplatePdfEditor({ initial }: Props) {
     [template.pdf_pages, mergeRegistry],
   );
 
+  const onMainPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (e.button !== 0) return;
+      if (!panEnabled) return;
+      const el = mainRef.current;
+      if (!el) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startScrollLeft = el.scrollLeft;
+      const startScrollTop = el.scrollTop;
+      let active = false;
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!active && !isPanThresholdExceeded(dx, dy)) return;
+        if (!active) {
+          active = true;
+          setPanning(true);
+        }
+        const target = mainRef.current;
+        if (!target) return;
+        target.scrollLeft = startScrollLeft - dx;
+        target.scrollTop = startScrollTop - dy;
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        if (active) {
+          setPanning(false);
+          // The browser may fire a click after this pointerup; suppress one so
+          // the parent's deselect handler doesn't run at the end of a pan-drag.
+          suppressClickRef.current = true;
+          setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 0);
+        }
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [panEnabled],
+  );
+
+  useEffect(() => {
+    if (!panning) return;
+    const prev = document.body.style.cursor;
+    document.body.style.cursor = "grabbing";
+    return () => {
+      document.body.style.cursor = prev;
+    };
+  }, [panning]);
+
   function updateField(next: OverlayField) {
     markDirty((prev) => ({
       ...prev,
@@ -228,8 +288,18 @@ export default function TemplatePdfEditor({ initial }: Props) {
         onMetaChange={(meta) => markDirty((prev) => ({ ...prev, ...meta }))}
       />
       <main
-        className="flex-1 overflow-auto bg-zinc-100"
-        onClick={() => setSelectedFieldId(null)}
+        ref={mainRef}
+        className={`flex-1 overflow-auto bg-zinc-100 ${
+          panEnabled ? (panning ? "cursor-grabbing" : "cursor-grab") : ""
+        }`}
+        onPointerDown={onMainPointerDown}
+        onClick={() => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+          }
+          setSelectedFieldId(null);
+        }}
       >
         <div className="px-6 pt-4 flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
