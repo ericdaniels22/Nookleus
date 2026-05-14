@@ -29,11 +29,18 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
   const [signaturePadOpen, setSignaturePadOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Pre-filled values stamped at draft time (auto-fill checkboxes from #70).
+  // The signer can't toggle these — they render as a locked input.
+  const prefilledInputs = view.contract.customer_inputs ?? {};
+
   const myFields = view.template.overlay_fields.filter(
     (f) => f.type !== "signature" || f.signerOrder === view.signer.signer_order,
   );
 
   const requiredMissing = myFields.some((f) => {
+    // Auto-fill checkboxes are never user-required — they're satisfied (or
+    // not) at draft time and the customer has no way to change them.
+    if (f.type === "checkbox" && f.autoFillBinding) return false;
     if (f.type === "input" && f.required && !customerInputs[f.inputKey ?? ""]) return true;
     if (f.type === "checkbox" && f.required && customerInputs[f.inputKey ?? ""] !== true) return true;
     if (
@@ -165,6 +172,24 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
                 );
               }
               if (f.type === "checkbox") {
+                // Auto-fill checkboxes are non-interactive: the value was
+                // determined at draft creation from the intake registry.
+                // Render the pre-stamped state as a disabled input so the
+                // customer can see what will print without being able to
+                // toggle it.
+                if (f.autoFillBinding) {
+                  const ticked = prefilledInputs[f.inputKey ?? ""] === true;
+                  return (
+                    <input
+                      key={f.id}
+                      type="checkbox"
+                      style={style}
+                      checked={ticked}
+                      disabled
+                      aria-label="Auto-filled checkbox"
+                    />
+                  );
+                }
                 return (
                   <input
                     key={f.id}

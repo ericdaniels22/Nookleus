@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Trash2, AlertTriangle } from "lucide-react";
 import type { MergeFieldDefinition } from "@/lib/contracts/merge-field-registry";
 import type { OverlayField } from "@/lib/contracts/types";
 
@@ -28,6 +28,10 @@ function groupBySection(
   return sections.map((s) => ({ section: s, entries: map.get(s)! }));
 }
 
+function generateAutoInputKey(): string {
+  return `auto_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function FieldInspector({ field, signerCount, mergeRegistry, onChange, onDelete }: Props) {
   if (!field) {
     return (
@@ -38,6 +42,12 @@ export default function FieldInspector({ field, signerCount, mergeRegistry, onCh
   }
 
   const grouped = groupBySection(mergeRegistry);
+
+  // For checkbox auto-fill: look up the bound merge field's option set.
+  const boundMergeDef =
+    field.type === "checkbox" && field.autoFillBinding
+      ? mergeRegistry.find((r) => r.slug === field.autoFillBinding?.mergeFieldName) ?? null
+      : null;
 
   return (
     <aside className="w-72 border-l border-border bg-muted/30 p-4 space-y-4 overflow-y-auto">
@@ -107,7 +117,16 @@ export default function FieldInspector({ field, signerCount, mergeRegistry, onCh
         </div>
       )}
 
-      {(field.type === "input" || field.type === "checkbox") && (
+      {field.type === "checkbox" && (
+        <CheckboxInspectorBody
+          field={field}
+          grouped={grouped}
+          boundMergeDef={boundMergeDef}
+          onChange={onChange}
+        />
+      )}
+
+      {field.type === "input" && (
         <>
           <div>
             <label className="text-xs text-muted-foreground">Field key (slug)</label>
@@ -172,5 +191,216 @@ export default function FieldInspector({ field, signerCount, mergeRegistry, onCh
         </button>
       </div>
     </aside>
+  );
+}
+
+function CheckboxInspectorBody({
+  field,
+  grouped,
+  boundMergeDef,
+  onChange,
+}: {
+  field: OverlayField;
+  grouped: { section: string; entries: MergeFieldDefinition[] }[];
+  boundMergeDef: MergeFieldDefinition | null;
+  onChange: (next: OverlayField) => void;
+}) {
+  const isAutoFill = !!field.autoFillBinding;
+
+  function switchToAutoFill() {
+    onChange({
+      ...field,
+      inputKey: field.inputKey || generateAutoInputKey(),
+      inputLabel: undefined,
+      required: false,
+      autoFillBinding: { mergeFieldName: "", matchValues: [] },
+    });
+  }
+
+  function switchToManual() {
+    const next: OverlayField = { ...field };
+    delete next.autoFillBinding;
+    onChange(next);
+  }
+
+  function updateBinding(patch: Partial<NonNullable<OverlayField["autoFillBinding"]>>) {
+    if (!field.autoFillBinding) return;
+    onChange({
+      ...field,
+      autoFillBinding: { ...field.autoFillBinding, ...patch },
+    });
+  }
+
+  return (
+    <>
+      <div>
+        <label className="text-xs text-muted-foreground">Checkbox type</label>
+        <div className="mt-1 flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name={`checkbox-type-${field.id}`}
+              checked={!isAutoFill}
+              onChange={switchToManual}
+            />
+            Customer ticks at signing
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name={`checkbox-type-${field.id}`}
+              checked={isAutoFill}
+              onChange={switchToAutoFill}
+            />
+            Auto-fill from intake data
+          </label>
+        </div>
+      </div>
+
+      {!isAutoFill ? (
+        <>
+          <div>
+            <label className="text-xs text-muted-foreground">Field key (slug)</label>
+            <input
+              value={field.inputKey ?? ""}
+              onChange={(e) =>
+                onChange({
+                  ...field,
+                  inputKey: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "_"),
+                })
+              }
+              placeholder="agreed_to_terms"
+              className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-border bg-background font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Label shown to customer</label>
+            <input
+              value={field.inputLabel ?? ""}
+              onChange={(e) => onChange({ ...field, inputLabel: e.target.value })}
+              className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-border bg-background"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={field.required ?? false}
+              onChange={(e) => onChange({ ...field, required: e.target.checked })}
+            />
+            Required
+          </label>
+        </>
+      ) : (
+        <AutoFillBindingEditor
+          binding={field.autoFillBinding!}
+          grouped={grouped}
+          boundMergeDef={boundMergeDef}
+          onChange={updateBinding}
+        />
+      )}
+    </>
+  );
+}
+
+function AutoFillBindingEditor({
+  binding,
+  grouped,
+  boundMergeDef,
+  onChange,
+}: {
+  binding: NonNullable<OverlayField["autoFillBinding"]>;
+  grouped: { section: string; entries: MergeFieldDefinition[] }[];
+  boundMergeDef: MergeFieldDefinition | null;
+  onChange: (patch: Partial<NonNullable<OverlayField["autoFillBinding"]>>) => void;
+}) {
+  const options = boundMergeDef?.options ?? null;
+
+  // Unknown-option warning: any matchValue that isn't in the pill's option set.
+  const unknownMatches =
+    options && binding.matchValues.length
+      ? binding.matchValues.filter((v) => !options.some((o) => o.value === v))
+      : [];
+
+  function toggleMatchValue(v: string) {
+    const has = binding.matchValues.includes(v);
+    const next = has
+      ? binding.matchValues.filter((x) => x !== v)
+      : [...binding.matchValues, v];
+    onChange({ matchValues: next });
+  }
+
+  return (
+    <>
+      <div>
+        <label className="text-xs text-muted-foreground">Bound merge field</label>
+        <select
+          value={binding.mergeFieldName}
+          onChange={(e) => onChange({ mergeFieldName: e.target.value, matchValues: [] })}
+          className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-border bg-background"
+        >
+          <option value="">— select —</option>
+          {grouped.map((g) => (
+            <optgroup key={g.section} label={g.section}>
+              {g.entries.map((f) => (
+                <option key={f.slug} value={f.slug}>
+                  {f.label} — {`{{${f.slug}}}`}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+
+      {binding.mergeFieldName && (
+        <div>
+          <label className="text-xs text-muted-foreground">
+            Tick checkbox when value is one of
+          </label>
+          {options ? (
+            <div className="mt-1 flex flex-col gap-1 max-h-48 overflow-y-auto border border-border rounded bg-background p-2">
+              {options.map((o) => (
+                <label key={o.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={binding.matchValues.includes(o.value)}
+                    onChange={() => toggleMatchValue(o.value)}
+                  />
+                  <span>{o.label}</span>
+                  <span className="text-xs text-muted-foreground font-mono">{o.value}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <input
+              value={binding.matchValues.join(", ")}
+              onChange={(e) =>
+                onChange({
+                  matchValues: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter((s) => s.length > 0),
+                })
+              }
+              placeholder="value1, value2, value3"
+              className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-border bg-background"
+            />
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Equality match. If the intake value is in this list, the checkbox is ticked.
+          </p>
+        </div>
+      )}
+
+      {unknownMatches.length > 0 && (
+        <div className="flex items-start gap-2 p-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span>
+            {unknownMatches.length === 1
+              ? `Value "${unknownMatches[0]}" is not in this field's option set.`
+              : `${unknownMatches.length} values are not in this field's option set.`}
+          </span>
+        </div>
+      )}
+    </>
   );
 }

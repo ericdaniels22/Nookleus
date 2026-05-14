@@ -6,6 +6,15 @@ export type OverlayFieldType =
   | "input"
   | "checkbox";
 
+// Only meaningful when type === "checkbox". When set, the checkbox is
+// auto-filled at contract draft creation: ticked iff the resolved value of
+// `mergeFieldName` is in `matchValues`. Auto-filled checkboxes are
+// non-interactive at signing time.
+export interface AutoFillBinding {
+  mergeFieldName: string;
+  matchValues: string[];
+}
+
 export interface OverlayField {
   id: string;            // uuid v4
   type: OverlayFieldType;
@@ -22,6 +31,7 @@ export interface OverlayField {
   inputKey?: string;
   inputLabel?: string;
   required?: boolean;
+  autoFillBinding?: AutoFillBinding;
 }
 
 export interface PdfPage {
@@ -217,6 +227,10 @@ export interface PublicSigningView {
     signed_pdf_path: string | null;
     // Legacy: only populated for contracts authored before build 15d.
     legacy_html: string | null;
+    // Pre-filled state at draft creation (e.g. auto-fill checkboxes from
+    // #70). The signer view renders these non-interactively so the customer
+    // can see what will be stamped without being able to change it.
+    customer_inputs: Record<string, string | boolean> | null;
   };
   template: {
     id: string;

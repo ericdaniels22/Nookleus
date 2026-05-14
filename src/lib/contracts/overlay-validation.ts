@@ -10,7 +10,9 @@ export interface ValidationError {
     | "unknown_merge_field"
     | "missing_required_property"
     | "invalid_signer_order"
-    | "invalid_input_key";
+    | "invalid_input_key"
+    | "unknown_autofill_merge_field"
+    | "empty_autofill_match_values";
   message: string;
 }
 
@@ -89,6 +91,27 @@ export function validateOverlayFields(
         }
         if (f.required && !f.inputLabel) {
           errors.push({ fieldId: f.id, code: "missing_required_property", message: "required input/checkbox needs inputLabel" });
+        }
+        if (f.type === "checkbox" && f.autoFillBinding) {
+          const { mergeFieldName, matchValues } = f.autoFillBinding;
+          if (!mergeFieldName || !knownMergeNames.has(mergeFieldName)) {
+            errors.push({
+              fieldId: f.id,
+              code: "unknown_autofill_merge_field",
+              message: `Auto-fill checkbox references unknown merge field: ${mergeFieldName ?? ""}`,
+            });
+          }
+          if (
+            !Array.isArray(matchValues) ||
+            matchValues.length === 0 ||
+            matchValues.some((v) => typeof v !== "string")
+          ) {
+            errors.push({
+              fieldId: f.id,
+              code: "empty_autofill_match_values",
+              message: "Auto-fill checkbox requires a non-empty matchValues array of strings",
+            });
+          }
         }
         break;
     }
