@@ -101,7 +101,9 @@ export interface Contract {
   id: string;
   organization_id: string;
   job_id: string;
-  template_id: string;
+  // Nullable since #76: hard-deleting a contract template nulls this column
+  // (FK ON DELETE SET NULL) on surviving signed / expired / voided contracts.
+  template_id: string | null;
   template_version: number;
   title: string;
   status: ContractStatus;
@@ -232,6 +234,9 @@ export interface PublicSigningView {
     // can see what will be stamped without being able to change it.
     customer_inputs: Record<string, string | boolean> | null;
   };
+  // Null since #76 when a `signed` contract's source template has been
+  // permanently deleted — the view degrades to the contract's own stamped
+  // signed_pdf_path. Always present for an in-flight (signable) contract.
   template: {
     id: string;
     pdf_url: string | null;          // signed URL of source template PDF
@@ -239,7 +244,7 @@ export interface PublicSigningView {
     overlay_fields: OverlayField[];
     signer_count: 1 | 2;
     signer_role_label: string;
-  };
+  } | null;
   resolved_merge_values: Record<string, string>;
   signer: {
     id: string;

@@ -33,6 +33,18 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
   // The signer can't toggle these — they render as a locked input.
   const prefilledInputs = view.contract.customer_inputs ?? {};
 
+  // A null template means the source template was hard-deleted (#76). That
+  // only happens for already-`signed` contracts, which the sign page renders
+  // via its SignedShell — this signing component is never reached for them.
+  // The guard keeps the type honest for the degraded view shape.
+  if (!view.template) {
+    return (
+      <div className="p-8 text-muted-foreground">
+        This contract is no longer available for signing.
+      </div>
+    );
+  }
+
   const myFields = view.template.overlay_fields.filter(
     (f) => f.type !== "signature" || f.signerOrder === view.signer.signer_order,
   );

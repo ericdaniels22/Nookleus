@@ -32,7 +32,9 @@ export type BuildViewResult =
 interface LoadedBundle {
   contract: Contract & { link_token: string | null };
   signer: ContractSigner;
-  template: ContractTemplate;
+  // Null when a `signed` contract's source template was permanently deleted
+  // (#76). buildViewFromBundle degrades to the contract's stamped PDF.
+  template: ContractTemplate | null;
   allSigners: { id: string; signer_order: 1 | 2; signed_at: string | null }[];
   companyMap: Map<string, string | null>;
 }
@@ -51,6 +53,22 @@ async function loadCompanyMap(
   );
 }
 
+// Loads a contract's source template, tolerating a null template_id (#76:
+// the FK is nulled when the template is hard-deleted) and a missing row.
+// Returns null in both cases; callers decide whether that is fatal.
+async function loadTemplate(
+  supabase: SupabaseClient,
+  templateId: string | null,
+): Promise<ContractTemplate | null> {
+  if (!templateId) return null;
+  const { data } = await supabase
+    .from("contract_templates")
+    .select("*")
+    .eq("id", templateId)
+    .maybeSingle<ContractTemplate>();
+  return data ?? null;
+}
+
 async function buildViewFromBundle(
   supabase: SupabaseClient,
   bundle: LoadedBundle,
@@ -58,7 +76,7 @@ async function buildViewFromBundle(
   const { contract, signer, template, allSigners, companyMap } = bundle;
 
   let pdfUrl: string | null = null;
-  if (template.pdf_storage_path) {
+  if (template?.pdf_storage_path) {
     const { data: signed } = await supabase.storage
       .from("contract-pdfs")
       .createSignedUrl(template.pdf_storage_path, 600);
@@ -77,19 +95,25 @@ async function buildViewFromBundle(
       link_expires_at: contract.link_expires_at,
       signed_at: contract.signed_at,
       signed_pdf_path: contract.signed_pdf_path,
-      legacy_html: template.pdf_storage_path
-        ? null
-        : (contract.filled_content_html ?? null),
+      // A deleted-template (#76) signed contract serves its stamped
+      // signed_pdf_path, never legacy HTML.
+      legacy_html: template
+        ? template.pdf_storage_path
+          ? null
+          : (contract.filled_content_html ?? null)
+        : null,
       customer_inputs: contract.customer_inputs ?? null,
     },
-    template: {
-      id: template.id,
-      pdf_url: pdfUrl,
-      pdf_pages: template.pdf_pages,
-      overlay_fields: template.overlay_fields,
-      signer_count: template.signer_count,
-      signer_role_label: template.signer_role_label,
-    },
+    template: template
+      ? {
+          id: template.id,
+          pdf_url: pdfUrl,
+          pdf_pages: template.pdf_pages,
+          overlay_fields: template.overlay_fields,
+          signer_count: template.signer_count,
+          signer_role_label: template.signer_role_label,
+        }
+      : null,
     resolved_merge_values: resolved,
     signer: {
       id: signer.id,
@@ -163,12 +187,13 @@ export async function buildPublicSigningViewByToken(
     .maybeSingle<ContractSigner>();
   if (!signer) return { ok: false, error: "signer_not_found" };
 
-  const { data: template } = await supabase
-    .from("contract_templates")
-    .select("*")
-    .eq("id", contract.template_id)
-    .maybeSingle<ContractTemplate>();
-  if (!template) return { ok: false, error: "template_not_found" };
+  const template = await loadTemplate(supabase, contract.template_id);
+  // Graceful degradation (#76): a `signed` contract is its own stamped PDF
+  // and survives its template's deletion. Any other status still needs the
+  // template to render a signable view.
+  if (!template && contract.status !== "signed") {
+    return { ok: false, error: "template_not_found" };
+  }
 
   const { data: allSigners } = await supabase
     .from("contract_signers")
@@ -217,12 +242,11 @@ export async function buildPublicSigningViewForContract(
     .maybeSingle<ContractSigner>();
   if (!signer) return { ok: false, error: "signer_not_found" };
 
-  const { data: template } = await supabase
-    .from("contract_templates")
-    .select("*")
-    .eq("id", contract.template_id)
-    .maybeSingle<ContractTemplate>();
-  if (!template) return { ok: false, error: "template_not_found" };
+  const template = await loadTemplate(supabase, contract.template_id);
+  // Graceful degradation (#76) — see buildPublicSigningViewByToken.
+  if (!template && contract.status !== "signed") {
+    return { ok: false, error: "template_not_found" };
+  }
 
   const { data: allSigners } = await supabase
     .from("contract_signers")
