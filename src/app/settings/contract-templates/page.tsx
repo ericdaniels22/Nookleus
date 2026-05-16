@@ -13,6 +13,7 @@ import {
   Loader2,
   Lock,
   MoreHorizontal,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
@@ -23,6 +24,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+
+// Usage picture from GET …/[id]/usage, used to choose between the block
+// dialog (a customer is mid-signing) and the confirm dialog (#76).
+interface DeleteDialogState {
+  template: ContractTemplateListItem;
+  blockers: { contractId: string; status: string }[];
+  draftCount: number;
+}
 
 export default function ContractTemplatesPage() {
   const { hasPermission, loading: authLoading } = useAuth();
@@ -31,6 +49,8 @@ export default function ContractTemplatesPage() {
 
   const [templates, setTemplates] = useState<ContractTemplateListItem[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/settings/contract-templates");
@@ -119,6 +139,52 @@ export default function ContractTemplatesPage() {
     if (!res.ok) {
       toast.error("Failed to update");
       refresh();
+    }
+  }
+
+  // Permanent delete (#76). Step one: ask the usage endpoint whether a
+  // customer is mid-signing, then open the block or confirm dialog.
+  async function handleDeletePermanently(t: ContractTemplateListItem) {
+    const res = await fetch(`/api/settings/contract-templates/${t.id}/usage`);
+    if (!res.ok) {
+      toast.error("Failed to check template usage");
+      return;
+    }
+    const usage = (await res.json()) as {
+      blockers: { contractId: string; status: string }[];
+      draftCount: number;
+    };
+    setDeleteDialog({
+      template: t,
+      blockers: usage.blockers,
+      draftCount: usage.draftCount,
+    });
+  }
+
+  // Step two: the user confirmed. The RPC re-checks eligibility, so a 409
+  // here means a contract became mid-signing since the dialog opened.
+  async function confirmDelete() {
+    if (!deleteDialog) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/settings/contract-templates/${deleteDialog.template.id}/permanent`,
+        { method: "DELETE" },
+      );
+      if (res.ok) {
+        toast.success("Template permanently deleted");
+        setDeleteDialog(null);
+        refresh();
+      } else if (res.status === 409) {
+        toast.error(
+          "Can't delete — a customer is mid-signing a contract from this template",
+        );
+        setDeleteDialog(null);
+      } else {
+        toast.error("Failed to delete template");
+      }
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -277,6 +343,12 @@ export default function ContractTemplatesPage() {
                             </>
                           )}
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => handleDeletePermanently(t)}
+                        >
+                          <Trash2 size={14} /> Delete permanently
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
@@ -286,6 +358,75 @@ export default function ContractTemplatesPage() {
           </table>
         </div>
       )}
+
+      {/* Permanent-delete confirm / block dialog (#76) */}
+      <Dialog
+        open={deleteDialog !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteDialog(null);
+        }}
+      >
+        <DialogContent>
+          {deleteDialog && deleteDialog.blockers.length > 0 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Can&apos;t delete this template</DialogTitle>
+                <DialogDescription>
+                  {deleteDialog.blockers.length} contract
+                  {deleteDialog.blockers.length === 1 ? " is" : "s are"} still
+                  awaiting signature from a customer. Once they are signed,
+                  expired, or voided you can permanently delete &ldquo;
+                  {deleteDialog.template.name}&rdquo;.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteDialog(null)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </>
+          ) : deleteDialog ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Delete template permanently?</DialogTitle>
+                <DialogDescription>
+                  This permanently removes &ldquo;{deleteDialog.template.name}
+                  &rdquo; and its uploaded PDF. This cannot be undone.
+                  {deleteDialog.draftCount > 0 ? (
+                    <>
+                      {" "}
+                      {deleteDialog.draftCount} unsent draft contract
+                      {deleteDialog.draftCount === 1 ? "" : "s"} built from this
+                      template will also be deleted.
+                    </>
+                  ) : null}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteDialog(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={16} />
+                  )}
+                  Delete permanently
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
