@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/company — fetch all company settings for the active org.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data, error } = await ctx.supabase
     .from("company_settings")
     .select("key, value")
-    .eq("organization_id", await getActiveOrganizationId(supabase));
+    .eq("organization_id", ctx.orgId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -20,20 +19,20 @@ export async function GET() {
   }
 
   return NextResponse.json(settings);
-}
+});
 
 // PUT /api/settings/company — upsert company settings for the active org.
-export async function PUT(request: Request) {
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const PUT = withRequestContext({}, async (request, ctx) => {
   const body = await request.json();
-  const supabase = await createServerSupabaseClient();
-  const orgId = await getActiveOrganizationId(supabase);
+  const orgId = ctx.orgId;
 
   const entries = Object.entries(body).filter(
     ([key]) => typeof key === "string" && key.length > 0
   );
 
   for (const [key, value] of entries) {
-    const { error } = await supabase
+    const { error } = await ctx.supabase
       .from("company_settings")
       .upsert(
         { organization_id: orgId, key, value: String(value ?? ""), updated_at: new Date().toISOString() },
@@ -49,4 +48,4 @@ export async function PUT(request: Request) {
   }
 
   return NextResponse.json({ success: true });
-}
+});

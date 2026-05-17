@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextResponse } from "next/server";
 
 vi.mock("@/lib/supabase-server", () => ({
   createServerSupabaseClient: vi.fn(),
@@ -9,10 +8,6 @@ vi.mock("@/lib/supabase-api", () => ({
   createServiceClient: vi.fn(),
 }));
 
-vi.mock("@/lib/permissions-api", () => ({
-  requirePermission: vi.fn(),
-}));
-
 vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(),
 }));
@@ -20,26 +15,41 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
 import { GET } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { requirePermission } from "@/lib/permissions-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { makeSupabaseFake } from "@/lib/contracts/__test-utils__/supabase-fake";
+import {
+  fakeUserClient,
+  memberTables,
+} from "../../../__test-utils__/request-context-fakes";
 
 function paramsFor(id: string) {
   return { params: Promise.resolve({ id }) };
 }
 
+// The route now runs through `withRequestContext`: the wrapper authenticates
+// against the User client and the route body reads with the Service client.
 function grantPermission() {
-  vi.mocked(createServerSupabaseClient).mockResolvedValue({} as never);
-  vi.mocked(requirePermission).mockResolvedValue({ ok: true, userId: "user-1" });
+  vi.mocked(createServerSupabaseClient).mockResolvedValue(
+    fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "member",
+        grants: ["manage_contract_templates"],
+      }),
+    }) as never,
+  );
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 }
 
 function denyPermission() {
-  vi.mocked(createServerSupabaseClient).mockResolvedValue({} as never);
-  vi.mocked(requirePermission).mockResolvedValue({
-    ok: false,
-    response: NextResponse.json({ error: "forbidden" }, { status: 403 }),
-  });
+  vi.mocked(createServerSupabaseClient).mockResolvedValue(
+    fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({ userId: "user-1", role: "member", grants: [] }),
+    }) as never,
+  );
+  vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 }
 
 describe("GET /api/settings/contract-templates/[id]/usage", () => {

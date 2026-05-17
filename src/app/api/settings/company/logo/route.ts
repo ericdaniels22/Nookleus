@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp"];
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
 
 // POST /api/settings/company/logo — upload company logo (org-prefixed path).
-export async function POST(request: Request) {
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const POST = withRequestContext({}, async (request, ctx) => {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
 
@@ -28,11 +28,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = await createServerSupabaseClient();
-  const orgId = await getActiveOrganizationId(supabase);
+  const orgId = ctx.orgId;
 
   // Delete old logo if exists (scoped to org)
-  const { data: existing } = await supabase
+  const { data: existing } = await ctx.supabase
     .from("company_settings")
     .select("value")
     .eq("organization_id", orgId)
@@ -40,7 +39,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (existing?.value) {
-    await supabase.storage.from("company-assets").remove([existing.value]);
+    await ctx.supabase.storage.from("company-assets").remove([existing.value]);
   }
 
   // Upload new logo at {org_id}/logo/{timestamp}-rand.ext
@@ -48,7 +47,7 @@ export async function POST(request: Request) {
   const fileName = `${orgId}/logo/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await ctx.supabase.storage
     .from("company-assets")
     .upload(fileName, buffer, {
       contentType: file.type,
@@ -63,7 +62,7 @@ export async function POST(request: Request) {
   }
 
   // Save path to company_settings
-  await supabase
+  await ctx.supabase
     .from("company_settings")
     .upsert(
       { organization_id: orgId, key: "logo_path", value: fileName, updated_at: new Date().toISOString() },
@@ -75,4 +74,4 @@ export async function POST(request: Request) {
   const publicUrl = `${supabaseUrl}/storage/v1/object/public/company-assets/${fileName}`;
 
   return NextResponse.json({ path: fileName, url: publicUrl });
-}
+});

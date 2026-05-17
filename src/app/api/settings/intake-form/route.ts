@@ -1,37 +1,36 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { findBlockedRemovals } from "@/lib/contracts/form-config-removal-guard";
 import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/intake-form — fetch latest form config for the active org.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data, error } = await ctx.supabase
     .from("form_config")
     .select("*")
-    .eq("organization_id", await getActiveOrganizationId(supabase))
+    .eq("organization_id", ctx.orgId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || { config: { sections: [] }, version: 0 });
-}
+});
 
 // POST /api/settings/intake-form — save new version (org-scoped).
-export async function POST(request: Request) {
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const POST = withRequestContext({}, async (request, ctx) => {
   const { config } = await request.json();
 
   if (!config || !config.sections) {
     return NextResponse.json({ error: "Invalid config" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
-  const orgId = await getActiveOrganizationId(supabase);
+  const orgId = ctx.orgId;
 
   // Get current latest version + config for this org
-  const { data: current } = await supabase
+  const { data: current } = await ctx.supabase
     .from("form_config")
     .select("version, config")
     .eq("organization_id", orgId)
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
 
   // Block deletes that would orphan contract-template merge references.
   try {
-    const blocked = await findBlockedRemovals(supabase, priorConfig, config);
+    const blocked = await findBlockedRemovals(ctx.supabase, priorConfig, config);
     if (blocked.length > 0) {
       return NextResponse.json(
         {
@@ -60,7 +59,7 @@ export async function POST(request: Request) {
 
   const nextVersion = (current?.version ?? 0) + 1;
 
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from("form_config")
     .insert({
       organization_id: orgId,
@@ -73,4 +72,4 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { status: 201 });
-}
+});

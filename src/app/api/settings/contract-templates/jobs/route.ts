@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/contract-templates/jobs
 // Minimal job list used to populate the Preview modal's job picker.
 // Returns the 25 most recent jobs with their job_number + customer name
 // so the author can eyeball which job the preview is rendering against.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+//
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data, error } = await ctx.supabase
     .from("jobs")
     .select("id, job_number, property_address, created_at, contact:contacts!contact_id(first_name, last_name)")
     .order("created_at", { ascending: false })
@@ -38,4 +39,4 @@ export async function GET() {
   });
 
   return NextResponse.json(options);
-}
+});

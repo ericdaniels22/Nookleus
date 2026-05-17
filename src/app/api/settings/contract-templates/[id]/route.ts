@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import { requirePermission } from "@/lib/permissions-api";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { apiDbError } from "@/lib/api-errors";
 import type { OverlayField, PdfPage } from "@/lib/contracts/types";
 import { validateOverlayFields } from "@/lib/contracts/overlay-validation";
@@ -10,127 +8,127 @@ import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/contract-templates/[id]
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("contract_templates")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext(
+  {},
+  async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    const { data, error } = await ctx.supabase
+      .from("contract_templates")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-  return NextResponse.json(data);
-}
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    return NextResponse.json(data);
+  },
+);
 
 // PATCH /api/settings/contract-templates/[id] — auto-save handler.
 // 409 stale-check via the version column (mirrors 67a auto-save).
 // overlay_fields validated server-side.
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const supabase = await createServerSupabaseClient();
-  const gate = await requirePermission(supabase, "manage_contract_templates");
-  if (!gate.ok) return gate.response;
-  const orgId = await getActiveOrganizationId(supabase);
+export const PATCH = withRequestContext(
+  { permission: "manage_contract_templates" },
+  async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    const orgId = ctx.orgId;
 
-  const body = await request.json().catch(() => ({}));
+    const body = await request.json().catch(() => ({}));
 
-  // Fetch existing for stale-check + validation context.
-  const { data: existing, error: fetchErr } = await supabase
-    .from("contract_templates")
-    .select("id, version, pdf_pages, signer_count")
-    .eq("id", id)
-    .eq("organization_id", orgId)
-    .maybeSingle();
-  if (fetchErr) return apiDbError(fetchErr.message, "PATCH template/[id] select");
-  if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-
-  // 409 stale-check.
-  const incomingVersion = Number(body.version);
-  if (Number.isFinite(incomingVersion) && incomingVersion !== existing.version) {
-    return NextResponse.json({ error: "stale", current: existing.version }, { status: 409 });
-  }
-
-  const update: Partial<{
-    name: string;
-    description: string | null;
-    signer_count: 1 | 2;
-    signer_role_label: string;
-    overlay_fields: OverlayField[];
-    is_active: boolean;
-    version: number;
-  }> = {};
-
-  if (typeof body.name === "string") update.name = body.name.trim().slice(0, 120);
-  if (body.description === null || typeof body.description === "string") {
-    update.description = body.description;
-  }
-  if (body.signer_count === 1 || body.signer_count === 2) {
-    update.signer_count = body.signer_count;
-  }
-  if (typeof body.signer_role_label === "string") {
-    update.signer_role_label = body.signer_role_label.slice(0, 120);
-  }
-  if (Array.isArray(body.overlay_fields)) {
-    const { data: form } = await supabase
-      .from("form_config")
-      .select("config")
+    // Fetch existing for stale-check + validation context.
+    const { data: existing, error: fetchErr } = await ctx.supabase
+      .from("contract_templates")
+      .select("id, version, pdf_pages, signer_count")
+      .eq("id", id)
       .eq("organization_id", orgId)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ config: FormConfig }>();
-    const formConfig: FormConfig = form?.config ?? { sections: [] };
-    const registry = buildMergeFieldRegistry(formConfig, SYSTEM_MERGE_FIELDS);
-    const knownMergeNames = new Set(registry.map((r) => r.slug));
+      .maybeSingle();
+    if (fetchErr) return apiDbError(fetchErr.message, "PATCH template/[id] select");
+    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
-    const errs = validateOverlayFields(
-      body.overlay_fields as OverlayField[],
-      (existing.pdf_pages ?? null) as PdfPage[] | null,
-      (update.signer_count ?? existing.signer_count) as 1 | 2,
-      knownMergeNames,
-    );
-    if (errs.length) {
-      return NextResponse.json({ error: "invalid_overlay_fields", details: errs }, { status: 400 });
+    // 409 stale-check.
+    const incomingVersion = Number(body.version);
+    if (Number.isFinite(incomingVersion) && incomingVersion !== existing.version) {
+      return NextResponse.json({ error: "stale", current: existing.version }, { status: 409 });
     }
-    update.overlay_fields = body.overlay_fields as OverlayField[];
-  }
-  if (typeof body.is_active === "boolean") update.is_active = body.is_active;
 
-  // Bump version on every successful save (overlay positions, name, etc.).
-  update.version = (existing.version ?? 1) + 1;
+    const update: Partial<{
+      name: string;
+      description: string | null;
+      signer_count: 1 | 2;
+      signer_role_label: string;
+      overlay_fields: OverlayField[];
+      is_active: boolean;
+      version: number;
+    }> = {};
 
-  const { data, error } = await supabase
-    .from("contract_templates")
-    .update(update)
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) return apiDbError(error.message, "PATCH template/[id] update");
+    if (typeof body.name === "string") update.name = body.name.trim().slice(0, 120);
+    if (body.description === null || typeof body.description === "string") {
+      update.description = body.description;
+    }
+    if (body.signer_count === 1 || body.signer_count === 2) {
+      update.signer_count = body.signer_count;
+    }
+    if (typeof body.signer_role_label === "string") {
+      update.signer_role_label = body.signer_role_label.slice(0, 120);
+    }
+    if (Array.isArray(body.overlay_fields)) {
+      const { data: form } = await ctx.supabase
+        .from("form_config")
+        .select("config")
+        .eq("organization_id", orgId)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ config: FormConfig }>();
+      const formConfig: FormConfig = form?.config ?? { sections: [] };
+      const registry = buildMergeFieldRegistry(formConfig, SYSTEM_MERGE_FIELDS);
+      const knownMergeNames = new Set(registry.map((r) => r.slug));
 
-  return NextResponse.json(data);
-}
+      const errs = validateOverlayFields(
+        body.overlay_fields as OverlayField[],
+        (existing.pdf_pages ?? null) as PdfPage[] | null,
+        (update.signer_count ?? existing.signer_count) as 1 | 2,
+        knownMergeNames,
+      );
+      if (errs.length) {
+        return NextResponse.json({ error: "invalid_overlay_fields", details: errs }, { status: 400 });
+      }
+      update.overlay_fields = body.overlay_fields as OverlayField[];
+    }
+    if (typeof body.is_active === "boolean") update.is_active = body.is_active;
+
+    // Bump version on every successful save (overlay positions, name, etc.).
+    update.version = (existing.version ?? 1) + 1;
+
+    const { data, error } = await ctx.supabase
+      .from("contract_templates")
+      .update(update)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) return apiDbError(error.message, "PATCH template/[id] update");
+
+    return NextResponse.json(data);
+  },
+);
 
 // DELETE /api/settings/contract-templates/[id] — soft archive by flipping
 // is_active=false. Templates are never hard-deleted because signed contracts
 // in Build 15b will reference them historically.
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("contract_templates")
-    .update({ is_active: false })
-    .eq("id", id);
+//
+// Logged-in only — previously ungated, and also lacking an organization
+// filter. Recorded for the #78 ungated-endpoint list; tightening (a
+// permission key + org scoping) is the separate triage follow-up.
+export const DELETE = withRequestContext(
+  {},
+  async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    const { error } = await ctx.supabase
+      .from("contract_templates")
+      .update({ is_active: false })
+      .eq("id", id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true });
-}
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  },
+);

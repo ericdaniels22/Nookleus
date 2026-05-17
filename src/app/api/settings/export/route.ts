@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 function toCsv(data: Record<string, unknown>[]): string {
   if (data.length === 0) return "";
@@ -17,48 +17,48 @@ function toCsv(data: Record<string, unknown>[]): string {
 }
 
 // GET /api/settings/export?type=jobs&startDate=...&endDate=...
-export async function GET(request: NextRequest) {
-  const type = request.nextUrl.searchParams.get("type");
-  const startDate = request.nextUrl.searchParams.get("startDate");
-  const endDate = request.nextUrl.searchParams.get("endDate");
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (request, ctx) => {
+  const { searchParams } = new URL(request.url);
+  const type = searchParams.get("type");
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
 
   if (!type) {
     return NextResponse.json({ error: "type is required" }, { status: 400 });
   }
-
-  const supabase = await createServerSupabaseClient();
 
   let query;
   let filename: string;
 
   switch (type) {
     case "jobs": {
-      query = supabase.from("jobs").select("job_number, status, urgency, damage_type, damage_source, property_address, property_type, property_sqft, affected_areas, insurance_company, claim_number, created_at");
+      query = ctx.supabase.from("jobs").select("job_number, status, urgency, damage_type, damage_source, property_address, property_type, property_sqft, affected_areas, insurance_company, claim_number, created_at");
       filename = "jobs.csv";
       break;
     }
     case "contacts": {
-      query = supabase.from("contacts").select("first_name, last_name, phone, email, role, company, notes, created_at");
+      query = ctx.supabase.from("contacts").select("first_name, last_name, phone, email, role, company, notes, created_at");
       filename = "contacts.csv";
       break;
     }
     case "payments": {
-      query = supabase.from("payments").select("job_id, source, method, amount, reference_number, payer_name, status, notes, received_date, created_at");
+      query = ctx.supabase.from("payments").select("job_id, source, method, amount, reference_number, payer_name, status, notes, received_date, created_at");
       filename = "payments.csv";
       break;
     }
     case "invoices": {
-      query = supabase.from("invoices").select("invoice_number, job_id, total_amount, status, issued_date, notes, created_at");
+      query = ctx.supabase.from("invoices").select("invoice_number, job_id, total_amount, status, issued_date, notes, created_at");
       filename = "invoices.csv";
       break;
     }
     case "emails": {
-      query = supabase.from("emails").select("folder, from_address, from_name, subject, snippet, is_read, has_attachments, matched_by, received_at");
+      query = ctx.supabase.from("emails").select("folder, from_address, from_name, subject, snippet, is_read, has_attachments, matched_by, received_at");
       filename = "emails.csv";
       break;
     }
     case "activities": {
-      query = supabase.from("job_activities").select("job_id, activity_type, title, description, author, created_at");
+      query = ctx.supabase.from("job_activities").select("job_id, activity_type, title, description, author, created_at");
       filename = "activities.csv";
       break;
     }
@@ -83,4 +83,4 @@ export async function GET(request: NextRequest) {
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
-}
+});
