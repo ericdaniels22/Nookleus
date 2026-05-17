@@ -1,13 +1,12 @@
 // src/app/api/accounting/expenses/route.ts
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { resolveRange, type RangePreset } from "@/lib/accounting/date-ranges";
 
-export async function GET(request: Request) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
+async function getExpenses(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const preset = (url.searchParams.get("range") ?? "last_30") as RangePreset;
   const categoryIds = url.searchParams.getAll("category");
@@ -17,7 +16,7 @@ export async function GET(request: Request) {
   const submittedBy = url.searchParams.get("submitted_by");
   const range = resolveRange(preset);
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
 
   let q = supabase.from("expenses").select(`
     id, job_id, vendor_id, vendor_name, category_id, amount, expense_date,
@@ -58,3 +57,8 @@ export async function GET(request: Request) {
     range: { preset: range.preset, label: range.label },
   });
 }
+
+export const GET = withRequestContext(
+  { permission: "view_accounting" },
+  getExpenses,
+);

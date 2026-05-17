@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 
 // POST /api/qb/sync-log/[id]/retry — manual retry of a failed row.
 // Clears retry_count + error fields, flips status to 'queued'. The next
 // processor tick (cron or manual sync-now) picks it up.
-export async function POST(
+async function postRetry(
   _request: Request,
+  ctx: RequestContext,
   context: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
   const { id } = await context.params;
-  const service = createServiceClient();
+  const service = ctx.serviceClient!;
   const { error } = await service
     .from("qb_sync_log")
     .update({
@@ -29,3 +27,8 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  postRetry,
+);

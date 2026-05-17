@@ -1,19 +1,16 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import { NextResponse } from "next/server";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { getValidAccessToken } from "@/lib/qb/tokens";
 import { listAccountsByType, listDepositAccounts } from "@/lib/qb/client";
 
 // GET /api/qb/accounts
 // Default (no ?types=) — Bank + Other Current Asset (payment-method mapping).
 // With ?types=Income,Expense — returns the specified account types instead.
-export async function GET(req: NextRequest) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
-  const service = createServiceClient();
+async function getAccounts(request: Request, ctx: RequestContext) {
+  const service = ctx.serviceClient!;
   const token = await getValidAccessToken(service);
   if (!token) {
     return NextResponse.json(
@@ -22,7 +19,7 @@ export async function GET(req: NextRequest) {
     );
   }
   try {
-    const typesParam = req.nextUrl.searchParams.get("types");
+    const typesParam = new URL(request.url).searchParams.get("types");
     const accounts = typesParam
       ? await listAccountsByType(
           token,
@@ -44,3 +41,8 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export const GET = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  getAccounts,
+);

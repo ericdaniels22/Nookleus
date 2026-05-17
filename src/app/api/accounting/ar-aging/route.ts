@@ -1,7 +1,9 @@
 // src/app/api/accounting/ar-aging/route.ts
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 
 type PayerFilter = "all" | "insurance" | "homeowner";
 
@@ -13,14 +15,11 @@ function ageBucket(days: number): "current" | "1-30" | "31-60" | "61-90" | "90+"
   return "90+";
 }
 
-export async function GET(request: Request) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
+async function getArAging(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const payerFilter = (url.searchParams.get("payer") ?? "all") as PayerFilter;
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
   const [invRes, payRes] = await Promise.all([
     supabase.from("invoices").select("id, job_id, invoice_number, total_amount, status, issued_date").is("deleted_at", null),
     supabase.from("payments").select("invoice_id, amount").eq("status", "received"),
@@ -104,3 +103,5 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ buckets, rows });
 }
+
+export const GET = withRequestContext({ permission: "view_accounting" }, getArAging);

@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { getActiveConnection } from "@/lib/qb/tokens";
 
 // GET /api/qb/connection — returns the active connection stripped of
 // encrypted tokens. Used by the settings page + accounting tab.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
-  const service = createServiceClient();
+async function getConnection(_request: Request, ctx: RequestContext) {
+  const service = ctx.serviceClient!;
   const conn = await getActiveConnection(service);
   if (!conn) return NextResponse.json({ connected: false });
   return NextResponse.json({
@@ -32,18 +29,14 @@ export async function GET() {
 // PATCH /api/qb/connection — updates sync_start_date, dry_run_mode, or
 // setup_completed_at. Dry-run can only be flipped true → false (never
 // back); start_date can only be set once (when setup_completed_at is null).
-export async function PATCH(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
+async function patchConnection(request: Request, ctx: RequestContext) {
   const body = (await request.json()) as {
     sync_start_date?: string;
     dry_run_mode?: boolean;
     complete_setup?: boolean;
   };
 
-  const service = createServiceClient();
+  const service = ctx.serviceClient!;
   const conn = await getActiveConnection(service);
   if (!conn) {
     return NextResponse.json({ error: "no active connection" }, { status: 404 });
@@ -108,3 +101,13 @@ export async function PATCH(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, changed: true });
 }
+
+export const GET = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  getConnection,
+);
+
+export const PATCH = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  patchConnection,
+);
