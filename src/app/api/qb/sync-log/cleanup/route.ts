@@ -3,17 +3,14 @@
 // regardless of age. Admin only.
 
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 
-export async function POST() {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
+async function postCleanup(_request: Request, ctx: RequestContext) {
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const service = createServiceClient();
+  const service = ctx.serviceClient!;
   const { error, count } = await service
     .from("qb_sync_log")
     .delete({ count: "exact" })
@@ -22,3 +19,8 @@ export async function POST() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, deleted: count ?? 0 });
 }
+
+export const POST = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  postCleanup,
+);

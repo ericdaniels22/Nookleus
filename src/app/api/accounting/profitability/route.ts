@@ -1,21 +1,20 @@
 // src/app/api/accounting/profitability/route.ts
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { aggregateMargins, marginPctBand, type MarginFilter } from "@/lib/accounting/margins";
 import { resolveRange, type RangePreset } from "@/lib/accounting/date-ranges";
 
-export async function GET(request: Request) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
+async function getProfitability(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const preset = (url.searchParams.get("range") ?? "last_30") as RangePreset;
   const filter = (url.searchParams.get("filter") ?? "all") as MarginFilter;
   const sort = url.searchParams.get("sort") ?? "margin_desc";
   const range = resolveRange(preset);
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
   const margins = await aggregateMargins(range.startISO, range.endISO, filter);
 
   // Attach job context (address, damage type, customer name).
@@ -55,3 +54,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ rows, range: { preset: range.preset, label: range.label } });
 }
+
+export const GET = withRequestContext(
+  { permission: "view_accounting" },
+  getProfitability,
+);

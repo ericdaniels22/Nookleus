@@ -5,7 +5,10 @@
 
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { toCSV } from "@/lib/accounting/csv";
 import { resolveRange, type RangePreset } from "@/lib/accounting/date-ranges";
 import { aggregateMargins } from "@/lib/accounting/margins";
@@ -172,13 +175,11 @@ async function buildExpensesCSV(preset: RangePreset): Promise<string> {
   return toCSV(headers, outRows);
 }
 
-export async function GET(
+async function getExport(
   request: Request,
+  _ctx: RequestContext,
   { params }: { params: Promise<{ type: string }> },
 ) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
   const { type } = await params;
   const url = new URL(request.url);
   const preset = (url.searchParams.get("range") ?? "last_30") as RangePreset;
@@ -234,3 +235,5 @@ export async function GET(
 
   return NextResponse.json({ error: "Unknown export type" }, { status: 400 });
 }
+
+export const GET = withRequestContext({ permission: "view_accounting" }, getExport);

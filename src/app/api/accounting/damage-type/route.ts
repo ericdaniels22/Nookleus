@@ -1,19 +1,18 @@
 // src/app/api/accounting/damage-type/route.ts
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { resolveRange, type RangePreset } from "@/lib/accounting/date-ranges";
 import { aggregateMargins } from "@/lib/accounting/margins";
 
-export async function GET(request: Request) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
+async function getDamageType(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const preset = (url.searchParams.get("range") ?? "last_30") as RangePreset;
   const range = resolveRange(preset);
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
   const margins = await aggregateMargins(range.startISO, range.endISO, "all");
 
   const { data: jobs } = margins.length
@@ -66,3 +65,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ rows });
 }
+
+export const GET = withRequestContext(
+  { permission: "view_accounting" },
+  getDamageType,
+);

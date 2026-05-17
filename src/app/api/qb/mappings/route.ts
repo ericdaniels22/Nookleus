@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import type { QbMappingType } from "@/lib/qb/types";
 
 // GET /api/qb/mappings?type=... — all mappings, or one type.
-export async function GET(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
+async function getMappings(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const type = url.searchParams.get("type") as QbMappingType | null;
 
-  const service = createServiceClient();
+  const service = ctx.serviceClient!;
   let query = service
     .from("qb_mappings")
     .select("*")
-    .eq("organization_id", await getActiveOrganizationId(supabase))
+    .eq("organization_id", ctx.orgId)
     .order("platform_value", { ascending: true });
   if (type) query = query.eq("type", type);
   const { data, error } = await query;
@@ -32,11 +28,7 @@ export async function GET(request: Request) {
 // We delete existing rows of that type and insert the new set in one
 // transaction (well, two statements — good enough for a single-admin UI
 // with no concurrent writers).
-export async function PUT(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
+async function putMappings(request: Request, ctx: RequestContext) {
   const body = (await request.json()) as {
     type: QbMappingType;
     mappings: Array<{
@@ -50,8 +42,8 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "type and mappings required" }, { status: 400 });
   }
 
-  const orgId = await getActiveOrganizationId(supabase);
-  const service = createServiceClient();
+  const orgId = ctx.orgId;
+  const service = ctx.serviceClient!;
   const { error: delErr } = await service
     .from("qb_mappings")
     .delete()
@@ -73,3 +65,13 @@ export async function PUT(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
+export const GET = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  getMappings,
+);
+
+export const PUT = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  putMappings,
+);

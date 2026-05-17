@@ -4,19 +4,17 @@
 // was created in QB out-of-band or when a stuck row needs to move on.
 
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import type { QbSyncLogRow } from "@/lib/qb/types";
 
-export async function POST(
+async function postMarkSynced(
   request: Request,
+  ctx: RequestContext,
   context: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
   const { id } = await context.params;
   const body = (await request.json().catch(() => ({}))) as { qbEntityId?: string };
   const qbEntityId =
@@ -24,7 +22,7 @@ export async function POST(
       ? body.qbEntityId.trim()
       : null;
 
-  const service = createServiceClient();
+  const service = ctx.serviceClient!;
   const { data: row } = await service
     .from("qb_sync_log")
     .select("*")
@@ -58,3 +56,8 @@ export async function POST(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  postMarkSynced,
+);

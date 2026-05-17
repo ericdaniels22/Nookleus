@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requireAdmin } from "@/lib/qb/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { getValidAccessToken } from "@/lib/qb/tokens";
 import { listClasses } from "@/lib/qb/client";
 
 // GET /api/qb/classes — returns active QB Classes for the damage-type
 // mapping dropdown. If the user hasn't enabled Classes in QBO, the
 // returned list is empty and the wizard UI explains what to do.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const gate = await requireAdmin(supabase);
-  if (!gate.ok) return gate.response;
-
-  const service = createServiceClient();
+async function getClasses(_request: Request, ctx: RequestContext) {
+  const service = ctx.serviceClient!;
   const token = await getValidAccessToken(service);
   if (!token) {
     return NextResponse.json(
@@ -38,3 +35,8 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withRequestContext(
+  { adminOnly: true, serviceClient: true },
+  getClasses,
+);

@@ -1,18 +1,17 @@
 // src/app/api/accounting/summary/route.ts
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requireViewAccounting } from "@/lib/accounting/auth";
+import {
+  withRequestContext,
+  type RequestContext,
+} from "@/lib/request-context/with-request-context";
 import { resolveRange, computeDelta, type RangePreset } from "@/lib/accounting/date-ranges";
 
-export async function GET(request: Request) {
-  const auth = await requireViewAccounting();
-  if (!auth.ok) return auth.response;
-
+async function getSummary(request: Request, ctx: RequestContext) {
   const url = new URL(request.url);
   const preset = (url.searchParams.get("range") ?? "last_30") as RangePreset;
   const range = resolveRange(preset);
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
 
   // Helper: fetch revenue + expenses sums for a date window.
   const fetchWindow = async (startISO: string | null, endISO: string | null) => {
@@ -79,3 +78,5 @@ export async function GET(request: Request) {
     outstandingAR: { amount: outstandingAR, overSixty: overSixtyAR },
   });
 }
+
+export const GET = withRequestContext({ permission: "view_accounting" }, getSummary);
