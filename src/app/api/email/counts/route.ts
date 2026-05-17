@@ -1,23 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
-// GET /api/email/counts?accountId=... — get unread counts per folder
-export async function GET(request: NextRequest) {
+// GET /api/email/counts?accountId=... — get unread counts per folder.
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const GET = withRequestContext({}, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const accountId = searchParams.get("accountId"); // null = all accounts
-
-  const supabase = await createServerSupabaseClient();
 
   const folders = ["inbox", "sent", "drafts", "trash", "spam", "archive"];
   const counts: Record<string, { total: number; unread: number }> = {};
 
   for (const folder of folders) {
-    let totalQuery = supabase
+    let totalQuery = ctx.supabase
       .from("emails")
       .select("id", { count: "exact", head: true })
       .eq("folder", folder);
 
-    let unreadQuery = supabase
+    let unreadQuery = ctx.supabase
       .from("emails")
       .select("id", { count: "exact", head: true })
       .eq("folder", folder)
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Starred count (across all folders)
-  let starredQuery = supabase
+  let starredQuery = ctx.supabase
     .from("emails")
     .select("id", { count: "exact", head: true })
     .eq("is_starred", true);
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
   counts.starred = { total: starredResult.count || 0, unread: 0 };
 
   // Category unread counts for inbox only
-  let categoryQuery = supabase
+  let categoryQuery = ctx.supabase
     .from("emails")
     .select("category")
     .eq("folder", "inbox")
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 
   // Starred count for the inbox tab (total, not unread — starred status is
   // independent of read state and users want to see the full set).
-  let starredInboxQuery = supabase
+  let starredInboxQuery = ctx.supabase
     .from("emails")
     .select("id", { count: "exact", head: true })
     .eq("folder", "inbox")
@@ -91,4 +91,4 @@ export async function GET(request: NextRequest) {
   categoryUnread.starred = starredInboxResult.count || 0;
 
   return NextResponse.json({ ...counts, categoryUnread });
-}
+});

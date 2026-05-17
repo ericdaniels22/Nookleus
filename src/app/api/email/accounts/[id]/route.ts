@@ -1,62 +1,62 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { encrypt } from "@/lib/encryption";
 
 // DELETE /api/email/accounts/[id]
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const supabase = await createServerSupabaseClient();
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const DELETE = withRequestContext(
+  {},
+  async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
 
-  const { error } = await supabase
-    .from("email_accounts")
-    .delete()
-    .eq("id", id);
+    const { error } = await ctx.supabase
+      .from("email_accounts")
+      .delete()
+      .eq("id", id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json({ success: true });
-}
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  },
+);
 
 // PATCH /api/email/accounts/[id] — update account settings
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const body = await request.json();
-  const supabase = await createServerSupabaseClient();
+export const PATCH = withRequestContext(
+  {},
+  async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    const body = await request.json();
 
-  // If password is being updated, encrypt it
-  const updates: Record<string, unknown> = {};
-  const allowedFields = ["label", "email_address", "display_name", "provider", "imap_host", "imap_port", "smtp_host", "smtp_port", "username", "is_active", "is_default", "signature", "color"];
+    // If password is being updated, encrypt it
+    const updates: Record<string, unknown> = {};
+    const allowedFields = ["label", "email_address", "display_name", "provider", "imap_host", "imap_port", "smtp_host", "smtp_port", "username", "is_active", "is_default", "signature", "color"];
 
-  for (const field of allowedFields) {
-    if (body[field] !== undefined) {
-      updates[field] = body[field];
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updates[field] = body[field];
+      }
     }
-  }
 
-  if (body.password) {
-    updates.encrypted_password = encrypt(body.password);
-  }
+    if (body.password) {
+      updates.encrypted_password = encrypt(body.password);
+    }
 
-  if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
-  }
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    }
 
-  const { data, error } = await supabase
-    .from("email_accounts")
-    .update(updates)
-    .eq("id", id)
-    .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, created_at, updated_at")
-    .single();
+    const { data, error } = await ctx.supabase
+      .from("email_accounts")
+      .update(updates)
+      .eq("id", id)
+      .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, created_at, updated_at")
+      .single();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data);
-}
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data);
+  },
+);

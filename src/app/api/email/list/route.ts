@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/email/list?folder=inbox&accountId=...&search=...&page=1&limit=50
-export async function GET(request: NextRequest) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const GET = withRequestContext({}, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const folder = searchParams.get("folder") || "inbox";
   const accountId = searchParams.get("accountId"); // null = all accounts
@@ -12,10 +14,9 @@ export async function GET(request: NextRequest) {
   const starred = searchParams.get("starred");
   const category = searchParams.get("category");
 
-  const supabase = await createServerSupabaseClient();
   const offset = (page - 1) * limit;
 
-  let query = supabase
+  let query = ctx.supabase
     .from("emails")
     .select("*, job:jobs(id, job_number, property_address)", { count: "exact" });
 
@@ -63,4 +64,4 @@ export async function GET(request: NextRequest) {
     limit,
     hasMore: (count || 0) > offset + limit,
   });
-}
+});

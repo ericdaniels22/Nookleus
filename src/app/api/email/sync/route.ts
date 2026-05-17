@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse, after } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse, after } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
@@ -42,7 +42,9 @@ function mapFolder(imapPath: string): string {
 //
 // First sync per account also runs the one-time category backfill (Pass
 // 1 + Pass 2) — that path is intentionally not optimized.
-export async function POST(request: NextRequest) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const POST = withRequestContext({}, async (request, ctx) => {
   const startedAt = Date.now();
   const { accountId, maxPerFolder = 50 } = await request.json();
 
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
 
   const { data: account, error: accError } = await supabase
     .from("email_accounts")
@@ -517,4 +519,4 @@ export async function POST(request: NextRequest) {
     folders_synced: foldersSynced,
     errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
   });
-}
+});

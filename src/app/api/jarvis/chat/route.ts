@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { buildSystemPrompt } from "@/lib/jarvis/prompts/jarvis-core";
 import {
   jarvisToolDefinitions,
@@ -15,7 +13,19 @@ export const maxDuration = 120;
 const MAX_TOOL_ITERATIONS = 5;
 const MAX_CONVERSATION_MESSAGES = 30;
 
-export async function POST(request: NextRequest) {
+// Shape of a `job_adjusters` row as selected for the job-context lookup
+// below — the Service client returns these loosely typed.
+interface JobAdjusterRow {
+  is_primary: boolean;
+  adjuster: { first_name: string; last_name: string; email: string | null } | null;
+}
+
+// Cookie-authenticated (logged-in only) — the wrapper resolves the caller
+// and the Active Organization. Jarvis reads broadly across the org, so it
+// asks the wrapper for the Service client.
+export const POST = withRequestContext(
+  { serviceClient: true },
+  async (request, ctx) => {
   try {
     // Parse request
     const body = await request.json();
@@ -40,36 +50,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Authenticate
-    const authSupabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await authSupabase.auth.getUser();
+    // Service client for broad data access — opted in via the rule.
+    const supabase = ctx.serviceClient!;
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Service client for broad data access
-    const supabase = createServiceClient();
-
-    // Fetch user profile + active-org membership role.
+    // Fetch user profile. The membership role is already resolved by the
+    // wrapper and carried on the Request Context.
     const { data: profile } = await supabase
       .from("user_profiles")
       .select("full_name")
-      .eq("id", user.id)
+      .eq("id", ctx.userId)
       .single();
 
-    const { data: membership } = await supabase
-      .from("user_organizations")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("organization_id", await getActiveOrganizationId(authSupabase))
-      .maybeSingle<{ role: string }>();
-
     const userName = profile?.full_name || "User";
-    const userRole = membership?.role || "crew_member";
+    const userRole = ctx.role || "crew_member";
 
     // Build context for system prompt
     let jobData = null;
@@ -99,10 +92,10 @@ export async function POST(request: NextRequest) {
           insuranceCompany: job.insurance_company,
           claimNumber: job.claim_number,
           adjusterName: (() => {
-            const adj = job.job_adjusters?.find((ja: any) => ja.is_primary)?.adjuster;
+            const adj = job.job_adjusters?.find((ja: JobAdjusterRow) => ja.is_primary)?.adjuster;
             return adj ? `${adj.first_name} ${adj.last_name}` : null;
           })(),
-          adjusterEmail: job.job_adjusters?.find((ja: any) => ja.is_primary)?.adjuster?.email || null,
+          adjusterEmail: job.job_adjusters?.find((ja: JobAdjusterRow) => ja.is_primary)?.adjuster?.email || null,
           createdAt: job.created_at,
         };
       }
@@ -354,7 +347,7 @@ export async function POST(request: NextRequest) {
             toolUse.name,
             toolUse.input as Record<string, unknown>,
             {
-              userId: user.id,
+              userId: ctx.userId,
               userName,
               userRole,
               jobId: job_id,
@@ -469,4 +462,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+  },
+);

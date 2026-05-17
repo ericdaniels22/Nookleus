@@ -1,12 +1,11 @@
-import { NextRequest, NextResponse, after } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse, after } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
 import { categorizeEmail, type CategoryRule } from "@/lib/email-categorizer";
 import { emailAttachmentPath } from "@/lib/storage/paths";
 import { syncFolderIncremental, type EmailFolderState } from "@/lib/email/sync-folder-incremental";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 
 // Subset of mapFolder from /api/email/sync — we only need the target
 // folder names this endpoint supports.
@@ -52,7 +51,9 @@ const ALLOWED_FOLDERS = new Set([
 //
 // The client throttles concurrent calls; this endpoint always does the
 // work it's asked to do.
-export async function POST(request: NextRequest) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const POST = withRequestContext({}, async (request, ctx) => {
   const startedAt = Date.now();
   const body = (await request.json()) as { accountId?: string; folder?: string };
   const { accountId, folder } = body;
@@ -64,8 +65,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = await createServerSupabaseClient();
-  const orgId = await getActiveOrganizationId(supabase);
+  const supabase = ctx.supabase;
+  const orgId = ctx.orgId;
   if (!orgId) {
     return NextResponse.json({ error: "no active organization" }, { status: 401 });
   }
@@ -356,4 +357,4 @@ export async function POST(request: NextRequest) {
     total_synced: totalSynced,
     errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
   });
-}
+});
