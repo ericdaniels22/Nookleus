@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/intake-form/custom-fields?jobId=xxx
-export async function GET(request: NextRequest) {
-  const jobId = request.nextUrl.searchParams.get("jobId");
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (request, ctx) => {
+  const jobId = new URL(request.url).searchParams.get("jobId");
   if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
 
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from("job_custom_fields")
     .select("*")
     .eq("job_id", jobId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || []);
-}
+});

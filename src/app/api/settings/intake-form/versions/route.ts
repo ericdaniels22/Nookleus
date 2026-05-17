@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/intake-form/versions — last 20 versions for the active org.
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const orgId = await getActiveOrganizationId(supabase);
-
-  const { data, error } = await supabase
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data, error } = await ctx.supabase
     .from("form_config")
     .select("version, created_by, created_at")
-    .eq("organization_id", orgId)
+    .eq("organization_id", ctx.orgId)
     .order("version", { ascending: false })
     .limit(20);
 
@@ -19,4 +16,4 @@ export async function GET() {
   }
 
   return NextResponse.json({ versions: data ?? [] });
-}
+});

@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import type { ContractEmailProvider, ContractEmailSettings } from "@/lib/contracts/types";
 
 // The table is effectively a singleton — seeded with one row in the
 // build33 migration. If it somehow goes missing we surface a clear error
 // rather than inserting a new row silently.
-async function getSettings() {
-  const supabase = await createServerSupabaseClient();
+async function getSettings(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("contract_email_settings")
     .select("*")
     .limit(1)
     .maybeSingle<ContractEmailSettings>();
-  return { supabase, data, error };
+  return { data, error };
 }
 
 // GET /api/settings/contract-email
-export async function GET() {
-  const { data, error } = await getSettings();
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data, error } = await getSettings(ctx.supabase);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) {
     return NextResponse.json(
@@ -26,16 +27,17 @@ export async function GET() {
     );
   }
   return NextResponse.json(data);
-}
+});
 
 // PATCH /api/settings/contract-email
-export async function PATCH(request: Request) {
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const PATCH = withRequestContext({}, async (request, ctx) => {
   const body = (await request.json().catch(() => null)) as Partial<ContractEmailSettings> | null;
   if (!body) {
     return NextResponse.json({ error: "Body must be a JSON object" }, { status: 400 });
   }
 
-  const { supabase, data: current, error: fetchErr } = await getSettings();
+  const { data: current, error: fetchErr } = await getSettings(ctx.supabase);
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   if (!current) {
     return NextResponse.json(
@@ -93,7 +95,7 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await ctx.supabase
     .from("contract_email_settings")
     .update(patch)
     .eq("id", current.id)
@@ -101,4 +103,4 @@ export async function PATCH(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+});

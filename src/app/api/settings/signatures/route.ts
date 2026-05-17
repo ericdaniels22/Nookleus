@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
-// GET /api/settings/signatures — get all signatures with account info
-export async function GET() {
-  const supabase = await createServerSupabaseClient();
-
-  const { data: accounts } = await supabase
+// GET /api/settings/signatures — get all signatures with account info.
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const GET = withRequestContext({}, async (_request, ctx) => {
+  const { data: accounts } = await ctx.supabase
     .from("email_accounts")
     .select("id, label, email_address, display_name, is_active")
     .order("created_at");
 
-  const { data: signatures } = await supabase
+  const { data: signatures } = await ctx.supabase
     .from("email_signatures")
     .select("*");
 
@@ -25,18 +24,18 @@ export async function GET() {
   }));
 
   return NextResponse.json(result);
-}
+});
 
-// PUT /api/settings/signatures — upsert signature for an account
-export async function PUT(request: Request) {
+// PUT /api/settings/signatures — upsert signature for an account.
+// Logged-in only — previously ungated (recorded for the #78 ungated list).
+export const PUT = withRequestContext({}, async (request, ctx) => {
   const { account_id, signature_html, include_logo, auto_insert } = await request.json();
 
   if (!account_id) {
     return NextResponse.json({ error: "account_id is required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
+  const { error } = await ctx.supabase
     .from("email_signatures")
     .upsert(
       {
@@ -50,4 +49,4 @@ export async function PUT(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
-}
+});

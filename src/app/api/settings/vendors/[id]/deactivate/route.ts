@@ -1,21 +1,16 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { requirePermission } from "@/lib/permissions-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createServerSupabaseClient();
-  const guard = await requirePermission(supabase, "manage_vendors");
-  if (!guard.ok) return guard.response;
-  const { id } = await params;
-
-  const service = createServiceClient();
-  const { error } = await service
-    .from("vendors")
-    .update({ is_active: false })
-    .eq("id", id)
-    .eq("organization_id", await getActiveOrganizationId(supabase));
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true });
-}
+export const POST = withRequestContext(
+  { permission: "manage_vendors", serviceClient: true },
+  async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    const { error } = await ctx
+      .serviceClient!.from("vendors")
+      .update({ is_active: false })
+      .eq("id", id)
+      .eq("organization_id", ctx.orgId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  },
+);
