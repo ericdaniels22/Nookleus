@@ -6,9 +6,7 @@
 // public response shape `{ download_url, storage_path, filename }`.
 
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requirePermission } from "@/lib/permissions-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { getDefaultPreset } from "@/lib/pdf-presets";
 import { renderAndUploadEstimatePdf, PdfRenderInputError } from "@/lib/pdf-renderer/render-and-upload";
 import { apiError } from "@/lib/api-errors";
@@ -16,58 +14,53 @@ import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 interface PdfRequestBody { preset_id?: string; }
 
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ id: string }> },
-) {
-  const supabase = await createServerSupabaseClient();
-  const auth = await requirePermission(supabase, "view_estimates");
-  if (!auth.ok) return auth.response;
+export const POST = withRequestContext(
+  { permission: "view_estimates" },
+  async (request, { supabase, orgId }, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+    if (!orgId) return NextResponse.json({ error: "no active org" }, { status: 400 });
 
-  const { id } = await context.params;
-  const orgId = await getActiveOrganizationId(supabase);
-  if (!orgId) return NextResponse.json({ error: "no active org" }, { status: 400 });
+    const { data: estimateRow } = await supabase
+      .from("estimates")
+      .select("deleted_at")
+      .eq("id", id)
+      .maybeSingle<{ deleted_at: string | null }>();
+    const trashed = assertNotTrashed(estimateRow);
+    if (trashed) return trashed;
 
-  const { data: estimateRow } = await supabase
-    .from("estimates")
-    .select("deleted_at")
-    .eq("id", id)
-    .maybeSingle<{ deleted_at: string | null }>();
-  const trashed = assertNotTrashed(estimateRow);
-  if (trashed) return trashed;
+    let body: PdfRequestBody = {};
+    try { body = (await request.json().catch(() => ({}))) as PdfRequestBody; }
+    catch { /* empty body OK; default preset will be used */ }
 
-  let body: PdfRequestBody = {};
-  try { body = (await request.json().catch(() => ({}))) as PdfRequestBody; }
-  catch { /* empty body OK; default preset will be used */ }
-
-  let presetId = body.preset_id;
-  if (!presetId) {
-    const def = await getDefaultPreset(supabase, "estimate");
-    if (!def) {
-      return NextResponse.json(
-        { error: "preset not found (and no default seeded)" },
-        { status: 400 },
-      );
+    let presetId = body.preset_id;
+    if (!presetId) {
+      const def = await getDefaultPreset(supabase, "estimate");
+      if (!def) {
+        return NextResponse.json(
+          { error: "preset not found (and no default seeded)" },
+          { status: 400 },
+        );
+      }
+      presetId = def.id;
     }
-    presetId = def.id;
-  }
 
-  try {
-    const result = await renderAndUploadEstimatePdf({
-      supabase,
-      estimateId: id,
-      presetId,
-      orgId,
-    });
-    return NextResponse.json({
-      download_url: result.download_url,
-      storage_path: result.storage_path,
-      filename: result.filename,
-    });
-  } catch (e) {
-    if (e instanceof PdfRenderInputError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
+    try {
+      const result = await renderAndUploadEstimatePdf({
+        supabase,
+        estimateId: id,
+        presetId,
+        orgId,
+      });
+      return NextResponse.json({
+        download_url: result.download_url,
+        storage_path: result.storage_path,
+        filename: result.filename,
+      });
+    } catch (e) {
+      if (e instanceof PdfRenderInputError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      return apiError(e, "POST /api/estimates/[id]/pdf");
     }
-    return apiError(e, "POST /api/estimates/[id]/pdf");
-  }
-}
+  },
+);
