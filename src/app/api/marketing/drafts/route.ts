@@ -1,41 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 
-export async function GET(request: NextRequest) {
-  const authSupabase = await createServerSupabaseClient();
-  const { data: { user }, error: authError } = await authSupabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+// Logged-in only — matches the route's prior cookie-auth check. Reads and
+// writes the marketing-draft queue with the Service client, org-scoped to
+// the Active Organization.
+export const GET = withRequestContext(
+  { serviceClient: true },
+  async (request, ctx) => {
+    const supabase = ctx.serviceClient!;
+    const { searchParams } = new URL(request.url);
+    const platform = searchParams.get("platform");
+    const status = searchParams.get("status");
 
-  const supabase = createServiceClient();
-  const platform = request.nextUrl.searchParams.get("platform");
-  const status = request.nextUrl.searchParams.get("status");
+    let query = supabase
+      .from("marketing_drafts")
+      .select("*, image:marketing_assets!image_id(*)")
+      .eq("organization_id", ctx.orgId)
+      .order("created_at", { ascending: false });
 
-  let query = supabase
-    .from("marketing_drafts")
-    .select("*, image:marketing_assets!image_id(*)")
-    .eq("organization_id", await getActiveOrganizationId(authSupabase))
-    .order("created_at", { ascending: false });
+    if (platform) {
+      query = query.eq("platform", platform);
+    }
+    if (status) {
+      query = query.eq("status", status);
+    }
 
-  if (platform) {
-    query = query.eq("platform", platform);
-  }
-  if (status) {
-    query = query.eq("status", status);
-  }
+    const { data, error } = await query;
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    return NextResponse.json({ drafts: data || [] });
+  },
+);
 
-  return NextResponse.json({ drafts: data || [] });
-}
-
-export async function POST(request: NextRequest) {
+// POST is intentionally NOT routed through withRequestContext: it accepts
+// either cookie auth OR an internal service-key call (the marketing AI
+// department saves drafts this way). The wrapper requires a logged-in
+// user, which the service-key path has none of, so this dual-mode handler
+// stays on its inline check. Tracked for the #78 ungated-endpoint list as
+// an internally-authenticated endpoint.
+export async function POST(request: Request) {
   // Accept either cookie auth OR internal service key (for AI tool calls)
   const internalKey = request.headers.get("x-service-key");
   const isInternalCall =
@@ -83,68 +91,61 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ draft: data });
 }
 
-export async function PATCH(request: NextRequest) {
-  const authSupabase = await createServerSupabaseClient();
-  const { data: { user }, error: authError } = await authSupabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const PATCH = withRequestContext(
+  { serviceClient: true },
+  async (request, ctx) => {
+    const body = await request.json();
+    const { id, ...updates } = body;
 
-  const body = await request.json();
-  const { id, ...updates } = body;
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
 
-  if (!id) {
-    return NextResponse.json({ error: "id is required" }, { status: 400 });
-  }
+    const supabase = ctx.serviceClient!;
 
-  const supabase = createServiceClient();
+    // Only allow specific fields to be updated
+    const allowed: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (updates.caption !== undefined) allowed.caption = updates.caption;
+    if (updates.hashtags !== undefined) allowed.hashtags = updates.hashtags;
+    if (updates.status !== undefined) allowed.status = updates.status;
+    if (updates.image_id !== undefined) allowed.image_id = updates.image_id || null;
+    if (updates.image_brief !== undefined) allowed.image_brief = updates.image_brief;
+    if (updates.posted_at !== undefined) allowed.posted_at = updates.posted_at;
 
-  // Only allow specific fields to be updated
-  const allowed: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (updates.caption !== undefined) allowed.caption = updates.caption;
-  if (updates.hashtags !== undefined) allowed.hashtags = updates.hashtags;
-  if (updates.status !== undefined) allowed.status = updates.status;
-  if (updates.image_id !== undefined) allowed.image_id = updates.image_id || null;
-  if (updates.image_brief !== undefined) allowed.image_brief = updates.image_brief;
-  if (updates.posted_at !== undefined) allowed.posted_at = updates.posted_at;
+    const { data, error } = await supabase
+      .from("marketing_drafts")
+      .update(allowed)
+      .eq("id", id)
+      .eq("organization_id", ctx.orgId)
+      .select("*, image:marketing_assets!image_id(*)")
+      .single();
 
-  const { data, error } = await supabase
-    .from("marketing_drafts")
-    .update(allowed)
-    .eq("id", id)
-    .eq("organization_id", await getActiveOrganizationId(authSupabase))
-    .select("*, image:marketing_assets!image_id(*)")
-    .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    return NextResponse.json({ draft: data });
+  },
+);
 
-  return NextResponse.json({ draft: data });
-}
+export const DELETE = withRequestContext(
+  { serviceClient: true },
+  async (request, ctx) => {
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
 
-export async function DELETE(request: NextRequest) {
-  const authSupabase = await createServerSupabaseClient();
-  const { data: { user }, error: authError } = await authSupabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const { error } = await ctx.serviceClient!
+      .from("marketing_drafts")
+      .delete()
+      .eq("id", id)
+      .eq("organization_id", ctx.orgId);
 
-  const id = request.nextUrl.searchParams.get("id");
-  if (!id) {
-    return NextResponse.json({ error: "id is required" }, { status: 400 });
-  }
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-  const supabase = createServiceClient();
-  const { error } = await supabase
-    .from("marketing_drafts")
-    .delete()
-    .eq("id", id)
-    .eq("organization_id", await getActiveOrganizationId(authSupabase));
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ success: true });
-}
+    return NextResponse.json({ success: true });
+  },
+);

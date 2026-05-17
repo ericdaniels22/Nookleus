@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // POST /api/email/drafts — save or update a draft
 // Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId? }
-export async function POST(request: NextRequest) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const POST = withRequestContext({}, async (request, ctx) => {
   const {
     draftId,
     accountId,
@@ -21,10 +23,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
-
   // Get account for from address + org scope
-  const { data: account } = await supabase
+  const { data: account } = await ctx.supabase
     .from("email_accounts")
     .select("email_address, display_name, organization_id")
     .eq("id", accountId)
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
   if (draftId) {
     // Update existing draft
-    const { data, error } = await supabase
+    const { data, error } = await ctx.supabase
       .from("emails")
       .update(draftData)
       .eq("id", draftId)
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: data.id, updated: true });
   } else {
     // Create new draft
-    const { data, error } = await supabase
+    const { data, error } = await ctx.supabase
       .from("emails")
       .insert(draftData)
       .select("id")
@@ -94,4 +94,4 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ id: data.id, created: true });
   }
-}
+});

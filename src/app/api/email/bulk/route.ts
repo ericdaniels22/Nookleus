@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // PATCH /api/email/bulk — bulk update emails
 // Body: { ids: string[], action: "mark_read" | "mark_unread" | "archive" | "trash" | "assign_job", jobId?: string }
-export async function PATCH(request: NextRequest) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const PATCH = withRequestContext({}, async (request, ctx) => {
   const body = await request.json();
   const { ids, action, jobId } = body;
 
@@ -19,7 +21,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "action is required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
   let updates: Record<string, unknown> = {};
 
   switch (action) {
@@ -48,7 +49,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
   }
 
-  const { error, count } = await supabase
+  const { error, count } = await ctx.supabase
     .from("emails")
     .update(updates)
     .in("id", ids);
@@ -58,4 +59,4 @@ export async function PATCH(request: NextRequest) {
   }
 
   return NextResponse.json({ updated: count ?? ids.length });
-}
+});

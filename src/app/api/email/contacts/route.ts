@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 
-// GET /api/email/contacts?q=search — autocomplete contacts + recent email addresses
-export async function GET(request: NextRequest) {
+// GET /api/email/contacts?q=search — autocomplete contacts + recent email addresses.
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const GET = withRequestContext({}, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
-  const supabase = await createServerSupabaseClient();
 
   const results: { email: string; name: string }[] = [];
   const seen = new Set<string>();
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
   // 1. Search contacts table
   if (q.length >= 1) {
     const term = escapeOrFilterValue(`%${q}%`);
-    const { data: contacts } = await supabase
+    const { data: contacts } = await ctx.supabase
       .from("contacts")
       .select("first_name, last_name, email")
       .not("email", "is", null)
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
   // 2. Search previously emailed addresses from emails table
   if (q.length >= 2) {
-    const { data: fromEmails } = await supabase
+    const { data: fromEmails } = await ctx.supabase
       .from("emails")
       .select("from_address, from_name")
       .ilike("from_address", `%${q}%`)
@@ -58,4 +59,4 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(results.slice(0, 15));
-}
+});

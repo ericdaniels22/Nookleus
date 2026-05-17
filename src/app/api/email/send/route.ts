@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import nodemailer from "nodemailer";
 
@@ -12,7 +12,9 @@ interface UploadedAttachment {
 
 // POST /api/email/send
 // Body: { accountId, to, subject, body, bodyHtml?, cc?, bcc?, jobId?, replyToMessageId?, attachments? }
-export async function POST(request: Request) {
+// Previously ungated (relied on RLS via the User client); now logged-in
+// only. Recorded for the #78 ungated-endpoint list.
+export const POST = withRequestContext({}, async (request, ctx) => {
   const { accountId, jobId, to, cc, bcc, subject, body, bodyHtml, replyToMessageId, attachments, draftId } =
     await request.json() as {
       accountId: string; jobId?: string; to: string; cc?: string; bcc?: string;
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = ctx.supabase;
 
   // Get account
   const { data: account, error: accError } = await supabase
@@ -178,4 +180,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});
