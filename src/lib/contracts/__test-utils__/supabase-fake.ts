@@ -188,12 +188,68 @@ export function makeSupabaseFake(): SupabaseFake {
   };
 }
 
-export function makeAuthedFake(userId = "user-1") {
+// Minimal select builder for the User-client membership/grants queries the
+// Request Context wrapper runs. Supports select / eq (filtering) /
+// maybeSingle / awaited-list.
+function authSelectBuilder(rows: Row[]) {
+  let filtered = [...rows];
+  const builder = {
+    select() {
+      return builder;
+    },
+    eq(col: string, val: unknown) {
+      filtered = filtered.filter((r) => r[col] === val);
+      return builder;
+    },
+    async maybeSingle() {
+      return { data: filtered[0] ?? null, error: null };
+    },
+    then(resolve: (v: { data: Row[]; error: null }) => unknown) {
+      return resolve({ data: filtered, error: null });
+    },
+  };
+  return builder;
+}
+
+// An authenticated User-client fake. As of the Request Context conversion
+// (#80) contract routes run through `withRequestContext`, so this fake also
+// serves the wrapper's auth-resolution queries: `auth.getSession` (for
+// getActiveOrganizationId) and `from("user_organizations")` /
+// `from("user_organization_permissions")` for membership + grants.
+//
+// By default there is no membership in the active org — fine for routes
+// whose rule carries no permission policy (`{}` / `{ serviceClient: true }`).
+// Pass `opts` to seed a role and granted permission keys for tests that
+// exercise a `permission` rule.
+export function makeAuthedFake(
+  userId = "user-1",
+  opts: { role?: string; grants?: string[]; orgId?: string } = {},
+) {
+  const orgId = opts.orgId ?? "org-1";
+  const membershipId = "m-1";
+  const membership = opts.role
+    ? [{ id: membershipId, role: opts.role, user_id: userId, organization_id: orgId }]
+    : [];
+  const grants = (opts.grants ?? []).map((permission_key) => ({
+    user_organization_id: membershipId,
+    permission_key,
+    granted: true,
+  }));
+  const tables: Record<string, Row[]> = {
+    user_organizations: membership,
+    user_organization_permissions: grants,
+  };
   return {
     auth: {
       async getUser() {
         return { data: { user: { id: userId } }, error: null };
       },
+      async getSession() {
+        return { data: { session: null }, error: null };
+      },
+    },
+    from(table: string) {
+      return authSelectBuilder(tables[table] ?? []);
     },
   };
 }
