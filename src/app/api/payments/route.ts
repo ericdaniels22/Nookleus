@@ -2,9 +2,7 @@
 // POST /api/payments                       — record a payment.
 
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createServiceClient } from "@/lib/supabase-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 interface CreatePaymentBody {
   jobId: string;
@@ -18,19 +16,17 @@ interface CreatePaymentBody {
   notes?: string | null;
 }
 
-export async function GET(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
+// Listing payments is logged-in only; the User client's RLS scopes rows to
+// the active organization.
+export const GET = withRequestContext({}, async (request, ctx) => {
   const url = new URL(request.url);
   const invoiceId = url.searchParams.get("invoiceId");
   const jobId = url.searchParams.get("jobId");
 
-  let query = supabase
+  let query = ctx.supabase
     .from("payments")
     .select("*")
-    .eq("organization_id", await getActiveOrganizationId(supabase))
+    .eq("organization_id", ctx.orgId)
     .order("received_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (invoiceId) query = query.eq("invoice_id", invoiceId);
@@ -39,52 +35,53 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ rows: data ?? [] });
-}
+});
 
-export async function POST(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const body = (await request.json().catch(() => null)) as CreatePaymentBody | null;
-  if (!body?.jobId || !body?.source || !body?.method || !body.amount) {
-    return NextResponse.json({ error: "jobId, source, method, amount required" }, { status: 400 });
-  }
-
-  const orgId = await getActiveOrganizationId(supabase);
-  const service = createServiceClient();
-  if (body.invoiceId) {
-    const { data: inv } = await service
-      .from("invoices")
-      .select("status")
-      .eq("id", body.invoiceId)
-      .eq("organization_id", orgId)
-      .maybeSingle<{ status: string }>();
-    if (inv?.status === "draft") {
-      return NextResponse.json(
-        { error: "Cannot record a payment on a draft invoice. Send or mark it sent first." },
-        { status: 400 },
-      );
+// Recording a payment is logged-in only; it writes with the Service client
+// so the insert and the draft-invoice guard bypass RLS.
+export const POST = withRequestContext(
+  { serviceClient: true },
+  async (request, ctx) => {
+    const body = (await request.json().catch(() => null)) as CreatePaymentBody | null;
+    if (!body?.jobId || !body?.source || !body?.method || !body.amount) {
+      return NextResponse.json({ error: "jobId, source, method, amount required" }, { status: 400 });
     }
-  }
 
-  const { data, error } = await service
-    .from("payments")
-    .insert({
-      organization_id: orgId,
-      job_id: body.jobId,
-      invoice_id: body.invoiceId ?? null,
-      source: body.source,
-      method: body.method,
-      amount: body.amount,
-      reference_number: body.referenceNumber ?? null,
-      payer_name: body.payerName ?? null,
-      received_date: body.receivedDate ?? new Date().toISOString(),
-      notes: body.notes ?? null,
-      status: "received",
-    })
-    .select()
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
-}
+    const orgId = ctx.orgId;
+    const service = ctx.serviceClient!;
+    if (body.invoiceId) {
+      const { data: inv } = await service
+        .from("invoices")
+        .select("status")
+        .eq("id", body.invoiceId)
+        .eq("organization_id", orgId)
+        .maybeSingle<{ status: string }>();
+      if (inv?.status === "draft") {
+        return NextResponse.json(
+          { error: "Cannot record a payment on a draft invoice. Send or mark it sent first." },
+          { status: 400 },
+        );
+      }
+    }
+
+    const { data, error } = await service
+      .from("payments")
+      .insert({
+        organization_id: orgId,
+        job_id: body.jobId,
+        invoice_id: body.invoiceId ?? null,
+        source: body.source,
+        method: body.method,
+        amount: body.amount,
+        reference_number: body.referenceNumber ?? null,
+        payer_name: body.payerName ?? null,
+        received_date: body.receivedDate ?? new Date().toISOString(),
+        notes: body.notes ?? null,
+        status: "received",
+      })
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  },
+);

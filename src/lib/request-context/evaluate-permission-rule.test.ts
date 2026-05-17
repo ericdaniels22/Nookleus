@@ -101,6 +101,38 @@ describe("evaluatePermissionRule", () => {
     });
   });
 
+  describe("roles rule", () => {
+    // The job-delete gate: admin OR office_staff, no permission grant
+    // substitutes.
+    const rule = { roles: ["admin", "office_staff"] };
+
+    it("allows an admin (admin is listed explicitly)", () => {
+      expect(evaluatePermissionRule(rule, admin)).toBe(true);
+    });
+
+    it("allows a non-admin whose role is in the list", () => {
+      expect(
+        evaluatePermissionRule(rule, { role: "office_staff", grantedPermissions: [] }),
+      ).toBe(true);
+    });
+
+    it("denies a role not in the list, even with permission grants", () => {
+      expect(
+        evaluatePermissionRule(rule, member(["view_invoices", "log_expenses"])),
+      ).toBe(false);
+    });
+
+    it("denies a non-member (null role)", () => {
+      expect(evaluatePermissionRule(rule, nonMember)).toBe(false);
+    });
+
+    it("does not auto-pass an admin when admin is absent from the list", () => {
+      expect(evaluatePermissionRule({ roles: ["office_staff"] }, admin)).toBe(
+        false,
+      );
+    });
+  });
+
   describe("rule-shape edge cases", () => {
     it("enforces adminOnly when a rule mistakenly sets both adminOnly and permission", () => {
       const rule = { adminOnly: true, permission: "view_invoices" };
@@ -108,6 +140,11 @@ describe("evaluatePermissionRule", () => {
         false,
       );
       expect(evaluatePermissionRule(rule, admin)).toBe(true);
+    });
+
+    it("denies a non-member for an empty roles list", () => {
+      expect(evaluatePermissionRule({ roles: [] }, admin)).toBe(false);
+      expect(evaluatePermissionRule({ roles: [] }, nonMember)).toBe(false);
     });
 
     it("denies a non-admin for an empty permission array, still admits an admin", () => {
