@@ -10,7 +10,7 @@ export const SYSTEM_MERGE_FIELDS: MergeFieldDefinition[] = [
   { slug: "date_today", label: "Today's Date", section: "System", source: { kind: "system", key: "date_today" } },
   { slug: "intake_date", label: "Intake Date", section: "System", source: { kind: "system", key: "intake_date" } },
   // Composite legacy synonyms: pre-#67 buildMergeFieldValues computed these
-  // inline. customer_name = contact.first_name + " " + last_name;
+  // inline. customer_name = contact.full_name;
   // customer_address = job.property_address. Kept as system-source so
   // existing contract templates that reference them keep resolving.
   { slug: "customer_name", label: "Customer Name", section: "System", source: { kind: "system", key: "customer_name" } },

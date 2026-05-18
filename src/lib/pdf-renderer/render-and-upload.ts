@@ -96,16 +96,16 @@ async function loadRecipient(
 ): Promise<{ recipient: PdfRecipient; jobNumber: string }> {
   const { data: job } = await service
     .from("jobs")
-    .select("job_number, property_address, contacts:contact_id(first_name, last_name, email, phone)")
+    .select("job_number, property_address, contacts:contact_id(full_name, email, phone)")
     .eq("id", jobId)
     .maybeSingle<{
       job_number: string | null;
       property_address: string | null;
-      contacts: { first_name: string | null; last_name: string | null; email: string | null; phone: string | null } | null;
+      contacts: { full_name: string | null; email: string | null; phone: string | null } | null;
     }>();
   const contact = job?.contacts ?? null;
   const recipient: PdfRecipient = {
-    name: [contact?.first_name, contact?.last_name].filter(Boolean).join(" ") || "Customer",
+    name: contact?.full_name?.trim() || "Customer",
     email: contact?.email ?? null,
     phone: contact?.phone ?? null,
     property_address: job?.property_address ?? null,

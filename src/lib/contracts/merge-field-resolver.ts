@@ -43,9 +43,8 @@ function resolveSystem(
     case "intake_date":
       return formatDate((job?.created_at as string | null | undefined) ?? null);
     case "customer_name":
-      // Resolves directly from contacts.full_name (issue #111). The legacy
-      // first_name/last_name columns still exist during the transition but
-      // the single full_name is now the source of truth.
+      // Resolves directly from contacts.full_name — the sole customer-name
+      // column (issue #111, finalized in #115).
       return fullName(contact);
     case "customer_address":
       // Composite synonym: property_address doubles as the customer's

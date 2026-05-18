@@ -26,20 +26,15 @@ export const GET = withRequestContext(
 
     const { data: contact } = await supabase
       .from("contacts")
-      .select("email, first_name, last_name")
+      .select("email, full_name")
       .eq("id", job.contact_id)
       .maybeSingle<{
         email: string | null;
-        first_name: string | null;
-        last_name: string | null;
+        full_name: string | null;
       }>();
 
     const email = contact?.email ?? null;
-    const name =
-      [contact?.first_name, contact?.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() || null;
+    const name = contact?.full_name?.trim() || null;
 
     return NextResponse.json({ email, name });
   },

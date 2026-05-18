@@ -18,7 +18,7 @@ export default async function InvoicePage({
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, job_number, property_address, contact_id, contacts:contact_id(first_name, last_name, email)",
+      "id, job_number, property_address, contact_id, contacts:contact_id(full_name, email)",
     )
     .eq("id", inv.job_id)
     .maybeSingle();
@@ -49,8 +49,7 @@ type InvoiceReadOnlyClientJob = {
   job_number: string;
   property_address: string | null;
   contacts: {
-    first_name: string | null;
-    last_name: string | null;
+    full_name: string | null;
     email: string | null;
   } | null;
 };

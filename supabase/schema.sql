@@ -8,8 +8,7 @@
 -- ============================================
 CREATE TABLE contacts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  first_name text NOT NULL,
-  last_name text NOT NULL,
+  full_name text NOT NULL,
   phone text,
   email text,
   role text NOT NULL DEFAULT 'homeowner'

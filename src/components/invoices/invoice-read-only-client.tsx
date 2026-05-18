@@ -18,8 +18,7 @@ export interface InvoiceReadOnlyClientProps {
       job_number: string;
       property_address: string | null;
       contacts: {
-        first_name: string | null;
-        last_name: string | null;
+        full_name: string | null;
         email: string | null;
       } | null;
     } | null;

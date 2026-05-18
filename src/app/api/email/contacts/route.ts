@@ -17,9 +17,9 @@ export const GET = withRequestContext({}, async (request, ctx) => {
     const term = escapeOrFilterValue(`%${q}%`);
     const { data: contacts } = await ctx.supabase
       .from("contacts")
-      .select("first_name, last_name, email")
+      .select("full_name, email")
       .not("email", "is", null)
-      .or(`email.ilike.${term},first_name.ilike.${term},last_name.ilike.${term}`)
+      .or(`email.ilike.${term},full_name.ilike.${term}`)
       .limit(10);
 
     if (contacts) {
@@ -28,7 +28,7 @@ export const GET = withRequestContext({}, async (request, ctx) => {
           seen.add(c.email.toLowerCase());
           results.push({
             email: c.email,
-            name: `${c.first_name} ${c.last_name}`.trim(),
+            name: c.full_name?.trim() ?? "",
           });
         }
       }
