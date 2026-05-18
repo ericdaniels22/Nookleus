@@ -55,7 +55,9 @@ export const POST = withRequestContext(
       if (error) throw error;
 
       await touchEntity(supabase, "invoices", id);
-      return NextResponse.json(data);
+      // Shape must match the estimates sections route — the shared
+      // estimate-builder client destructures `{ section }` from the response.
+      return NextResponse.json({ section: data }, { status: 201 });
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/invoices/[id]/sections");
     }
