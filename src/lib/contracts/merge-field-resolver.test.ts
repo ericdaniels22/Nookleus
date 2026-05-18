@@ -141,8 +141,8 @@ describe("resolveMergeFieldValues", () => {
       { job_id: "job-1", contact_id: "adj-2", is_primary: true },
     ]);
     fake.seed("contacts", [
-      { id: "adj-1", first_name: "Wrong", last_name: "Adj", phone: "111" },
-      { id: "adj-2", first_name: "Jane", last_name: "Smith", phone: "555-9999" },
+      { id: "adj-1", full_name: "Wrong Adj", phone: "111" },
+      { id: "adj-2", full_name: "Jane Smith", phone: "555-9999" },
     ]);
 
     const registry: MergeFieldDefinition[] = [
@@ -233,7 +233,7 @@ describe("resolveMergeFieldValues", () => {
     });
   });
 
-  it("resolves system customer_name (full) and customer_address (= property_address) legacy synonyms", async () => {
+  it("resolves system customer_name (from contacts.full_name) and customer_address (= property_address)", async () => {
     const fake = makeSupabaseFake();
     fake.seed("jobs", [
       {
@@ -243,7 +243,7 @@ describe("resolveMergeFieldValues", () => {
       },
     ]);
     fake.seed("contacts", [
-      { id: "contact-1", first_name: "Alice", last_name: "Smith" },
+      { id: "contact-1", full_name: "Alice Smith" },
     ]);
 
     const registry: MergeFieldDefinition[] = [
