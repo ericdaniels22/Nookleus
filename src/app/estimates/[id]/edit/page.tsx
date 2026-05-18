@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requirePermission } from "@/lib/permissions-api";
+import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { EstimateBuilder } from "@/components/estimate-builder/estimate-builder";
 import type { Contact, Job } from "@/lib/types";
@@ -50,7 +50,9 @@ export default async function EstimateEditPage({
   const supabase = await createServerSupabaseClient();
 
   // 1. Permission check — must happen before any DB reads.
-  const auth = await requirePermission(supabase, "edit_estimates");
+  const auth = await requirePagePermission(supabase, {
+    permission: "edit_estimates",
+  });
   if (!auth.ok) {
     return (
       <ErrorPage

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertCircle, ArrowLeft, FileText, Pencil } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requirePermission } from "@/lib/permissions-api";
+import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { formatCurrency } from "@/lib/format";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
@@ -102,7 +102,9 @@ export default async function EstimateViewPage({
   const supabase = await createServerSupabaseClient();
 
   // 1. Permission check — must happen before any DB reads.
-  const auth = await requirePermission(supabase, "view_estimates");
+  const auth = await requirePagePermission(supabase, {
+    permission: "view_estimates",
+  });
   if (!auth.ok) {
     return (
       <ErrorPage
@@ -140,7 +142,9 @@ export default async function EstimateViewPage({
   if (!job) notFound();
 
   // 4. Check edit permission for the conditional Edit button (server-side).
-  const editAuth = await requirePermission(supabase, "edit_estimates");
+  const editAuth = await requirePagePermission(supabase, {
+    permission: "edit_estimates",
+  });
   const canEdit = editAuth.ok;
 
   // ── Derived display values ─────────────────────────────────────────────────
