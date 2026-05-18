@@ -33,8 +33,7 @@ const MAPS_TO_GROUPS: { label: string; options: { value: string; label: string }
   {
     label: "Contact",
     options: [
-      { value: "contact.first_name", label: "First name" },
-      { value: "contact.last_name", label: "Last name" },
+      { value: "contact.full_name", label: "Full name" },
       { value: "contact.phone", label: "Phone" },
       { value: "contact.email", label: "Email" },
       { value: "contact.role", label: "Role" },
