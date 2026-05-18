@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useConfig } from "@/lib/config-context";
-import type { FormConfig, FormSection, FormField } from "@/lib/types";
+import type { FormConfig, FormField } from "@/lib/types";
 
 export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
   const router = useRouter();
@@ -85,12 +85,12 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
       return;
     }
 
-    const firstName = valueByMapsTo("contact.first_name");
+    const fullName = valueByMapsTo("contact.full_name");
     const damageType = valueByMapsTo("job.damage_type");
     const propertyAddress = valueByMapsTo("job.property_address");
 
-    if (!firstName || !damageType || !propertyAddress) {
-      toast.error("Please fill in required fields: First Name, Damage Type, and Property Address.");
+    if (!fullName || !damageType || !propertyAddress) {
+      toast.error("Please fill in required fields: Full Name, Damage Type, and Property Address.");
       return;
     }
 
@@ -108,8 +108,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         .from("contacts")
         .insert({
           organization_id: orgId,
-          first_name: firstName,
-          last_name: valueByMapsTo("contact.last_name") || null,
+          full_name: fullName,
           phone: valueByMapsTo("contact.phone") || null,
           email: valueByMapsTo("contact.email") || null,
           role: valueByMapsTo("contact.role") || "homeowner",
@@ -123,13 +122,11 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
       let adjusterContactId: string | null = null;
       const adjusterFullName = valueByMapsTo("adjuster.full_name") || getVal("adjuster_name");
       if (adjusterFullName) {
-        const nameParts = adjusterFullName.trim().split(" ");
         const { data: adjuster, error: adjErr } = await supabase
           .from("contacts")
           .insert({
             organization_id: orgId,
-            first_name: nameParts[0] || adjusterFullName,
-            last_name: nameParts.slice(1).join(" ") || "",
+            full_name: adjusterFullName.trim(),
             phone: valueByMapsTo("adjuster.phone") || getVal("adjuster_phone") || null,
             role: "adjuster",
             title: valueByMapsTo("adjuster.title") || getVal("adjuster_title") || null,
