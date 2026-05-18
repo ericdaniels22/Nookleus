@@ -28,7 +28,7 @@
 
 DO $$
 DECLARE
-  fc              record;
+  rec             record;
   section         jsonb;
   field           jsonb;
   new_sections    jsonb;
@@ -39,13 +39,15 @@ DECLARE
   first_required  boolean;
   last_required   boolean;
 BEGIN
-  FOR fc IN
-    SELECT id, config
-      FROM form_config fc
-     WHERE version = (
-       SELECT max(version)
-         FROM form_config fc2
-        WHERE fc2.organization_id = fc.organization_id
+  -- Table aliases (t / t2) are kept distinct from the loop record variable
+  -- so PL/pgSQL does not shadow the correlated subquery's column reference.
+  FOR rec IN
+    SELECT t.id, t.config
+      FROM form_config t
+     WHERE t.version = (
+       SELECT max(t2.version)
+         FROM form_config t2
+        WHERE t2.organization_id = t.organization_id
      )
   LOOP
     -- Pass 1: detect the two name fields and their required flags.
@@ -54,7 +56,7 @@ BEGIN
     first_required := false;
     last_required := false;
 
-    FOR section IN SELECT * FROM jsonb_array_elements(fc.config->'sections') LOOP
+    FOR section IN SELECT * FROM jsonb_array_elements(rec.config->'sections') LOOP
       FOR field IN SELECT * FROM jsonb_array_elements(section->'fields') LOOP
         IF field->>'maps_to' = 'contact.first_name' THEN
           has_first := true;
@@ -73,7 +75,7 @@ BEGIN
     -- dropping the other name field.
     new_sections := '[]'::jsonb;
 
-    FOR section IN SELECT * FROM jsonb_array_elements(fc.config->'sections') LOOP
+    FOR section IN SELECT * FROM jsonb_array_elements(rec.config->'sections') LOOP
       new_fields := '[]'::jsonb;
       FOR field IN SELECT * FROM jsonb_array_elements(section->'fields') LOOP
         IF field->>'maps_to' = 'contact.first_name'
@@ -100,8 +102,8 @@ BEGIN
     END LOOP;
 
     UPDATE form_config
-       SET config = jsonb_set(fc.config, '{sections}', new_sections),
+       SET config = jsonb_set(rec.config, '{sections}', new_sections),
            updated_at = now()
-     WHERE id = fc.id;
+     WHERE id = rec.id;
   END LOOP;
 END $$;
