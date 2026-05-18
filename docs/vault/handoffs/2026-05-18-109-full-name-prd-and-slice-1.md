@@ -6,7 +6,7 @@ machine: TheLaunchPad
 related: ["[[2026-05-18-86-request-context-cleanup]]"]
 ---
 
-# Build full-name Handoff — 2026-05-18 (twenty-first session — **new PRD #109 filed + decomposed into 6 slice issues #110–#115; slice #110 IMPLEMENTED + committed (`58f02db`) on worktree branch `worktree-110-full-name-schema`; no PR opened yet**)
+# Build full-name Handoff — 2026-05-18 (twenty-first session — **new PRD #109 filed + decomposed into 6 slice issues #110–#115; slice #110 IMPLEMENTED, committed and MERGED to `main` (`d6ca443`); issue #110 CLOSED**)
 
 ## What shipped this session
 
@@ -32,14 +32,13 @@ A brand-new build, unrelated to the Request Context PRD #78. Eric reported a UX 
 
 ## What's next
 
-- **Open slice #110's PR** (`Closes #110`) — the work is implemented, verified and **committed** (`58f02db`) on `worktree-110-full-name-schema`; no PR opened yet. This session paused at the review gate per `feedback_pause_between_issues.md`.
-- **Apply the migration** — `migration-110-contacts-full-name-coexistence.sql` is written but **not applied to any database**. It could not be verified against a live Postgres this session. Applying it (Supabase SQL editor / MCP) is a deliberate authorized step, typically on merge.
-- After #110 lands, **#111–#114 unblock and are parallel-grabbable**. #111 is the one that actually fixes Eric's contract gap; #112 fixes the intake form.
+- **Apply the migration** — `migration-110-contacts-full-name-coexistence.sql` is merged to `main` but **not applied to any database**. It could not be verified against a live Postgres this session. Applying it (Supabase SQL editor / MCP) is a deliberate authorized step — do it before relying on `full_name`.
+- **#111–#114 are now unblocked and parallel-grabbable.** #111 is the one that actually fixes Eric's contract gap; #112 fixes the intake form.
 - **#115 cleanup** stays blocked until #111–#114 all land.
 
 ## Open threads
 
-- **Slice #110 is committed but not yet PR'd.** One commit `58f02db` on `worktree-110-full-name-schema`; opening the PR (`Closes #110`) is the first thing next session should do.
+- **Slice #110 was merged straight to `main`** at Eric's request (`d6ca443`) — no PR/review gate this time, overriding the usual `feedback_pause_between_issues.md` pause. The merge also pulled in origin's PR #108 (iPad fullscreen fix). The `worktree-110-full-name-schema` worktree is now merged and can be removed.
 - **The migration is DB-unverified.** No local Postgres; the SQL is pattern-matched to existing migrations but has not been run.
 - **Bounded coexistence is deliberate.** `full_name` is NULLable and the legacy columns remain through slices #111–#114; the trigger keeps them in lockstep. #115 drops the columns + trigger and makes `full_name NOT NULL`. The TS helper and the PL/pgSQL trigger must be kept in lockstep until then.
 - **QuickBooks trigger untouched in #110.** `trg_qb_enqueue_contact_update` still watches `first_name`/`last_name`; that is correct for slice 1 (the coexistence trigger keeps the legacy columns populated). #114 updates it to watch `full_name`.
@@ -48,10 +47,9 @@ A brand-new build, unrelated to the Request Context PRD #78. Eric reported a UX 
 
 ## Mechanical state
 
-- **Branch:** `worktree-110-full-name-schema` (worktree at `.claude/worktrees/110-full-name-schema`).
-- **HEAD:** `58f02db` (`contacts: add full_name column, backfill & coexistence trigger (#110)`).
-- **`main`:** `6aa3e73` (`spec: PRD for ungated-endpoint security triage (#95)`). This vault handoff + the `00-NOW.md` edit are committed straight to `main` as a separate vault-only commit (no source code).
-- **Source commits this session:** one (`58f02db`, on `worktree-110-full-name-schema`; no PR yet). **Migrations:** one written (`migration-110-...`), not applied. **Vercel deploy:** none.
+- **`main`:** `d6ca443` — slice #110 (`58f02db`) merged in, plus origin's PR #108 iPad fix merged in. Pushed to `origin/main`. (Note: the prior-session local-only commit `6aa3e73` / #95 PRD was also pushed for the first time as part of this.)
+- **Branch:** `worktree-110-full-name-schema` (`58f02db`) — merged into `main`, worktree at `.claude/worktrees/110-full-name-schema` can be cleaned up.
+- **Source commits this session:** one (`58f02db`), merged to `main`. **Migrations:** one (`migration-110-...`), merged but **not applied** to any DB. **Vercel deploy:** auto on the `main` push. **Issue #110:** CLOSED.
 - **GitHub:** PRD [#109](https://github.com/ericdaniels22/Nookleus/issues/109) OPEN; slice issues [#110](https://github.com/ericdaniels22/Nookleus/issues/110)–[#115](https://github.com/ericdaniels22/Nookleus/issues/115) OPEN, all `ready-for-agent`.
 
 ## Notes for next session
