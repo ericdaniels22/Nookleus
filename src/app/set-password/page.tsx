@@ -1,26 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
 
-// Landing page for the password recovery link emailed from
-// /api/settings/users/[id]/reset-password. Supabase verifies the link and
-// redirects here with a recovery session in the URL hash; the browser client
-// (detectSessionInUrl) consumes it, then the user picks a password.
+// Landing page for the password recovery link from
+// /api/settings/users/[id]/reset-password. The link carries a recovery
+// token as ?token_hash=...; we verify it with verifyOtp to establish a
+// session, then the user picks a password.
 //
 // This route is public — it must be in the proxy.ts allowlist and app-shell
 // AUTH_ROUTES, since the user is not signed in when they arrive.
-export default function SetPasswordPage() {
+function SetPasswordForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   if (!supabaseRef.current) supabaseRef.current = createClient();
   const supabase = supabaseRef.current;
 
-  // checking → resolving the recovery session; ready → show the form.
+  // checking → resolving the recovery token; ready → show the form.
   const [checking, setChecking] = useState(true);
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
@@ -29,22 +30,27 @@ export default function SetPasswordPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // detectSessionInUrl consumes the recovery hash asynchronously on load.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN")) {
-          setReady(true);
-          setChecking(false);
-        }
-      },
-    );
-    // Also check directly in case the session settled before we subscribed.
-    supabase.auth.getSession().then(({ data }) => {
+    const tokenHash = searchParams.get("token_hash");
+
+    async function init() {
+      if (tokenHash) {
+        // Verify the recovery token from the link — establishes a session.
+        const { error: verifyErr } = await supabase.auth.verifyOtp({
+          type: "recovery",
+          token_hash: tokenHash,
+        });
+        setReady(!verifyErr);
+        setChecking(false);
+        return;
+      }
+      // Fallback: a recovery session already present in the URL hash.
+      const { data } = await supabase.auth.getSession();
       if (data.session) setReady(true);
       setChecking(false);
-    });
-    return () => subscription.unsubscribe();
-  }, [supabase]);
+    }
+
+    init();
+  }, [supabase, searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -163,5 +169,14 @@ export default function SetPasswordPage() {
         <p className="text-center text-xs text-white/30 mt-6">Nookleus</p>
       </div>
     </div>
+  );
+}
+
+export default function SetPasswordPage() {
+  // useSearchParams requires a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <SetPasswordForm />
+    </Suspense>
   );
 }
