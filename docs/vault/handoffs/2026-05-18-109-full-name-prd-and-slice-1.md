@@ -32,14 +32,13 @@ A brand-new build, unrelated to the Request Context PRD #78. Eric reported a UX 
 
 ## What's next
 
-- **Apply the migration** — `migration-110-contacts-full-name-coexistence.sql` is merged to `main` but **not applied to any database**. It could not be verified against a live Postgres this session. Applying it (Supabase SQL editor / MCP) is a deliberate authorized step — do it before relying on `full_name`.
 - **#111–#114 are now unblocked and parallel-grabbable.** #111 is the one that actually fixes Eric's contract gap; #112 fixes the intake form.
 - **#115 cleanup** stays blocked until #111–#114 all land.
 
 ## Open threads
 
 - **Slice #110 was merged straight to `main`** at Eric's request (`d6ca443`) — no PR/review gate this time, overriding the usual `feedback_pause_between_issues.md` pause. The merge also pulled in origin's PR #108 (iPad fullscreen fix). The `worktree-110-full-name-schema` worktree is now merged and can be removed.
-- **The migration is DB-unverified.** No local Postgres; the SQL is pattern-matched to existing migrations but has not been run.
+- **The migration has been applied to the production DB** (`rzzprgidqbnqcdupmpfe`) via the Supabase MCP, migration name `contacts_full_name_coexistence`. Verified post-apply: all 23 contacts backfilled (0 null, 0 mismatched), the `contacts_sync_name` trigger exercised in both directions (split, join, whitespace-normalize, single-token) by a self-rolling-back round-trip test — no test rows persisted.
 - **Bounded coexistence is deliberate.** `full_name` is NULLable and the legacy columns remain through slices #111–#114; the trigger keeps them in lockstep. #115 drops the columns + trigger and makes `full_name NOT NULL`. The TS helper and the PL/pgSQL trigger must be kept in lockstep until then.
 - **QuickBooks trigger untouched in #110.** `trg_qb_enqueue_contact_update` still watches `first_name`/`last_name`; that is correct for slice 1 (the coexistence trigger keeps the legacy columns populated). #114 updates it to watch `full_name`.
 - **Pre-existing unrelated typecheck error** — `sync-folder-incremental.test.ts` `TS2322`, untouched; filter it from repo-wide typecheck.
@@ -49,7 +48,7 @@ A brand-new build, unrelated to the Request Context PRD #78. Eric reported a UX 
 
 - **`main`:** `d6ca443` — slice #110 (`58f02db`) merged in, plus origin's PR #108 iPad fix merged in. Pushed to `origin/main`. (Note: the prior-session local-only commit `6aa3e73` / #95 PRD was also pushed for the first time as part of this.)
 - **Branch:** `worktree-110-full-name-schema` (`58f02db`) — merged into `main`, worktree at `.claude/worktrees/110-full-name-schema` can be cleaned up.
-- **Source commits this session:** one (`58f02db`), merged to `main`. **Migrations:** one (`migration-110-...`), merged but **not applied** to any DB. **Vercel deploy:** auto on the `main` push. **Issue #110:** CLOSED.
+- **Source commits this session:** one (`58f02db`), merged to `main`. **Migrations:** one (`migration-110-...`), merged **and applied** to the production Supabase DB (`rzzprgidqbnqcdupmpfe`) + verified. **Vercel deploy:** auto on the `main` push. **Issue #110:** CLOSED.
 - **GitHub:** PRD [#109](https://github.com/ericdaniels22/Nookleus/issues/109) OPEN; slice issues [#110](https://github.com/ericdaniels22/Nookleus/issues/110)–[#115](https://github.com/ericdaniels22/Nookleus/issues/115) OPEN, all `ready-for-agent`.
 
 ## Notes for next session
