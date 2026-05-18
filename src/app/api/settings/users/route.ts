@@ -82,12 +82,14 @@ export const POST = withRequestContext(
     const orgId = ctx.orgId;
     const chosenRole = role || "crew_member";
 
-    // Create auth user with invite — handle_new_user trigger creates user_profiles row.
-    const { data: authData, error: authError } = await service.auth.admin.createUser({
+    // Invite the new user by email — Supabase emails them an invite link they
+    // use to set their own password. This also creates the auth.users row, so
+    // the handle_new_user trigger still fires to create user_profiles.
+    // Note: invite delivery depends on Supabase email/SMTP being configured.
+    const { data: authData, error: authError } = await service.auth.admin.inviteUserByEmail(
       email,
-      email_confirm: true,
-      user_metadata: { full_name, role: chosenRole },
-    });
+      { data: { full_name, role: chosenRole } },
+    );
 
     if (authError) {
       if (authError.message.includes("already been registered")) {

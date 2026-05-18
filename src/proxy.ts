@@ -40,12 +40,17 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // Allow login page, API routes, and customer-facing public pages
-  // (contract signing and payment) without auth.
+  // (contract signing and payment) without auth. /set-password is also
+  // public: crew members land there from an emailed recovery link before
+  // they have any session, and the recovery tokens arrive in the URL hash
+  // (client-only), so the page must load without an auth redirect.
   const { pathname } = request.nextUrl;
   const isLoginPage = pathname === "/login";
   const isPublicApi = pathname.startsWith("/api/");
   const isPublicPage =
-    pathname.startsWith("/sign/") || pathname.startsWith("/pay/");
+    pathname.startsWith("/sign/") ||
+    pathname.startsWith("/pay/") ||
+    pathname === "/set-password";
 
   if (!user && !isLoginPage && !isPublicApi && !isPublicPage) {
     const loginUrl = new URL("/login", request.url);
