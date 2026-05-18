@@ -9,7 +9,6 @@ import type { OverlayField, PdfPage } from "@/lib/contracts/types";
 // authors verifying overlay placement before any contract has been issued.
 const SAMPLE_MERGE_VALUES: Record<string, string> = {
   customer_name: "John Doe",
-  customer_first_name: "John",
   customer_email: "john@example.com",
   customer_phone: "(555) 123-4567",
   customer_address: "123 Main Street, Austin, TX 78701",

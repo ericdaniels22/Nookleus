@@ -26,8 +26,8 @@ function formatDate(iso: string | null | undefined): string | null {
 
 function fullName(row: ContactRow | null): string | null {
   if (!row) return null;
-  const n = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
-  return n || null;
+  const n = (row.full_name as string | null | undefined) ?? null;
+  return n && n.trim() !== "" ? n : null;
 }
 
 function resolveSystem(
@@ -43,9 +43,9 @@ function resolveSystem(
     case "intake_date":
       return formatDate((job?.created_at as string | null | undefined) ?? null);
     case "customer_name":
-      // Composite synonym: full name from the linked contact. Pre-#67
-      // buildMergeFieldValues computed this inline; new registry has no
-      // slot since there's no contacts.full_name column to alias against.
+      // Resolves directly from contacts.full_name (issue #111). The legacy
+      // first_name/last_name columns still exist during the transition but
+      // the single full_name is now the source of truth.
       return fullName(contact);
     case "customer_address":
       // Composite synonym: property_address doubles as the customer's
