@@ -1,12 +1,6 @@
 export interface Contact {
   id: string;
-  first_name: string;
-  last_name: string;
-  /**
-   * Canonical customer name. Added by the full_name migration (issue #110);
-   * kept consistent with first_name/last_name by a DB trigger during the
-   * transition. first_name/last_name are removed in the cleanup slice (#115).
-   */
+  /** Canonical customer name — the sole name column on `contacts` (PRD #109). */
   full_name: string;
   phone: string | null;
   email: string | null;

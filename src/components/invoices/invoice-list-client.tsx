@@ -26,7 +26,7 @@ interface InvoiceWithJob extends InvoiceRow {
     id: string;
     job_number: string;
     property_address: string | null;
-    contacts?: { first_name: string | null; last_name: string | null } | null;
+    contacts?: { full_name: string | null } | null;
   };
 }
 
@@ -197,9 +197,7 @@ export default function InvoiceListClient() {
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">{r.title || "—"}</td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {[r.jobs?.contacts?.first_name, r.jobs?.contacts?.last_name]
-                      .filter(Boolean)
-                      .join(" ") || "—"}
+                    {r.jobs?.contacts?.full_name || "—"}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {r.jobs ? (r.jobs.property_address ?? r.jobs.job_number) : "—"}
@@ -267,9 +265,7 @@ export default function InvoiceListClient() {
                   </td>
                   <td className="px-4 py-2">{r.title || "—"}</td>
                   <td className="px-4 py-2">
-                    {[r.jobs?.contacts?.first_name, r.jobs?.contacts?.last_name]
-                      .filter(Boolean)
-                      .join(" ") || "—"}
+                    {r.jobs?.contacts?.full_name || "—"}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {r.jobs ? (

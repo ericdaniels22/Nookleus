@@ -10,7 +10,7 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 export const GET = withRequestContext({}, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("jobs")
-    .select("id, job_number, property_address, created_at, contact:contacts!contact_id(first_name, last_name)")
+    .select("id, job_number, property_address, created_at, contact:contacts!contact_id(full_name)")
     .order("created_at", { ascending: false })
     .limit(25);
 
@@ -20,15 +20,13 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
     id: string;
     job_number: string | null;
     property_address: string | null;
-    contact: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
+    contact: { full_name: string | null } | { full_name: string | null }[] | null;
   };
 
   const options = (data ?? []).map((rawRow) => {
     const row = rawRow as JobRow;
     const contact = Array.isArray(row.contact) ? row.contact[0] : row.contact;
-    const customer = contact
-      ? [contact.first_name, contact.last_name].filter(Boolean).join(" ")
-      : "";
+    const customer = contact?.full_name?.trim() ?? "";
     const addr = row.property_address ?? "";
     const prefix = row.job_number ?? row.id.slice(0, 8);
     const trailing = [customer, addr].filter(Boolean).join(" — ");

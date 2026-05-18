@@ -74,12 +74,12 @@ export const POST = withRequestContext(
     if (job.contact_id) {
       const { data: contact } = await supabase
         .from("contacts")
-        .select("email, first_name, last_name")
+        .select("email, full_name")
         .eq("id", job.contact_id)
         .maybeSingle();
       if (contact) {
         customerEmail = contact.email ?? null;
-        customerName = [contact.first_name, contact.last_name].filter(Boolean).join(" ") || null;
+        customerName = contact.full_name?.trim() || null;
       }
     }
 

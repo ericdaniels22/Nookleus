@@ -18,7 +18,7 @@ export const GET = withRequestContext(
       if (!invoice) return NextResponse.json({ error: "not_found" }, { status: 404 });
       const { data: job } = await supabase
         .from("jobs")
-        .select("id, job_number, property_address, damage_type, contact_id, contacts:contact_id(first_name, last_name, email)")
+        .select("id, job_number, property_address, damage_type, contact_id, contacts:contact_id(full_name, email)")
         .eq("id", invoice.job_id)
         .maybeSingle();
       return NextResponse.json({ ...invoice, job: job ?? null });

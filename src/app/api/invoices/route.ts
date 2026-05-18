@@ -20,7 +20,7 @@ export const GET = withRequestContext(
     let q = supabase
       .from("invoices")
       .select(
-        "*, jobs!inner(id, job_number, property_address, contact_id, contacts:contact_id(first_name, last_name))",
+        "*, jobs!inner(id, job_number, property_address, contact_id, contacts:contact_id(full_name))",
         { count: "exact" },
       )
       .eq("organization_id", orgId)
