@@ -8,6 +8,7 @@
 // return the new QB id.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { splitName } from "@/lib/contact-name";
 import {
   createCustomer,
   getCustomer,
@@ -31,17 +32,16 @@ export interface SyncOutcome {
   reason?: string;
 }
 
-interface ContactRow {
+export interface ContactRow {
   id: string;
-  first_name: string;
-  last_name: string;
+  full_name: string;
   phone: string | null;
   email: string | null;
   notes: string | null;
   qb_customer_id: string | null;
 }
 
-interface JobRow {
+export interface JobRow {
   id: string;
   contact_id: string;
   job_number: string;
@@ -59,7 +59,7 @@ export async function syncCustomer(
 ): Promise<SyncOutcome> {
   const { data: contact } = await supabase
     .from("contacts")
-    .select("id, first_name, last_name, phone, email, notes, qb_customer_id")
+    .select("id, full_name, phone, email, notes, qb_customer_id")
     .eq("id", contactId)
     .maybeSingle<ContactRow>();
   if (!contact) {
@@ -134,7 +134,7 @@ export async function syncSubCustomer(
 
   const { data: contact } = await supabase
     .from("contacts")
-    .select("id, first_name, last_name, phone, email, notes, qb_customer_id")
+    .select("id, full_name, phone, email, notes, qb_customer_id")
     .eq("id", job.contact_id)
     .maybeSingle<ContactRow>();
   if (!contact) {
@@ -212,16 +212,19 @@ export async function syncSubCustomer(
 
 // ---------- payload builders ----------
 
-function displayName(first: string, last: string): string {
-  const trimmed = `${first ?? ""} ${last ?? ""}`.trim();
+function displayName(fullName: string): string {
+  const trimmed = (fullName ?? "").trim();
   return trimmed.length > 0 ? trimmed : "(no name)";
 }
 
-function buildCustomerPayload(contact: ContactRow): QbCustomerPayload {
+export function buildCustomerPayload(contact: ContactRow): QbCustomerPayload {
+  // GivenName/FamilyName are derived from the single full_name with the
+  // shared last-space split so QuickBooks' name fields stay populated.
+  const { givenName, familyName } = splitName(contact.full_name);
   const payload: QbCustomerPayload = {
-    DisplayName: displayName(contact.first_name, contact.last_name),
-    GivenName: contact.first_name || undefined,
-    FamilyName: contact.last_name || undefined,
+    DisplayName: displayName(contact.full_name),
+    GivenName: givenName || undefined,
+    FamilyName: familyName || undefined,
   };
   if (contact.phone) payload.PrimaryPhone = { FreeFormNumber: contact.phone };
   if (contact.email) payload.PrimaryEmailAddr = { Address: contact.email };
@@ -231,13 +234,14 @@ function buildCustomerPayload(contact: ContactRow): QbCustomerPayload {
   return payload;
 }
 
-function buildSubCustomerPayload(
+export function buildSubCustomerPayload(
   job: JobRow,
   contact: ContactRow,
   parentQbId: string | null,
   classMapping: QbMappingRow | null,
 ): QbCustomerPayload {
-  const subName = `${contact.last_name || contact.first_name || "Customer"}: ${job.job_number} - ${titleCase(job.damage_type)} Work`;
+  const { givenName, familyName } = splitName(contact.full_name);
+  const subName = `${familyName || givenName || "Customer"}: ${job.job_number} - ${titleCase(job.damage_type)} Work`;
   const payload: QbCustomerPayload = {
     DisplayName: subName,
     Job: true,
