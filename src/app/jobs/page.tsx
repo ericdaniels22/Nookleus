@@ -257,9 +257,7 @@ function TrashRow({ job, onChange }: { job: Job; onChange: () => void }) {
     onChange();
   }
 
-  const customer = job.contact
-    ? `${job.contact.first_name} ${job.contact.last_name}`
-    : "Unknown";
+  const customer = job.contact ? job.contact.full_name : "Unknown";
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

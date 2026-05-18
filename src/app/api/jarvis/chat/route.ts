@@ -17,7 +17,7 @@ const MAX_CONVERSATION_MESSAGES = 30;
 // below — the Service client returns these loosely typed.
 interface JobAdjusterRow {
   is_primary: boolean;
-  adjuster: { first_name: string; last_name: string; email: string | null } | null;
+  adjuster: { full_name: string; email: string | null } | null;
 }
 
 // Cookie-authenticated (logged-in only) — the wrapper resolves the caller
@@ -73,7 +73,7 @@ export const POST = withRequestContext(
       const { data: job } = await supabase
         .from("jobs")
         .select(
-          "*, contact:contacts!contact_id(first_name, last_name), job_adjusters(*, adjuster:contacts!contact_id(first_name, last_name, email))"
+          "*, contact:contacts!contact_id(full_name), job_adjusters(*, adjuster:contacts!contact_id(full_name, email))"
         )
         .eq("id", job_id)
         .single();
@@ -82,9 +82,7 @@ export const POST = withRequestContext(
         jobData = {
           id: job.id,
           jobNumber: job.job_number,
-          customerName: job.contact
-            ? `${job.contact.first_name} ${job.contact.last_name}`
-            : "Unknown",
+          customerName: job.contact ? job.contact.full_name : "Unknown",
           address: job.property_address,
           status: job.status,
           damageType: job.damage_type,
@@ -93,7 +91,7 @@ export const POST = withRequestContext(
           claimNumber: job.claim_number,
           adjusterName: (() => {
             const adj = job.job_adjusters?.find((ja: JobAdjusterRow) => ja.is_primary)?.adjuster;
-            return adj ? `${adj.first_name} ${adj.last_name}` : null;
+            return adj ? adj.full_name : null;
           })(),
           adjusterEmail: job.job_adjusters?.find((ja: JobAdjusterRow) => ja.is_primary)?.adjuster?.email || null,
           createdAt: job.created_at,

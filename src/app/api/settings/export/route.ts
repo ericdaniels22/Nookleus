@@ -38,7 +38,7 @@ export const GET = withRequestContext({}, async (request, ctx) => {
       break;
     }
     case "contacts": {
-      query = ctx.supabase.from("contacts").select("first_name, last_name, phone, email, role, company, notes, created_at");
+      query = ctx.supabase.from("contacts").select("full_name, phone, email, role, company, notes, created_at");
       filename = "contacts.csv";
       break;
     }

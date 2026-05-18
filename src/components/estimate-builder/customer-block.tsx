@@ -19,9 +19,7 @@ export function CustomerBlock({ job, mode = "estimate" }: CustomerBlockProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   if (mode === "template") return null;
   const { contact } = job;
-  const customerName = contact
-    ? `${contact.first_name} ${contact.last_name}`.trim()
-    : "—";
+  const customerName = contact ? contact.full_name.trim() : "—";
 
   return (
     <div className="rounded-lg border border-border/50 bg-card px-4 py-3">

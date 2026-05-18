@@ -343,13 +343,9 @@ async function toolGetJobDetails(
     .filter((p) => p.status === "received")
     .reduce((sum, p) => sum + Number(p.amount), 0);
 
-  const contactName = job.contact
-    ? `${job.contact.first_name} ${job.contact.last_name}`
-    : "Unknown";
+  const contactName = job.contact ? job.contact.full_name : "Unknown";
   const primaryAdj = job.job_adjusters?.find((ja: any) => ja.is_primary)?.adjuster;
-  const adjusterName = primaryAdj
-    ? `${primaryAdj.first_name} ${primaryAdj.last_name}`
-    : null;
+  const adjusterName = primaryAdj ? primaryAdj.full_name : null;
 
   return {
     id: job.id,
@@ -407,7 +403,7 @@ async function toolSearchJobs(
 
   let query = supabase
     .from("jobs")
-    .select("*, contact:contacts!contact_id(first_name, last_name)")
+    .select("*, contact:contacts!contact_id(full_name)")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -424,9 +420,7 @@ async function toolSearchJobs(
   let results = (jobs || []).map((j) => ({
     id: j.id,
     job_number: j.job_number,
-    customer_name: j.contact
-      ? `${j.contact.first_name} ${j.contact.last_name}`
-      : "Unknown",
+    customer_name: j.contact ? j.contact.full_name : "Unknown",
     address: j.property_address,
     status: j.status,
     damage_type: j.damage_type,

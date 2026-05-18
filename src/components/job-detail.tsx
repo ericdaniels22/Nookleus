@@ -310,9 +310,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     );
   }
 
-  const contactName = job.contact
-    ? `${job.contact.first_name} ${job.contact.last_name}`
-    : "Unknown";
+  const contactName = job.contact ? job.contact.full_name : "Unknown";
 
   return (
     <div className="max-w-6xl animate-fade-slide-up">
@@ -606,7 +604,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               <div className="rounded-lg border border-border bg-background/50 p-3 mb-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-foreground">
-                    {job.contact.first_name} {job.contact.last_name}
+                    {job.contact.full_name}
                   </span>
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 uppercase">
                     {job.contact.role === "property_manager" ? "Prop Manager" : job.contact.role}
@@ -758,7 +756,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
 
       <ContractsSection
         jobId={jobId}
-        customerName={job.contact ? `${job.contact.first_name} ${job.contact.last_name}` : null}
+        customerName={job.contact?.full_name ?? null}
         customerEmail={job.contact?.email ?? null}
         onChanged={fetchData}
       />
@@ -1058,7 +1056,7 @@ function AdjusterCard({
     <div className="rounded-lg border border-border bg-background/50 p-3 group relative">
       <div className="flex items-center justify-between mb-1">
         <span className="text-sm font-medium text-foreground">
-          {adj.first_name} {adj.last_name}
+          {adj.full_name}
         </span>
         <div className="flex items-center gap-1.5">
           {jobAdjuster.is_primary && (
@@ -1330,8 +1328,7 @@ function EditContactDialog({
 }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
+    full_name: "",
     phone: "",
     email: "",
     role: "homeowner" as string,
@@ -1340,8 +1337,7 @@ function EditContactDialog({
   useEffect(() => {
     if (open && job.contact) {
       setForm({
-        first_name: job.contact.first_name || "",
-        last_name: job.contact.last_name || "",
+        full_name: job.contact.full_name || "",
         phone: job.contact.phone || "",
         email: job.contact.email || "",
         role: job.contact.role || "homeowner",
@@ -1350,8 +1346,8 @@ function EditContactDialog({
   }, [open, job.contact]);
 
   async function handleSave() {
-    if (!form.first_name.trim() || !form.last_name.trim()) {
-      toast.error("First and last name are required.");
+    if (!form.full_name.trim()) {
+      toast.error("Full name is required.");
       return;
     }
     if (!job.contact_id) {
@@ -1363,8 +1359,7 @@ function EditContactDialog({
     const { error } = await supabase
       .from("contacts")
       .update({
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
+        full_name: form.full_name.trim(),
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
         role: form.role,
@@ -1394,15 +1389,9 @@ function EditContactDialog({
           <DialogTitle>Edit Contact</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">First Name *</label>
-              <Input value={form.first_name} onChange={(e) => update("first_name", e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">Last Name *</label>
-              <Input value={form.last_name} onChange={(e) => update("last_name", e.target.value)} />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Full Name *</label>
+            <Input value={form.full_name} onChange={(e) => update("full_name", e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Phone</label>
@@ -1599,8 +1588,7 @@ function AddAdjusterDialog({
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState({
-    first_name: "",
-    last_name: "",
+    full_name: "",
     title: "",
     company: "",
     phone: "",
@@ -1612,7 +1600,7 @@ function AddAdjusterDialog({
       setMode("search");
       setSearch("");
       setResults([]);
-      setCreateForm({ first_name: "", last_name: "", title: "", company: "", phone: "", email: "" });
+      setCreateForm({ full_name: "", title: "", company: "", phone: "", email: "" });
     }
   }, [open]);
 
@@ -1629,7 +1617,7 @@ function AddAdjusterDialog({
         .from("contacts")
         .select("*")
         .eq("role", "adjuster")
-        .or(`first_name.ilike.${term},last_name.ilike.${term},company.ilike.${term},email.ilike.${term}`)
+        .or(`full_name.ilike.${term},company.ilike.${term},email.ilike.${term}`)
         .limit(10);
       if (data) {
         setResults(data.filter((c: Contact) => !existingAdjusterIds.includes(c.id)));
@@ -1660,8 +1648,8 @@ function AddAdjusterDialog({
   }
 
   async function handleCreate() {
-    if (!createForm.first_name.trim() || !createForm.last_name.trim()) {
-      toast.error("First and last name are required.");
+    if (!createForm.full_name.trim()) {
+      toast.error("Full name is required.");
       return;
     }
     setSaving(true);
@@ -1671,8 +1659,7 @@ function AddAdjusterDialog({
       .from("contacts")
       .insert({
         organization_id: orgId,
-        first_name: createForm.first_name.trim(),
-        last_name: createForm.last_name.trim(),
+        full_name: createForm.full_name.trim(),
         title: createForm.title.trim() || null,
         company: createForm.company.trim() || null,
         phone: createForm.phone.trim() || null,
@@ -1755,7 +1742,7 @@ function AddAdjusterDialog({
                     onClick={() => linkAdjuster(c.id)}
                     disabled={saving}
                   >
-                    <p className="text-sm font-medium text-foreground">{c.first_name} {c.last_name}</p>
+                    <p className="text-sm font-medium text-foreground">{c.full_name}</p>
                     <p className="text-xs text-muted-foreground">{[c.title, c.company].filter(Boolean).join(" \u00b7 ")}</p>
                     <p className="text-xs text-muted-foreground">{[c.phone, c.email].filter(Boolean).join(" \u00b7 ")}</p>
                   </button>
@@ -1768,15 +1755,9 @@ function AddAdjusterDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-muted-foreground mb-1">First Name *</label>
-                <Input value={createForm.first_name} onChange={(e) => updateCreate("first_name", e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-muted-foreground mb-1">Last Name *</label>
-                <Input value={createForm.last_name} onChange={(e) => updateCreate("last_name", e.target.value)} />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Full Name *</label>
+              <Input value={createForm.full_name} onChange={(e) => updateCreate("full_name", e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

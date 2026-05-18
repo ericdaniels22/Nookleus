@@ -140,9 +140,7 @@ async function executeFieldOpsTool(
             property_type: job.property_type,
             affected_areas: job.affected_areas,
             urgency: job.urgency,
-            customer: job.contact
-              ? `${job.contact.first_name} ${job.contact.last_name}`
-              : "Unknown",
+            customer: job.contact ? job.contact.full_name : "Unknown",
             days_since_start: daysSinceStart,
             custom_fields: customMap,
             recent_activities: (activities || []).map((a) => ({

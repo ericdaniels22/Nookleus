@@ -24,7 +24,7 @@ async function getProfitability(request: Request, ctx: RequestContext) {
     : { data: [] };
   const contactIds = (jobs ?? []).map((j) => j.contact_id).filter((id): id is string => !!id);
   const { data: contacts } = contactIds.length
-    ? await supabase.from("contacts").select("id, first_name, last_name").in("id", contactIds)
+    ? await supabase.from("contacts").select("id, full_name").in("id", contactIds)
     : { data: [] };
 
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
@@ -33,7 +33,7 @@ async function getProfitability(request: Request, ctx: RequestContext) {
   const rows = margins.map((m) => {
     const j = jobById.get(m.jobId);
     const c = j?.contact_id ? contactById.get(j.contact_id) : null;
-    const customer_name = c ? `${c.first_name} ${c.last_name}`.trim() : null;
+    const customer_name = c ? c.full_name.trim() : null;
     return {
       ...m,
       damage_type: j?.damage_type ?? null,
