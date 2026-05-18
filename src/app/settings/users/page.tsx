@@ -79,6 +79,8 @@ export default function UsersSettingsPage() {
 
   // Password reset
   const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [resetUserName, setResetUserName] = useState("");
 
   // Permissions dialog
   const [permUserId, setPermUserId] = useState<string | null>(null);
@@ -151,10 +153,18 @@ export default function UsersSettingsPage() {
       method: "POST",
     });
     if (res.ok) {
-      toast.success(`Password reset link sent to ${user.email || user.full_name}`);
+      const data = await res.json();
+      setResetUserName(user.full_name);
+      setResetLink(data.link);
+      try {
+        await navigator.clipboard.writeText(data.link);
+        toast.success("Reset link copied to clipboard");
+      } catch {
+        toast.success("Reset link generated");
+      }
     } else {
       const err = await res.json().catch(() => ({}));
-      toast.error(err.error || "Failed to send reset link");
+      toast.error(err.error || "Failed to generate reset link");
     }
     setResettingId(null);
   }
@@ -269,7 +279,7 @@ export default function UsersSettingsPage() {
                     onClick={() => sendReset(user)}
                     disabled={resettingId === user.id}
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    title="Send password reset link"
+                    title="Get password reset link"
                   >
                     {resettingId === user.id ? (
                       <Loader2 size={14} className="animate-spin" />
@@ -412,6 +422,48 @@ export default function UsersSettingsPage() {
                 Save Permissions
               </button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Link Dialog */}
+      <Dialog open={!!resetLink} onOpenChange={(open) => !open && setResetLink(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Password reset link — {resetUserName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Send this link to {resetUserName} — text, email, or however you
+              reach them. They open it to set their password. The link expires
+              in about an hour, so share it soon.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={resetLink ?? ""}
+                readOnly
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                onClick={async () => {
+                  if (!resetLink) return;
+                  try {
+                    await navigator.clipboard.writeText(resetLink);
+                    toast.success("Copied");
+                  } catch {
+                    toast.error("Couldn't copy — select the link and copy it manually");
+                  }
+                }}
+                className="px-3 py-2 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-accent shrink-0"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose className="px-4 py-2 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-accent">
+              Done
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
