@@ -152,9 +152,7 @@ export default async function EstimateViewPage({
   const statusLabel = formatStatusLabel(estimate.status);
 
   const contact = job.contact;
-  const contactName = contact
-    ? `${contact.first_name} ${contact.last_name}`.trim()
-    : null;
+  const contactName = contact ? contact.full_name.trim() : null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

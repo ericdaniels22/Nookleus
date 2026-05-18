@@ -61,8 +61,7 @@ type ContactWithJobs = Contact & {
 };
 
 const emptyForm = {
-  first_name: "",
-  last_name: "",
+  full_name: "",
   phone: "",
   email: "",
   role: "homeowner" as Contact["role"],
@@ -134,7 +133,7 @@ export default function ContactsPage() {
     if (roleFilter !== "all" && c.role !== roleFilter) return false;
     if (search) {
       const q = search.toLowerCase();
-      const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
+      const fullName = c.full_name.toLowerCase();
       return (
         fullName.includes(q) ||
         c.email?.toLowerCase().includes(q) ||
@@ -159,8 +158,7 @@ export default function ContactsPage() {
   function openEditDialog(contact: Contact) {
     setEditingContact(contact);
     setForm({
-      first_name: contact.first_name,
-      last_name: contact.last_name,
+      full_name: contact.full_name,
       phone: contact.phone || "",
       email: contact.email || "",
       role: contact.role,
@@ -171,8 +169,8 @@ export default function ContactsPage() {
   }
 
   async function handleSave() {
-    if (!form.first_name.trim() || !form.last_name.trim()) {
-      toast.error("First and last name are required");
+    if (!form.full_name.trim()) {
+      toast.error("Full name is required");
       return;
     }
 
@@ -180,8 +178,7 @@ export default function ContactsPage() {
     const supabase = createClient();
 
     const payload = {
-      first_name: form.first_name.trim(),
-      last_name: form.last_name.trim(),
+      full_name: form.full_name.trim(),
       phone: form.phone.trim() || null,
       email: form.email.trim() || null,
       role: form.role,
@@ -347,7 +344,7 @@ export default function ContactsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-sm font-semibold text-foreground truncate">
-                      {contact.first_name} {contact.last_name}
+                      {contact.full_name}
                     </h3>
                     <Badge
                       className={cn(
@@ -427,32 +424,18 @@ export default function ContactsPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Name row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  First Name *
-                </label>
-                <Input
-                  value={form.first_name}
-                  onChange={(e) =>
-                    setForm({ ...form, first_name: e.target.value })
-                  }
-                  placeholder="First name"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Last Name *
-                </label>
-                <Input
-                  value={form.last_name}
-                  onChange={(e) =>
-                    setForm({ ...form, last_name: e.target.value })
-                  }
-                  placeholder="Last name"
-                />
-              </div>
+            {/* Name */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                Full Name *
+              </label>
+              <Input
+                value={form.full_name}
+                onChange={(e) =>
+                  setForm({ ...form, full_name: e.target.value })
+                }
+                placeholder="Full name"
+              />
             </div>
 
             {/* Role pills */}
@@ -560,7 +543,7 @@ export default function ContactsPage() {
           <p className="text-sm text-muted-foreground py-2">
             Are you sure you want to delete{" "}
             <span className="font-medium text-foreground">
-              {deleteTarget?.first_name} {deleteTarget?.last_name}
+              {deleteTarget?.full_name}
             </span>
             ? This cannot be undone.
           </p>

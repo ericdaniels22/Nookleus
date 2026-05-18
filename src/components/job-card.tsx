@@ -12,9 +12,7 @@ import { cn } from "@/lib/utils";
 export default function JobCard({ job }: { job: Job }) {
   const { getStatusColor, getStatusLabel, getDamageTypeColor, getDamageTypeLabel, damageTypes } = useConfig();
   const isCompleted = job.status === "completed" || job.status === "cancelled";
-  const contactName = job.contact
-    ? `${job.contact.first_name} ${job.contact.last_name}`
-    : "Unknown";
+  const contactName = job.contact ? job.contact.full_name : "Unknown";
 
   // Get damage type color for top border
   const dtConfig = damageTypes.find((dt) => dt.name === job.damage_type);
