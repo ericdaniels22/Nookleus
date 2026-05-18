@@ -5,7 +5,7 @@ import Sidebar from "@/components/nav";
 import { useSidebarCollapse } from "@/lib/sidebar-collapse-context";
 import { cn } from "@/lib/utils";
 
-const AUTH_ROUTES = ["/login", "/logout"];
+const AUTH_ROUTES = ["/login", "/logout", "/set-password"];
 const FULL_BLEED_ROUTES = ["/email"];
 // Public customer-facing routes render without the internal app chrome.
 const PUBLIC_ROUTES = ["/sign", "/pay"];

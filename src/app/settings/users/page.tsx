@@ -19,6 +19,7 @@ import {
   Loader2,
   Mail,
   Phone,
+  KeyRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,9 @@ export default function UsersSettingsPage() {
   const [invitePhone, setInvitePhone] = useState("");
   const [inviteRole, setInviteRole] = useState("crew_member");
   const [inviting, setInviting] = useState(false);
+
+  // Password reset
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   // Permissions dialog
   const [permUserId, setPermUserId] = useState<string | null>(null);
@@ -139,6 +143,20 @@ export default function UsersSettingsPage() {
     } else {
       toast.error("Failed to update user status");
     }
+  }
+
+  async function sendReset(user: UserProfile) {
+    setResettingId(user.id);
+    const res = await fetch(`/api/settings/users/${user.id}/reset-password`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      toast.success(`Password reset link sent to ${user.email || user.full_name}`);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error || "Failed to send reset link");
+    }
+    setResettingId(null);
   }
 
   async function openPermissions(user: UserProfile) {
@@ -247,6 +265,18 @@ export default function UsersSettingsPage() {
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => sendReset(user)}
+                    disabled={resettingId === user.id}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                    title="Send password reset link"
+                  >
+                    {resettingId === user.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <KeyRound size={14} />
+                    )}
+                  </button>
                   <button
                     onClick={() => openPermissions(user)}
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
