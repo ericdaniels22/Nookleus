@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { resolveCaller } from "./resolve-caller";
 import {
   evaluatePermissionRule,
   type PermissionRule,
@@ -86,43 +86,19 @@ export function withRequestContext<TParams = Record<string, never>>(
   return async (request, routeContext) => {
     const supabase = await createServerSupabaseClient();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    const caller = await resolveCaller(supabase);
+    if (!caller) {
       return NextResponse.json(REJECT_UNAUTHENTICATED, { status: 401 });
     }
 
-    const orgId = await getActiveOrganizationId(supabase);
-
-    const { data: membership } = await supabase
-      .from("user_organizations")
-      .select("id, role")
-      .eq("user_id", user.id)
-      .eq("organization_id", orgId)
-      .maybeSingle<{ id: string; role: string }>();
-
-    let grantedPermissions: string[] = [];
-    if (membership) {
-      const { data: grants } = await supabase
-        .from("user_organization_permissions")
-        .select("permission_key")
-        .eq("user_organization_id", membership.id)
-        .eq("granted", true);
-      grantedPermissions = ((grants ?? []) as { permission_key: string }[]).map(
-        (g) => g.permission_key,
-      );
-    }
-
-    const role = membership?.role ?? null;
-    if (!evaluatePermissionRule(rule, { role, grantedPermissions })) {
+    if (!evaluatePermissionRule(rule, caller)) {
       return NextResponse.json(REJECT_FORBIDDEN, { status: 403 });
     }
 
     const context: RequestContext = {
-      userId: user.id,
-      orgId,
-      role,
+      userId: caller.userId,
+      orgId: caller.orgId,
+      role: caller.role,
       supabase,
     };
     if (rule.serviceClient) {

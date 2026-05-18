@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { requirePermission } from "@/lib/permissions-api";
+import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { generateEstimateNumber } from "@/lib/estimates";
 import type { Estimate } from "@/lib/types";
@@ -41,7 +41,9 @@ export default async function NewEstimatePage({
   const supabase = await createServerSupabaseClient();
 
   // 1. Permission check — must happen before any data work.
-  const auth = await requirePermission(supabase, "create_estimates");
+  const auth = await requirePagePermission(supabase, {
+    permission: "create_estimates",
+  });
   if (!auth.ok) {
     return (
       <ErrorPage
