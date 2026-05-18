@@ -17,78 +17,35 @@
 --            mapping (contact.first_name / contact.last_name), not by slug
 --            string, because the slugs are org-specific.
 --
+-- Slice order: name slugs are collected from EVERY form_config version of an
+--            org, not just the latest. Slice #112 collapses the latest
+--            form_config to a single contact.full_name field, which would
+--            otherwise erase the mappings this migration needs — scanning all
+--            versions makes #111 independent of whether #112 has run.
+--
 -- Depends on: migration-110 (customer_name now resolves from contacts.full_name).
 -- Revert:    one-shot data migration; the dropped last-name stamps cannot be
 --            reconstructed, so there is no automatic rollback.
+--
+-- Note:      The whole migration is a single do-block so it runs in one
+--            session. The element rebuild is inlined rather than factored
+--            into a helper function.
 
--- ---------------------------------------------------------------------------
--- 1. Pure rewrite helper (session-scoped). Mirrors the TS module: rename
---    first-name merge stamps to customer_name; drop last-name merge stamps
---    when a first-name stamp is present, otherwise rename them too.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION pg_temp.rewrite_overlay_name_fields(
-  p_overlay   jsonb,
-  first_slugs text[],
-  last_slugs  text[]
-) RETURNS jsonb
-LANGUAGE plpgsql
-AS $fn$
-DECLARE
-  has_first boolean;
-  result    jsonb := '[]'::jsonb;
-  elem      jsonb;
-  slug      text;
-BEGIN
-  IF p_overlay IS NULL OR jsonb_typeof(p_overlay) <> 'array' THEN
-    RETURN p_overlay;
-  END IF;
-
-  has_first := EXISTS (
-    SELECT 1 FROM jsonb_array_elements(p_overlay) e
-    WHERE e->>'type' = 'merge'
-      AND e->>'mergeFieldName' = ANY(first_slugs)
-  );
-
-  FOR elem IN SELECT * FROM jsonb_array_elements(p_overlay) LOOP
-    slug := elem->>'mergeFieldName';
-    IF elem->>'type' = 'merge' AND slug = ANY(first_slugs) THEN
-      result := result || jsonb_build_array(
-        jsonb_set(elem, '{mergeFieldName}', '"customer_name"')
-      );
-    ELSIF elem->>'type' = 'merge' AND slug = ANY(last_slugs) THEN
-      -- A first-name stamp already becomes customer_name (the full name), so
-      -- an accompanying last-name stamp is redundant — drop it. With no
-      -- first-name stamp, rename the lone last-name stamp instead.
-      IF has_first THEN
-        CONTINUE;
-      END IF;
-      result := result || jsonb_build_array(
-        jsonb_set(elem, '{mergeFieldName}', '"customer_name"')
-      );
-    ELSE
-      result := result || jsonb_build_array(elem);
-    END IF;
-  END LOOP;
-
-  RETURN result;
-END;
-$fn$;
-
--- ---------------------------------------------------------------------------
--- 2. Rewrite every org's contract templates, using that org's latest
---    form_config to identify which slugs are the first/last name fields.
---    A field's slug is `merge_field_slug` when set, else the field id.
--- ---------------------------------------------------------------------------
 do $$
 declare
   v_org   uuid;
   v_first text[];
   v_last  text[];
+  v_bad   int;
 begin
+  -- 1. Rewrite each org's contract templates. A field's slug is
+  --    `merge_field_slug` when set, else the field id; a slug that has ever
+  --    mapped to contact.first_name / contact.last_name in any form_config
+  --    version of the org is treated as a name slug.
   for v_org in select distinct organization_id from public.contract_templates loop
     select
-      array_agg(slug) filter (where maps_to = 'contact.first_name'),
-      array_agg(slug) filter (where maps_to = 'contact.last_name')
+      array_agg(distinct slug) filter (where maps_to = 'contact.first_name'),
+      array_agg(distinct slug) filter (where maps_to = 'contact.last_name')
       into v_first, v_last
     from (
       select coalesce(f->>'merge_field_slug', f->>'id') as slug,
@@ -97,30 +54,49 @@ begin
            jsonb_array_elements(fc.config->'sections') s,
            jsonb_array_elements(s->'fields')           f
       where fc.organization_id = v_org
-        and fc.version = (
-          select max(version) from public.form_config
-          where organization_id = v_org
-        )
     ) name_fields;
 
-    update public.contract_templates
-       set overlay_fields = pg_temp.rewrite_overlay_name_fields(
-             overlay_fields,
-             coalesce(v_first, '{}'::text[]),
-             coalesce(v_last,  '{}'::text[])
-           )
-     where organization_id = v_org;
-  end loop;
-end $$;
+    v_first := coalesce(v_first, '{}'::text[]);
+    v_last  := coalesce(v_last,  '{}'::text[]);
 
--- ---------------------------------------------------------------------------
--- 3. Safety assertion: no contract-template overlay may still reference a
---    first/last name slug from its org's latest form_config.
--- ---------------------------------------------------------------------------
-do $$
-declare
-  v_bad int;
-begin
+    update public.contract_templates t
+       set overlay_fields = (
+         select coalesce(jsonb_agg(new_elem order by ord), '[]'::jsonb)
+         from (
+           select ord,
+             case
+               -- First-name stamp -> customer_name (resolves the full name).
+               when elem->>'type' = 'merge'
+                    and elem->>'mergeFieldName' = any(v_first)
+                 then jsonb_set(elem, '{mergeFieldName}', '"customer_name"')
+               -- Last-name stamp: redundant when a first-name stamp is also
+               -- present (drop it); otherwise it is the only name field so
+               -- rename it instead.
+               when elem->>'type' = 'merge'
+                    and elem->>'mergeFieldName' = any(v_last)
+                 then case
+                        when exists (
+                          select 1
+                          from jsonb_array_elements(t.overlay_fields) e2
+                          where e2->>'type' = 'merge'
+                            and e2->>'mergeFieldName' = any(v_first)
+                        )
+                          then null
+                        else jsonb_set(elem, '{mergeFieldName}', '"customer_name"')
+                      end
+               else elem
+             end as new_elem
+           from jsonb_array_elements(t.overlay_fields)
+                  with ordinality as a(elem, ord)
+         ) rebuilt
+         where new_elem is not null
+       )
+     where t.organization_id = v_org
+       and jsonb_typeof(t.overlay_fields) = 'array';
+  end loop;
+
+  -- 2. Safety assertion: no contract-template overlay may still reference a
+  --    first/last name slug from any form_config version of its org.
   select count(*)
     into v_bad
   from public.contract_templates t,
@@ -132,10 +108,6 @@ begin
            jsonb_array_elements(fc.config->'sections') s,
            jsonb_array_elements(s->'fields')           f
       where fc.organization_id = t.organization_id
-        and fc.version = (
-          select max(version) from public.form_config
-          where organization_id = t.organization_id
-        )
         and f->>'maps_to' in ('contact.first_name', 'contact.last_name')
     );
 
