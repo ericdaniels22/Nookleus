@@ -185,11 +185,25 @@ because they do not use session-based auth:
 - `POST /api/jobs/[id]/photos/bulk-tag` — bulk-tag job photos
 - `POST /api/jobs/[id]/photos/download` — bulk-download job photos
 
+> **#103 — gated.** These eight no longer run logged-in-only. Reads take
+> the job-view key, writes/deletes take the job-edit key, both from the
+> canonical #96 vocabulary:
+> - `view_jobs` → `GET .../files`, `GET .../files/[fileId]/url`
+> - `edit_jobs` → `POST .../files`, `PATCH`/`DELETE .../files/[fileId]`,
+>   `DELETE .../photos/bulk`, `POST .../photos/bulk-tag`,
+>   `POST .../photos/download`
+>
+> The download route is treated as a write (`edit_jobs`) per the #103 spec
+> — it produces signed URLs for an explicit, multi-select bulk export, a
+> heavier action than a single-file view. Admins auto-pass every rule.
+
 ### ⚠️ jobs/search — no prior auth at all
 
 - `GET /api/jobs/search` — job search/autocomplete. Wrapped `{}`. Had **no
   auth check whatsoever** before conversion; the wrapper now adds a
   logged-in gate.
+
+> **#103 — gated.** Now requires `view_jobs` (admins auto-pass).
 
 ### payments (wrapped `{ serviceClient: true }`, except GET)
 

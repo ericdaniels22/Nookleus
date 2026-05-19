@@ -8,9 +8,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 // an <a download> link on the client. Do NOT pass the `download` option
 // to createSignedUrl — that forces Content-Disposition: attachment and
 // breaks iframe preview.
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
+// Previously ungated (RLS-only); now requires `view_jobs` (#103).
 export const GET = withRequestContext(
-  {},
+  { permission: "view_jobs" },
   async (
     _request,
     ctx,

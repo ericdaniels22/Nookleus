@@ -76,9 +76,31 @@ function queryBuilder(rows: Row[]): QueryBuilder {
   return builder;
 }
 
+// Storage stub shared by both client fakes: `remove` echoes the paths back
+// and `createSignedUrl` returns a deterministic test URL.
+function fakeStorage() {
+  return {
+    from() {
+      return {
+        async remove(paths: string[]) {
+          return { data: paths.map((name) => ({ name })), error: null };
+        },
+        async createSignedUrl(path: string) {
+          return {
+            data: { signedUrl: `https://signed.test/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+}
+
 // A fake User client. `tables` seeds whatever the wrapper or route reads:
 // `user_organizations` (membership), `user_organization_permissions`
-// (grants), and any table a logged-in-only route queries directly.
+// (grants), and any table a route queries directly. `storage` is stubbed so
+// permission-gated routes that read/write storage on the User client (the
+// job files/photos routes) can be exercised end-to-end.
 export function fakeUserClient(opts: {
   user: { id: string } | null;
   tables?: Record<string, Row[]>;
@@ -93,6 +115,7 @@ export function fakeUserClient(opts: {
     from(table: string) {
       return queryBuilder(tables[table] ?? []);
     },
+    storage: fakeStorage(),
   };
 }
 
@@ -137,20 +160,6 @@ export function fakeServiceClient(opts: {
     from(table: string) {
       return queryBuilder(tables[table] ?? []);
     },
-    storage: {
-      from() {
-        return {
-          async remove(paths: string[]) {
-            return { data: paths.map((name) => ({ name })), error: null };
-          },
-          async createSignedUrl(path: string) {
-            return {
-              data: { signedUrl: `https://signed.test/${path}` },
-              error: null,
-            };
-          },
-        };
-      },
-    },
+    storage: fakeStorage(),
   };
 }

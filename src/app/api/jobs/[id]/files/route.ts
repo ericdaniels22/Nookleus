@@ -3,9 +3,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { randomUUID } from "crypto";
 
 // GET /api/jobs/[id]/files — list files for a job (scoped to active org).
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
+// Previously ungated (RLS-only); now requires `view_jobs` (#103).
 export const GET = withRequestContext(
-  {},
+  { permission: "view_jobs" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id: jobId } = await params;
 
@@ -26,8 +26,9 @@ export const GET = withRequestContext(
 
 // POST /api/jobs/[id]/files — upload one or more files
 // Returns { succeeded: JobFile[], failed: { filename: string, error: string }[] }
+// Previously ungated (RLS-only); now requires `edit_jobs` (#103).
 export const POST = withRequestContext(
-  {},
+  { permission: "edit_jobs" },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id: jobId } = await params;
     const formData = await request.formData();
