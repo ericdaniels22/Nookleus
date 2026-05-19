@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback, type MutableRefObject } from "react";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { resolveActiveOrgId } from "@/lib/supabase/resolve-active-org-id";
 import type { JarvisConversation, JarvisMessage as JarvisMessageType } from "@/lib/types";
 import JarvisMessage from "./JarvisMessage";
 import JarvisInput from "./JarvisInput";
@@ -118,10 +119,19 @@ export default function JarvisChat({
       ? firstMessage.content.slice(0, 47) + "..."
       : firstMessage.content;
 
+    // The tenant_isolation_jarvis_conversations RLS policy rejects an insert
+    // without organization_id; resolve it from the session JWT claim.
+    const { data: { session } } = await supabase.auth.getSession();
+    const orgId = resolveActiveOrgId(session?.access_token);
+    if (!orgId) {
+      throw new Error("No active organization on session — cannot create conversation");
+    }
+
     const { data, error } = await supabase
       .from("jarvis_conversations")
       .insert({
         user_id: user?.id,
+        organization_id: orgId,
         job_id: jobId || null,
         context_type: contextType,
         title,
@@ -170,20 +180,20 @@ export default function JarvisChat({
     let conv = conversation;
     let isNewConversation = false;
 
-    // Create or update conversation optimistically
-    if (!conv) {
-      conv = await createConversation(userMsg);
-      setConversation(conv);
-      isNewConversation = true;
-      // Don't call onConversationCreated yet — it changes the key and remounts us
-    } else {
-      await saveMessages(conv.id, newMessages);
-    }
-
-    // Call the real Jarvis API
-    abortControllerRef.current = new AbortController();
-
+    // Top-level try/catch/finally — finally must always run so that a throw
+    // from createConversation / saveMessages / fetch can never strand the
+    // typing indicator or the neural-network brain state.
     try {
+      if (!conv) {
+        conv = await createConversation(userMsg);
+        setConversation(conv);
+        isNewConversation = true;
+        // Don't call onConversationCreated yet — it changes the key and remounts us
+      } else {
+        await saveMessages(conv.id, newMessages);
+      }
+
+      abortControllerRef.current = new AbortController();
       const response = await fetch("/api/jarvis/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,14 +213,10 @@ export default function JarvisChat({
         setBrainState({ mode: "thinking", activeAgent: data.routed_to });
       }
 
-      let assistantContent: string;
-      if (!response.ok) {
-        assistantContent =
-          data.content ||
+      const assistantContent: string = response.ok
+        ? data.content
+        : data.content ||
           "I hit a snag — give me a sec and try again. If this keeps happening, let Eric know.";
-      } else {
-        assistantContent = data.content;
-      }
 
       const assistantMsg: JarvisMessageType = {
         role: "assistant",

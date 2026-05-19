@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase";
+import { resolveActiveOrgId } from "@/lib/supabase/resolve-active-org-id";
 import type { User } from "@supabase/supabase-js";
 
 // role lives on user_organizations (scoped to a specific membership) since
@@ -33,21 +34,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
-function readActiveOrgClaim(accessToken: string | undefined): string | null {
-  if (!accessToken) return null;
-  try {
-    const parts = accessToken.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(
-      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
-    ) as { app_metadata?: Record<string, unknown> };
-    const claim = payload.app_metadata?.active_organization_id;
-    return typeof claim === "string" && claim.length > 0 ? claim : null;
-  } catch {
-    return null;
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -109,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user) {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
-      const activeOrgId = readActiveOrgClaim(session?.access_token);
+      const activeOrgId = resolveActiveOrgId(session?.access_token);
       await loadProfile(user.id, activeOrgId);
     }
   }, [user, loadProfile]);
@@ -132,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setUser(currentUser);
       if (currentUser) {
-        const activeOrgId = readActiveOrgClaim(accessToken);
+        const activeOrgId = resolveActiveOrgId(accessToken);
         loadProfile(currentUser.id, activeOrgId).finally(() => setLoading(false));
       } else {
         setLoading(false);
@@ -145,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const newUser = session?.user ?? null;
         setUser(newUser);
         if (newUser) {
-          const activeOrgId = readActiveOrgClaim(session?.access_token);
+          const activeOrgId = resolveActiveOrgId(session?.access_token);
           loadProfile(newUser.id, activeOrgId);
         } else {
           setProfile(null);
