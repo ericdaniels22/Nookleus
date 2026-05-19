@@ -432,6 +432,19 @@ the tool executions in `@/lib/jarvis/tools` should be reviewed for the
 same gap. (`jarvis/field-ops`/`marketing`/`rnd` are the custom-auth
 department routes from the #85 special-case notes — out of #99 scope.)
 
+> **#120 — scoped.** Every Jarvis data query now carries an
+> `organization_id` filter. In `route.ts` the business-snapshot
+> `jobs`/`invoices`/`payments`/`job_activities` reads and the
+> job-context lookup are scoped to `ctx.orgId`. In `@/lib/jarvis/tools`,
+> `ToolExecutionContext` gained an `orgId` field (threaded from
+> `ctx.orgId`); `get_job_details`, `search_jobs`, and
+> `get_business_metrics` scope their reads, and `log_activity` /
+> `create_alert` scope their parent-job lookup so a `job_id` from
+> another tenant reads as "not found" and is never written across the
+> boundary. `consult_rnd`/`consult_marketing` query no org data. The
+> logged-in-only auth gate is unchanged. Covered by
+> `src/lib/jarvis/tools.test.ts`.
+
 **Summary.** marketing (6 endpoints) and knowledge search + reads (3):
 logged-in-only confirmed. Three follow-ups recorded for separate slices —
 knowledge `DELETE` ([#121](#)), notifications `GET`/`PATCH` ([#119](#)),
