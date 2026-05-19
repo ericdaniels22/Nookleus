@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { belongsToActiveOrganization } from "@/lib/request-context/belongs-to-active-organization";
 
 // Logged-in only (no permission key) — matches the route's prior behavior.
-// Reads expenses with the Service client; org-scoping of this query is a
-// known pre-existing gap, tracked for the #86 ungated-endpoint follow-up
-// and intentionally not changed by this conversion.
+// Reads expenses with the Service client (RLS bypassed), so the route is
+// responsible for the tenant scoping the database would otherwise do: the
+// guard rejects a job id from another Organization with 404 before the read.
 export const GET = withRequestContext(
   { serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ jobId: string }> }) => {
     const { jobId } = await params;
-    const { data, error } = await ctx.serviceClient!.from("expenses")
+    const service = ctx.serviceClient!;
+    if (!(await belongsToActiveOrganization(service, { jobId }, ctx.orgId))) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const { data, error } = await service.from("expenses")
       .select(`
         *,
         vendor:vendors!vendor_id(id, name, vendor_type),
