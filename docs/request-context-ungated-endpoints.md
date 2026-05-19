@@ -310,3 +310,20 @@ administration can be delegated without granting full admin — consistent with
 `stripe/settings` and the rest of `settings/*`. Admins auto-pass a
 `permission` rule. A member lacking the key now gets 403 — the wrapper
 rejects before the handler runs, closing the self-privilege-escalation hole.
+
+### #98 — contract-templates/[id] org scoping
+
+`GET` and `DELETE /api/settings/contract-templates/[id]` (listed under
+[#84](#84--settings)) omitted the Active-Organization filter that their
+sibling `PATCH` applies, so any logged-in user could read or soft-archive
+another Organization's template by id.
+
+Both handlers now filter on `ctx.orgId` (`.eq("organization_id", ctx.orgId)`),
+matching `PATCH`. `DELETE` additionally `.select("id")`s the updated row and
+returns 404 when nothing matched. A template in another Organization is now
+indistinguishable from a missing one — both return 404 — and behavior is
+unchanged for templates in the caller's own Active Organization.
+
+This is a data-scoping correctness fix only; it adds no permission gate.
+The **permission rule** for the settings-area routes (including these) is
+assigned separately in settings slice [#107](#).
