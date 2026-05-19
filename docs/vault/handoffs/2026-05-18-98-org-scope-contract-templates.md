@@ -58,13 +58,15 @@ untouched. The merged #98 contains only its own 3 files.
 
 ## What's next
 
-With #96 + #97 + #98 + #100 in, **PRD #95 has 8 slices left** (#99,
-#101–#107):
+With #96–#100 all merged, **PRD #95 has 7 slices left** (#101–#107):
 
+- **#99 — marketing/knowledge/notifications/Jarvis triage** — **DONE.**
+  Merged to `main` by a concurrent session (`f76ca7b`, PR #124 `8b50fcb`)
+  while this handoff was being written; a doc-only triage confirmation —
+  no code changed — that also flagged three follow-ups (#119/#120/#121).
 - **#100 — gate `settings/users/*`** — **DONE.** Merged to `main` by a
-  concurrent session (`e77c4ad`, PR #118 `960d0ae`) while this handoff was
-  being written; closed the self-privilege-escalation hole. Its own
-  handoff was not yet written at this session's end.
+  concurrent session (`e77c4ad`, PR #118 `960d0ae`); closed the
+  self-privilege-escalation hole.
 - **#101 — org-scope the four expenses Service-client GETs** — unblocked
   by #97; in-progress in the #103 worktree under the concurrent session.
 - **#102 (payments), #103 (jobs files/photos + search)** — in-progress in
@@ -93,11 +95,14 @@ With #96 + #97 + #98 + #100 in, **PRD #95 has 8 slices left** (#99,
 - **Commit at session end:** the `vault: handoff for #98` commit on `main`,
   preceded by `d1a266b` (merge of `worktree-98-org-scope-contract-templates`)
   and `700a0fc` (the #98 source commit)
-- **Merge note:** `main` advanced to `960d0ae` (PR #118 / #100) between
-  branching `worktree-98` and merging it. The `--no-ff` merge took one
-  conflict in `docs/request-context-ungated-endpoints.md` — both #100 and
-  #98 appended a subsection under the new `## Triage decisions (PRD #95)`
-  header — resolved by keeping both (`### #100` then `### #98`).
+- **Merge note:** `main` advanced twice while #98 was being landed —
+  slice #100 (`960d0ae`, PR #118) then slice #99 (`8b50fcb`, PR #124),
+  both from concurrent sessions. Each integration step conflicted only in
+  `docs/request-context-ungated-endpoints.md` and `docs/vault/00-NOW.md` —
+  #98/#99/#100 each appended a subsection under the shared
+  `## Triage decisions (PRD #95)` header, and each session stacked a
+  `last_verified` entry — every conflict resolved by keeping all slices'
+  content. No code conflicts.
 - **Verification post-merge:** full suite **377 green / 59 files** on
   merged `main`.
 - **Uncommitted changes:** none (untracked `out/` only)
