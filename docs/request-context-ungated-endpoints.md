@@ -282,6 +282,10 @@ bulk / mark-all-read / attachments-upload routes had no auth check at all
 - `GET /api/knowledge/documents/[id]` — read a knowledge document
 - `DELETE /api/knowledge/documents/[id]` — delete a knowledge document
 
+> **#121 — gated.** `DELETE /api/knowledge/documents/[id]` now requires an
+> admin (`adminOnly`). The three read endpoints stay logged-in-only. See the
+> `## #121` section below.
+
 ### marketing (wrapped `{ serviceClient: true }`)
 
 - `GET /api/marketing/assets` — list marketing assets
@@ -397,7 +401,7 @@ cascading its chunks and storage file — for *every* org on the platform.
 This destructive cross-org action should sit behind an admin-class gate
 (`adminOnly`, or a knowledge-management key if one is introduced). No
 canonical key fits today, so it is **called out for follow-up**, not
-changed here.
+changed here. **Resolved by slice #121 — `adminOnly`; see `## #121` below.**
 
 **notifications — ⚠️ flagged** ([#119](#)). `GET` and `PATCH
 /api/notifications`. Notifications are per-user and not role-gated, so
@@ -696,3 +700,39 @@ client input:
 
 The `notification-bell` consumer was trimmed to stop sending the now-
 ignored `userId` / `user_id` values. No permission key was introduced.
+
+---
+
+## #121 — knowledge document DELETE: tightened to `adminOnly`
+
+PRD #95 slice #121 closes the destructive cross-org hole the #99 triage
+flagged on the knowledge base. `DELETE /api/knowledge/documents/[id]` was
+wrapped logged-in-only, so any single member of any org — `crew_member`
+included — could permanently delete a knowledge document, cascading its
+chunks and removing the storage file, for **every** org on the platform:
+the knowledge base is product-level global content (`knowledge_documents`
+has no `organization_id`; rows are keyed by `standard_id`, the IICRC
+taxonomy).
+
+`DELETE` now takes **`{ adminOnly: true, serviceClient: true }`** — a
+non-admin gets 403 before the handler runs; admins auto-pass. `adminOnly`
+needs no new `PERMISSION_CATALOG` key, and managing shared product content
+is an admin concern. (If a dedicated knowledge-management permission key is
+ever wanted, that is a deliberate catalog change — cf. #106 for contracts.)
+
+### Gated on `adminOnly`
+
+- `DELETE /api/knowledge/documents/[id]` — delete a document + its chunks
+  and storage file
+
+### Left unchanged — logged-in only
+
+- `GET /api/knowledge/documents/[id]` — read a single document
+- `GET /api/knowledge/documents` — list documents
+- `POST /api/knowledge/search` — search the knowledge base
+
+Read access for any logged-in user is the intended policy: the base is
+deliberately shared across all orgs and read by the Jarvis field-ops
+department. Document creation via `knowledge/ingest` already sits behind
+custom service-key auth (see the #85 special-case notes), so deletion was
+the only exposed mutation.

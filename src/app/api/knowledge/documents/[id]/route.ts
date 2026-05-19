@@ -24,9 +24,12 @@ export const GET = withRequestContext(
 );
 
 // DELETE /api/knowledge/documents/[id] — delete document, chunks (CASCADE), and storage file.
-// Logged-in only — matches the route's prior cookie-auth check.
+// Admin-only (#121): the knowledge base is product-level global content with
+// no organization_id, so a delete is a destructive cross-org action — it must
+// not be reachable by an ordinary member of any org. `adminOnly` needs no new
+// permission key; managing shared product content is an admin concern.
 export const DELETE = withRequestContext(
-  { serviceClient: true },
+  { adminOnly: true, serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     try {
       const { id } = await params;
