@@ -51,7 +51,7 @@ describe("POST /api/contracts/[id]/restore — load contract", () => {
 
   it("returns 404 when the contract is missing", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
@@ -71,7 +71,7 @@ describe("POST /api/contracts/[id]/restore — status guard", () => {
     "returns 409 when contract status is %s (only voided can be restored)",
     async (status) => {
       vi.mocked(createServerSupabaseClient).mockResolvedValue(
-        makeAuthedFake() as never,
+        makeAuthedFake("user-1", { role: "admin" }) as never,
       );
       const service = makeSupabaseFake();
       service.seed("contracts", [
@@ -100,7 +100,7 @@ describe("POST /api/contracts/[id]/restore — happy path", () => {
 
   it("restores a voided contract via restore_contract RPC and leaves storage untouched", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake("user-7") as never,
+      makeAuthedFake("user-7", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -136,7 +136,7 @@ describe("POST /api/contracts/[id]/restore — happy path", () => {
 
   it("returns 500 when restore_contract RPC fails", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -154,5 +154,58 @@ describe("POST /api/contracts/[id]/restore — happy path", () => {
 
     const res = await POST(makeRequest(), paramsFor("c-1"));
     expect(res.status).toBe(500);
+  });
+});
+
+// #106 — restoring a contract requires `edit_jobs` (contracts are gated on
+// the job permissions). Every test above authenticates as an admin, who
+// auto-passes the rule.
+describe("POST /api/contracts/[id]/restore — permission gate (#106)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 403 when the caller holds only view_jobs", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["view_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_at: null,
+        first_viewed_at: null,
+        sent_at: "2026-05-13T10:00:00Z",
+      },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await POST(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(403);
+    expect(service.state.rpcCalls).toHaveLength(0);
+  });
+
+  it("allows a member holding edit_jobs to restore", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["edit_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      {
+        id: "c-1",
+        job_id: "job-1",
+        status: "voided",
+        signed_at: null,
+        first_viewed_at: null,
+        sent_at: "2026-05-13T10:00:00Z",
+      },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await POST(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+    expect(service.state.rpcCalls[0]).toMatchObject({ name: "restore_contract" });
   });
 });

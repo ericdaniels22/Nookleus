@@ -75,6 +75,16 @@ export function makeSupabaseFake(): SupabaseFake {
         filters[col] = vals;
         return builder;
       },
+      // Ordering / row-cap are no-ops on the fake — the seeded row set is
+      // already small and deterministic. Present so routes that chain
+      // `.limit(1)` / `.order(...)` before `.maybeSingle()` / await don't
+      // hit an undefined method.
+      limit() {
+        return builder;
+      },
+      order() {
+        return builder;
+      },
       async maybeSingle() {
         const err = state.errors[`${table}.select`];
         if (err) return { data: null, error: err };
@@ -239,13 +249,25 @@ export function makeAuthedFake(
     user_organizations: membership,
     user_organization_permissions: grants,
   };
+  // A minimal JWT whose payload segment carries the active-organization
+  // claim `getActiveOrganizationId` decodes. Header and signature are
+  // placeholders the decoder never inspects — only the middle segment is
+  // real. Without this the org claim resolves null and a `permission` rule
+  // can never match the seeded membership (which is org-scoped).
+  const accessToken = `header.${Buffer.from(
+    JSON.stringify({ active_organization_id: orgId }),
+  ).toString("base64url")}.sig`;
+
   return {
     auth: {
       async getUser() {
         return { data: { user: { id: userId } }, error: null };
       },
       async getSession() {
-        return { data: { session: null }, error: null };
+        return {
+          data: { session: { access_token: accessToken } },
+          error: null,
+        };
       },
     },
     from(table: string) {

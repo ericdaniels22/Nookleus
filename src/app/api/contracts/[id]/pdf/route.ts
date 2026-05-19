@@ -7,9 +7,10 @@ import type { Contract } from "@/lib/contracts/types";
 // Pass ?inline=1 to render in-browser — used by the View button so the
 // user can scroll through the signed contract without saving it first.
 //
-// Logged-in only; the Service client downloads the signed PDF blob.
+// Requires `view_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client downloads the signed PDF blob.
 export const GET = withRequestContext(
-  { serviceClient: true },
+  { permission: "view_jobs", serviceClient: true },
   async (req, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const inline = new URL(req.url).searchParams.get("inline") === "1";
     const { id } = await params;

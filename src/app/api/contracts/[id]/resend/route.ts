@@ -17,9 +17,10 @@ function appUrl(): string {
 // email. Used for 'expired' contracts (the Resend row action) and the
 // Remind action on active ones if the user wants to push a new link.
 //
-// Logged-in only; the Service client regenerates the token and re-sends.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client regenerates the token and re-sends.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as { expiryDays?: number };

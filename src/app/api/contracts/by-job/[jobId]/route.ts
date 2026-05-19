@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { belongsToActiveOrganization } from "@/lib/request-context/belongs-to-active-organization";
 import type { ContractListItem } from "@/lib/contracts/types";
 
 interface DbRow {
@@ -31,15 +32,21 @@ interface DbRow {
 // reminder counters (for the "reminders sent: N" indicator on the job
 // header).
 //
-// Previously this route ran no auth check at all — it relied on the User
-// client's row-level security to scope reads. The `{}` rule makes it
-// logged-in-only, which matches today (an unauthenticated User client
-// already returns nothing). Noted for the #78 ungated-endpoint list.
+// Requires `view_jobs` (#106) — a contract is a job sub-resource, so the
+// contracts area is gated on the job permissions. The `jobId` is caller-
+// supplied, so the route also runs it through the #97 Active-Organization
+// scoping guard before the read: a job in another Organization is
+// indistinguishable from a missing one (both 404).
 export const GET = withRequestContext(
-  {},
+  { permission: "view_jobs" },
   async (_req, ctx, { params }: { params: Promise<{ jobId: string }> }) => {
     const { jobId } = await params;
     const supabase = ctx.supabase;
+
+    if (!(await belongsToActiveOrganization(supabase, { jobId }, ctx.orgId))) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+
     const { data, error } = await supabase
       .from("contracts")
       .select(

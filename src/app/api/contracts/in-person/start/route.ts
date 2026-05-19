@@ -24,9 +24,10 @@ interface StartBody {
 // No link_token, no expiry, no email. Caller redirects to the internal
 // /contracts/[id]/sign-in-person route once this returns.
 //
-// Logged-in only; the Service client creates the draft contract.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client creates the draft contract.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (request, ctx) => {
     const body = (await request.json().catch(() => null)) as StartBody | null;
     if (!body?.jobId || !body?.templateId || !Array.isArray(body?.signers) || !body.signers.length) {

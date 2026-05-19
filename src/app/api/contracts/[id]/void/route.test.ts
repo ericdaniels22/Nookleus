@@ -53,7 +53,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("returns 404 when the contract is missing", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
@@ -64,7 +64,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("returns 409 when the contract is already voided", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -83,7 +83,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("returns 409 when the job has payments on record", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -105,7 +105,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("voiding a draft contract does not touch storage", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -136,7 +136,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("voiding a sent contract does not touch storage", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -161,7 +161,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("voiding a signed contract uploads stamped bytes to the sidecar key and leaves the canonical key untouched", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     const canonicalPath = "org-1/contracts/c-1-signed.pdf";
@@ -210,7 +210,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("voids a signed contract with a missing canonical PDF: soft-skips sidecar, calls RPC, does NOT 500", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     const canonicalPath = "orgs/o/contracts/c-1/signed.pdf";
@@ -244,7 +244,7 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
 
   it("returns 500 when the sidecar upload fails", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     const canonicalPath = "org-1/contracts/c-1-signed.pdf";
@@ -269,5 +269,45 @@ describe("POST /api/contracts/[id]/void — sidecar watermark", () => {
     expect(res.status).toBe(500);
     // RPC must not have been called when the sidecar write failed.
     expect(service.state.rpcCalls).toHaveLength(0);
+  });
+});
+
+// #106 — voiding a contract requires `edit_jobs` (contracts are gated on
+// the job permissions). Admin coverage is the rest of this file: every
+// test above authenticates as an admin, who auto-passes the rule.
+describe("POST /api/contracts/[id]/void — permission gate (#106)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 403 when the caller holds only view_jobs", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["view_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      { id: "c-1", job_id: "job-1", status: "draft", signed_pdf_path: null },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await POST(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(403);
+    // The wrapper rejected before the handler ran — no RPC.
+    expect(service.state.rpcCalls).toHaveLength(0);
+  });
+
+  it("allows a member holding edit_jobs to void", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["edit_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      { id: "c-1", job_id: "job-1", status: "draft", signed_pdf_path: null },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await POST(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+    expect(service.state.rpcCalls[0]).toMatchObject({ name: "void_contract" });
   });
 });
