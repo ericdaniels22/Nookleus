@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/email/list?folder=inbox&accountId=...&search=...&page=1&limit=50
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
+export const GET = withRequestContext({ permission: "view_email" }, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const folder = searchParams.get("folder") || "inbox";
   const accountId = searchParams.get("accountId"); // null = all accounts

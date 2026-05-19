@@ -3,9 +3,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // POST /api/email/drafts — save or update a draft
 // Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId? }
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
+export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const {
     draftId,
     accountId,

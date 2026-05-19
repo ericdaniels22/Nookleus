@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { encrypt } from "@/lib/encryption";
 
-// DELETE /api/email/accounts/[id]
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
+// DELETE /api/email/accounts/[id] — disconnect an email account.
+// Requires `send_email` (#105, PRD #95) — account management is a write,
+// tightened from the logged-in-only #85 Request-Context conversion gate.
 export const DELETE = withRequestContext(
-  {},
+  { permission: "send_email" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
@@ -22,9 +22,10 @@ export const DELETE = withRequestContext(
   },
 );
 
-// PATCH /api/email/accounts/[id] — update account settings
+// PATCH /api/email/accounts/[id] — update account settings.
+// Requires `send_email` (#105, PRD #95) — account management is a write.
 export const PATCH = withRequestContext(
-  {},
+  { permission: "send_email" },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = await request.json();

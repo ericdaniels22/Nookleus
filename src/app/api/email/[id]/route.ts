@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/email/[id] — get a single email.
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
+// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
 export const GET = withRequestContext(
-  {},
+  { permission: "view_email" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
@@ -24,8 +24,10 @@ export const GET = withRequestContext(
 );
 
 // PATCH /api/email/[id] — update email (read, starred, job_id).
+// Requires `send_email` (#105, PRD #95) — a message mutation, gated like the
+// bulk / mark-all-read message-state writes.
 export const PATCH = withRequestContext(
-  {},
+  { permission: "send_email" },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = await request.json();
