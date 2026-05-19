@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // POST /api/jobs/[id]/photos/bulk-tag — add/remove tags on selected photos.
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
+// Previously ungated (RLS-only); now requires `edit_jobs` (#103).
 export const POST = withRequestContext(
-  {},
+  { permission: "edit_jobs" },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id: jobId } = await params;
     const { photoIds, tagIds, action } = await request.json() as {

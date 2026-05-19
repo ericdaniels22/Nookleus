@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/jobs/search?q=...&limit=10
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Previously ungated (RLS-only); now requires `view_jobs` (#103).
+export const GET = withRequestContext({ permission: "view_jobs" }, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") || "").replace(/[%,.*()]/g, "");
   const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "10") || 10, 1), 50);
