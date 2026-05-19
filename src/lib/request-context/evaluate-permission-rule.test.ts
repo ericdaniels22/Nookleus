@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   evaluatePermissionRule,
   type PermissionFacts,
+  type PermissionRule,
 } from "./evaluate-permission-rule";
 
 // The four caller archetypes the acceptance criteria names, each crossed
@@ -18,7 +19,7 @@ const nonMember: PermissionFacts = { role: null, grantedPermissions: [] };
 
 describe("evaluatePermissionRule", () => {
   describe("single-permission rule", () => {
-    const rule = { permission: "view_invoices" };
+    const rule: PermissionRule = { permission: "view_invoices" };
 
     it("allows an admin even without the grant", () => {
       expect(evaluatePermissionRule(rule, admin)).toBe(true);
@@ -40,7 +41,9 @@ describe("evaluatePermissionRule", () => {
   });
 
   describe("multi-permission rule", () => {
-    const rule = { permission: ["view_estimates", "view_invoices"] };
+    const rule: PermissionRule = {
+      permission: ["view_estimates", "view_invoices"],
+    };
 
     it("allows an admin even without any of the grants", () => {
       expect(evaluatePermissionRule(rule, admin)).toBe(true);
@@ -135,7 +138,10 @@ describe("evaluatePermissionRule", () => {
 
   describe("rule-shape edge cases", () => {
     it("enforces adminOnly when a rule mistakenly sets both adminOnly and permission", () => {
-      const rule = { adminOnly: true, permission: "view_invoices" };
+      const rule: PermissionRule = {
+        adminOnly: true,
+        permission: "view_invoices",
+      };
       expect(evaluatePermissionRule(rule, member(["view_invoices"]))).toBe(
         false,
       );
@@ -148,7 +154,7 @@ describe("evaluatePermissionRule", () => {
     });
 
     it("denies a non-admin for an empty permission array, still admits an admin", () => {
-      const rule = { permission: [] };
+      const rule: PermissionRule = { permission: [] };
       expect(evaluatePermissionRule(rule, member(["view_invoices"]))).toBe(
         false,
       );

@@ -25,6 +25,10 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import {
+  PERMISSION_CATALOG,
+  PERMISSION_GROUPS,
+} from "@/lib/permissions/permission-keys";
 
 interface UserProfile {
   id: string;
@@ -50,20 +54,8 @@ const ROLE_COLORS: Record<string, string> = {
   custom: "bg-[#EEEDFE] text-[#3C3489]",
 };
 
-const ALL_PERMISSIONS = [
-  { key: "view_jobs", label: "View Jobs", group: "Jobs" },
-  { key: "edit_jobs", label: "Edit Jobs", group: "Jobs" },
-  { key: "create_jobs", label: "Create Jobs", group: "Jobs" },
-  { key: "log_activities", label: "Log Activities", group: "Activity" },
-  { key: "upload_photos", label: "Upload Photos", group: "Photos" },
-  { key: "edit_photos", label: "Edit/Annotate Photos", group: "Photos" },
-  { key: "view_billing", label: "View Billing", group: "Billing" },
-  { key: "record_payments", label: "Record Payments", group: "Billing" },
-  { key: "view_email", label: "View Email", group: "Email" },
-  { key: "send_email", label: "Send Email", group: "Email" },
-  { key: "manage_reports", label: "Manage Reports", group: "Reports" },
-  { key: "access_settings", label: "Access Settings", group: "Admin" },
-];
+// The permission vocabulary is the canonical PERMISSION_CATALOG — the same
+// keys route gates check, so the management UI cannot drift from the gates.
 
 export default function UsersSettingsPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -381,8 +373,8 @@ export default function UsersSettingsPage() {
             </p>
           ) : (
             <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
-              {["Jobs", "Activity", "Photos", "Billing", "Email", "Reports", "Admin"].map((group) => {
-                const groupPerms = ALL_PERMISSIONS.filter((p) => p.group === group);
+              {PERMISSION_GROUPS.map((group) => {
+                const groupPerms = PERMISSION_CATALOG.filter((p) => p.group === group);
                 if (groupPerms.length === 0) return null;
                 return (
                   <div key={group}>
