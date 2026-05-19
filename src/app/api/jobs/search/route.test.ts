@@ -18,14 +18,21 @@ import {
   memberTables,
 } from "../../__test-utils__/request-context-fakes";
 
+const seededJobs = {
+  jobs: [
+    { id: "job-1", job_number: "1001", property_address: "1 Main St" },
+    { id: "job-2", job_number: "1002", property_address: "2 Oak Ave" },
+  ],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 });
 
-// Job search was previously ungated (RLS-only); it is now logged-in only.
-describe("GET /api/jobs/search (converted to withRequestContext, logged-in only)", () => {
-  it("returns 401 when unauthenticated — no permission required, but logged-in is", async () => {
+// Job search was previously ungated (RLS-only); #103 gates it on `view_jobs`.
+describe("GET /api/jobs/search (gated on view_jobs, #103)", () => {
+  it("returns 401 when unauthenticated", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({ user: null }) as never,
     );
@@ -37,7 +44,7 @@ describe("GET /api/jobs/search (converted to withRequestContext, logged-in only)
     expect(res.status).toBe(401);
   });
 
-  it("returns jobs for any logged-in caller, even one with no permission grants", async () => {
+  it("returns 403 when the caller lacks view_jobs", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
         user: { id: "user-1" },
@@ -45,12 +52,27 @@ describe("GET /api/jobs/search (converted to withRequestContext, logged-in only)
           userId: "user-1",
           role: "member",
           grants: [],
-          extraTables: {
-            jobs: [
-              { id: "job-1", job_number: "1001", property_address: "1 Main St" },
-              { id: "job-2", job_number: "1002", property_address: "2 Oak Ave" },
-            ],
-          },
+          extraTables: seededJobs,
+        }),
+      }) as never,
+    );
+
+    const res = await GET(new Request("http://test/api/jobs/search"), {
+      params: Promise.resolve({}),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns jobs for a member holding view_jobs", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "member",
+          grants: ["view_jobs"],
+          extraTables: seededJobs,
         }),
       }) as never,
     );
@@ -65,5 +87,27 @@ describe("GET /api/jobs/search (converted to withRequestContext, logged-in only)
       "job-1",
       "job-2",
     ]);
+  });
+
+  it("returns jobs for an admin without an explicit grant", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "admin",
+          grants: [],
+          extraTables: seededJobs,
+        }),
+      }) as never,
+    );
+
+    const res = await GET(new Request("http://test/api/jobs/search"), {
+      params: Promise.resolve({}),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.jobs).toHaveLength(2);
   });
 });

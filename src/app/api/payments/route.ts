@@ -16,9 +16,9 @@ interface CreatePaymentBody {
   notes?: string | null;
 }
 
-// Listing payments is logged-in only; the User client's RLS scopes rows to
-// the active organization.
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Listing payments needs `view_billing` (admins auto-pass); the User
+// client's RLS scopes rows to the active organization.
+export const GET = withRequestContext({ permission: "view_billing" }, async (request, ctx) => {
   const url = new URL(request.url);
   const invoiceId = url.searchParams.get("invoiceId");
   const jobId = url.searchParams.get("jobId");
@@ -37,10 +37,11 @@ export const GET = withRequestContext({}, async (request, ctx) => {
   return NextResponse.json({ rows: data ?? [] });
 });
 
-// Recording a payment is logged-in only; it writes with the Service client
-// so the insert and the draft-invoice guard bypass RLS.
+// Recording a payment needs `record_payments` (admins auto-pass); it writes
+// with the Service client so the insert and the draft-invoice guard bypass
+// RLS.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "record_payments", serviceClient: true },
   async (request, ctx) => {
     const body = (await request.json().catch(() => null)) as CreatePaymentBody | null;
     if (!body?.jobId || !body?.source || !body?.method || !body.amount) {

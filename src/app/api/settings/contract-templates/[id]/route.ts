@@ -8,7 +8,8 @@ import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/contract-templates/[id]
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Logged-in only. Org-scoped (#98): a template in another Organization is
+// indistinguishable from a missing one — both return 404.
 export const GET = withRequestContext(
   {},
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
@@ -17,6 +18,7 @@ export const GET = withRequestContext(
       .from("contract_templates")
       .select("*")
       .eq("id", id)
+      .eq("organization_id", ctx.orgId)
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -116,19 +118,23 @@ export const PATCH = withRequestContext(
 // is_active=false. Templates are never hard-deleted because signed contracts
 // in Build 15b will reference them historically.
 //
-// Logged-in only — previously ungated, and also lacking an organization
-// filter. Recorded for the #78 ungated-endpoint list; tightening (a
-// permission key + org scoping) is the separate triage follow-up.
+// Logged-in only. Org-scoped (#98): the update filters on the Active
+// Organization, so a template in another Organization cannot be archived and
+// is indistinguishable from a missing one — both return 404.
 export const DELETE = withRequestContext(
   {},
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
-    const { error } = await ctx.supabase
+    const { data, error } = await ctx.supabase
       .from("contract_templates")
       .update({ is_active: false })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("organization_id", ctx.orgId)
+      .select("id")
+      .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "Template not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   },
 );

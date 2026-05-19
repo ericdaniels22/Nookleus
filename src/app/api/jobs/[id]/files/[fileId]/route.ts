@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // PATCH /api/jobs/[id]/files/[fileId] — rename
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
+// Previously ungated (RLS-only); now requires `edit_jobs` (#103).
 export const PATCH = withRequestContext(
-  {},
+  { permission: "edit_jobs" },
   async (
     request,
     ctx,
@@ -42,8 +42,9 @@ export const PATCH = withRequestContext(
 );
 
 // DELETE /api/jobs/[id]/files/[fileId] — delete storage object, then row
+// Previously ungated (RLS-only); now requires `edit_jobs` (#103).
 export const DELETE = withRequestContext(
-  {},
+  { permission: "edit_jobs" },
   async (
     _request,
     ctx,

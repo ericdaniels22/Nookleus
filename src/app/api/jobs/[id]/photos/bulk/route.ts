@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // DELETE /api/jobs/[id]/photos/bulk — bulk-delete photos.
-// Previously ungated (RLS-only); now logged-in only via `withRequestContext`.
+// Previously ungated (RLS-only); now requires `edit_jobs` (#103).
 export const DELETE = withRequestContext(
-  {},
+  { permission: "edit_jobs" },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id: jobId } = await params;
     const { photoIds } = await request.json() as { photoIds: string[] };
