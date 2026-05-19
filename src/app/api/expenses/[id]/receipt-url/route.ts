@@ -1,12 +1,24 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { belongsToActiveOrganization } from "@/lib/request-context/belongs-to-active-organization";
 
 // Logged-in only (no permission key) — matches the route's prior behavior.
+// Reads the expense with the Service client (RLS bypassed): the guard
+// rejects an expense id from another Organization with 404 before the read.
 export const GET = withRequestContext(
   { serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const service = ctx.serviceClient!;
+    if (
+      !(await belongsToActiveOrganization(
+        service,
+        { table: "expenses", id },
+        ctx.orgId,
+      ))
+    ) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const { data: expense } = await service.from("expenses").select("receipt_path").eq("id", id).maybeSingle<{ receipt_path: string | null }>();
     if (!expense?.receipt_path) return NextResponse.json({ error: "No receipt" }, { status: 404 });
 

@@ -20,8 +20,8 @@ import {
   memberTables,
 } from "../../__test-utils__/request-context-fakes";
 
-function paramsFor(jobId: string) {
-  return { params: Promise.resolve({ jobId }) };
+function paramsFor(activityId: string) {
+  return { params: Promise.resolve({ activityId }) };
 }
 
 beforeEach(() => {
@@ -29,8 +29,8 @@ beforeEach(() => {
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 });
 
-describe("GET /api/expenses/by-job/[jobId] (converted to withRequestContext)", () => {
-  it("returns 401 when unauthenticated — no permission required, but logged-in is", async () => {
+describe("GET /api/expenses/by-activity/[activityId] (org-scoped via the guard)", () => {
+  it("returns 401 when unauthenticated", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({ user: null }) as never,
     );
@@ -38,12 +38,12 @@ describe("GET /api/expenses/by-job/[jobId] (converted to withRequestContext)", (
       fakeServiceClient({}).client as never,
     );
 
-    const res = await GET(new Request("http://test"), paramsFor("job-1"));
+    const res = await GET(new Request("http://test"), paramsFor("act-1"));
 
     expect(res.status).toBe(401);
   });
 
-  it("returns the job's expenses for any logged-in caller, even one with no permission grants", async () => {
+  it("returns the activity's expense when its job is in the caller's Active Organization", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
         user: { id: "user-1" },
@@ -53,24 +53,21 @@ describe("GET /api/expenses/by-job/[jobId] (converted to withRequestContext)", (
     vi.mocked(createServiceClient).mockReturnValue(
       fakeServiceClient({
         tables: {
+          job_activities: [{ id: "act-1", job_id: "job-1" }],
           jobs: [{ id: "job-1", organization_id: "org-1" }],
-          expenses: [
-            { id: "exp-1", job_id: "job-1" },
-            { id: "exp-2", job_id: "job-1" },
-            { id: "exp-3", job_id: "job-2" },
-          ],
+          expenses: [{ id: "exp-1", activity_id: "act-1" }],
         },
       }).client as never,
     );
 
-    const res = await GET(new Request("http://test"), paramsFor("job-1"));
+    const res = await GET(new Request("http://test"), paramsFor("act-1"));
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.map((e: { id: string }) => e.id)).toEqual(["exp-1", "exp-2"]);
+    expect(body.id).toBe("exp-1");
   });
 
-  it("returns 404 for a job id belonging to another Organization", async () => {
+  it("returns 404 for an activity id whose job belongs to another Organization", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
         user: { id: "user-1" },
@@ -80,30 +77,14 @@ describe("GET /api/expenses/by-job/[jobId] (converted to withRequestContext)", (
     vi.mocked(createServiceClient).mockReturnValue(
       fakeServiceClient({
         tables: {
-          // job-2 belongs to org-2; the caller's Active Organization is org-1.
+          job_activities: [{ id: "act-1", job_id: "job-2" }],
           jobs: [{ id: "job-2", organization_id: "org-2" }],
-          expenses: [{ id: "exp-3", job_id: "job-2" }],
+          expenses: [{ id: "exp-1", activity_id: "act-1" }],
         },
       }).client as never,
     );
 
-    const res = await GET(new Request("http://test"), paramsFor("job-2"));
-
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 404 for a job id that does not exist", async () => {
-    vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      fakeUserClient({
-        user: { id: "user-1" },
-        tables: memberTables({ userId: "user-1", role: "member", grants: [] }),
-      }) as never,
-    );
-    vi.mocked(createServiceClient).mockReturnValue(
-      fakeServiceClient({ tables: { jobs: [], expenses: [] } }).client as never,
-    );
-
-    const res = await GET(new Request("http://test"), paramsFor("job-missing"));
+    const res = await GET(new Request("http://test"), paramsFor("act-1"));
 
     expect(res.status).toBe(404);
   });
