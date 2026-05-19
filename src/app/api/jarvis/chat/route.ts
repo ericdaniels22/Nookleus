@@ -69,13 +69,15 @@ export const POST = withRequestContext(
     let businessSnapshot = null;
 
     if (context_type === "job" && job_id) {
-      // Fetch job context
+      // Fetch job context — scoped to the caller's org so a job_id from
+      // another tenant is not loadable (#120).
       const { data: job } = await supabase
         .from("jobs")
         .select(
           "*, contact:contacts!contact_id(full_name), job_adjusters(*, adjuster:contacts!contact_id(full_name, email))"
         )
         .eq("id", job_id)
+        .eq("organization_id", ctx.orgId)
         .single();
 
       if (job) {
@@ -98,12 +100,14 @@ export const POST = withRequestContext(
         };
       }
     } else {
-      // Fetch business snapshot for general context
+      // Fetch business snapshot for general context — every read scoped to
+      // the caller's org so the snapshot reflects one tenant only (#120).
       const activeStatuses = ["new", "in_progress", "pending_invoice"];
 
       const { data: allJobs } = await supabase
         .from("jobs")
-        .select("status");
+        .select("status")
+        .eq("organization_id", ctx.orgId);
 
       const jobsByStatus: Record<string, number> = {};
       let activeCount = 0;
@@ -116,6 +120,7 @@ export const POST = withRequestContext(
       const { data: activeJobIds } = await supabase
         .from("jobs")
         .select("id")
+        .eq("organization_id", ctx.orgId)
         .in("status", activeStatuses);
 
       let totalOutstanding = 0;
@@ -124,12 +129,14 @@ export const POST = withRequestContext(
         const { data: invoices } = await supabase
           .from("invoices")
           .select("total_amount")
+          .eq("organization_id", ctx.orgId)
           .in("job_id", ids)
           .in("status", ["draft", "sent", "partial"]);
 
         const { data: payments } = await supabase
           .from("payments")
           .select("amount")
+          .eq("organization_id", ctx.orgId)
           .in("job_id", ids)
           .eq("status", "received");
 
@@ -152,6 +159,7 @@ export const POST = withRequestContext(
       const { data: activeJobs } = await supabase
         .from("jobs")
         .select("id, updated_at")
+        .eq("organization_id", ctx.orgId)
         .in("status", activeStatuses);
 
       let overdueCount = 0;
@@ -159,6 +167,7 @@ export const POST = withRequestContext(
         const { data: recentActivities } = await supabase
           .from("job_activities")
           .select("job_id, created_at")
+          .eq("organization_id", ctx.orgId)
           .in(
             "job_id",
             activeJobs.map((j) => j.id)
@@ -350,6 +359,7 @@ export const POST = withRequestContext(
               userRole,
               jobId: job_id,
               supabase,
+              orgId: ctx.orgId,
             }
           );
           toolResults.push({

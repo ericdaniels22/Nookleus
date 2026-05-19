@@ -10,6 +10,12 @@ export interface ToolExecutionContext {
   userRole: string;
   jobId?: string;
   supabase: SupabaseClient;
+  // The caller's Active Organization. Every tool runs against the Service
+  // client, which bypasses row-level security, so each data query must scope
+  // to this value itself (#120). Null when the caller has no membership in
+  // the Active Organization — scoping by null then matches nothing, which is
+  // the safe outcome.
+  orgId: string | null;
 }
 
 // --- Tool Definitions for Claude API ---
@@ -278,13 +284,15 @@ async function toolGetJobDetails(
 ) {
   const { supabase } = ctx;
 
-  // Job with contact joins
+  // Job with contact joins — scoped to the caller's org so a job_id from
+  // another tenant reads as "not found".
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
     .select(
       "*, contact:contacts!contact_id(*), job_adjusters(*, adjuster:contacts!contact_id(*))"
     )
     .eq("id", input.job_id)
+    .eq("organization_id", ctx.orgId)
     .single();
 
   if (jobErr || !job) return { error: "Job not found" };
@@ -404,6 +412,7 @@ async function toolSearchJobs(
   let query = supabase
     .from("jobs")
     .select("*, contact:contacts!contact_id(full_name)")
+    .eq("organization_id", ctx.orgId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -474,10 +483,11 @@ async function toolGetBusinessMetrics(
 
   const startISO = startDate.toISOString();
 
-  // Jobs by status
+  // Jobs by status — scoped to the caller's org.
   const { data: allJobs } = await supabase
     .from("jobs")
-    .select("status, created_at");
+    .select("status, created_at")
+    .eq("organization_id", ctx.orgId);
 
   const jobsByStatus: Record<string, number> = {};
   let activeCount = 0;
@@ -494,6 +504,7 @@ async function toolGetBusinessMetrics(
   const { data: periodPayments } = await supabase
     .from("payments")
     .select("amount, source")
+    .eq("organization_id", ctx.orgId)
     .eq("status", "received")
     .gte("created_at", startISO);
 
@@ -512,6 +523,7 @@ async function toolGetBusinessMetrics(
   const { data: activeJobIds } = await supabase
     .from("jobs")
     .select("id")
+    .eq("organization_id", ctx.orgId)
     .in("status", activeStatuses);
 
   let outstandingBalance = 0;
@@ -520,6 +532,7 @@ async function toolGetBusinessMetrics(
     const { data: invoices } = await supabase
       .from("invoices")
       .select("total_amount")
+      .eq("organization_id", ctx.orgId)
       .in("job_id", ids)
       .in("status", ["draft", "sent", "partial"])
       .is("deleted_at", null);
@@ -527,6 +540,7 @@ async function toolGetBusinessMetrics(
     const { data: receivedPayments } = await supabase
       .from("payments")
       .select("amount")
+      .eq("organization_id", ctx.orgId)
       .in("job_id", ids)
       .eq("status", "received");
 
@@ -549,6 +563,7 @@ async function toolGetBusinessMetrics(
   const { data: activeJobs } = await supabase
     .from("jobs")
     .select("id, job_number, property_address, updated_at")
+    .eq("organization_id", ctx.orgId)
     .in("status", activeStatuses);
 
   let overdueCount = 0;
@@ -559,6 +574,7 @@ async function toolGetBusinessMetrics(
     const { data: recentActivities } = await supabase
       .from("job_activities")
       .select("job_id, created_at")
+      .eq("organization_id", ctx.orgId)
       .in(
         "job_id",
         activeJobs.map((j) => j.id)
@@ -617,10 +633,13 @@ async function toolLogActivity(
   const activityType = resolveActivityType(input.activity_type);
 
   // Derive org from the parent job so the activity lands in the right tenant.
+  // Scoped to the caller's org — a job_id from another tenant reads as
+  // "not found", so the activity can never be written across the boundary.
   const { data: job } = await supabase
     .from("jobs")
     .select("organization_id")
     .eq("id", input.job_id)
+    .eq("organization_id", ctx.orgId)
     .maybeSingle<{ organization_id: string }>();
   if (!job) return { error: "job not found" };
 
@@ -744,10 +763,13 @@ async function toolCreateAlert(
   // 18b contract.
   let orgId: string | null = null;
   if (input.job_id) {
+    // Scoped to the caller's org — a job_id from another tenant reads as
+    // "not found", so its organization can never become the alert's.
     const { data: job } = await supabase
       .from("jobs")
       .select("organization_id")
       .eq("id", input.job_id)
+      .eq("organization_id", ctx.orgId)
       .maybeSingle<{ organization_id: string }>();
     orgId = job?.organization_id ?? null;
   }
