@@ -310,3 +310,76 @@ administration can be delegated without granting full admin — consistent with
 `stripe/settings` and the rest of `settings/*`. Admins auto-pass a
 `permission` rule. A member lacking the key now gets 403 — the wrapper
 rejects before the handler runs, closing the self-privilege-escalation hole.
+
+### #99 — marketing / knowledge / notifications / Jarvis chat
+
+These four areas have **no fitting key** in the canonical vocabulary
+(`PERMISSION_CATALOG`, 30 keys, [#96](#) — nothing for marketing,
+knowledge, notifications, or the Jarvis assistant). Per the PRD default,
+#99 **confirms logged-in-only is the intended policy** for each and
+records the reasoning, so it is a deliberate decision rather than an
+oversight. No rules were changed; three endpoints are flagged for
+separate follow-up.
+
+**marketing — ✅ confirmed logged-in-only.** `GET`/`POST`/`DELETE
+/api/marketing/assets` and `GET`/`PATCH`/`DELETE /api/marketing/drafts`
+(listed under [#85](#85--email--jarvis--remaining)). The asset library
+and draft queue hold internal promotional content — no customer PII, no
+financials — and every query is already org-scoped
+(`.eq("organization_id", ctx.orgId)` on read, write, and delete). Any
+member is expected to use the marketing tools (the Jarvis marketing
+department writes drafts here). No tighter rule is warranted.
+(`POST /api/marketing/drafts` is the dual-mode cookie-or-service-key
+handler from the #85 special-case notes — not a logged-in-only
+`withRequestContext` endpoint; unchanged.)
+
+**knowledge — reads ✅ confirmed; `DELETE` ⚠️ flagged.** `POST
+/api/knowledge/search`, `GET /api/knowledge/documents`, and `GET
+/api/knowledge/documents/[id]` are confirmed logged-in-only: the
+knowledge base is **product-level, global content** —
+`knowledge_documents` has no `organization_id` (confirmed in
+`knowledge/ingest`'s insert; rows are keyed by `standard_id`, the IICRC
+taxonomy), deliberately shared across all orgs and read by the Jarvis
+field-ops department. The absence of an org filter is correct, not a
+gap. **Flag — `DELETE /api/knowledge/documents/[id]`** ([#121](#)):
+because the base is global, any single logged-in user of any org
+(including a `crew_member`) can permanently delete a document —
+cascading its chunks and storage file — for *every* org on the platform.
+This destructive cross-org action should sit behind an admin-class gate
+(`adminOnly`, or a knowledge-management key if one is introduced). No
+canonical key fits today, so it is **called out for follow-up**, not
+changed here.
+
+**notifications — ⚠️ flagged** ([#119](#)). `GET` and `PATCH
+/api/notifications`. Notifications are per-user and not role-gated, so
+"logged-in" is the right gate *class* — no permission key applies. But
+both handlers trust a client-supplied identity: `GET` returns the
+notifications of whatever `userId` query param is passed (Service
+client, no caller check), and `PATCH` marks another user's notifications
+read by `user_id`, or any notification read by row `id` with no
+ownership check. This is a horizontal-privilege / IDOR gap, not a
+missing rule — the fix is to derive the target from `ctx.userId` rather
+than request input. **Called out for follow-up;** the logged-in gate
+itself stays.
+
+**Jarvis chat — ⚠️ flagged** ([#120](#)). `POST /api/jarvis/chat`.
+Jarvis is a company-wide assistant — every member, crew included, is
+expected to use it, and no key carves it by role — so logged-in-only is
+the intended *auth* policy. But the handler queries org data with the
+Service client and **no `organization_id` filter**: the general-context
+"business snapshot" sums `jobs`, `invoices`, `payments`, and
+`job_activities` **platform-wide** (active counts, total outstanding
+balance, overdue counts) into the system prompt, and the job-context
+branch loads a job by `job_id` alone. `ctx.orgId` is resolved but
+unused, so Jarvis can surface another org's aggregate financials and an
+arbitrary job. This is a cross-tenant data-scoping bug — the same class
+as the [#79](#79--expenses-tracer) expenses gap — not a permission rule.
+**Called out for follow-up:** scope every Jarvis query to `ctx.orgId`;
+the tool executions in `@/lib/jarvis/tools` should be reviewed for the
+same gap. (`jarvis/field-ops`/`marketing`/`rnd` are the custom-auth
+department routes from the #85 special-case notes — out of #99 scope.)
+
+**Summary.** marketing (6 endpoints) and knowledge search + reads (3):
+logged-in-only confirmed. Three follow-ups recorded for separate slices —
+knowledge `DELETE` ([#121](#)), notifications `GET`/`PATCH` ([#119](#)),
+Jarvis chat ([#120](#)). #99 changed no code.
