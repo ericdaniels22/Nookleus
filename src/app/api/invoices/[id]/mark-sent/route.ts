@@ -2,7 +2,10 @@
 // Same DB effect as /send, but no email is sent. Used when the invoice was
 // delivered outside the platform.
 //
-// Logged-in only (no permission key) — matches the route's prior behavior.
+// Requires `edit_invoices` — a status transition (draft → sent), matching
+// the sibling status mutations (PUT /status, /sections, /line-items).
+// /send carries `manage_invoices` because it also sends email; mark-sent
+// only flips the status, so it sits with the lighter edit gate.
 // All reads/writes go through the Service client.
 
 import { NextResponse } from "next/server";
@@ -11,7 +14,7 @@ import type { InvoiceRow } from "@/lib/invoices";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { serviceClient: true, permission: "edit_invoices" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const service = ctx.serviceClient!;
