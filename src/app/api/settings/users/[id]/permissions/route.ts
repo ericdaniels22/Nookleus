@@ -4,9 +4,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 // GET /api/settings/users/[id]/permissions — from user_organization_permissions
 // scoped to the active org's membership.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Gated on `access_settings` (#100) — was previously ungated logged-in-only.
 export const GET = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const service = ctx.serviceClient!;
@@ -39,9 +39,9 @@ export const GET = withRequestContext(
 // user_organization_permissions (the new source of truth) and the legacy
 // user_permissions table so 18a revert is safe.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Gated on `access_settings` (#100) — was previously ungated logged-in-only.
 export const PUT = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = await request.json() as Record<string, boolean>;

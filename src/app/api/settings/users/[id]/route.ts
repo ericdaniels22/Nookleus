@@ -5,9 +5,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 // on user_organizations (scoped to the active org) not user_profiles, since
 // build48 dropped user_profiles.role.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Gated on `access_settings` (#100) — was previously ungated logged-in-only.
 export const PATCH = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = await request.json();

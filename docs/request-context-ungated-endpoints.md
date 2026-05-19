@@ -276,3 +276,37 @@ A few #85 routes were deliberately **not** wrapped with
   `knowledge/ingest` — custom auth: a session cookie **or** an
   `x-service-key` header.
 - `stripe/webhook` — authenticated by Stripe signature verification.
+
+---
+
+## Triage decisions (PRD #95)
+
+The conversion above is behavior-preserving — it only made "no check"
+visible as "logged-in only". PRD [#95](https://github.com/ericdaniels22/Nookleus/issues/95)
+is the follow-up that replaces those logged-in-only gates with real
+permission rules. Each tightening slice records its decision here.
+
+### #100 — settings/users
+
+The five `settings/users` endpoints flagged above as
+[**highest-priority triage**](#️-users--highest-priority-triage) were
+logged-in-only — any authenticated member of any role could call them. They
+mutate org membership, roles, profiles, ban state, and **permission grants**;
+in particular a non-admin could grant themselves every permission via
+`PUT /api/settings/users/[id]/permissions`.
+
+All five are now gated on `access_settings` (the `serviceClient` opt-in is
+unchanged):
+
+- `GET /api/settings/users` → `{ permission: "access_settings", serviceClient: true }`
+- `POST /api/settings/users` → `{ permission: "access_settings", serviceClient: true }`
+- `PATCH /api/settings/users/[id]` → `{ permission: "access_settings", serviceClient: true }`
+- `GET /api/settings/users/[id]/permissions` → `{ permission: "access_settings", serviceClient: true }`
+- `PUT /api/settings/users/[id]/permissions` → `{ permission: "access_settings", serviceClient: true }`
+
+`access_settings` already exists in `PERMISSION_CATALOG` (group "Admin"); no
+new key was introduced. It is chosen over a hard `adminOnly` rule so settings
+administration can be delegated without granting full admin — consistent with
+`stripe/settings` and the rest of `settings/*`. Admins auto-pass a
+`permission` rule. A member lacking the key now gets 403 — the wrapper
+rejects before the handler runs, closing the self-privilege-escalation hole.
