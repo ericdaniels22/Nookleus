@@ -411,6 +411,10 @@ missing rule — the fix is to derive the target from `ctx.userId` rather
 than request input. **Called out for follow-up;** the logged-in gate
 itself stays.
 
+> **#119 — fixed.** Both handlers now derive the target user from
+> `ctx.userId`; the logged-in gate is unchanged. See
+> [`## #119`](#119--notifications-target-user-derived-from-ctxuserid).
+
 **Jarvis chat — ⚠️ flagged** ([#120](#)). `POST /api/jarvis/chat`.
 Jarvis is a company-wide assistant — every member, crew included, is
 expected to use it, and no key carves it by role — so logged-in-only is
@@ -651,3 +655,31 @@ both return 404. `jobs` was already a registered resolver, so the guard's
   endpoint. It is authenticated by `CRON_SECRET` (not a session), is not
   wrapped with `withRequestContext`, and was never in the ungated set — out
   of scope, unchanged. (Same class as `qb/sync-scheduled` under `## #82`.)
+
+---
+
+## #119 — notifications: target user derived from `ctx.userId`
+
+PRD #95 bug [#119](#) — the IDOR gap the #99 triage flagged for the
+`notifications` endpoints above. The gate is **unchanged**: notifications
+are per-user and not role-gated, so logged-in-only (`{ serviceClient:
+true }`) is the right gate *class*. The fix is a data-scoping one — both
+handlers now derive the target user from the authenticated caller
+(`ctx.userId`, resolved by `withRequestContext`) instead of trusting
+client input:
+
+- `GET /api/notifications` — the `userId` query param is dropped; both
+  the list read and the unread-count read filter `.eq("user_id",
+  ctx.userId)`. A caller can no longer read another user's notifications
+  by changing the param. (`limit` is still honoured.)
+- `PATCH { mark_all_read: true }` — marks `.eq("user_id", ctx.userId)`,
+  not `body.user_id` (which is dropped). The mark-all is always the
+  caller's own folder.
+- `PATCH { id }` — the update is scoped `.eq("id", id).eq("user_id",
+  ctx.userId)` and reads the affected row back; a notification that does
+  not belong to the caller (or does not exist) matches nothing and
+  returns **404** — indistinguishable from a missing one, consistent
+  with the #98 / #101 cross-org 404 convention.
+
+The `notification-bell` consumer was trimmed to stop sending the now-
+ignored `userId` / `user_id` values. No permission key was introduced.

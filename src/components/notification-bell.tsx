@@ -63,7 +63,9 @@ export default function NotificationBell() {
 
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
-    const res = await fetch(`/api/notifications?userId=${user.id}&limit=15`);
+    // The target user is the authenticated caller, derived server-side
+    // from the session (#119) — no user id is sent.
+    const res = await fetch(`/api/notifications?limit=15`);
     if (res.ok) {
       const data = await res.json();
       setNotifications(data.notifications || []);
@@ -106,7 +108,7 @@ export default function NotificationBell() {
     await fetch("/api/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mark_all_read: true, user_id: user.id }),
+      body: JSON.stringify({ mark_all_read: true }),
     });
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
