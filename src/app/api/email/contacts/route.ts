@@ -3,9 +3,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 
 // GET /api/email/contacts?q=search — autocomplete contacts + recent email addresses.
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
+export const GET = withRequestContext({ permission: "view_email" }, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
 

@@ -4,9 +4,9 @@ import { encrypt } from "@/lib/encryption";
 import { assignAccountColor } from "@/lib/email/assign-account-color";
 
 // GET /api/email/accounts — list accounts for the active org (passwords excluded).
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
+export const GET = withRequestContext({ permission: "view_email" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("email_accounts")
     .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, last_synced_uid, created_at, updated_at")
@@ -20,7 +20,9 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // POST /api/email/accounts — add a new email account for the active org.
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `send_email` (#105, PRD #95) — account management is a write, like
+// account update / disconnect / test.
+export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const body = await request.json();
   const { label, email_address, display_name, provider, imap_host, imap_port, smtp_host, smtp_port, username, password, color: colorOverride } = body;
 

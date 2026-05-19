@@ -31,11 +31,11 @@ beforeEach(() => {
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 });
 
-describe("GET /api/email/list — gated on view_email (#105)", () => {
-  it("returns 401 when unauthenticated — the route body never runs", async () => {
+describe("GET /api/email/counts — gated on view_email (#105)", () => {
+  it("returns 401 when unauthenticated", async () => {
     authed({ user: null });
 
-    const res = await GET(new Request("http://test/api/email/list"), noParams);
+    const res = await GET(new Request("http://test/api/email/counts"), noParams);
 
     expect(res.status).toBe(401);
   });
@@ -46,45 +46,33 @@ describe("GET /api/email/list — gated on view_email (#105)", () => {
       tables: memberTables({ userId: "user-1", role: "crew_member", grants: [] }),
     });
 
-    const res = await GET(new Request("http://test/api/email/list"), noParams);
+    const res = await GET(new Request("http://test/api/email/counts"), noParams);
 
     expect(res.status).toBe(403);
   });
 
-  it("lists emails when the caller holds view_email", async () => {
+  it("returns counts when the caller holds view_email", async () => {
     authed({
       user: { id: "user-1" },
-      tables: {
-        ...memberTables({
-          userId: "user-1",
-          role: "crew_member",
-          grants: ["view_email"],
-        }),
-        emails: [
-          { id: "e-1", folder: "inbox" },
-          { id: "e-2", folder: "inbox" },
-          { id: "e-3", folder: "sent" },
-        ],
-      },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_member",
+        grants: ["view_email"],
+      }),
     });
 
-    const res = await GET(new Request("http://test/api/email/list"), noParams);
+    const res = await GET(new Request("http://test/api/email/counts"), noParams);
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.emails.map((e: { id: string }) => e.id)).toEqual(["e-1", "e-2"]);
   });
 
   it("admins retain access without holding the key", async () => {
     authed({
       user: { id: "admin-1" },
-      tables: {
-        ...memberTables({ userId: "admin-1", role: "admin", grants: [] }),
-        emails: [{ id: "e-1", folder: "inbox" }],
-      },
+      tables: memberTables({ userId: "admin-1", role: "admin", grants: [] }),
     });
 
-    const res = await GET(new Request("http://test/api/email/list"), noParams);
+    const res = await GET(new Request("http://test/api/email/counts"), noParams);
 
     expect(res.status).toBe(200);
   });

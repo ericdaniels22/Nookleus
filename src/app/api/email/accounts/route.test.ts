@@ -10,7 +10,7 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(),
 }));
 
-import { GET, PATCH } from "./route";
+import { GET, POST } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import {
@@ -18,9 +18,7 @@ import {
   memberTables,
 } from "../__test-utils__/request-context-fakes";
 
-function paramsFor(id: string) {
-  return { params: Promise.resolve({ id }) };
-}
+const noParams = { params: Promise.resolve({}) };
 
 function authed(opts: Parameters<typeof fakeUserClient>[0]) {
   vi.mocked(createServerSupabaseClient).mockResolvedValue(
@@ -28,11 +26,8 @@ function authed(opts: Parameters<typeof fakeUserClient>[0]) {
   );
 }
 
-function patchReq() {
-  return new Request("http://test", {
-    method: "PATCH",
-    body: JSON.stringify({ is_read: true }),
-  });
+function postReq() {
+  return new Request("http://test", { method: "POST", body: "{}" });
 }
 
 beforeEach(() => {
@@ -40,11 +35,11 @@ beforeEach(() => {
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 });
 
-describe("GET /api/email/[id] — gated on view_email (#105)", () => {
+describe("GET /api/email/accounts — gated on view_email (#105)", () => {
   it("returns 401 when unauthenticated", async () => {
     authed({ user: null });
 
-    const res = await GET(new Request("http://test"), paramsFor("e-1"));
+    const res = await GET(new Request("http://test/api/email/accounts"), noParams);
 
     expect(res.status).toBe(401);
   });
@@ -55,55 +50,12 @@ describe("GET /api/email/[id] — gated on view_email (#105)", () => {
       tables: memberTables({ userId: "user-1", role: "crew_member", grants: [] }),
     });
 
-    const res = await GET(new Request("http://test"), paramsFor("e-1"));
+    const res = await GET(new Request("http://test/api/email/accounts"), noParams);
 
     expect(res.status).toBe(403);
   });
 
-  it("returns the email — and the [id] param — when the caller holds view_email", async () => {
-    authed({
-      user: { id: "user-1" },
-      tables: {
-        ...memberTables({
-          userId: "user-1",
-          role: "crew_member",
-          grants: ["view_email"],
-        }),
-        emails: [{ id: "e-1", subject: "Hello" }],
-      },
-    });
-
-    const res = await GET(new Request("http://test"), paramsFor("e-1"));
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ id: "e-1", subject: "Hello" });
-  });
-
-  it("admins retain access without holding the key", async () => {
-    authed({
-      user: { id: "admin-1" },
-      tables: {
-        ...memberTables({ userId: "admin-1", role: "admin", grants: [] }),
-        emails: [{ id: "e-1", subject: "Hello" }],
-      },
-    });
-
-    const res = await GET(new Request("http://test"), paramsFor("e-1"));
-
-    expect(res.status).toBe(200);
-  });
-});
-
-describe("PATCH /api/email/[id] — gated on send_email (#105)", () => {
-  it("returns 401 when unauthenticated", async () => {
-    authed({ user: null });
-
-    const res = await PATCH(patchReq(), paramsFor("e-1"));
-
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 403 when the caller lacks send_email", async () => {
+  it("lists accounts when the caller holds view_email", async () => {
     authed({
       user: { id: "user-1" },
       tables: memberTables({
@@ -113,26 +65,72 @@ describe("PATCH /api/email/[id] — gated on send_email (#105)", () => {
       }),
     });
 
-    const res = await PATCH(patchReq(), paramsFor("e-1"));
+    const res = await GET(new Request("http://test/api/email/accounts"), noParams);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("admins retain access without holding the key", async () => {
+    authed({
+      user: { id: "admin-1" },
+      tables: memberTables({ userId: "admin-1", role: "admin", grants: [] }),
+    });
+
+    const res = await GET(new Request("http://test/api/email/accounts"), noParams);
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/email/accounts — gated on send_email (#105)", () => {
+  it("returns 401 when unauthenticated", async () => {
+    authed({ user: null });
+
+    const res = await POST(postReq(), noParams);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when the caller holds only view_email", async () => {
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_member",
+        grants: ["view_email"],
+      }),
+    });
+
+    const res = await POST(postReq(), noParams);
 
     expect(res.status).toBe(403);
   });
 
-  it("updates the email when the caller holds send_email", async () => {
+  it("passes the gate when the caller holds send_email — the handler runs", async () => {
     authed({
       user: { id: "user-1" },
-      tables: {
-        ...memberTables({
-          userId: "user-1",
-          role: "crew_member",
-          grants: ["send_email"],
-        }),
-        emails: [{ id: "e-1", is_read: false }],
-      },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_member",
+        grants: ["send_email"],
+      }),
     });
 
-    const res = await PATCH(patchReq(), paramsFor("e-1"));
+    const res = await POST(postReq(), noParams);
 
-    expect(res.status).toBe(200);
+    // Empty body — the handler rejects with 400 for missing fields, proving
+    // the gate let the request through rather than rejecting it with 403.
+    expect(res.status).toBe(400);
+  });
+
+  it("admins pass the gate without holding the key", async () => {
+    authed({
+      user: { id: "admin-1" },
+      tables: memberTables({ userId: "admin-1", role: "admin", grants: [] }),
+    });
+
+    const res = await POST(postReq(), noParams);
+
+    expect(res.status).not.toBe(403);
   });
 });

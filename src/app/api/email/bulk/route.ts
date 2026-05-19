@@ -3,9 +3,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // PATCH /api/email/bulk — bulk update emails
 // Body: { ids: string[], action: "mark_read" | "mark_unread" | "archive" | "trash" | "assign_job", jobId?: string }
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
-export const PATCH = withRequestContext({}, async (request, ctx) => {
+// Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
+// gate the #85 Request-Context conversion gave this previously-ungated route.
+export const PATCH = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const body = await request.json();
   const { ids, action, jobId } = body;
 

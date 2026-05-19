@@ -540,3 +540,56 @@ handler runs.
   `payment-email` live under `/api/settings/` but already carry real
   permission rules (`manage_*` / `view_accounting` / billing keys) — out of
   this slice's scope, unchanged.
+
+---
+
+## #105 — email content + accounts: tightened to the email vocabulary
+
+PRD #95 slice #105 is the follow-up the intro promises: it **tightens** the
+email routes #85 wrapped logged-in-only. Every email content and
+email-accounts endpoint listed under `## #85` above now carries a real
+permission rule, drawn from the canonical #96 vocabulary (`view_email`,
+`send_email`). They are no longer in the "ungated" set.
+
+The split is read-vs-write — a pure `GET` requires `view_email`; every
+mutation (`POST` / `PATCH` / `DELETE`), including account management,
+requires `send_email`. Admins auto-pass either rule (`evaluatePermissionRule`
+policy); a member holding neither key now gets a `403`.
+
+### `view_email` — read endpoints
+
+- `GET /api/email/[id]` — read one message
+- `GET /api/email/thread/[threadId]` — read a message thread
+- `GET /api/email/list` — list messages in a folder
+- `GET /api/email/counts` — unread counts per folder/account
+- `GET /api/email/contacts` — email contact autocomplete
+- `GET /api/email/attachments/[id]` — download an attachment
+- `GET /api/email/accounts` — list connected email accounts
+
+### `send_email` — mutation + account-management endpoints
+
+- `PATCH /api/email/[id]` — update a message (read/starred/job_id)
+- `PATCH /api/email/bulk` — bulk message actions
+- `POST /api/email/mark-all-read` — mark a folder/account all read
+- `POST /api/email/drafts` — save / update a draft
+- `POST /api/email/send` — send an email
+- `POST /api/email/sync` — sync an account's mailboxes
+- `POST /api/email/sync-folder` — sync a single folder
+- `POST /api/email/attachments/upload` — upload an attachment
+- `POST /api/email/accounts` — connect a new email account
+- `PATCH /api/email/accounts/[id]` — update an email account
+- `DELETE /api/email/accounts/[id]` — disconnect an email account
+- `POST /api/email/accounts/[id]/test` — test an account's connection
+
+### Read-vs-write notes
+
+- `PATCH /api/email/[id]` is a message **mutation** (flags, folder
+  assignment), so it is gated `send_email` — consistent with the bulk
+  message actions (`PATCH /api/email/bulk`) and `mark-all-read`, which the
+  issue's key mapping places under `send_email`. It is not treated as a
+  "pure read" despite the message-content read living on the same path.
+- Account management (connect / update / disconnect / test) is gated
+  `send_email`, not a separate key — #105's scope is "existing keys only"
+  (per #96), and the email vocabulary has exactly two keys. `view_email`
+  covers reading the account list; everything that changes account state is
+  a write.

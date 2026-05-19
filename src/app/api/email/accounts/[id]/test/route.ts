@@ -5,10 +5,10 @@ import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 
 // POST /api/email/accounts/[id]/test — test IMAP and SMTP connections.
-// Previously ungated (relied on RLS via the User client); now logged-in
-// only. Recorded for the #78 ungated-endpoint list.
+// Requires `send_email` (#105, PRD #95) — account management is a write,
+// tightened from the logged-in-only #85 Request-Context conversion gate.
 export const POST = withRequestContext(
-  {},
+  { permission: "send_email" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
