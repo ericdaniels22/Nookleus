@@ -10,9 +10,10 @@ import type { Contract, ContractSigner, ContractTemplate } from "@/lib/contracts
 // (admin-on-iPad flow); the request body provides contract_id + signer_id
 // so a single user account can drive multiple signers in turn.
 //
-// Logged-in only; the Service client drives the stamping pipeline.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client drives the stamping pipeline.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (request, ctx) => {
     const supabase = ctx.serviceClient!;
 

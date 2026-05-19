@@ -47,7 +47,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("returns 404 when the contract is missing", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     vi.mocked(createServiceClient).mockReturnValue(service.client as never);
@@ -61,7 +61,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
     "returns 409 when contract status is %s (alive contracts must be voided first)",
     async (status) => {
       vi.mocked(createServerSupabaseClient).mockResolvedValue(
-        makeAuthedFake() as never,
+        makeAuthedFake("user-1", { role: "admin" }) as never,
       );
       const service = makeSupabaseFake();
       service.seed("contracts", [
@@ -82,7 +82,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("deletes a draft via delete_contract RPC without running the payment-block check", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -116,7 +116,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("permanently deletes a voided contract: removes canonical + sidecar from storage, runs payment-block, then calls delete_contract RPC", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -158,7 +158,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("returns 409 when voided contract's job has recorded payments (payment-block fires)", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -181,7 +181,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("permanently deletes a voided-without-signed-PDF contract without touching storage", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -205,7 +205,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("returns 500 when storage.remove fails on a voided contract and does NOT call the RPC (storage-first order)", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -226,7 +226,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("returns 500 when delete_contract RPC fails", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -246,7 +246,7 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
 
   it("returns 500 when delete_contract RPC fails on the voided branch (storage already removed)", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
-      makeAuthedFake() as never,
+      makeAuthedFake("user-1", { role: "admin" }) as never,
     );
     const service = makeSupabaseFake();
     service.seed("contracts", [
@@ -265,5 +265,44 @@ describe("DELETE /api/contracts/[id] — draft + voided branches", () => {
     // Storage was removed first; blob is orphaned but the DB row survives
     // for a manual retry.
     expect(service.state.storageRemovals).toHaveLength(1);
+  });
+});
+
+// #106 — deleting a contract requires `edit_jobs` (contracts are gated on
+// the job permissions). Every test above authenticates as an admin, who
+// auto-passes the rule.
+describe("DELETE /api/contracts/[id] — permission gate (#106)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 403 when the caller holds only view_jobs", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["view_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      { id: "c-1", job_id: "job-1", status: "draft", signed_pdf_path: null },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(403);
+    expect(service.state.rpcCalls).toHaveLength(0);
+  });
+
+  it("allows a member holding edit_jobs to delete", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "member", grants: ["edit_jobs"] }) as never,
+    );
+    const service = makeSupabaseFake();
+    service.seed("contracts", [
+      { id: "c-1", job_id: "job-1", status: "draft", signed_pdf_path: null },
+    ]);
+    vi.mocked(createServiceClient).mockReturnValue(service.client as never);
+
+    const res = await DELETE(makeRequest(), paramsFor("c-1"));
+    expect(res.status).toBe(200);
+    expect(service.state.rpcCalls[0]).toMatchObject({ name: "delete_contract" });
   });
 });

@@ -9,9 +9,10 @@ import type { Contract } from "@/lib/contracts/types";
 // sent_at → 'sent', else 'draft'). No payment-block check — restore is the
 // opposite of destruction. No confirmation dialog upstream.
 //
-// Logged-in only; the Service client runs the restore RPC.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client runs the restore RPC.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const supabase = ctx.serviceClient!;

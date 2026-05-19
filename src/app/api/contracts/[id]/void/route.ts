@@ -22,9 +22,10 @@ import type { Contract } from "@/lib/contracts/types";
 //     restore-after-void of a signed contract recoverable — the canonical
 //     key is always the clean original.
 //
-// Logged-in only; the Service client runs the load, sidecar write, and RPC.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client runs the load, sidecar write, and RPC.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as { reason?: string };

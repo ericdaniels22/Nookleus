@@ -593,3 +593,61 @@ policy); a member holding neither key now gets a `403`.
   (per #96), and the email vocabulary has exactly two keys. `view_email`
   covers reading the account list; everything that changes account state is
   a write.
+
+---
+
+## #106 — contracts: gated on the job permissions
+
+PRD #95 slice #106 tightens the `contracts` endpoints the #80 conversion
+wrapped logged-in-only (listed under [`## #80`](#80--contracts)).
+
+**Human decision (the HITL question #106 was raised for).** The canonical
+#96 vocabulary has `manage_contract_templates` (for contract *templates*)
+but **no key for contract instances** — the sent / signed / voided
+documents. The slice issue framed the decision as: reuse the job keys, or
+introduce a new `manage_contracts` key. The decision recorded here is to
+**reuse `view_jobs` / `edit_jobs`** — no new key. A contract is a job
+sub-resource: it always carries a `job_id`, the UI surfaces it on the job
+detail Overview tab, and the immediately-prior slice [#103](#83--jobs--payments--payment-requests)
+gated the other job sub-resources (files, photos) the same way. Reusing the
+job keys keeps the vocabulary stable and means no `settings/users`
+seed / role-defaults migration.
+
+The split is read-vs-write — a pure `GET` requires `view_jobs`; every
+mutation requires `edit_jobs`. Admins auto-pass either rule; a member
+holding neither key now gets a `403` before the handler runs. The
+`serviceClient` opt-in on each route is unchanged.
+
+### `view_jobs` — read endpoints
+
+- `GET /api/contracts/preflight` — pre-send validation/readiness check
+- `GET /api/contracts/[id]/pdf` — signed URL / stream for the contract PDF
+- `GET /api/contracts/by-job/[jobId]` — list contracts for a job
+
+### `edit_jobs` — mutation endpoints
+
+- `POST /api/contracts/send` — send a contract for signature
+- `POST /api/contracts/in-person` — record an in-person signature
+- `POST /api/contracts/in-person/start` — begin an in-person signing flow
+- `POST /api/contracts/[id]/void` — void a sent contract
+- `DELETE /api/contracts/[id]` — soft-delete a contract
+- `POST /api/contracts/[id]/restore` — restore a soft-deleted contract
+- `POST /api/contracts/[id]/resend` — resend the signing request
+- `POST /api/contracts/[id]/remind` — send a signing reminder
+
+### Org-scoping — `by-job/[jobId]`
+
+`GET /api/contracts/by-job/[jobId]` flagged in `## #80` as having had **no
+prior auth at all** (RLS-only). Beyond the `view_jobs` rule it now also runs
+the caller-supplied `jobId` through the #97 Active-Organization scoping
+guard (`belongsToActiveOrganization`, `{ jobId }` locator) before the read:
+a job in another Organization is indistinguishable from a missing one —
+both return 404. `jobs` was already a registered resolver, so the guard's
+`RESOLVERS` map needed no change.
+
+### Notes — endpoints deliberately left unchanged
+
+- `GET /api/contracts/reminders` — the hourly auto-reminder Vercel Cron
+  endpoint. It is authenticated by `CRON_SECRET` (not a session), is not
+  wrapped with `withRequestContext`, and was never in the ungated set — out
+  of scope, unchanged. (Same class as `qb/sync-scheduled` under `## #82`.)

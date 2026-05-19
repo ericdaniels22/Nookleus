@@ -10,10 +10,10 @@ import type { Contract, ContractSigner, ContractEmailSettings } from "@/lib/cont
 // NOT shift contracts.next_reminder_at — the auto cron continues on its
 // schedule. Reuses the configured reminder subject/body templates.
 //
-// Logged-in only; the Service client loads settings/contract/signers and
-// sends the reminder.
+// Requires `edit_jobs` (#106) — contracts are gated on the job permissions.
+// The Service client loads settings/contract/signers and sends the reminder.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const supabase = ctx.serviceClient!;

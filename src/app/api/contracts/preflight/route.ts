@@ -10,10 +10,11 @@ import type { OverlayField } from "@/lib/contracts/types";
 // merge field resolves to null for the target job. Lets the send modal warn
 // the sender before they click send (per #70 AC).
 //
-// Logged-in only; the Service client reads the template + merge values,
-// scoped to the caller's Active Organization.
+// Requires `view_jobs` (#106) — a contract is a job sub-resource, so the
+// contracts area is gated on the job permissions. The Service client reads
+// the template + merge values, scoped to the caller's Active Organization.
 export const GET = withRequestContext(
-  { serviceClient: true },
+  { permission: "view_jobs", serviceClient: true },
   async (request, ctx) => {
     const url = new URL(request.url);
     const jobId = url.searchParams.get("jobId");

@@ -40,10 +40,12 @@ function appUrl(): string {
 //   - Stamps the initial next_reminder_at so the hourly cron can pick
 //     the contract up once the first offset elapses.
 //
-// Logged-in only; the Service client creates the draft + sends the email,
-// scoped to the caller's Active Organization.
+// Requires `edit_jobs` (#106) — sending a contract is a job-edit-class
+// mutation; the contracts area is gated on the job permissions. The Service
+// client creates the draft + sends the email, scoped to the caller's Active
+// Organization.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "edit_jobs", serviceClient: true },
   async (request, ctx) => {
     const body = (await request.json().catch(() => null)) as SendBody | null;
     if (!body?.jobId || !body?.templateId || !Array.isArray(body?.signers) || !body.signers.length) {
