@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { PERMISSION_KEYS, type PermissionKey } from "@/lib/permissions/permission-keys";
 
-const ALL_PERMISSIONS = [
-  "view_jobs", "edit_jobs", "create_jobs",
-  "log_activities", "upload_photos", "edit_photos",
-  "view_billing", "record_payments",
-  "view_email", "send_email",
-  "manage_reports", "access_settings",
-  "manage_contract_templates",
-];
-
-const ROLE_DEFAULTS: Record<string, string[]> = {
-  admin: ALL_PERMISSIONS,
+// Default permission grants per role. A new member is seeded a row for every
+// canonical key (PERMISSION_KEYS); these lists decide which start
+// `granted: true`. `admin` lists every key for consistency only — admins
+// auto-pass every rule regardless of their grants.
+const ROLE_DEFAULTS: Record<string, readonly PermissionKey[]> = {
+  admin: PERMISSION_KEYS,
   crew_lead: [
     "view_jobs", "edit_jobs", "create_jobs",
     "log_activities", "upload_photos", "edit_photos",
@@ -117,12 +113,12 @@ export const POST = withRequestContext(
     // Set default permissions on the new membership in user_organization_permissions.
     // Write the legacy user_permissions table too so revert during 18a is safe.
     const grantedPerms = ROLE_DEFAULTS[chosenRole] || ROLE_DEFAULTS.crew_member;
-    const uopInserts = ALL_PERMISSIONS.map((perm) => ({
+    const uopInserts = PERMISSION_KEYS.map((perm) => ({
       user_organization_id: membership.id,
       permission_key: perm,
       granted: grantedPerms.includes(perm),
     }));
-    const upInserts = ALL_PERMISSIONS.map((perm) => ({
+    const upInserts = PERMISSION_KEYS.map((perm) => ({
       user_id: userId,
       permission_key: perm,
       granted: grantedPerms.includes(perm),

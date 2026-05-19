@@ -9,13 +9,17 @@
 // requireAdmin, requireViewAccounting, requireJobsDelete) and the inline
 // requireLogExpenses each re-implemented by hand.
 
+import type { PermissionKey } from "@/lib/permissions/permission-keys";
+
 // The policy half of a Request Context rule. `withRequestContext` accepts
 // this plus a `serviceClient` flag; that flag never reaches this function
 // because it is not a policy question.
 export interface PermissionRule {
   // Caller must hold this permission key, or any one of these keys. Admins
-  // always pass a `permission` rule without holding the key.
-  permission?: string | string[];
+  // always pass a `permission` rule without holding the key. The key type is
+  // the canonical `PermissionKey` union, so a rule naming a vocabulary that
+  // does not exist is a typecheck error, not a silent always-deny.
+  permission?: PermissionKey | PermissionKey[];
   // Caller must have the `admin` role. No permission key substitutes.
   adminOnly?: boolean;
   // Caller's role must be one of these. Unlike `permission`, admin does NOT
