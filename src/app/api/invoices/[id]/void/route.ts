@@ -2,8 +2,9 @@
 // Guards against payments on the invoice. Sets status=voided, voided_at, voided_by.
 // Trigger handles QB enqueue (and coalesces with queued create if applicable).
 //
-// Logged-in only (no permission key) — matches the route's prior behavior.
-// All reads/writes go through the Service client.
+// Requires `manage_invoices` — matches the sibling heavy invoice mutations
+// (/send, /delete, /restore, DELETE). All reads/writes go through the
+// Service client.
 
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
@@ -11,7 +12,7 @@ import type { InvoiceRow } from "@/lib/invoices";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { serviceClient: true, permission: "manage_invoices" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const service = ctx.serviceClient!;

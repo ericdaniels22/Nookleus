@@ -155,6 +155,23 @@ check before conversion — already logged-in-only, no permission gate.
 All other invoices + estimates routes got real permission rules; nothing
 else from this slice is logged-in-only.
 
+#### Triage outcome — #104 (PRD #95)
+
+Both endpoints are now gated, matching the existing invoice gates and the
+canonical permission vocabulary (#96):
+
+- `POST /api/invoices/[id]/void` → `manage_invoices`. Void is a heavy
+  lifecycle mutation; its siblings `/send`, `/delete`, `/restore`, and
+  `DELETE /api/invoices/[id]` all require `manage_invoices`.
+- `POST /api/invoices/[id]/mark-sent` → `edit_invoices`. mark-sent only
+  flips the status `draft → sent` (the same DB effect as the
+  `edit_invoices`-gated `PUT /api/invoices/[id]/status`). `/send` carries
+  `manage_invoices` because it additionally delivers email; mark-sent does
+  not, so it sits with the lighter edit-class gate rather than `/send`'s.
+
+Both keep `serviceClient: true`. Admins pass without holding the key; a
+member lacking it now gets 403.
+
 ---
 
 ## #82 — accounting + QuickBooks

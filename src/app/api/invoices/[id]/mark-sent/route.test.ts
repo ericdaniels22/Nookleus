@@ -28,47 +28,47 @@ beforeEach(() => {
   vi.mocked(createServiceClient).mockReturnValue(fakeServiceClient() as never);
 });
 
-function voidRequest() {
-  return new Request("http://test/api/invoices/inv-1/void", { method: "POST" });
+function markSentRequest() {
+  return new Request("http://test/api/invoices/inv-1/mark-sent", { method: "POST" });
 }
 
-// Gated on `manage_invoices` (#104) — matches the sibling heavy invoice
-// mutations (/send, /delete, /restore, DELETE). The route body still runs
-// against the Service client.
-describe("POST /api/invoices/[id]/void (converted to withRequestContext)", () => {
+// Gated on `edit_invoices` (#104) — mark-sent is a status transition
+// (draft → sent), so it sits with the lighter edit gate rather than
+// /send's `manage_invoices`. The route body runs against the Service client.
+describe("POST /api/invoices/[id]/mark-sent (converted to withRequestContext)", () => {
   it("returns 401 when unauthenticated", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({ user: null }) as never,
     );
-    const res = await POST(voidRequest(), routeCtx);
+    const res = await POST(markSentRequest(), routeCtx);
     expect(res.status).toBe(401);
   });
 
-  it("returns 403 when a non-admin lacks manage_invoices", async () => {
+  it("returns 403 when a non-admin lacks edit_invoices", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
         user: { id: "user-1" },
         tables: memberTables({ userId: "user-1", role: "member", grants: [] }),
       }) as never,
     );
-    const res = await POST(voidRequest(), routeCtx);
+    const res = await POST(markSentRequest(), routeCtx);
     expect(res.status).toBe(403);
   });
 
-  it("reaches the handler when the caller holds manage_invoices", async () => {
+  it("reaches the handler when the caller holds edit_invoices", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
         user: { id: "user-1" },
         tables: memberTables({
           userId: "user-1",
           role: "member",
-          grants: ["manage_invoices"],
+          grants: ["edit_invoices"],
         }),
       }) as never,
     );
     // The Service-client fake has no invoices row, so the handler's own
     // lookup returns 404 — proving the gate passed and the body ran.
-    const res = await POST(voidRequest(), routeCtx);
+    const res = await POST(markSentRequest(), routeCtx);
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "not found" });
   });
@@ -80,7 +80,7 @@ describe("POST /api/invoices/[id]/void (converted to withRequestContext)", () =>
         tables: memberTables({ userId: "user-1", role: "admin", grants: [] }),
       }) as never,
     );
-    const res = await POST(voidRequest(), routeCtx);
+    const res = await POST(markSentRequest(), routeCtx);
     expect(res.status).toBe(404);
   });
 });
