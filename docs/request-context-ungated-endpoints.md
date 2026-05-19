@@ -28,7 +28,8 @@ All wrapped `{ serviceClient: true }` (logged-in-only; Service client opt-in):
 
 The four `by-*` / `*-url` GETs additionally read expenses with the Service
 client **without org-scoping** — a pre-existing data-scoping gap, flagged in
-code comments for the triage follow-up.
+code comments for the triage follow-up. **Closed by [#101](#101--expenses-service-client-gets-org-scoping)**
+— each now calls the Active-Organization scoping guard before the read.
 
 ---
 
@@ -450,3 +451,34 @@ wrapper rejects before the handler runs.
 
 `POST /api/payments/[id]/retry-qb-sync` was already gated on
 `record_payments` at conversion time and needed no change.
+
+### #101 — expenses Service-client GETs org scoping
+
+The four expenses GETs listed under [#79](#79--expenses-tracer) read through
+the Service client (RLS bypassed) with **no Active-Organization filter**, so
+any logged-in user could read another Organization's expense data by id:
+
+- `GET /api/expenses/by-job/[jobId]`
+- `GET /api/expenses/by-activity/[activityId]`
+- `GET /api/expenses/[id]/thumbnail-url`
+- `GET /api/expenses/[id]/receipt-url`
+
+Each handler now calls the Active-Organization scoping guard
+(`belongsToActiveOrganization`, #97) before the read and returns 404 when it
+fails. The resource each guards is the id the route is *given*, so a
+cross-Organization id is rejected before any of its data is touched:
+
+- `by-job` → `{ jobId }` — the job's own `organization_id`.
+- `by-activity` → `{ table: "job_activities", id }` — the activity, resolved
+  to its job's `organization_id` through `job_activities.job_id`.
+- `[id]/thumbnail-url`, `[id]/receipt-url` → `{ table: "expenses", id }` —
+  the expense's own `organization_id`.
+
+The guard's `RESOLVERS` map gained one entry — `expenses: directColumn(...)`
+— since `expenses` carries its own `organization_id` column (`NOT NULL`
+since build 45). `jobs` and `job_activities` were already registered by #97.
+
+This is a data-scoping correctness fix only; it adds no permission gate. A
+resource in another Organization is now indistinguishable from a missing one
+— both return 404 — and behavior is unchanged for resources in the caller's
+own Active Organization.

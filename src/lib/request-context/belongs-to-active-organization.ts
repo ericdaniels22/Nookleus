@@ -75,6 +75,7 @@ const resolveJobOrg = directColumn("jobs");
 const RESOLVERS: Record<string, OrgResolver> = {
   jobs: resolveJobOrg,
   job_activities: throughForeignKey("job_activities", "job_id", resolveJobOrg),
+  expenses: directColumn("expenses"),
 };
 
 /**
