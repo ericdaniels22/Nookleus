@@ -16,7 +16,7 @@ interface PatchBody {
 }
 
 export const PATCH = withRequestContext(
-  { serviceClient: true },
+  { permission: "record_payments", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const body = (await request.json().catch(() => null)) as PatchBody | null;
@@ -44,7 +44,7 @@ export const PATCH = withRequestContext(
 );
 
 export const DELETE = withRequestContext(
-  { serviceClient: true },
+  { permission: "record_payments", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const { error } = await ctx.serviceClient!.from("payments").delete().eq("id", id);

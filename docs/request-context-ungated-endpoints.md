@@ -414,3 +414,22 @@ department routes from the #85 special-case notes — out of #99 scope.)
 logged-in-only confirmed. Three follow-ups recorded for separate slices —
 knowledge `DELETE` ([#121](#)), notifications `GET`/`PATCH` ([#119](#)),
 Jarvis chat ([#120](#)). #99 changed no code.
+
+### #102 — payments
+
+The four `payments` endpoints listed under [#83](#83--jobs--payments--payment-requests)
+were logged-in-only. Tightened to canonical #96 keys:
+
+- `GET /api/payments` → `{ permission: "view_billing" }` — listing payments
+  is a billing-area read.
+- `POST /api/payments` → `{ permission: "record_payments", serviceClient: true }`
+- `PATCH /api/payments/[id]` → `{ permission: "record_payments", serviceClient: true }`
+- `DELETE /api/payments/[id]` → `{ permission: "record_payments", serviceClient: true }`
+
+`view_billing` and `record_payments` both already exist in
+`PERMISSION_CATALOG` (group "Billing"); no new key was introduced. Admins
+auto-pass a `permission` rule. A member lacking the key now gets 403 — the
+wrapper rejects before the handler runs.
+
+`POST /api/payments/[id]/retry-qb-sync` was already gated on
+`record_payments` at conversion time and needed no change.
