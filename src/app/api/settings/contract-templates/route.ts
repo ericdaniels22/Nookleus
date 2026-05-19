@@ -3,8 +3,9 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { apiDbError } from "@/lib/api-errors";
 
 // GET /api/settings/contract-templates — list templates for the active org.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84
+// gate. The POST below keeps its stricter `manage_contract_templates` rule.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("contract_templates")
     .select(

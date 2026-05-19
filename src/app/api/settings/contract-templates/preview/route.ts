@@ -7,8 +7,8 @@ import { resolveMergeFields } from "@/lib/contracts/merge-fields";
 // Returns the merge-field-resolved HTML plus the list of fields that
 // had no data on that job so the modal can flag them to the author.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json().catch(() => null);
   if (!body || typeof body.jobId !== "string" || typeof body.contentHtml !== "string") {
     return NextResponse.json(

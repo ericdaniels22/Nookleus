@@ -482,3 +482,61 @@ This is a data-scoping correctness fix only; it adds no permission gate. A
 resource in another Organization is now indistinguishable from a missing one
 — both return 404 — and behavior is unchanged for resources in the caller's
 own Active Organization.
+
+---
+
+## #107 — settings area: tightened to `access_settings`
+
+PRD #95 slice #107 tightens the `settings`-area endpoints the #84 conversion
+wrapped logged-in-only (`settings/users/*` was handled separately by #100).
+The canonical #96 vocabulary has no settings-specific *view* key, so the
+whole area — reads and writes alike — is gated on **`access_settings`**
+(`PERMISSION_CATALOG`, group "Admin"). No new key was introduced. Admins
+auto-pass; a member lacking `access_settings` now gets 403 before the
+handler runs.
+
+### Gated on `access_settings`
+
+- **intake-form** — `GET`/`POST /api/settings/intake-form`,
+  `GET …/intake-form/custom-fields`, `POST …/intake-form/restore`,
+  `GET …/intake-form/usage`, `GET …/intake-form/versions`
+- **company / appearance / branding** — `GET`/`PUT /api/settings/company`,
+  `GET`/`PUT /api/settings/appearance`, `POST /api/settings/company/logo`
+- **catalogs** — `GET`/`POST`/`PUT`/`DELETE /api/settings/statuses` and the
+  same four on `/api/settings/damage-types`
+- **email settings** — `GET`/`PATCH /api/settings/contract-email`,
+  `GET`/`PUT /api/settings/signatures`
+- **data export** — `GET /api/settings/export` (dumps jobs / contacts /
+  payments / invoices / emails / activities as CSV — must not be callable
+  by an arbitrary member)
+- **contract-templates** — `GET /api/settings/contract-templates` (list),
+  `GET`/`DELETE /api/settings/contract-templates/[id]`,
+  `GET /api/settings/contract-templates/[id]/pdf`,
+  `GET /api/settings/contract-templates/jobs`,
+  `POST /api/settings/contract-templates/preview`
+- **nav-order** — `GET /api/settings/nav-order` (the read only)
+
+### Notes — endpoints deliberately left unchanged
+
+- `PUT /api/settings/nav-order` — keeps its own any-org admin check. As the
+  #84 notes record, `nav_items` is a product-level table; the route's
+  business logic accepts admin in **any** org the caller belongs to, which
+  `access_settings` (Active-Organization-scoped) would not preserve. Left
+  wrapped `{}` with the inline check intact.
+- The contract-templates **`POST`** (create), **`PATCH`** (`[id]` edit) and
+  **`POST …/[id]/pdf`** (PDF upload) keep their stricter
+  `manage_contract_templates` rule — already correctly gated, no change.
+  The list/`[id]`-read/`[id]`-DELETE/pdf-GET/jobs/preview routes were the
+  logged-in-only ones; those took `access_settings`. (DELETE soft-archives a
+  template; per the #107 issue it takes the slice's `access_settings` rule
+  rather than `manage_contract_templates`.)
+- `GET /api/settings/contract-templates/[id]/preview` — the sample-data
+  overlay preview — stays wrapped `{}`. The #84 notes record it as a
+  deliberate logged-in-only route: it is opened from the send-contract /
+  sign-in-person modals by any member, renders only sample data (no
+  contract PII), and gating it on `access_settings` would break those
+  modals for non-settings users.
+- `expense-categories`, `vendors`, `accounting/checklist`, `invoice-email`,
+  `payment-email` live under `/api/settings/` but already carry real
+  permission rules (`manage_*` / `view_accounting` / billing keys) — out of
+  this slice's scope, unchanged.

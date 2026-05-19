@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
-// All four methods are logged-in only — previously ungated (recorded for the
-// #78 ungated-endpoint list).
+// All four methods require `access_settings` (#107) — tightened from the
+// logged-in-only #84 gate (previously ungated, recorded for the #78 list).
 
 // GET /api/settings/damage-types — NULL-org defaults plus this org's rows.
-export const GET = withRequestContext({}, async (_request, ctx) => {
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const orgId = ctx.orgId;
   const { data, error } = await ctx.supabase
     .from("damage_types")
@@ -18,7 +18,7 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // POST /api/settings/damage-types — create new (always org-owned) type.
-export const POST = withRequestContext({}, async (request, ctx) => {
+export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json();
   const { name, display_label, bg_color, text_color, icon } = body;
 
@@ -63,7 +63,7 @@ export const POST = withRequestContext({}, async (request, ctx) => {
 });
 
 // PUT /api/settings/damage-types — bulk update, active-org rows only.
-export const PUT = withRequestContext({}, async (request, ctx) => {
+export const PUT = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json();
   const orgId = ctx.orgId;
 
@@ -98,7 +98,7 @@ export const PUT = withRequestContext({}, async (request, ctx) => {
 });
 
 // DELETE /api/settings/damage-types?id=xxx
-export const DELETE = withRequestContext({}, async (request, ctx) => {
+export const DELETE = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });

@@ -8,10 +8,11 @@ import { SYSTEM_MERGE_FIELDS } from "@/lib/contracts/merge-fields";
 import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/contract-templates/[id]
-// Logged-in only. Org-scoped (#98): a template in another Organization is
-// indistinguishable from a missing one — both return 404.
+// Requires `access_settings` (#107) — tightened from the logged-in-only gate.
+// Org-scoped (#98): a template in another Organization is indistinguishable
+// from a missing one — both return 404.
 export const GET = withRequestContext(
-  {},
+  { permission: "access_settings" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const { data, error } = await ctx.supabase
@@ -118,11 +119,12 @@ export const PATCH = withRequestContext(
 // is_active=false. Templates are never hard-deleted because signed contracts
 // in Build 15b will reference them historically.
 //
-// Logged-in only. Org-scoped (#98): the update filters on the Active
-// Organization, so a template in another Organization cannot be archived and
-// is indistinguishable from a missing one — both return 404.
+// Requires `access_settings` (#107) — tightened from the logged-in-only gate.
+// Org-scoped (#98): the update filters on the Active Organization, so a
+// template in another Organization cannot be archived and is indistinguishable
+// from a missing one — both return 404.
 export const DELETE = withRequestContext(
-  {},
+  { permission: "access_settings" },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const { data, error } = await ctx.supabase

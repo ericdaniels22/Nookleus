@@ -17,8 +17,10 @@ function toCsv(data: Record<string, unknown>[]): string {
 }
 
 // GET /api/settings/export?type=jobs&startDate=...&endDate=...
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84
+// gate. This route dumps jobs/contacts/payments/invoices/emails/activities as
+// CSV, so it must not be callable by an arbitrary member.
+export const GET = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
   const startDate = searchParams.get("startDate");

@@ -77,9 +77,10 @@ export const POST = withRequestContext(
 );
 
 // GET /api/settings/contract-templates/[id]/pdf — short-lived signed URL.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84
+// gate. The POST above keeps its stricter `manage_contract_templates` rule.
 export const GET = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     const orgId = ctx.orgId;

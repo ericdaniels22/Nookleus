@@ -5,8 +5,8 @@ import type { FormConfig } from "@/lib/types";
 
 // POST /api/settings/intake-form/restore — copy an older version forward as a new row.
 // Never mutates or deletes prior versions.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json().catch(() => ({}));
   const targetVersion = Number(body?.version);
   if (!Number.isFinite(targetVersion) || targetVersion < 1) {

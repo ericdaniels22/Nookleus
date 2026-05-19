@@ -4,8 +4,8 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 const APPEARANCE_KEYS = ["brand_primary", "brand_secondary", "brand_accent"];
 
 // GET /api/settings/appearance — fetch brand color settings.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("company_settings")
     .select("key, value")
@@ -24,8 +24,8 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // PUT /api/settings/appearance — save brand color settings.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const PUT = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const PUT = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json();
 
   for (const key of APPEARANCE_KEYS) {
