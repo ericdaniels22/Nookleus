@@ -276,3 +276,29 @@ A few #85 routes were deliberately **not** wrapped with
   `knowledge/ingest` — custom auth: a session cookie **or** an
   `x-service-key` header.
 - `stripe/webhook` — authenticated by Stripe signature verification.
+
+---
+
+## Triage decisions (PRD #95)
+
+The conversion above is behavior-preserving — it only made "no check"
+visible as "logged-in only". PRD [#95](https://github.com/ericdaniels22/Nookleus/issues/95)
+is the follow-up that replaces those logged-in-only gates with real
+permission rules. Each tightening slice records its decision here.
+
+### #98 — contract-templates/[id] org scoping
+
+`GET` and `DELETE /api/settings/contract-templates/[id]` (listed under
+[#84](#84--settings)) omitted the Active-Organization filter that their
+sibling `PATCH` applies, so any logged-in user could read or soft-archive
+another Organization's template by id.
+
+Both handlers now filter on `ctx.orgId` (`.eq("organization_id", ctx.orgId)`),
+matching `PATCH`. `DELETE` additionally `.select("id")`s the updated row and
+returns 404 when nothing matched. A template in another Organization is now
+indistinguishable from a missing one — both return 404 — and behavior is
+unchanged for templates in the caller's own Active Organization.
+
+This is a data-scoping correctness fix only; it adds no permission gate.
+The **permission rule** for the settings-area routes (including these) is
+assigned separately in settings slice [#107](#).
