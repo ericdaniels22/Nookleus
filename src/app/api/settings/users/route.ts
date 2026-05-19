@@ -24,9 +24,9 @@ const ROLE_DEFAULTS: Record<string, readonly PermissionKey[]> = {
 // user_orgs_member_read policy (build51) grants visibility into other members
 // of the same org.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Gated on `access_settings` (#100) — was previously ungated logged-in-only.
 export const GET = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (_request, ctx) => {
     const { data: memberships, error } = await ctx.supabase
       .from("user_organizations")
@@ -64,9 +64,9 @@ export const GET = withRequestContext(
 // fires handle_new_user to create user_profiles), then inserts the
 // user_organizations row and default permissions.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
+// Gated on `access_settings` (#100) — was previously ungated logged-in-only.
 export const POST = withRequestContext(
-  { serviceClient: true },
+  { permission: "access_settings", serviceClient: true },
   async (request, ctx) => {
     const { email, full_name, phone, role } = await request.json();
 
