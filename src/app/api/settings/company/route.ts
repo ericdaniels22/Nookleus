@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/company — fetch all company settings for the active org.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("company_settings")
     .select("key, value")
@@ -22,8 +22,8 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // PUT /api/settings/company — upsert company settings for the active org.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const PUT = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const PUT = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json();
   const orgId = ctx.orgId;
 

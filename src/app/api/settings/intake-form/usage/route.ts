@@ -6,8 +6,8 @@ import type { FormConfig } from "@/lib/types";
 // GET /api/settings/intake-form/usage
 // Returns { usage: { [slug]: [{ id, name, is_active }] } } for every slug
 // derived from the active org's latest form_config (slug = merge_field_slug ?? id).
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const orgId = ctx.orgId;
 
   const { data: cfgRow, error: cfgErr } = await ctx.supabase

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/intake-form/custom-fields?jobId=xxx
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const jobId = new URL(request.url).searchParams.get("jobId");
   if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
 

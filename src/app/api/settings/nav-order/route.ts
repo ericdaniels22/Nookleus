@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/nav-order — returns the admin-configured order.
-// Any signed-in user can read (RLS enforces this).
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84
+// gate. The PUT below keeps its own any-org admin check (see its comment).
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("nav_items")
     .select("href, sort_order")

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // GET /api/settings/signatures — get all signatures with account info.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data: accounts } = await ctx.supabase
     .from("email_accounts")
     .select("id, label, email_address, display_name, is_active")
@@ -27,8 +27,8 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // PUT /api/settings/signatures — upsert signature for an account.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const PUT = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const PUT = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const { account_id, signature_html, include_logo, auto_insert } = await request.json();
 
   if (!account_id) {

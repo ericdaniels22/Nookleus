@@ -16,8 +16,8 @@ async function getSettings(supabase: SupabaseClient) {
 }
 
 // GET /api/settings/contract-email
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await getSettings(ctx.supabase);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) {
@@ -30,8 +30,8 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // PATCH /api/settings/contract-email
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const PATCH = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const PATCH = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = (await request.json().catch(() => null)) as Partial<ContractEmailSettings> | null;
   if (!body) {
     return NextResponse.json({ error: "Body must be a JSON object" }, { status: 400 });

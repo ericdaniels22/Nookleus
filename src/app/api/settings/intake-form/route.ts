@@ -4,8 +4,8 @@ import { findBlockedRemovals } from "@/lib/contracts/form-config-removal-guard";
 import type { FormConfig } from "@/lib/types";
 
 // GET /api/settings/intake-form — fetch latest form config for the active org.
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("form_config")
     .select("*")
@@ -19,8 +19,8 @@ export const GET = withRequestContext({}, async (_request, ctx) => {
 });
 
 // POST /api/settings/intake-form — save new version (org-scoped).
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const { config } = await request.json();
 
   if (!config || !config.sections) {

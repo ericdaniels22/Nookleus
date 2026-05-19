@@ -5,8 +5,8 @@ const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", 
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
 
 // POST /api/settings/company/logo — upload company logo (org-prefixed path).
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const POST = withRequestContext({}, async (request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
 

@@ -6,8 +6,8 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 // Returns the 25 most recent jobs with their job_number + customer name
 // so the author can eyeball which job the preview is rendering against.
 //
-// Logged-in only — previously ungated (recorded for the #78 ungated list).
-export const GET = withRequestContext({}, async (_request, ctx) => {
+// Requires `access_settings` (#107) — tightened from the logged-in-only #84 gate.
+export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
   const { data, error } = await ctx.supabase
     .from("jobs")
     .select("id, job_number, property_address, created_at, contact:contacts!contact_id(full_name)")
