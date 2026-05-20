@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
 import { categorizeEmail, type CategoryRule } from "@/lib/email-categorizer";
@@ -51,9 +52,14 @@ const ALLOWED_FOLDERS = new Set([
 //
 // The client throttles concurrent calls; this endpoint always does the
 // work it's asked to do.
-// Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
+// Gated on view_email at the wrapper; per-account canRead via the access
+// module (#141, ADR 0001) when `accountId` is supplied. Without accountId,
+// the fan-out across the org's accounts uses the User client, so RLS scopes
+// the visible set to {Shared + own Personal} — the same canRead-set as the
+// explicit-account path.
+export const POST = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
   const startedAt = Date.now();
   const body = (await request.json()) as { accountId?: string; folder?: string };
   const { accountId, folder } = body;
@@ -63,6 +69,16 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
       { error: "folder is required (inbox, sent, drafts, trash, spam, archive)" },
       { status: 400 },
     );
+  }
+
+  if (accountId) {
+    const resolved = await resolveEmailAccountAccess(
+      ctx.serviceClient!,
+      accountId,
+      ctx,
+      "canRead",
+    );
+    if (resolved.kind === "response") return resolved.response;
   }
 
   const supabase = ctx.supabase;

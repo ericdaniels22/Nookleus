@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
 import { categorizeEmail, type CategoryRule, type Category } from "@/lib/email-categorizer";
@@ -42,15 +43,26 @@ function mapFolder(imapPath: string): string {
 //
 // First sync per account also runs the one-time category backfill (Pass
 // 1 + Pass 2) — that path is intentionally not optimized.
-// Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
+// Gated on view_email at the wrapper; the access module decides canRead
+// per the bound account (#141, ADR 0001 — send-and-sync share canRead with
+// pure-read until/unless the spec splits them).
+export const POST = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
   const startedAt = Date.now();
   const { accountId, maxPerFolder = 50 } = await request.json();
 
   if (!accountId) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
   }
+
+  const resolved = await resolveEmailAccountAccess(
+    ctx.serviceClient!,
+    accountId,
+    ctx,
+    "canRead",
+  );
+  if (resolved.kind === "response") return resolved.response;
 
   const supabase = ctx.supabase;
 
