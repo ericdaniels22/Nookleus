@@ -140,6 +140,29 @@ describe("withRequestContext", () => {
     expect(received?.role).toBe("member");
   });
 
+  // Handlers that delegate to an access-decision module (#139, PRD #134) need
+  // the caller's permission grants without re-fetching them. The wrapper
+  // already resolved them; carry them through on the Request Context.
+  it("carries the caller's granted permission keys through on the context", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        membership: { id: "m-1", role: "crew_lead" },
+        grants: ["view_email", "send_email"],
+      }) as never,
+    );
+    let received: RequestContext | undefined;
+    const handler = vi.fn((_req: Request, ctx: RequestContext) => {
+      received = ctx;
+      return new Response("ok");
+    });
+
+    const route = withRequestContext({ permission: "view_email" }, handler);
+    await route(new Request("http://test"), paramsContext({}));
+
+    expect(received?.grantedPermissions).toEqual(["view_email", "send_email"]);
+  });
+
   it("admits an admin against a permission rule they hold no grant for", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({
