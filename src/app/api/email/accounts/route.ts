@@ -24,13 +24,20 @@ export const GET = withRequestContext({ permission: "view_email" }, async (_requ
 // account update / disconnect / test.
 export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const body = await request.json();
-  const { label, email_address, display_name, provider, imap_host, imap_port, smtp_host, smtp_port, username, password, color: colorOverride } = body;
+  const { label, email_address, display_name, provider, imap_host, imap_port, smtp_host, smtp_port, username, password, color: colorOverride, user_id } = body;
 
   if (!email_address || !username || !password) {
     return NextResponse.json(
       { error: "email_address, username, and password are required" },
       { status: 400 }
     );
+  }
+
+  // ADR 0001 ownership rule. Admin may set any owner (or null for Shared);
+  // non-admin may only own the account themselves — any other `user_id`,
+  // including null, is denied.
+  if (ctx.role !== "admin" && user_id !== ctx.userId) {
+    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }
 
   const encrypted_password = encrypt(password);
@@ -51,6 +58,10 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     .from("email_accounts")
     .insert({
       organization_id: orgId,
+      // null marks Shared (org-wide); a uuid marks Personal owned by that
+      // user. The ownership rule above guarantees a non-admin's value here
+      // is their own id; an admin's value is whatever they sent.
+      user_id: user_id ?? null,
       label: label || email_address,
       email_address,
       display_name: display_name || "AAA Disaster Recovery",
