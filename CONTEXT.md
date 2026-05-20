@@ -36,11 +36,31 @@ Active Organization. Carried by a Request Context only when a route
 explicitly opts in.
 _Avoid_: admin client, master client
 
+**Email account**:
+A connection to an external mailbox (IMAP/SMTP) that Nookleus syncs and
+sends mail through. Belongs to exactly one Organization. Comes in two kinds
+— a Shared account or a Personal account.
+_Avoid_: mailbox, inbox connection
+
+**Shared email account**:
+An Email account the whole Organization works from — e.g. a `team@` address
+where job-related mail arrives. Every member with email access can read it
+and send from it; only admins change its settings or disconnect it.
+_Avoid_: company account, org inbox
+
+**Personal email account**:
+An Email account owned by one User and content-private to them — only the
+owner reads its mail. An admin can see the account is connected and can
+disconnect it (e.g. when the owner leaves the company) but cannot read its
+messages.
+_Avoid_: private inbox, user account
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
 - A **Request Context** names exactly one **Active Organization**.
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
+- An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
 
 ## Example dialogue
 

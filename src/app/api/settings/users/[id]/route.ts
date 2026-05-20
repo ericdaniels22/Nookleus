@@ -13,6 +13,21 @@ export const PATCH = withRequestContext(
     const body = await request.json();
     const service = ctx.serviceClient!;
 
+    // The [id] path param is client-supplied. Verify the target user is a
+    // member of the caller's Active Organization before any write — the
+    // Service client bypasses row-level security, so this route owns the
+    // scoping check itself. A user from another Organization (or one that
+    // does not exist) is reported as 404, never edited.
+    const { data: membership } = await service
+      .from("user_organizations")
+      .select("id")
+      .eq("user_id", id)
+      .eq("organization_id", ctx.orgId)
+      .maybeSingle();
+    if (!membership) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
     const profileUpdates: Record<string, unknown> = {};
     if (body.full_name !== undefined) profileUpdates.full_name = body.full_name;
     if (body.phone !== undefined) profileUpdates.phone = body.phone || null;
