@@ -4,20 +4,43 @@ import { encrypt } from "@/lib/encryption";
 import { assignAccountColor } from "@/lib/email/assign-account-color";
 
 // GET /api/email/accounts — list accounts for the active org (passwords excluded).
-// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const GET = withRequestContext({ permission: "view_email" }, async (_request, ctx) => {
-  const { data, error } = await ctx.supabase
-    .from("email_accounts")
-    .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, last_synced_uid, created_at, updated_at")
-    .eq("organization_id", ctx.orgId)
-    .order("created_at", { ascending: true });
+//
+// Two views, selected by ?asAdmin=true:
+//   default (no flag) — every account the caller can READ. The User client
+//     plus the migration-140 RLS already returns exactly this set: Shared
+//     accounts in the org plus the caller's own Personal accounts. This is
+//     the inbox-switcher view.
+//   ?asAdmin=true — every account the admin can SEE in the org, including
+//     Personal accounts owned by other users (admins canSee but not canRead
+//     them per ADR 0001 — content-private). Needs Service-client access
+//     because the RLS policy correctly hides those Personal accounts from
+//     the admin's User client. Non-admins ignore the flag and receive their
+//     canRead-set (same as default).
+//
+// `user_id` is now selected so the UI can show "Shared" vs "Owner: X" badges.
+const ACCOUNT_FIELDS = "id, user_id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, last_synced_uid, created_at, updated_at";
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data);
-});
+export const GET = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
+    const asAdmin =
+      ctx.role === "admin" &&
+      new URL(request.url).searchParams.get("asAdmin") === "true";
+
+    const client = asAdmin ? ctx.serviceClient! : ctx.supabase;
+
+    const { data, error } = await client
+      .from("email_accounts")
+      .select(ACCOUNT_FIELDS)
+      .eq("organization_id", ctx.orgId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data);
+  },
+);
 
 // POST /api/email/accounts — add a new email account for the active org.
 // Requires `send_email` (#105, PRD #95) — account management is a write, like
