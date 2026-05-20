@@ -8,6 +8,10 @@
 // chainable select/insert/upsert/update builder plus `auth.admin` for the
 // invite / ban calls. Filters are recorded but only `eq` narrows rows —
 // the tests assert on the wrapper's allow/deny, not on query semantics.
+// The `auth.admin` methods are vi.fn spies so a test can assert what (or
+// whether) the route passed anything to them.
+
+import { vi } from "vitest";
 
 type Row = Record<string, unknown>;
 
@@ -38,7 +42,8 @@ function builder(rows: Row[]): Record<string, unknown> {
 
 // A fake Service client for the `settings/users` route bodies. `tables`
 // seeds rows the bodies read (e.g. the target member's `user_organizations`
-// row for the `permissions` PUT). `auth.admin` stubs the invite/ban calls.
+// row for the `permissions` PUT, or the membership row the PATCH guard
+// reads). `auth.admin` stubs the invite/ban calls.
 export function fakeUsersServiceClient(
   opts: { tables?: Record<string, Row[]> } = {},
 ) {
@@ -49,15 +54,15 @@ export function fakeUsersServiceClient(
     },
     auth: {
       admin: {
-        async listUsers() {
-          return { data: { users: [] }, error: null };
-        },
-        async inviteUserByEmail() {
-          return { data: { user: { id: "invited-user" } }, error: null };
-        },
-        async updateUserById() {
-          return { data: { user: null }, error: null };
-        },
+        listUsers: vi.fn(async () => ({ data: { users: [] }, error: null })),
+        inviteUserByEmail: vi.fn(async () => ({
+          data: { user: { id: "invited-user" } },
+          error: null,
+        })),
+        updateUserById: vi.fn(async () => ({
+          data: { user: null },
+          error: null,
+        })),
       },
     },
   };
