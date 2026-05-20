@@ -1,64 +1,7 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
-import type { RequestContext } from "@/lib/request-context/with-request-context";
 import { encrypt } from "@/lib/encryption";
-import {
-  evaluateEmailAccountAccess,
-  type EmailAccountAccess,
-} from "@/lib/email/email-account-access";
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-// Fetch the target Email account by id, then evaluate the (caller, account)
-// access matrix from ADR 0001. Returns:
-//   - 404 response when the account does not exist or the caller cannot see it
-//     (cross-org account, or non-owner Personal in the caller's own org);
-//   - 403 response when the caller can see the account but the requested action
-//     is forbidden (Shared account, non-admin caller, canManage required);
-//   - { account, access } otherwise.
-// The Service client bypasses RLS — required so an admin can manage a Personal
-// account they do not own, which the User-client RLS policy would hide.
-async function resolveAccessTo(
-  serviceClient: SupabaseClient,
-  accountId: string,
-  ctx: RequestContext,
-  required: "canRead" | "canManage",
-): Promise<
-  | { kind: "ok"; account: { organization_id: string; user_id: string | null }; access: EmailAccountAccess }
-  | { kind: "response"; response: Response }
-> {
-  const { data: account } = await serviceClient
-    .from("email_accounts")
-    .select("organization_id, user_id")
-    .eq("id", accountId)
-    .maybeSingle<{ organization_id: string; user_id: string | null }>();
-
-  if (!account) {
-    return { kind: "response", response: NextResponse.json({ error: "Not found" }, { status: 404 }) };
-  }
-
-  const access = evaluateEmailAccountAccess(
-    {
-      userId: ctx.userId,
-      organizationId: ctx.orgId ?? "",
-      role: ctx.role,
-      grantedPermissions: ctx.grantedPermissions,
-    },
-    {
-      kind: account.user_id === null ? "shared" : "personal",
-      organizationId: account.organization_id,
-      userId: account.user_id,
-    },
-  );
-
-  if (!access.canSee) {
-    return { kind: "response", response: NextResponse.json({ error: "Not found" }, { status: 404 }) };
-  }
-  if (!access[required]) {
-    return { kind: "response", response: NextResponse.json({ error: "Permission denied" }, { status: 403 }) };
-  }
-
-  return { kind: "ok", account, access };
-}
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 
 // DELETE /api/email/accounts/[id] — disconnect an email account.
 // Gated on view_email at the wrapper (the broadest email perm — anyone with
@@ -70,7 +13,7 @@ export const DELETE = withRequestContext(
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
-    const resolved = await resolveAccessTo(ctx.serviceClient!, id, ctx, "canManage");
+    const resolved = await resolveEmailAccountAccess(ctx.serviceClient!, id, ctx, "canManage");
     if (resolved.kind === "response") return resolved.response;
 
     const { error } = await ctx.serviceClient!
@@ -92,7 +35,7 @@ export const PATCH = withRequestContext(
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
-    const resolved = await resolveAccessTo(ctx.serviceClient!, id, ctx, "canManage");
+    const resolved = await resolveEmailAccountAccess(ctx.serviceClient!, id, ctx, "canManage");
     if (resolved.kind === "response") return resolved.response;
 
     const body = await request.json();

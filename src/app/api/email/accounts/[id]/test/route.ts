@@ -1,18 +1,31 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 
 // POST /api/email/accounts/[id]/test — test IMAP and SMTP connections.
-// Requires `send_email` (#105, PRD #95) — account management is a write,
-// tightened from the logged-in-only #85 Request-Context conversion gate.
+// Reads the encrypted password, so the gate is canManage from the access
+// module (#139, ADR 0001) — admin for Shared, owner-or-admin for Personal.
+// The withRequestContext gate is the broadest email perm (`view_email`);
+// the access module makes the real call inside.
 export const POST = withRequestContext(
-  { permission: "send_email" },
+  { permission: "view_email", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
-    const { data: account, error } = await ctx.supabase
+    const resolved = await resolveEmailAccountAccess(
+      ctx.serviceClient!,
+      id,
+      ctx,
+      "canManage",
+    );
+    if (resolved.kind === "response") return resolved.response;
+
+    // The access check passed; fetch the full row (with credentials) via the
+    // Service client to run the connection test.
+    const { data: account, error } = await ctx.serviceClient!
       .from("email_accounts")
       .select("*")
       .eq("id", id)
