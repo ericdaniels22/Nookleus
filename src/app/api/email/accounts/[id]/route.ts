@@ -1,16 +1,79 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import type { RequestContext } from "@/lib/request-context/with-request-context";
 import { encrypt } from "@/lib/encryption";
+import {
+  evaluateEmailAccountAccess,
+  type EmailAccountAccess,
+} from "@/lib/email/email-account-access";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Fetch the target Email account by id, then evaluate the (caller, account)
+// access matrix from ADR 0001. Returns:
+//   - 404 response when the account does not exist or the caller cannot see it
+//     (cross-org account, or non-owner Personal in the caller's own org);
+//   - 403 response when the caller can see the account but the requested action
+//     is forbidden (Shared account, non-admin caller, canManage required);
+//   - { account, access } otherwise.
+// The Service client bypasses RLS — required so an admin can manage a Personal
+// account they do not own, which the User-client RLS policy would hide.
+async function resolveAccessTo(
+  serviceClient: SupabaseClient,
+  accountId: string,
+  ctx: RequestContext,
+  required: "canRead" | "canManage",
+): Promise<
+  | { kind: "ok"; account: { organization_id: string; user_id: string | null }; access: EmailAccountAccess }
+  | { kind: "response"; response: Response }
+> {
+  const { data: account } = await serviceClient
+    .from("email_accounts")
+    .select("organization_id, user_id")
+    .eq("id", accountId)
+    .maybeSingle<{ organization_id: string; user_id: string | null }>();
+
+  if (!account) {
+    return { kind: "response", response: NextResponse.json({ error: "Not found" }, { status: 404 }) };
+  }
+
+  const access = evaluateEmailAccountAccess(
+    {
+      userId: ctx.userId,
+      organizationId: ctx.orgId ?? "",
+      role: ctx.role,
+      grantedPermissions: ctx.grantedPermissions,
+    },
+    {
+      kind: account.user_id === null ? "shared" : "personal",
+      organizationId: account.organization_id,
+      userId: account.user_id,
+    },
+  );
+
+  if (!access.canSee) {
+    return { kind: "response", response: NextResponse.json({ error: "Not found" }, { status: 404 }) };
+  }
+  if (!access[required]) {
+    return { kind: "response", response: NextResponse.json({ error: "Permission denied" }, { status: 403 }) };
+  }
+
+  return { kind: "ok", account, access };
+}
 
 // DELETE /api/email/accounts/[id] — disconnect an email account.
-// Requires `send_email` (#105, PRD #95) — account management is a write,
-// tightened from the logged-in-only #85 Request-Context conversion gate.
+// Gated on view_email at the wrapper (the broadest email perm — anyone with
+// any email perm passes); the canManage rule from the access module is the
+// real gate. ADR 0001: admin manages Shared, owner manages own Personal,
+// admin can disconnect (but not read) others' Personal in the same org.
 export const DELETE = withRequestContext(
-  { permission: "send_email" },
+  { permission: "view_email", serviceClient: true },
   async (_request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
 
-    const { error } = await ctx.supabase
+    const resolved = await resolveAccessTo(ctx.serviceClient!, id, ctx, "canManage");
+    if (resolved.kind === "response") return resolved.response;
+
+    const { error } = await ctx.serviceClient!
       .from("email_accounts")
       .delete()
       .eq("id", id);
@@ -23,14 +86,17 @@ export const DELETE = withRequestContext(
 );
 
 // PATCH /api/email/accounts/[id] — update account settings.
-// Requires `send_email` (#105, PRD #95) — account management is a write.
+// Same canManage gating as DELETE.
 export const PATCH = withRequestContext(
-  { permission: "send_email" },
+  { permission: "view_email", serviceClient: true },
   async (request, ctx, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
+
+    const resolved = await resolveAccessTo(ctx.serviceClient!, id, ctx, "canManage");
+    if (resolved.kind === "response") return resolved.response;
+
     const body = await request.json();
 
-    // If password is being updated, encrypt it
     const updates: Record<string, unknown> = {};
     const allowedFields = ["label", "email_address", "display_name", "provider", "imap_host", "imap_port", "smtp_host", "smtp_port", "username", "is_active", "is_default", "signature", "color"];
 
@@ -48,7 +114,7 @@ export const PATCH = withRequestContext(
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
-    const { data, error } = await ctx.supabase
+    const { data, error } = await ctx.serviceClient!
       .from("email_accounts")
       .update(updates)
       .eq("id", id)
