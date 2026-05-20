@@ -168,6 +168,7 @@ export default function InvoiceListClient() {
         </div>
       ) : filter === "trash" ? (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -230,9 +231,11 @@ export default function InvoiceListClient() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -323,6 +326,7 @@ export default function InvoiceListClient() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

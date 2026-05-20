@@ -107,6 +107,7 @@ export default function InvoiceReadOnlyClient({
         {invoice.sections.map((s) => (
           <div key={s.id} className="rounded-lg border border-border p-4">
             <h3 className="font-semibold">{s.title}</h3>
+            <div className="overflow-x-auto">
             <table className="w-full mt-2 text-sm">
               <thead>
                 <tr className="text-left text-muted-foreground">
@@ -147,6 +148,7 @@ export default function InvoiceReadOnlyClient({
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         ))}
       </div>
