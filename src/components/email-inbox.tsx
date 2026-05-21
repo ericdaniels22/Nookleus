@@ -24,6 +24,7 @@ import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
 import CategoryTabs, { type CategoryFilter } from "@/components/email/category-tabs";
 import { useEmailSync } from "@/lib/email/use-email-sync";
+import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
 
 const LAZY_REFRESH_FOLDERS = new Set(["drafts", "trash", "spam", "archive"]);
 const LAZY_REFRESH_THROTTLE_MS = 30_000;
@@ -290,6 +291,11 @@ export default function EmailInbox() {
   useEffect(() => {
     loadEmails();
   }, [loadEmails]);
+
+  // Cache the loaded inbox summary for the iOS Emails widget (#173). No-op
+  // off the native shell; paused on non-inbox folders so the cache keeps its
+  // last inbox snapshot.
+  useEmailSummaryCache(emails, accounts, folder === "inbox");
 
   // Infinite scroll: bump page when sentinel enters view
   const sentinelRef = useRef<HTMLDivElement | null>(null);
