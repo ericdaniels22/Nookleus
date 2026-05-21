@@ -5,6 +5,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { Job } from "@/lib/types";
 import JobCard from "@/components/job-card";
+import JobListRow from "@/components/job-list-row";
+import JobsViewToggle from "@/components/jobs-view-toggle";
+import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/lib/config-context";
@@ -30,6 +33,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const { mode, setMode } = useJobsViewMode();
 
   const fetchJobs = useCallback(async () => {
     if (filter === "trash") {
@@ -158,8 +162,8 @@ export default function JobsPage() {
         />
       </div>
 
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* Filter pills + view toggle */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
         {filterOptions.map((opt) => (
           <button
             key={opt.value}
@@ -177,6 +181,9 @@ export default function JobsPage() {
             {opt.label}
           </button>
         ))}
+        <div className="ml-auto">
+          <JobsViewToggle mode={mode} onChange={setMode} />
+        </div>
       </div>
 
       {/* Job list */}
@@ -197,6 +204,12 @@ export default function JobsPage() {
         <div className="space-y-3">
           {sortedJobs.map((job) => (
             <TrashRow key={job.id} job={job} onChange={fetchJobs} />
+          ))}
+        </div>
+      ) : mode === "list" ? (
+        <div className="space-y-2">
+          {sortedJobs.map((job) => (
+            <JobListRow key={job.id} job={job} />
           ))}
         </div>
       ) : (
