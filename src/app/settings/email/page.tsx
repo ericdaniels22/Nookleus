@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Mail,
   Plus,
@@ -21,9 +21,13 @@ import {
   ACCOUNT_COLOR_PALETTE,
   ACCOUNT_COLOR_FALLBACK,
 } from "@/lib/email/assign-account-color";
+import { useAuth } from "@/lib/auth-context";
 
 interface EmailAccount {
   id: string;
+  // null marks a Shared (org-wide) account; a uuid marks a Personal
+  // account owned by that user. Drives the "Shared" vs "Owner: X" label.
+  user_id: string | null;
   label: string;
   email_address: string;
   display_name: string;
@@ -41,8 +45,22 @@ interface EmailAccount {
   created_at: string;
 }
 
+// A member of the active Organization — enough to label a Personal
+// account's owner and to populate the connect dialog's Owner picker.
+interface OrgMember {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
 export default function EmailSettingsPage() {
+  const { profile, loading: authLoading } = useAuth();
+  const isAdmin = profile?.role === "admin";
+
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  // Owner picked in the connect dialog: "" means Shared (no owner).
+  const [ownerId, setOwnerId] = useState("");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -81,28 +99,73 @@ export default function EmailSettingsPage() {
     }
   }
 
+  // An admin manages every account in the Organization, including Personal
+  // accounts owned by others — that needs the Service-client admin view
+  // (?asAdmin=true). A non-admin gets the default view: the accounts they
+  // can read (Shared plus their own Personal), which is all they may touch.
+  const accountsUrl = isAdmin
+    ? "/api/email/accounts?asAdmin=true"
+    : "/api/email/accounts";
+
+  // Re-run by the connect / edit / delete / sync handlers to refresh the
+  // list after a mutation. The initial load lives in the effect below.
   const fetchAccounts = useCallback(async () => {
-    const res = await fetch("/api/email/accounts");
+    const res = await fetch(accountsUrl);
     if (res.ok) {
       const data = await res.json();
       setAccounts(data);
     }
     setLoading(false);
-  }, []);
+  }, [accountsUrl]);
 
+  // Initial account load. Wait for auth to resolve first — the chosen view
+  // hinges on the caller's role.
   useEffect(() => {
-    fetchAccounts();
-  }, [fetchAccounts]);
+    if (authLoading) return;
+    fetch(accountsUrl)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (Array.isArray(data)) setAccounts(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [authLoading, accountsUrl]);
+
+  // Member list — only an admin needs it: to resolve a Personal account's
+  // "Owner: X" label and to populate the connect dialog's Owner picker. A
+  // non-admin only ever sees Shared accounts plus their own Personal one,
+  // so their own profile is enough and /api/settings/users is never hit.
+  useEffect(() => {
+    if (authLoading || !isAdmin) return;
+    fetch("/api/settings/users")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        setMembers(
+          data.map((m: { id: string; full_name?: string; email?: string }) => ({
+            id: m.id,
+            full_name: m.full_name || m.email || "Unknown",
+            email: m.email || "",
+          })),
+        );
+      })
+      .catch(() => {});
+  }, [authLoading, isAdmin]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    // Owner of the new account. An admin's choice comes from the Owner
+    // picker ("" → Shared, i.e. no owner). A non-admin has no picker and is
+    // always the owner of what they connect — the route enforces this too.
+    const owner = isAdmin ? ownerId || null : profile?.id ?? null;
     const res = await fetch("/api/email/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
         username: form.username || form.email_address,
+        user_id: owner,
       }),
     });
     if (res.ok) {
@@ -119,6 +182,7 @@ export default function EmailSettingsPage() {
         username: "",
         password: "",
       });
+      setOwnerId("");
       fetchAccounts();
     }
     setSaving(false);
@@ -194,6 +258,22 @@ export default function EmailSettingsPage() {
       setTestResults((prev) => ({ ...prev, [id]: data }));
     }
     setTestingId(null);
+  }
+
+  const memberNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) map.set(m.id, m.full_name);
+    return map;
+  }, [members]);
+
+  // Display name for a Personal account's owner. An admin resolves any
+  // member via the member list; a non-admin only ever sees their own
+  // Personal account, so their profile covers it.
+  function ownerLabel(userId: string): string {
+    return (
+      memberNameById.get(userId) ??
+      (profile && userId === profile.id ? profile.full_name : "Unknown")
+    );
   }
 
   return (
@@ -299,6 +379,17 @@ export default function EmailSettingsPage() {
                       <p className="text-sm text-muted-foreground">{account.email_address}</p>
                       {account.display_name && (
                         <p className="text-xs text-muted-foreground/60">Sends as: {account.display_name}</p>
+                      )}
+                      {/* Account kind — a Shared account carries no owner;
+                          a Personal account names the member who owns it. */}
+                      {account.user_id === null ? (
+                        <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 mt-1 rounded-full bg-blue-50 text-blue-700">
+                          Shared
+                        </span>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60 mt-1">
+                          Owner: {ownerLabel(account.user_id)}
+                        </p>
                       )}
                     </div>
                   )}
@@ -493,6 +584,30 @@ export default function EmailSettingsPage() {
               ))}
             </select>
           </div>
+
+          {/* Owner — admins only. An admin may connect a Shared account
+              (no owner) or a Personal account on behalf of any member.
+              A non-admin has no picker; they are auto-assigned as owner. */}
+          {isAdmin && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Owner
+              </label>
+              <select
+                aria-label="Owner"
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              >
+                <option value="">Shared — entire organization</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
