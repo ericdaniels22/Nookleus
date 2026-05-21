@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, List } from "lucide-react";
+import { LayoutGrid, List, Rows3 } from "lucide-react";
 
 import type { JobsViewMode } from "@/lib/jobs/view-mode";
 import { cn } from "@/lib/utils";
@@ -11,12 +11,13 @@ const OPTIONS: {
   Icon: React.ComponentType<{ size?: number }>;
 }[] = [
   { mode: "grid", label: "Card view", Icon: LayoutGrid },
+  { mode: "comfortable", label: "Comfortable view", Icon: Rows3 },
   { mode: "list", label: "List view", Icon: List },
 ];
 
 /**
- * Segmented control for switching the Jobs tab view mode. This slice
- * offers Card and List; the Comfortable option is added later (#162).
+ * Segmented control for switching the Jobs tab view mode between Cards,
+ * Comfortable, and List.
  */
 export default function JobsViewToggle({
   mode,

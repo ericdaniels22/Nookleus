@@ -6,8 +6,10 @@ import { createClient } from "@/lib/supabase";
 import { Job } from "@/lib/types";
 import JobCard from "@/components/job-card";
 import JobListRow, { JobListHeader } from "@/components/job-list-row";
+import JobComfortableRow from "@/components/job-comfortable-row";
 import JobsViewToggle from "@/components/jobs-view-toggle";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
+import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/lib/config-context";
@@ -48,21 +50,10 @@ export default function JobsPage() {
       return;
     }
 
+    // One batched query joins each job to its cover photo, so the
+    // Comfortable view needs no per-job lookup; Cards and List ignore it.
     const supabase = createClient();
-    let query = supabase
-      .from("jobs")
-      .select("*, contact:contacts!contact_id(*)")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
-
-    if (filter === "emergency") {
-      query = query.eq("urgency", "emergency");
-    } else if (filter !== "all") {
-      query = query.eq("status", filter);
-    }
-
-    const { data } = await query;
-    setJobs((data as Job[]) || []);
+    setJobs(await loadJobsWithCover(supabase, filter));
     setLoading(false);
   }, [filter]);
 
@@ -215,6 +206,12 @@ export default function JobsPage() {
           <JobListHeader />
           {sortedJobs.map((job) => (
             <JobListRow key={job.id} job={job} />
+          ))}
+        </div>
+      ) : mode === "comfortable" ? (
+        <div className="space-y-2">
+          {sortedJobs.map((job) => (
+            <JobComfortableRow key={job.id} job={job} />
           ))}
         </div>
       ) : (
