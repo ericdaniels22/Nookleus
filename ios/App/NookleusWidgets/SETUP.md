@@ -5,9 +5,9 @@ target, source wiring, and App Group entitlements were created on a Mac
 (2026-05-21, Xcode 26.4) with the `xcodeproj` Ruby gem and verified with a
 simulator build.
 
-⚠️ **One step remains and it needs a human: registering the new App ID and
-App Group in the Apple Developer portal (§4). Do NOT push `main` until that
-is done — a signed Xcode Cloud build fails without it. See §4.**
+✅ **Apple Developer portal setup (§4) is complete** — the App Group and the
+`…NookleusWidgets` App ID were registered on 2026-05-21 (#172 native half).
+`main` has shipped signed Xcode Cloud builds since; no portal blocker remains.
 
 ## Done — Xcode project (in this commit)
 
@@ -36,24 +36,31 @@ Note: this is an SPM-based Capacitor project — there is **no
 - `src/lib/mobile/deep-link.ts` (parser, unit-tested) and
   `src/components/mobile/deep-link-listener.tsx` — wired into `src/app/layout.tsx`.
 
-## Slice 3 (#174) — Emails widget — needs one Xcode step
+## Slice 3 (#174) — Emails widget — Xcode wiring done
 
 Slice 3 adds the data-backed **Emails** widget. It reads the per-account
 snapshot the slice 2 (#173) cache pipeline writes into the App Group; the
 extension still does no networking and no auth.
 
-**New file — must be added to the `NookleusWidgets` target's Sources:**
-
 - `NookleusWidgets/EmailsWidget.swift` — the Codable snapshot model, the App
   Group reader, the per-mailbox configuration intent, the timeline provider,
   the SwiftUI views, and the `EmailsWidget`.
 
-In Xcode: select `EmailsWidget.swift` → File inspector → **Target
-Membership** → check **`NookleusWidgets`** (the same Sources phase that
-already holds `QuickActionsWidget.swift`). No other target.
+**Done (2026-05-21, Xcode 26.4.1):** `EmailsWidget.swift` was added to the
+`NookleusWidgets` target's Compile Sources phase — the same phase that holds
+`QuickActionsWidget.swift`. Done programmatically with the `xcodeproj` Ruby
+gem (not a hand-edit of `project.pbxproj`), mirroring #172/#173.
+`NookleusWidgetsBundle.swift` (committed with the #174 web PR) already
+registers `EmailsWidget()` behind `if #available(iOS 17.0, *)` — no Xcode
+action, it rebuilds with the target.
 
-`NookleusWidgetsBundle.swift` was edited in this commit to register
-`EmailsWidget()` — no Xcode action, it rebuilds with the target.
+**Verified:** `xcodebuild` builds the **`App` scheme** for the iOS Simulator
+(`CODE_SIGNING_ALLOWED=NO`) — `** BUILD SUCCEEDED **`, `EmailsWidget.swift`
+compiled into `NookleusWidgets` (arm64 + x86_64), AppIntents metadata
+extracted, `NookleusWidgets.appex` embedded in `App.app/PlugIns/` and passing
+`ValidateEmbeddedBinary`, 0 errors / 0 warnings. Build the **`App` scheme**,
+not `-target App` — a bare `-target` build fails to order the SPM package
+graph (`SwiftKeychainWrapper`).
 
 **iOS 17+ for the Emails widget — decision to ratify.** Per-instance
 configuration uses `AppIntentConfiguration` + `WidgetConfigurationIntent`
@@ -79,27 +86,21 @@ SiriKit custom intent.
 - `src/components/email-inbox.tsx` — consumes the `account` and `id` query
   params on mount (selects the account / opens the email).
 
-## 4. Apple Developer portal — REMAINING, needs you
+## 4. Apple Developer portal — DONE (2026-05-21, #172 native half)
 
-⚠️ **Do not push `main` until this is done.** The commit wires
-`CODE_SIGN_ENTITLEMENTS` with an App Group. A push triggers an Xcode Cloud
-build, and a signed build **fails** until the App Group and the new
-extension App ID exist in the portal.
+The entitlements wiring (`CODE_SIGN_ENTITLEMENTS` + App Group) needed portal
+registration before a signed Xcode Cloud build could succeed. That was
+completed when the #172 native half landed:
 
-In the Apple Developer portal (Certificates, Identifiers & Profiles):
+1. **App Group** `group.com.aaacontracting.platform` — registered.
+2. **App ID** `com.aaacontracting.platform.NookleusWidgets` — registered with
+   the **App Groups** capability; the same capability + group were also added
+   to the existing `com.aaacontracting.platform` App ID.
+3. Signing — automatic; Xcode Cloud's managed signing provisions both
+   targets. Signed builds have shipped to TestFlight since.
 
-1. **Identifiers → App Groups**: register `group.com.aaacontracting.platform`
-   if it does not already exist.
-2. **Identifiers → App IDs**: register
-   `com.aaacontracting.platform.NookleusWidgets`. Enable the **App Groups**
-   capability on it and on the existing `com.aaacontracting.platform` App ID;
-   assign the group to both.
-3. Signing: with automatic signing, Xcode provisions both targets once the
-   App IDs + capability exist. Opening the project in Xcode, the
-   Signing & Capabilities tab for each target should then resolve cleanly.
-
-Once §4 is done, push `main` — the Xcode Cloud build archives the app with
-the embedded widget.
+No portal action remains for the Emails widget — `EmailsWidget.swift` is a
+source file on an existing target, with no new entitlement or App ID.
 
 ## 5. Xcode Cloud
 
