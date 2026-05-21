@@ -47,6 +47,9 @@ export interface Job {
   contact?: Contact;
   job_adjusters?: JobAdjuster[];
   cover_photo?: Photo | null;
+  // Tallied by the Comfortable-view loader (see attachJobCounts).
+  photo_count?: number;
+  file_count?: number;
 }
 
 export interface JobAdjuster {

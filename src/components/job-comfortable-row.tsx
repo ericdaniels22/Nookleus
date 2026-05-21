@@ -2,21 +2,33 @@
 
 import Link from "next/link";
 import { format } from "date-fns";
-import { ImageOff } from "lucide-react";
+import { ImageOff, Image as ImageIcon, Paperclip } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { resolveCoverPhotoUrl } from "@/lib/jobs/cover-photo";
+import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
+import { useConfig } from "@/lib/config-context";
 import type { Job } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
+const badgeClass = "text-[11px] font-medium px-2 py-0.5 rounded-md";
+
 /**
  * One roomy row in the Jobs tab Comfortable view: a square cover photo,
- * the job number and contact name, the property address, and the
- * last-updated date. The whole row links to the job. Status/urgency/
- * damage badges and the photo/file counts are added later (#163).
+ * the job number and contact name, the property address, colored
+ * status / urgency / damage-type badges, and a photo count plus file
+ * count. The whole row links to the job. On phone-width screens the
+ * counts hide while the cover, name/address, and badges stay.
  */
 export default function JobComfortableRow({ job }: { job: Job }) {
+  const {
+    getStatusColor,
+    getStatusLabel,
+    getDamageTypeColor,
+    getDamageTypeLabel,
+  } = useConfig();
   const isCompleted =
     job.status === "completed" || job.status === "cancelled";
   const contactName = job.contact ? job.contact.full_name : "Unknown";
@@ -58,6 +70,44 @@ export default function JobComfortableRow({ job }: { job: Job }) {
         <p className="truncate text-sm text-muted-foreground">
           {job.property_address}
         </p>
+        {/* Badges sit under the address so they stay visible on a
+            phone-width row, where the count column is hidden. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Badge
+            variant="secondary"
+            className={cn(badgeClass, getStatusColor(job.status))}
+          >
+            {getStatusLabel(job.status)}
+          </Badge>
+          <Badge
+            variant="secondary"
+            className={cn(badgeClass, urgencyColors[job.urgency])}
+          >
+            {urgencyLabels[job.urgency]}
+          </Badge>
+          <Badge
+            variant="secondary"
+            className={cn(badgeClass, getDamageTypeColor(job.damage_type))}
+          >
+            {getDamageTypeLabel(job.damage_type)}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Photo / file counts — an at-a-glance signal of how documented
+          the job is. */}
+      <div
+        data-testid="job-counts"
+        className="hidden shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground sm:flex"
+      >
+        <span className="flex items-center gap-1">
+          <ImageIcon size={13} className="shrink-0" aria-hidden="true" />
+          <span aria-label="Photos">{job.photo_count ?? 0}</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <Paperclip size={13} className="shrink-0" aria-hidden="true" />
+          <span aria-label="Files">{job.file_count ?? 0}</span>
+        </span>
       </div>
 
       <span className="shrink-0 text-xs text-muted-foreground">
