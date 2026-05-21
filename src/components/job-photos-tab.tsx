@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { Photo, PhotoTag } from "@/lib/types";
 import { format } from "date-fns";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, Star } from "lucide-react";
+import { toast } from "sonner";
 import PhotoUploadModal from "@/components/photo-upload";
 import JSZip from "jszip";
 
@@ -12,8 +13,10 @@ interface JobPhotosTabProps {
   jobId: string;
   tags: PhotoTag[];
   supabaseUrl: string;
+  coverPhotoId: string | null;
   onPhotosAdded: () => void;
   onPhotoUpdated: () => void;
+  onCoverPhotoChanged: () => void;
   onSelectPhoto: (photo: Photo) => void;
 }
 
@@ -23,8 +26,10 @@ export default function JobPhotosTab({
   jobId,
   tags,
   supabaseUrl,
+  coverPhotoId,
   onPhotosAdded,
   onPhotoUpdated,
+  onCoverPhotoChanged,
   onSelectPhoto,
 }: JobPhotosTabProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -48,6 +53,9 @@ export default function JobPhotosTab({
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Cover photo: id of the photo whose "Set as cover" write is in flight
+  const [settingCover, setSettingCover] = useState<string | null>(null);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -233,6 +241,24 @@ export default function JobPhotosTab({
     URL.revokeObjectURL(a.href);
     setDownloading(false);
     setSelectedIds(new Set());
+  };
+
+  // Promote a photo to be the job's cover. Writes jobs.cover_photo_id
+  // directly, mirroring the single-field job updates in job-detail.tsx.
+  const handleSetCover = async (photoId: string) => {
+    setSettingCover(photoId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("jobs")
+      .update({ cover_photo_id: photoId })
+      .eq("id", jobId);
+    setSettingCover(null);
+    if (error) {
+      toast.error("Failed to set cover photo.");
+      return;
+    }
+    toast.success("Cover photo updated.");
+    onCoverPhotoChanged();
   };
 
   return (
@@ -460,11 +486,16 @@ export default function JobPhotosTab({
               >
                 {group.photos.map((photo) => {
                   const isSelected = selectedIds.has(photo.id);
+                  const isCover = photo.id === coverPhotoId;
                   return (
                     <div key={photo.id} className="cursor-pointer">
                       <div
                         className={`aspect-square rounded-lg overflow-hidden relative transition-transform hover:scale-[1.03] ${
-                          isSelected ? "ring-[3px] ring-[#2B5EA7]" : ""
+                          isSelected
+                            ? "ring-[3px] ring-[#2B5EA7]"
+                            : isCover
+                            ? "ring-[3px] ring-[#F5A623]"
+                            : ""
                         }`}
                         onClick={(e) => {
                           if (e.shiftKey || selectedIds.size > 0) {
@@ -488,6 +519,34 @@ export default function JobPhotosTab({
                         <div className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-full bg-[#2B5EA7] border-2 border-white flex items-center justify-center">
                           <span className="text-[9px] font-bold text-white">{getInitials(photo.taken_by)}</span>
                         </div>
+                        {/* Cover photo control */}
+                        {isCover ? (
+                          <div
+                            className="absolute top-1.5 left-1.5 flex items-center gap-1 h-6 px-1.5 rounded-full bg-[#F5A623] text-white text-[10px] font-semibold"
+                            title="Current cover photo"
+                          >
+                            <Star size={11} fill="currentColor" />
+                            Cover
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            title="Set as cover photo"
+                            aria-label="Set as cover photo"
+                            disabled={settingCover === photo.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetCover(photo.id);
+                            }}
+                            className="absolute top-1.5 left-1.5 w-6 h-6 rounded-full bg-black/45 text-white flex items-center justify-center hover:bg-black/70 transition-colors disabled:opacity-60"
+                          >
+                            {settingCover === photo.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Star size={12} />
+                            )}
+                          </button>
+                        )}
                         {/* Selection checkmark */}
                         {isSelected && (
                           <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#2B5EA7] flex items-center justify-center">

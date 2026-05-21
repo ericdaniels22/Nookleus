@@ -37,6 +37,7 @@ export interface Job {
   hoa_contact_phone: string | null;
   hoa_contact_email: string | null;
   access_notes: string | null;
+  cover_photo_id: string | null;
   has_signed_contract?: boolean;
   has_pending_contract?: boolean;
   created_at: string;
@@ -45,6 +46,7 @@ export interface Job {
   // Joined fields
   contact?: Contact;
   job_adjusters?: JobAdjuster[];
+  cover_photo?: Photo | null;
 }
 
 export interface JobAdjuster {
