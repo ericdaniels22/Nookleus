@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-import type { Job } from "@/lib/types";
+import type { Job, Photo } from "@/lib/types";
 
 // JobComfortableRow reads status/damage colors + labels from the config
 // context. Stub it so the row renders without a ConfigProvider; the
@@ -17,7 +17,70 @@ vi.mock("@/lib/config-context", () => ({
   }),
 }));
 
+// The row embeds JobCoverPicker, which loads the job's photos and writes
+// jobs.cover_photo_id. This stub serves one photo ("Kitchen") to the
+// picker and lets the cover write succeed, so the row's update-in-place
+// behavior can be exercised end to end.
+vi.mock("@/lib/supabase", () => {
+  const kitchenPhoto = {
+    id: "kitchen-photo",
+    job_id: "job-1",
+    storage_path: "job-1/kitchen.jpg",
+    annotated_path: null,
+    thumbnail_path: "job-1/kitchen-thumb.jpg",
+    caption: "Kitchen",
+    taken_at: null,
+    taken_by: "user-1",
+    media_type: "photo",
+    file_size: null,
+    width: null,
+    height: null,
+    before_after_pair_id: null,
+    before_after_role: null,
+    created_at: "2026-05-20T00:00:00Z",
+  };
+  return {
+    createClient: () => ({
+      from: (table: string) => {
+        if (table === "jobs") {
+          return {
+            update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          };
+        }
+        const builder: Record<string, unknown> = {};
+        for (const method of ["select", "eq", "order"]) {
+          builder[method] = () => builder;
+        }
+        builder.then = (resolve: (r: unknown) => void) =>
+          resolve({ data: [kitchenPhoto], error: null });
+        return builder;
+      },
+    }),
+  };
+});
+
 import JobComfortableRow from "./job-comfortable-row";
+
+function makePhoto(overrides: Partial<Photo> = {}): Photo {
+  return {
+    id: "photo-1",
+    job_id: "job-1",
+    storage_path: "job-1/original.jpg",
+    annotated_path: null,
+    thumbnail_path: "job-1/thumb.jpg",
+    caption: null,
+    taken_at: null,
+    taken_by: "user-1",
+    media_type: "photo",
+    file_size: null,
+    width: null,
+    height: null,
+    before_after_pair_id: null,
+    before_after_role: null,
+    created_at: "2026-05-20T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -120,5 +183,55 @@ describe("JobComfortableRow — photo / file counts (#163)", () => {
     const statusBadge = screen.getByText("In Progress");
     expect(classes(statusBadge)).not.toContain("hidden");
     expect(classes(statusBadge.parentElement)).not.toContain("hidden");
+  });
+});
+
+describe("JobComfortableRow — cover picker entry point (#164)", () => {
+  it("opens the cover picker when the placeholder is clicked on a job with no cover", async () => {
+    render(<JobComfortableRow job={makeJob({ cover_photo: null })} />);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /cover photo/i }));
+    expect(await screen.findByRole("dialog")).toBeDefined();
+  });
+
+  it("opens the cover picker when an existing cover thumbnail is clicked", async () => {
+    render(
+      <JobComfortableRow
+        job={makeJob({ cover_photo: makePhoto({ id: "cover-A" }) })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /cover photo/i }));
+    expect(await screen.findByRole("dialog")).toBeDefined();
+  });
+
+  it("still links the row body to the job detail page", () => {
+    render(<JobComfortableRow job={makeJob()} />);
+
+    expect(screen.getByRole("link").getAttribute("href")).toBe("/jobs/job-1");
+  });
+});
+
+describe("JobComfortableRow — cover updates in place (#164)", () => {
+  it("swaps the placeholder for the chosen cover thumbnail without a reload", async () => {
+    render(<JobComfortableRow job={makeJob({ cover_photo: null })} />);
+
+    // No cover yet — the thumbnail button offers to choose one.
+    expect(
+      screen.getByRole("button", { name: "Choose cover photo" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /cover photo/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Kitchen" }));
+
+    // The picker closed and the row now shows a real cover thumbnail,
+    // re-rendered from local state — no navigation, no parent refetch.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Change cover photo" }),
+      ).toBeDefined(),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
