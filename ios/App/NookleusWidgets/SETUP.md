@@ -1,100 +1,76 @@
 # NookleusWidgets — Xcode target setup
 
-Issue #172 (PRD #56, slice 1) delivers the **source** for the Quick Actions
-widget plus all the web-side deep-link wiring. The one thing an agent cannot
-do on a non-Mac machine is create the Xcode target and configure App Store
-Connect — those steps need Xcode and the Apple Developer portal. This file is
-the checklist for that.
+Issue #172 (PRD #56, slice 1) delivers the Quick Actions widget. The Xcode
+target, source wiring, and App Group entitlements were created on a Mac
+(2026-05-21, Xcode 26.4) with the `xcodeproj` Ruby gem and verified with a
+simulator build.
 
-Everything in this folder (`ios/App/NookleusWidgets/`) is **inert** until the
-target below exists — committing it does not change the app build.
+⚠️ **One step remains and it needs a human: registering the new App ID and
+App Group in the Apple Developer portal (§4). Do NOT push `main` until that
+is done — a signed Xcode Cloud build fails without it. See §4.**
 
-## What's already done (in this branch)
+## Done — Xcode project (in this commit)
 
-- `NookleusWidgetsBundle.swift` — the `@main WidgetBundle`.
-- `QuickActionsWidget.swift` — the Quick Actions widget (medium + large, four
-  deep-link buttons).
-- `Info.plist` — the extension's Info.plist (`widgetkit-extension` point).
-- `NookleusWidgets.entitlements` — App Group `group.com.aaacontracting.platform`.
-- `ios/App/App/Info.plist` — registers the `nookleus://` URL scheme.
-- `ios/App/App/App.entitlements` — App Group on the main app target.
-- Web layer: `src/lib/mobile/deep-link.ts` (parser, unit-tested) and
-  `src/components/mobile/deep-link-listener.tsx` (handles Capacitor
-  `appUrlOpen` and routes) — already wired into `src/app/layout.tsx`.
+- **`NookleusWidgets` WidgetKit app-extension target** added to
+  `App.xcodeproj` (`com.apple.product-type.app-extension`), embedded in the
+  `App` target via an "Embed Foundation Extensions" copy-files phase plus a
+  target dependency.
+- `NookleusWidgetsBundle.swift` + `QuickActionsWidget.swift` wired into the
+  target's Sources phase; `Info.plist` set as `INFOPLIST_FILE`.
+- Bundle id `com.aaacontracting.platform.NookleusWidgets`, deployment target
+  iOS 15.0, automatic signing, team `QFTG9NJB7G`.
+- **App Group wired on both targets** via `CODE_SIGN_ENTITLEMENTS`:
+  - App → `App/App.entitlements`
+  - NookleusWidgets → `NookleusWidgets/NookleusWidgets.entitlements`
+  - both carry `group.com.aaacontracting.platform`.
+- Verified: `xcodebuild` builds the `App` scheme for the iOS Simulator with
+  `NookleusWidgets.appex` embedded in `App.app/PlugIns/`
+  (`CODE_SIGNING_ALLOWED=NO` — the Swift compiles and the project structure
+  is valid without provisioning).
 
-## 1. Create the Widget Extension target
+Note: this is an SPM-based Capacitor project — there is **no
+`App.xcworkspace`**. Open `ios/App/App.xcodeproj` directly in Xcode.
 
-1. Open **`ios/App/App.xcworkspace`** in Xcode (the workspace, not the
-   `.xcodeproj`).
-2. **File → New → Target… → iOS → Widget Extension**.
-3. Product Name: **`NookleusWidgets`**. Team: the AAA Contracting team.
-   - **Uncheck** "Include Live Activity".
-   - **Uncheck** "Include Configuration App Intent" — Quick Actions is static.
-     (The configurable Emails widget in slice #174 adds an App Intent later.)
-   - "Embed in Application" → **App**.
-4. Finish. Bundle id becomes **`com.aaacontracting.platform.NookleusWidgets`**.
-   "Activate scheme?" — either choice is fine.
+## Web layer (shipped — slice 1 web half)
 
-## 2. Swap in the provided source
+- `src/lib/mobile/deep-link.ts` (parser, unit-tested) and
+  `src/components/mobile/deep-link-listener.tsx` — wired into `src/app/layout.tsx`.
 
-Xcode scaffolds a sample widget into `ios/App/NookleusWidgets/`. Replace it
-with the files already in this folder:
+## 4. Apple Developer portal — REMAINING, needs you
 
-1. In the Project navigator, delete Xcode's generated sample widget file and
-   its generated `NookleusWidgetsBundle.swift` ("Move to Trash"). If Xcode's
-   scaffold collided with the committed files on disk (e.g. created
-   `NookleusWidgetsBundle 2.swift`), keep the committed ones.
-2. **Add Files to "App"…** → select `NookleusWidgetsBundle.swift` and
-   `QuickActionsWidget.swift` from this folder. In the dialog, **Target
-   Membership = `NookleusWidgets` only** (not the App target).
-3. Confirm `Info.plist`: the target's `INFOPLIST_FILE` build setting should
-   point at `NookleusWidgets/Info.plist`. The committed `Info.plist` matches
-   the standard WidgetKit extension layout — keep whichever single copy the
-   target references.
-
-Build the `App` scheme — the widget target compiles as part of it.
-
-## 3. App Group capability (both targets)
-
-The Quick Actions widget needs **no** data, but the App Group is the
-foundation slices #173/#174 build on, so wire it now.
-
-1. **App** target → **Signing & Capabilities → + Capability → App Groups** →
-   add **`group.com.aaacontracting.platform`**.
-2. **NookleusWidgets** target → same → add the **same** group.
-3. Xcode either uses the committed `.entitlements` files (`App/App.entitlements`,
-   `NookleusWidgets/NookleusWidgets.entitlements`) or creates its own. Either
-   way the group id must be exactly `group.com.aaacontracting.platform`. If
-   Xcode created fresh entitlements files, the committed ones are redundant —
-   delete whichever copy is not referenced by `CODE_SIGN_ENTITLEMENTS`.
-
-## 4. App Store Connect / Developer portal
+⚠️ **Do not push `main` until this is done.** The commit wires
+`CODE_SIGN_ENTITLEMENTS` with an App Group. A push triggers an Xcode Cloud
+build, and a signed build **fails** until the App Group and the new
+extension App ID exist in the portal.
 
 In the Apple Developer portal (Certificates, Identifiers & Profiles):
 
 1. **Identifiers → App Groups**: register `group.com.aaacontracting.platform`
    if it does not already exist.
-2. **Identifiers → App IDs**: register `com.aaacontracting.platform.NookleusWidgets`.
-   Enable the **App Groups** capability on it and on the existing
-   `com.aaacontracting.platform` App ID; assign the group to both.
+2. **Identifiers → App IDs**: register
+   `com.aaacontracting.platform.NookleusWidgets`. Enable the **App Groups**
+   capability on it and on the existing `com.aaacontracting.platform` App ID;
+   assign the group to both.
 3. Signing: with automatic signing, Xcode provisions both targets once the
-   App IDs + capability exist. With manual signing, create/download a
-   provisioning profile for the new extension App ID.
+   App IDs + capability exist. Opening the project in Xcode, the
+   Signing & Capabilities tab for each target should then resolve cleanly.
+
+Once §4 is done, push `main` — the Xcode Cloud build archives the app with
+the embedded widget.
 
 ## 5. Xcode Cloud
 
-No new workflow is required. The widget extension is **embedded in the App
-target**, so the existing Default workflow (set up in #143/#147) archives it
-together with the app on every push to `main`. Just confirm:
+No new workflow is required. The widget extension is embedded in the `App`
+target, so the existing Default workflow (#143/#147) archives it together
+with the app, and the `App` scheme builds `NookleusWidgets` as a dependency.
+Just confirm Xcode Cloud's signing has assets for the new
+`…NookleusWidgets` bundle id — automatic if Xcode Cloud manages signing,
+otherwise upload the profile created in §4.
 
-- The `App` scheme builds the `NookleusWidgets` target (it does once embedded).
-- Xcode Cloud's signing has assets for the new `…NookleusWidgets` bundle id —
-  automatic if Xcode Cloud manages signing; otherwise upload the profile.
+## 6. Verify (slice #175)
 
-## 6. Verify (deferred to slice #175)
-
-Real-device verification — adding the widget to the home screen in medium and
-large, tapping each of the four buttons, confirming the deep links land on the
-right screen — is the TestFlight slice **#175**. Acceptance criteria 1–3 of
-#172 are confirmed there. AC#4 (the deep-link parser) is already covered by
-`src/lib/mobile/deep-link.test.ts`.
+Real-device verification — adding the widget to the home screen in medium
+and large, tapping each of the four buttons, confirming the deep links land
+on the right screen — is the TestFlight slice **#175**. Acceptance criteria
+1–3 of #172 are confirmed there. AC#4 (the deep-link parser) is already
+covered by `src/lib/mobile/deep-link.test.ts`.
