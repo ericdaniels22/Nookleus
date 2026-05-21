@@ -48,9 +48,10 @@ extension.
 
 ## What's next
 
-- **Watch the Xcode Cloud build** triggered by the PR #181 merge to `main` —
-  the first build to compile `EmailsWidget.swift` into the `NookleusWidgets`
-  target. ~10–15 min to TestFlight.
+- **Xcode Cloud build of the #181 merge — done; see the post-handoff addendum.**
+  Net: the widget code is already on TestFlight **build 223** (`Complete`);
+  build 224 failed only on Apple's daily upload limit (error 90382), not a code
+  bug. The upload quota resets ~24h after the failure.
 - **Slice [#175](https://github.com/ericdaniels22/Nookleus/issues/175)** —
   TestFlight on-device verification — is now the **single remaining slice** of
   PRD [#56](https://github.com/ericdaniels22/Nookleus/issues/56). All three
@@ -69,9 +70,10 @@ extension.
 
 ## Open threads
 
-- **The Xcode Cloud build from the #181 merge is unverified** — triggered at
-  session end, not yet observed. Real native validation is #175's TestFlight
-  build.
+- **The Xcode Cloud build from the #181 merge — resolved post-handoff.** Build
+  224 (`944aa43`) failed on Apple error 90382 (daily upload limit), but build
+  223 (`ed637cb`, the #181 merge) is `Complete` and already carries the widget
+  code. See the post-handoff addendum.
 - **The Emails widget compiled but never ran** — simulator build only,
   `CODE_SIGNING_ALLOWED=NO`. The path app foreground → cache write →
   `NookleusWidgets` reads the App Group → per-mailbox config picker → render →
@@ -110,6 +112,40 @@ extension.
   ~257+) is stale — frozen at the forty-first session (#152). The maintained
   surface is the `last_verified:` paragraph stack at the top; this handoff
   updated only that, matching every recent session. Worth a cleanup pass.
+
+## Post-handoff addendum — Xcode Cloud build 224 + workflow fix
+
+Written after the handoff commit (`944aa43`), recorded here at the user's
+request. Watched the Xcode Cloud build the #181 merge triggered:
+
+- **Build 224 (`944aa43`) failed — Apple error `90382`, "Upload limit reached."**
+  Not a code error: the build compiled, archived, and uploaded fine (every
+  Xcode Cloud log task green); App Store Connect rejected the *upload* on the
+  per-app **daily upload quota**. Today's session pushed ~9 build-triggering
+  commits to `main` (builds 216→224); 224 was over the cap. The quota resets in
+  ~24h; a local device Release build (`-sdk iphoneos`, signing off) is clean —
+  no regression, nothing to fix in code.
+- **The widget code is already on TestFlight.** Build **223** = the PR #181
+  merge (`ed637cb`, carrying work commit `01d3a76`) is `Complete` / `Validated`.
+  So #172/#173/#174's widget code is on a good TestFlight build — **slice #175's
+  on-device verification is not blocked.**
+- The earlier "build red since #173" read was **wrong** — GitHub check-run
+  conclusions (`action_required` / `cancelled`) do not reflect Xcode Cloud build
+  success. TestFlight showed builds 216 / 217 / 223 all `Complete`. New memory
+  `project_xcode_cloud_github_status_unreliable` records this.
+
+**Workflow change (App Store Connect setting — not in git):** the Default Xcode
+Cloud workflow's *Branch Changes → Files and Folders* start condition was
+changed from "Any File" to Custom Rules — **"Start a build if any file from the
+`ios` folder changes."** Docs-only (`docs/vault/**`) and web-only (`src/**`)
+`main` pushes no longer trigger a build + TestFlight upload — the iOS app is a
+Capacitor shell loading the live Vercel URL, so non-`ios/` changes don't change
+the binary. This prevents recurrence of the 90382 quota exhaustion (today's 9
+builds would have been 3). Tradeoff: a commit changing `capacitor.config.ts`
+(repo root) or adding a native plugin via `package.json` without touching
+`ios/` won't auto-build — start such a build manually from the Xcode Cloud tab.
+`package.json` was deliberately left out of the filter (it churns on web-only
+dep bumps). New memory: `project_xcode_cloud_upload_limit_90382`.
 
 ## Links
 
