@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { Job } from "@/lib/types";
 import JobCard from "@/components/job-card";
-import JobListRow from "@/components/job-list-row";
+import JobListRow, { JobListHeader } from "@/components/job-list-row";
 import JobsViewToggle from "@/components/jobs-view-toggle";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
@@ -181,9 +181,13 @@ export default function JobsPage() {
             {opt.label}
           </button>
         ))}
-        <div className="ml-auto">
-          <JobsViewToggle mode={mode} onChange={setMode} />
-        </div>
+        {/* The view toggle is hidden in Trash — Trash always renders as
+            rows and is unaffected by the Cards/List preference. */}
+        {filter !== "trash" && (
+          <div className="ml-auto">
+            <JobsViewToggle mode={mode} onChange={setMode} />
+          </div>
+        )}
       </div>
 
       {/* Job list */}
@@ -208,6 +212,7 @@ export default function JobsPage() {
         </div>
       ) : mode === "list" ? (
         <div className="space-y-2">
+          <JobListHeader />
           {sortedJobs.map((job) => (
             <JobListRow key={job.id} job={job} />
           ))}
