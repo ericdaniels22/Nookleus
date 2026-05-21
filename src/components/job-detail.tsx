@@ -918,8 +918,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           jobId={jobId}
           tags={tags}
           supabaseUrl={supabaseUrl}
+          coverPhotoId={job?.cover_photo_id ?? null}
           onPhotosAdded={fetchData}
           onPhotoUpdated={fetchData}
+          onCoverPhotoChanged={fetchData}
           onSelectPhoto={(photo) => setSelectedPhoto(photo)}
         />
       )}
