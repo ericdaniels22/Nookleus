@@ -46,6 +46,11 @@ export interface RequestContext {
   userId: string;
   orgId: string | null;
   role: string | null;
+  // The permission keys the wrapper already resolved for this caller —
+  // empty when the caller has no membership in the Active Organization.
+  // Carried through so a handler that delegates to an access-decision
+  // module (#139) does not re-query the grants the wrapper already loaded.
+  grantedPermissions: string[];
   supabase: SupabaseClient;
   serviceClient?: SupabaseClient;
 }
@@ -99,6 +104,7 @@ export function withRequestContext<TParams = Record<string, never>>(
       userId: caller.userId,
       orgId: caller.orgId,
       role: caller.role,
+      grantedPermissions: caller.grantedPermissions,
       supabase,
     };
     if (rule.serviceClient) {

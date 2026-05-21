@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 
 // GET /api/email/list?folder=inbox&accountId=...&search=...&page=1&limit=50
-// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const GET = withRequestContext({ permission: "view_email" }, async (request, ctx) => {
+// Gated on view_email; when an `accountId` is supplied the route additionally
+// confirms canRead on that specific account through the access module
+// (#141, ADR 0001). With no accountId, the route lists across every account
+// the caller can see — RLS keeps Personal accounts the caller does not own
+// out of the result set, so the visible-set is correctly scoped.
+export const GET = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
   const { searchParams } = new URL(request.url);
   const folder = searchParams.get("folder") || "inbox";
   const accountId = searchParams.get("accountId"); // null = all accounts
+
+  if (accountId) {
+    const resolved = await resolveEmailAccountAccess(
+      ctx.serviceClient!,
+      accountId,
+      ctx,
+      "canRead",
+    );
+    if (resolved.kind === "response") return resolved.response;
+  }
+
   const search = searchParams.get("search") || "";
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "50");

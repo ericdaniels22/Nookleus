@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
+import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import nodemailer from "nodemailer";
 
 interface UploadedAttachment {
@@ -12,9 +13,13 @@ interface UploadedAttachment {
 
 // POST /api/email/send
 // Body: { accountId, to, subject, body, bodyHtml?, cc?, bcc?, jobId?, replyToMessageId?, attachments? }
-// Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
+// Gated on view_email at the wrapper; the access module enforces canRead
+// per the bound account (#141, PRD #134 — "send treated the same as canRead
+// for now"). Until the spec splits them, owning a Personal account or
+// reading a Shared one is enough to send from it.
+export const POST = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
   const { accountId, jobId, to, cc, bcc, subject, body, bodyHtml, replyToMessageId, attachments, draftId } =
     await request.json() as {
       accountId: string; jobId?: string; to: string; cc?: string; bcc?: string;
@@ -28,6 +33,14 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
       { status: 400 }
     );
   }
+
+  const resolved = await resolveEmailAccountAccess(
+    ctx.serviceClient!,
+    accountId,
+    ctx,
+    "canRead",
+  );
+  if (resolved.kind === "response") return resolved.response;
 
   const supabase = ctx.supabase;
 

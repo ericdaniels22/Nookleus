@@ -4,33 +4,63 @@ import { encrypt } from "@/lib/encryption";
 import { assignAccountColor } from "@/lib/email/assign-account-color";
 
 // GET /api/email/accounts — list accounts for the active org (passwords excluded).
-// Requires `view_email` (#105, PRD #95) — tightened from the logged-in-only
-// gate the #85 Request-Context conversion gave this previously-ungated route.
-export const GET = withRequestContext({ permission: "view_email" }, async (_request, ctx) => {
-  const { data, error } = await ctx.supabase
-    .from("email_accounts")
-    .select("id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, last_synced_uid, created_at, updated_at")
-    .eq("organization_id", ctx.orgId)
-    .order("created_at", { ascending: true });
+//
+// Two views, selected by ?asAdmin=true:
+//   default (no flag) — every account the caller can READ. The User client
+//     plus the migration-140 RLS already returns exactly this set: Shared
+//     accounts in the org plus the caller's own Personal accounts. This is
+//     the inbox-switcher view.
+//   ?asAdmin=true — every account the admin can SEE in the org, including
+//     Personal accounts owned by other users (admins canSee but not canRead
+//     them per ADR 0001 — content-private). Needs Service-client access
+//     because the RLS policy correctly hides those Personal accounts from
+//     the admin's User client. Non-admins ignore the flag and receive their
+//     canRead-set (same as default).
+//
+// `user_id` is now selected so the UI can show "Shared" vs "Owner: X" badges.
+const ACCOUNT_FIELDS = "id, user_id, label, email_address, display_name, provider, signature, imap_host, imap_port, smtp_host, smtp_port, username, is_active, is_default, color, last_synced_at, last_synced_uid, created_at, updated_at";
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data);
-});
+export const GET = withRequestContext(
+  { permission: "view_email", serviceClient: true },
+  async (request, ctx) => {
+    const asAdmin =
+      ctx.role === "admin" &&
+      new URL(request.url).searchParams.get("asAdmin") === "true";
+
+    const client = asAdmin ? ctx.serviceClient! : ctx.supabase;
+
+    const { data, error } = await client
+      .from("email_accounts")
+      .select(ACCOUNT_FIELDS)
+      .eq("organization_id", ctx.orgId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data);
+  },
+);
 
 // POST /api/email/accounts — add a new email account for the active org.
 // Requires `send_email` (#105, PRD #95) — account management is a write, like
 // account update / disconnect / test.
 export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const body = await request.json();
-  const { label, email_address, display_name, provider, imap_host, imap_port, smtp_host, smtp_port, username, password, color: colorOverride } = body;
+  const { label, email_address, display_name, provider, imap_host, imap_port, smtp_host, smtp_port, username, password, color: colorOverride, user_id } = body;
 
   if (!email_address || !username || !password) {
     return NextResponse.json(
       { error: "email_address, username, and password are required" },
       { status: 400 }
     );
+  }
+
+  // ADR 0001 ownership rule. Admin may set any owner (or null for Shared);
+  // non-admin may only own the account themselves — any other `user_id`,
+  // including null, is denied.
+  if (ctx.role !== "admin" && user_id !== ctx.userId) {
+    return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }
 
   const encrypted_password = encrypt(password);
@@ -51,6 +81,10 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     .from("email_accounts")
     .insert({
       organization_id: orgId,
+      // null marks Shared (org-wide); a uuid marks Personal owned by that
+      // user. The ownership rule above guarantees a non-admin's value here
+      // is their own id; an admin's value is whatever they sent.
+      user_id: user_id ?? null,
       label: label || email_address,
       email_address,
       display_name: display_name || "AAA Disaster Recovery",
