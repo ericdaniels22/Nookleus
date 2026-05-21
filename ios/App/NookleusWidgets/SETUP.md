@@ -36,6 +36,49 @@ Note: this is an SPM-based Capacitor project — there is **no
 - `src/lib/mobile/deep-link.ts` (parser, unit-tested) and
   `src/components/mobile/deep-link-listener.tsx` — wired into `src/app/layout.tsx`.
 
+## Slice 3 (#174) — Emails widget — needs one Xcode step
+
+Slice 3 adds the data-backed **Emails** widget. It reads the per-account
+snapshot the slice 2 (#173) cache pipeline writes into the App Group; the
+extension still does no networking and no auth.
+
+**New file — must be added to the `NookleusWidgets` target's Sources:**
+
+- `NookleusWidgets/EmailsWidget.swift` — the Codable snapshot model, the App
+  Group reader, the per-mailbox configuration intent, the timeline provider,
+  the SwiftUI views, and the `EmailsWidget`.
+
+In Xcode: select `EmailsWidget.swift` → File inspector → **Target
+Membership** → check **`NookleusWidgets`** (the same Sources phase that
+already holds `QuickActionsWidget.swift`). No other target.
+
+`NookleusWidgetsBundle.swift` was edited in this commit to register
+`EmailsWidget()` — no Xcode action, it rebuilds with the target.
+
+**iOS 17+ for the Emails widget — decision to ratify.** Per-instance
+configuration uses `AppIntentConfiguration` + `WidgetConfigurationIntent`
+(the AppIntents framework), not a legacy SiriKit `.intentdefinition` file.
+That keeps the configuration pure Swift with no generated-intent code, at the
+cost of the Emails widget requiring **iOS 17+**. The extension's deployment
+target stays **iOS 15** — `NookleusWidgetsBundle` gates the Emails widget
+behind `if #available(iOS 17.0, *)`, so Quick Actions still ships to iOS 15/16
+and the Emails widget simply does not appear in the gallery below iOS 17. No
+deployment-target change is needed. If iOS 15/16 support for the Emails
+widget is required, this must be reworked to `IntentConfiguration` with a
+SiriKit custom intent.
+
+**Web layer (slice 3 half, TDD'd, live on the next deploy):**
+
+- `src/lib/mobile/deep-link.ts` — `parseDeepLink` now handles
+  `nookleus://email?account=<id>` → `/email?account=<id>` and
+  `nookleus://email?id=<id>` → `/email?id=<id>` (bare `nookleus://email` →
+  `/email`).
+- `src/lib/mobile/email-summary.ts` — `EmailSummaryPreview` gained an `id`
+  field (the email id), so a preview tap can deep-link to that exact email.
+  The Swift `EmailSummaryPreview` in `EmailsWidget.swift` mirrors it.
+- `src/components/email-inbox.tsx` — consumes the `account` and `id` query
+  params on mount (selects the account / opens the email).
+
 ## 4. Apple Developer portal — REMAINING, needs you
 
 ⚠️ **Do not push `main` until this is done.** The commit wires
@@ -69,8 +112,17 @@ otherwise upload the profile created in §4.
 
 ## 6. Verify (slice #175)
 
-Real-device verification — adding the widget to the home screen in medium
-and large, tapping each of the four buttons, confirming the deep links land
-on the right screen — is the TestFlight slice **#175**. Acceptance criteria
-1–3 of #172 are confirmed there. AC#4 (the deep-link parser) is already
-covered by `src/lib/mobile/deep-link.test.ts`.
+Real-device verification is the TestFlight slice **#175**:
+
+- **Quick Actions (#172)** — add it in medium and large, tap each of the four
+  buttons, confirm the deep links land on the right screen (#172 AC#1–3).
+- **Emails (#174)** — add it in medium and large; configure each instance to
+  a mailbox via the widget's edit screen; confirm the unread count + previews
+  render, the "Updated Xh ago" line is present, the "Open the app to sync"
+  empty state shows with no cache, and tapping a preview / the count deep-links
+  correctly (#174 AC#1–6).
+
+The pure logic is already unit-tested off-device: `deep-link.test.ts` covers
+the parser (all `nookleus://` routes) and `email-summary.test.ts` covers
+`shapeEmailSummary` (including the preview `id`). The SwiftUI / WidgetKit /
+AppIntent code carries no automated tests — repo norm for native iOS work.

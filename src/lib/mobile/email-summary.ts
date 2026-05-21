@@ -13,7 +13,13 @@ import type { Email, EmailAccount } from "@/lib/types";
 /** The fields of an inbox `Email` the summary actually needs. */
 export type EmailSummaryEmail = Pick<
   Email,
-  "account_id" | "from_address" | "from_name" | "subject" | "is_read" | "received_at"
+  | "id"
+  | "account_id"
+  | "from_address"
+  | "from_name"
+  | "subject"
+  | "is_read"
+  | "received_at"
 >;
 
 /** The fields of an `EmailAccount` the summary actually needs. */
@@ -30,6 +36,8 @@ export const PREVIEW_LIMIT = 3;
 
 /** One message preview shown in the widget — sender + subject only. */
 export interface EmailSummaryPreview {
+  /** The email's id — the widget's deep link opens `nookleus://email?id=`. */
+  id: string;
   sender: string;
   subject: string;
 }
@@ -71,6 +79,7 @@ export function shapeEmailSummary(
       label: acc.label,
       unreadCount: accountEmails.filter((e) => !e.is_read).length,
       previews: accountEmails.slice(0, PREVIEW_LIMIT).map((e) => ({
+        id: e.id,
         // A missing or blank display name falls back to the raw address.
         sender: e.from_name || e.from_address,
         subject: e.subject,

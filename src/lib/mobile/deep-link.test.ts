@@ -32,4 +32,20 @@ describe("parseDeepLink", () => {
   it("tolerates a trailing slash or path after the action", () => {
     expect(parseDeepLink("nookleus://jarvis/")).toBe("/jarvis");
   });
+
+  // Emails widget (#174) deep links — the widget emits `nookleus://email`
+  // with a query param identifying what to open.
+  it("routes a widget email link with an account to that account's inbox", () => {
+    expect(parseDeepLink("nookleus://email?account=acc-1")).toBe(
+      "/email?account=acc-1",
+    );
+  });
+
+  it("routes a widget email link with an id to that specific email", () => {
+    expect(parseDeepLink("nookleus://email?id=msg-9")).toBe("/email?id=msg-9");
+  });
+
+  it("routes a bare widget email link to the inbox", () => {
+    expect(parseDeepLink("nookleus://email")).toBe("/email");
+  });
 });
