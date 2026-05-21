@@ -19,6 +19,19 @@ const ROUTES: Record<string, string> = {
  */
 export function parseDeepLink(url: string): string | null {
   if (!url.startsWith(SCHEME)) return null;
-  const action = url.slice(SCHEME.length).split(/[/?#]/)[0];
+  const rest = url.slice(SCHEME.length);
+  const action = rest.split(/[/?#]/)[0];
+
+  // The Emails widget (#174) emits `nookleus://email` with a query param
+  // saying what to open, so its route is built dynamically.
+  if (action === "email") {
+    const params = new URLSearchParams(rest.split("?")[1] ?? "");
+    const id = params.get("id");
+    if (id) return `/email?id=${encodeURIComponent(id)}`;
+    const account = params.get("account");
+    if (account) return `/email?account=${encodeURIComponent(account)}`;
+    return "/email";
+  }
+
   return ROUTES[action] ?? null;
 }

@@ -20,6 +20,7 @@ function email(
   partial: Partial<EmailSummaryEmail> & { account_id: string },
 ): EmailSummaryEmail {
   return {
+    id: "email-id",
     from_address: "sender@example.com",
     from_name: "Sender",
     subject: "A subject",
@@ -80,6 +81,7 @@ describe("shapeEmailSummary", () => {
         emails: [
           email({
             account_id: "acc-1",
+            id: "msg-1",
             from_name: "Pat Adjuster",
             subject: "Roof leak claim",
           }),
@@ -89,8 +91,20 @@ describe("shapeEmailSummary", () => {
     );
 
     expect(snapshot.accounts["acc-1"].previews).toEqual([
-      { sender: "Pat Adjuster", subject: "Roof leak claim" },
+      { id: "msg-1", sender: "Pat Adjuster", subject: "Roof leak claim" },
     ]);
+  });
+
+  it("includes each email's id in its preview so the widget can deep-link to it", () => {
+    const snapshot = shapeEmailSummary(
+      {
+        accounts: [account({ id: "acc-1" })],
+        emails: [email({ account_id: "acc-1", id: "msg-42" })],
+      },
+      "2026-05-21T12:00:00Z",
+    );
+
+    expect(snapshot.accounts["acc-1"].previews[0].id).toBe("msg-42");
   });
 
   it("caps previews at three messages per account", () => {

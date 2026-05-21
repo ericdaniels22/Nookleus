@@ -209,7 +209,11 @@ export default function EmailInbox() {
     accountId?: string;
   } | null>(null);
 
-  // Consume compose query params (e.g. from AR aging Nudge button)
+  // Consume query params on mount:
+  // - `compose=1` opens the composer (e.g. the AR aging Nudge button).
+  // - `account` / `id` are the iOS Emails widget (#174) deep links — tapping
+  //   the unread count opens that account's inbox; tapping a preview opens
+  //   that specific email.
   const searchParams = useSearchParams();
   useEffect(() => {
     if (searchParams.get("compose") === "1") {
@@ -228,6 +232,12 @@ export default function EmailInbox() {
       });
       setComposeOpen(true);
     }
+
+    const widgetAccountId = searchParams.get("account");
+    if (widgetAccountId) setSelectedAccountId(widgetAccountId);
+
+    const widgetEmailId = searchParams.get("id");
+    if (widgetEmailId) setSelectedEmailId(widgetEmailId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
