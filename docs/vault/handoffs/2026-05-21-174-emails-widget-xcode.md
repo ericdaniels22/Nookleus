@@ -147,6 +147,16 @@ builds would have been 3). Tradeoff: a commit changing `capacitor.config.ts`
 `package.json` was deliberately left out of the filter (it churns on web-only
 dep bumps). New memory: `project_xcode_cloud_upload_limit_90382`.
 
+**Build 223 distributed to TestFlight (App Store Connect):** build 223 had
+`Groups (0)` — its `ed637cb` CI job was cancelled before the auto-attach
+post-action ran, so it was processed/`Validated` but delivered to no tester.
+Build 1.0 (223) was manually attached to the **DISASTER MASTOURS** internal
+testing group (3 testers) via App Store Connect → TestFlight → build 223 →
+Group → +. Internal builds skip Beta App Review, so build 223 — carrying all of
+#172/#173/#174's widget code — is now available in TestFlight on-device.
+**Slice #175 (on-device verification) is unblocked** and does not need to wait
+for the upload-quota reset.
+
 ## Links
 
 - Build card: [[build-174]]
