@@ -9,6 +9,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { NavOrderProvider } from "@/lib/nav-order-context";
 import { SidebarCollapseProvider } from "@/lib/sidebar-collapse-context";
 import AppShell from "@/components/app-shell";
+import DeepLinkListener from "@/components/mobile/deep-link-listener";
 import { UploadQueueProvider } from "@/lib/mobile/upload-queue-context";
 
 const inter = Inter({
@@ -58,6 +59,7 @@ export default function RootLayout({
                 <NavOrderProvider>
                   <SidebarCollapseProvider>
                     <BrandColorsProvider />
+                    <DeepLinkListener />
                     <AppShell>{children}</AppShell>
                     <Toaster />
                   </SidebarCollapseProvider>
