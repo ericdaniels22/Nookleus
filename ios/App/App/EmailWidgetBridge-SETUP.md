@@ -4,9 +4,9 @@ Issue #173 (PRD #56, slice 2) delivers the **email-summary cache pipeline**:
 the web app shapes a per-account email summary and the native shell writes it
 into the App Group container the Emails widget (slice 3, #174) will read.
 
-The web layer ships and runs on the next deploy. One native step remains and
-it needs a Mac with Xcode — this repo was authored on Windows, so the Swift
-was written but **not compiled** (same constraint as #172).
+The web layer ships and runs on the deploy. The one native step — adding the
+Swift plugin to the `App` target — is now **done** (see "Xcode wiring" below);
+it needed a Mac with Xcode because the file was authored on Windows.
 
 ## Delivered in this commit
 
@@ -25,22 +25,27 @@ was written but **not compiled** (same constraint as #172).
 
 - `ios/App/App/EmailWidgetBridgePlugin.swift` — the Swift Capacitor plugin.
 
-## Remaining — needs Xcode
+## Xcode wiring — done
 
-Add `EmailWidgetBridgePlugin.swift` to the **`App` target's Compile Sources**:
+`EmailWidgetBridgePlugin.swift` is in the **`App` target's Compile Sources**
+phase (`ios/App/App.xcodeproj/project.pbxproj`). It was added programmatically
+with the `xcodeproj` Ruby gem — the same approach #172 used for the
+`NookleusWidgets` target — not a hand-edit of `project.pbxproj`.
 
-1. Open `ios/App/App.xcodeproj` in Xcode (SPM-based Capacitor project — there
-   is no `.xcworkspace`).
-2. In the Project navigator, drag `App/EmailWidgetBridgePlugin.swift` into the
-   `App` group if it is not already shown.
-3. Select the file → File inspector → **Target Membership** → check **`App`**.
-4. Build the `App` scheme. The plugin registers itself at runtime via
-   `CAPBridgedPlugin` — no Objective-C `.m` macro file and no `Podfile` entry
-   are needed.
+Verified: `xcodebuild` builds the **`App` scheme** for the iOS Simulator
+(`CODE_SIGNING_ALLOWED=NO`) with `EmailWidgetBridgePlugin.swift` compiled into
+the `App` target and `NookleusWidgets.appex` embedded.
+
+> Build the **`App` scheme**, not `-target App`. A bare `-target` build does
+> not order transitive SPM package dependencies, so `SecureStoragePlugin`
+> fails with `unable to resolve module dependency: 'SwiftKeychainWrapper'`.
+
+The plugin registers itself at runtime via `CAPBridgedPlugin` — no Objective-C
+`.m` macro file and no `Podfile` entry are needed.
 
 No new entitlement work: the **App Group `group.com.aaacontracting.platform`**
 was already wired onto the `App` target in #172 (`App/App.entitlements`,
-`CODE_SIGN_ENTITLEMENTS`), so `UserDefaults(suiteName:)` resolves once the
+`CODE_SIGN_ENTITLEMENTS`), so `UserDefaults(suiteName:)` resolves now that the
 plugin file compiles into the target.
 
 ## The cache contract
