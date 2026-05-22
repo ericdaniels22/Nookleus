@@ -72,13 +72,20 @@ export default function JarvisPage() {
   }
 
   async function handleDeleteConversation(id: string) {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("jarvis_conversations")
-      .delete()
-      .eq("id", id);
+    // Routed server-side (#198): the conversation's image attachments must
+    // be swept from the `jarvis-attachments` bucket before the row goes,
+    // and that needs the Service client a browser session does not have.
+    let ok = false;
+    try {
+      const res = await fetch(`/api/jarvis/conversations/${id}`, {
+        method: "DELETE",
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
 
-    if (error) {
+    if (!ok) {
       toast.error("Failed to delete conversation.");
     } else {
       toast.success("Conversation deleted.");

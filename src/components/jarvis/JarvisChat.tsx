@@ -4,7 +4,11 @@ import { useEffect, useState, useRef, useCallback, type MutableRefObject } from 
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { resolveActiveOrgId } from "@/lib/supabase/resolve-active-org-id";
-import type { JarvisConversation, JarvisMessage as JarvisMessageType } from "@/lib/types";
+import type {
+  JarvisAttachment,
+  JarvisConversation,
+  JarvisMessage as JarvisMessageType,
+} from "@/lib/types";
 import JarvisMessage from "./JarvisMessage";
 import JarvisInput from "./JarvisInput";
 import JarvisQuickActions from "./JarvisQuickActions";
@@ -44,6 +48,42 @@ export default function JarvisChat({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const abortControllerRef: MutableRefObject<AbortController | null> = useRef(null);
+  // The conversation id, generated client-side so an attachment can be
+  // uploaded under {org}/{conversation_id}/ before the first message is
+  // sent and the `jarvis_conversations` row exists (#198).
+  const pendingConversationIdRef = useRef<string | null>(null);
+
+  // The id this chat will use for its conversation: the loaded conversation's
+  // id, or a freshly minted one held until the row is created.
+  const ensureConversationId = useCallback((): string => {
+    if (conversation) return conversation.id;
+    if (!pendingConversationIdRef.current) {
+      pendingConversationIdRef.current = crypto.randomUUID();
+    }
+    return pendingConversationIdRef.current;
+  }, [conversation]);
+
+  // Upload a picked image and resolve to its stored attachment reference.
+  const handleUploadAttachment = useCallback(
+    async (file: File): Promise<JarvisAttachment> => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("conversation_id", ensureConversationId());
+
+      const res = await fetch("/api/jarvis/attachments", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.attachment) {
+        throw new Error(
+          data.error || "Upload failed — check your connection and try again.",
+        );
+      }
+      return data.attachment as JarvisAttachment;
+    },
+    [ensureConversationId],
+  );
 
   // Load conversation
   const loadConversation = useCallback(async (id: string) => {
@@ -130,6 +170,9 @@ export default function JarvisChat({
     const { data, error } = await supabase
       .from("jarvis_conversations")
       .insert({
+        // Client-generated so it matches the conversation prefix any
+        // attachment was already uploaded under (#198).
+        id: ensureConversationId(),
         user_id: user?.id,
         organization_id: orgId,
         job_id: jobId || null,
@@ -163,11 +206,12 @@ export default function JarvisChat({
     };
   }, []);
 
-  async function handleSend(content: string) {
+  async function handleSend(content: string, attachment?: JarvisAttachment) {
     const userMsg: JarvisMessageType = {
       role: "user",
       content,
       timestamp: new Date().toISOString(),
+      ...(attachment ? { attachment } : {}),
     };
 
     const newMessages = [...messages, userMsg];
@@ -203,6 +247,7 @@ export default function JarvisChat({
           message: content,
           conversation_id: conv?.id,
           ...(directDepartment ? { direct_department: directDepartment } : {}),
+          ...(attachment ? { attachment } : {}),
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -328,8 +373,18 @@ export default function JarvisChat({
         />
       )}
 
-      {/* Input */}
-      <JarvisInput onSend={handleSend} disabled={isTyping} fillValue={inputFill} onFillConsumed={() => setInputFill("")} />
+      {/* Input — image attachments are Jarvis Core only (#198) */}
+      <JarvisInput
+        onSend={handleSend}
+        onUploadAttachment={
+          contextType === "general" && !directDepartment
+            ? handleUploadAttachment
+            : undefined
+        }
+        disabled={isTyping}
+        fillValue={inputFill}
+        onFillConsumed={() => setInputFill("")}
+      />
     </div>
   );
 }

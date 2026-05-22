@@ -1,7 +1,66 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import type { JarvisMessage as JarvisMessageType } from "@/lib/types";
+import type {
+  JarvisAttachment,
+  JarvisMessage as JarvisMessageType,
+} from "@/lib/types";
+
+// Renders an image attachment inside a message bubble (#198). The bytes
+// live in a private bucket, so a short-lived signed URL is fetched on
+// mount. Clicking the thumbnail opens the image at full size.
+function JarvisAttachmentImage({
+  attachment,
+}: {
+  attachment: JarvisAttachment;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/jarvis/attachments?path=${encodeURIComponent(attachment.storage_path)}`,
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data.url) setUrl(data.url);
+        else setFailed(true);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment.storage_path]);
+
+  if (failed) {
+    return (
+      <div className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/70">
+        Image unavailable
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className="h-40 w-40 animate-pulse rounded-xl bg-white/10" />
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={attachment.filename || "Attached image"}
+        className="max-h-60 max-w-full rounded-xl object-cover"
+      />
+    </a>
+  );
+}
 
 function formatRelativeTime(timestamp: string): string {
   const now = Date.now();
@@ -46,7 +105,16 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
           }
         >
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            <div className="space-y-2">
+              {message.attachment?.kind === "image" && (
+                <JarvisAttachmentImage attachment={message.attachment} />
+              )}
+              {message.content && (
+                <p className="text-sm whitespace-pre-wrap">
+                  {message.content}
+                </p>
+              )}
+            </div>
           ) : (
             <div className="text-sm jarvis-markdown">
               <ReactMarkdown
