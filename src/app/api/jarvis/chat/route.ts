@@ -11,6 +11,7 @@ import {
   loadAttachmentBase64,
   type StorageClient,
 } from "@/lib/jarvis/attachments/storage";
+import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
 import type { JarvisAttachment, JarvisMessage } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -329,9 +330,11 @@ export const POST = withRequestContext(
         incomingUserMessage,
       ].slice(-MAX_CONVERSATION_MESSAGES);
 
-      const claudeMessages: Anthropic.MessageParam[] = await buildClaudeMessages(
-        windowMessages,
-        async (att) => {
+      // Beta message params — a PDF document block uses a `file` source,
+      // which is a Files-API beta feature, so the Jarvis call below runs
+      // on `anthropic.beta.messages.create` (#199).
+      const claudeMessages: Anthropic.Beta.BetaMessageParam[] =
+        await buildClaudeMessages(windowMessages, async (att) => {
           // Defense-in-depth: an attachment path always begins with its
           // owning org id. Refuse to load bytes from outside the caller's
           // Organization even if a crafted reference reaches the window —
@@ -354,12 +357,13 @@ export const POST = withRequestContext(
         apiKey: process.env.ANTHROPIC_API_KEY,
       });
 
-      let response = await anthropic.messages.create({
+      let response = await anthropic.beta.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
         system: systemPrompt,
         messages: claudeMessages,
         tools: jarvisToolDefinitions,
+        betas: [ANTHROPIC_FILES_BETA],
       });
 
       // Tool use loop
@@ -369,11 +373,12 @@ export const POST = withRequestContext(
 
         // Extract tool use blocks
         const toolUseBlocks = response.content.filter(
-          (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+          (block): block is Anthropic.Beta.BetaToolUseBlock =>
+            block.type === "tool_use"
         );
 
         // Execute each tool
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        const toolResults: Anthropic.Beta.BetaToolResultBlockParam[] = [];
         for (const toolUse of toolUseBlocks) {
           if (toolUse.name === "consult_rnd") {
             routedTo = "rnd";
@@ -403,18 +408,20 @@ export const POST = withRequestContext(
         claudeMessages.push({ role: "assistant", content: response.content });
         claudeMessages.push({ role: "user", content: toolResults });
 
-        response = await anthropic.messages.create({
+        response = await anthropic.beta.messages.create({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1024,
           system: systemPrompt,
           messages: claudeMessages,
           tools: jarvisToolDefinitions,
+          betas: [ANTHROPIC_FILES_BETA],
         });
       }
 
       // Extract final text response
       const textBlocks = response.content.filter(
-        (block): block is Anthropic.TextBlock => block.type === "text"
+        (block): block is Anthropic.Beta.BetaTextBlock =>
+          block.type === "text"
       );
       assistantContent =
         textBlocks.map((b) => b.text).join("\n") ||

@@ -369,14 +369,18 @@ export interface JobCustomField {
 
 // Jarvis
 
-// An image attached to a Jarvis message (#198). Stored inline in the
-// conversation's `messages` JSONB — there is no `jarvis_attachments` table.
-// `storage_path` points into the private `jarvis-attachments` bucket.
+// An image or PDF attached to a Jarvis message (#198, #199). Stored inline
+// in the conversation's `messages` JSONB — there is no `jarvis_attachments`
+// table. `storage_path` points into the private `jarvis-attachments` bucket.
 export interface JarvisAttachment {
-  kind: "image";
+  kind: "image" | "pdf";
   storage_path: string;
   media_type: string;
   filename?: string;
+  // Anthropic Files API id — set for PDFs (#199). A PDF is uploaded to the
+  // Files API once on attach and referenced by `file_id` on every replay,
+  // so it is never re-encoded turn after turn.
+  file_id?: string;
 }
 
 export interface JarvisMessage {

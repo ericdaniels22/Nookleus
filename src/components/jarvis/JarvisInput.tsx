@@ -7,8 +7,11 @@ import {
   useEffect,
   type KeyboardEvent,
 } from "react";
-import { ArrowUp, Paperclip, X, Loader2 } from "lucide-react";
+import { ArrowUp, Paperclip, X, Loader2, FileText } from "lucide-react";
 import type { JarvisAttachment } from "@/lib/types";
+
+// Accepted attachment types — images and PDF (#198, #199).
+const ACCEPTED_ATTACHMENT_TYPES = "image/*,application/pdf";
 
 interface JarvisInputProps {
   onSend: (message: string, attachment?: JarvisAttachment) => void;
@@ -32,6 +35,8 @@ export default function JarvisInput({
   const [value, setValue] = useState("");
   const [attachment, setAttachment] = useState<JarvisAttachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // A picked PDF has no image preview — it shows as a labelled chip (#199).
+  const [pdfName, setPdfName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -102,21 +107,31 @@ export default function JarvisInput({
     e.target.value = "";
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
+    const isImage = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+    if (!isImage && !isPdf) {
       setUploadError(
-        "That isn't an image — attach a JPEG, PNG, GIF, or WebP.",
+        "That isn't a supported file — attach an image (JPEG, PNG, GIF, WebP) or a PDF.",
       );
       return;
     }
 
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(URL.createObjectURL(file));
+    if (isPdf) {
+      // A PDF gets a labelled chip, not an image thumbnail.
+      setPreviewUrl(null);
+      setPdfName(file.name || "PDF document");
+    } else {
+      setPdfName(null);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
     runUpload(file);
   }
 
   function clearAttachment() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    setPdfName(null);
     setAttachment(null);
     setUploadError(null);
     setUploading(false);
@@ -152,7 +167,7 @@ export default function JarvisInput({
   return (
     <div className="px-4 pb-4 pt-2">
       {/* Attachment preview / upload state */}
-      {(previewUrl || uploadError) && (
+      {(previewUrl || pdfName || uploadError) && (
         <div className="mb-2 flex items-center gap-2">
           {previewUrl && (
             <div className="relative">
@@ -166,6 +181,33 @@ export default function JarvisInput({
                 <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
                   <Loader2 size={18} className="animate-spin text-white" />
                 </div>
+              )}
+              {!uploading && (
+                <button
+                  type="button"
+                  onClick={clearAttachment}
+                  aria-label="Remove attachment"
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
+          {pdfName && (
+            <div className="relative flex items-center gap-2 rounded-lg border border-border bg-muted py-2 pl-3 pr-8">
+              <FileText
+                size={16}
+                className="flex-shrink-0 text-muted-foreground"
+              />
+              <span className="max-w-[160px] truncate text-xs text-foreground">
+                {pdfName}
+              </span>
+              {uploading && (
+                <Loader2
+                  size={14}
+                  className="animate-spin text-muted-foreground"
+                />
               )}
               {!uploading && (
                 <button
@@ -205,7 +247,7 @@ export default function JarvisInput({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={ACCEPTED_ATTACHMENT_TYPES}
               onChange={handleFilePicked}
               className="hidden"
             />
@@ -213,7 +255,7 @@ export default function JarvisInput({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled || uploading}
-              aria-label="Attach image"
+              aria-label="Attach image or PDF"
               className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-muted-foreground transition-all hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <Paperclip size={16} />

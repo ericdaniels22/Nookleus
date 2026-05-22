@@ -66,6 +66,40 @@ describe("buildClaudeMessages", () => {
     ]);
   });
 
+  it("maps a user message with a PDF attachment to a document + text block (#199)", async () => {
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "What does this contract say?",
+        attachment: {
+          kind: "pdf",
+          storage_path: "org-1/conv-9/contract.pdf",
+          media_type: "application/pdf",
+          file_id: "file_abc123",
+        },
+      }),
+    ];
+
+    // A PDF carries its Anthropic Files API file_id on the reference, so the
+    // resolver — which fetches image bytes — is never called for it.
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "file", file_id: "file_abc123" },
+          },
+          { type: "text", text: "What does this contract say?" },
+        ],
+      },
+    ]);
+  });
+
   it("omits the text block when an attachment message has no text", async () => {
     const history: JarvisMessage[] = [
       msg({
@@ -169,5 +203,95 @@ describe("buildClaudeMessages", () => {
     expect(typeof result[0].content).toBe("string");
     expect(result[0].content).toMatch(/What's wrong here\?/);
     expect(result[0].content).toMatch(/image|attachment/i);
+  });
+
+  it("omits the text block for a PDF attachment with no caption (#199)", async () => {
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "",
+        attachment: {
+          kind: "pdf",
+          storage_path: "org-1/conv-9/report.pdf",
+          media_type: "application/pdf",
+          file_id: "file_nocaption",
+        },
+      }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "file", file_id: "file_nocaption" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("replays a PDF by its file_id on a later turn (#199)", async () => {
+    // The PDF was attached on an earlier turn; a follow-up turn carries
+    // only text. On replay the PDF is re-sent as a document block that
+    // reuses the stored file_id — it is never re-encoded.
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "review this contract",
+        attachment: {
+          kind: "pdf",
+          storage_path: "org-1/conv-9/contract.pdf",
+          media_type: "application/pdf",
+          file_id: "file_replay",
+        },
+      }),
+      msg({ role: "assistant", content: "It looks standard." }),
+      msg({ role: "user", content: "any liability risks?" }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    const documentFileIds: string[] = [];
+    for (const message of result) {
+      if (!Array.isArray(message.content)) continue;
+      for (const block of message.content) {
+        if (block.type === "document" && block.source.type === "file") {
+          documentFileIds.push(block.source.file_id);
+        }
+      }
+    }
+    expect(documentFileIds).toEqual(["file_replay"]);
+  });
+
+  it("degrades a PDF with no file_id to a text note (#199)", async () => {
+    // A failed Files API upload leaves a PDF reference with no file_id.
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "what does this say?",
+        attachment: {
+          kind: "pdf",
+          storage_path: "org-1/conv-9/broken.pdf",
+          media_type: "application/pdf",
+        },
+      }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toHaveLength(1);
+    expect(typeof result[0].content).toBe("string");
+    expect(result[0].content).toMatch(/what does this say\?/);
+    expect(result[0].content).toMatch(/pdf|document/i);
   });
 });

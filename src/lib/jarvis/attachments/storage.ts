@@ -1,4 +1,4 @@
-// Attachment storage for Jarvis Chat attachments (#198).
+// Attachment storage for Jarvis Chat attachments (#198, #199).
 //
 // Owns the `jarvis-attachments` bucket: the object path shape, plus
 // upload / load / conversation-prefix delete. Keeping the path shape in
@@ -6,6 +6,9 @@
 // `{organization_id}/{conversation_id}/` with a single prefix sweep.
 
 import type { SupportedImageType } from "./normalize";
+
+// Media types the bucket stores — images (#198) plus PDF (#199).
+export type AttachmentMediaType = SupportedImageType | "application/pdf";
 
 export const JARVIS_ATTACHMENTS_BUCKET = "jarvis-attachments";
 
@@ -58,6 +61,7 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
   "image/png": "png",
   "image/gif": "gif",
   "image/webp": "webp",
+  "application/pdf": "pdf",
 };
 
 // File extension for an attachment's media type — used to name the stored
@@ -66,14 +70,15 @@ export function extensionForMediaType(mediaType: string): string {
   return EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "bin";
 }
 
-// Upload one normalized image into the bucket under the conversation's
-// prefix. Returns the object path to store inline on the message.
+// Upload one normalized image or PDF into the bucket under the
+// conversation's prefix. Returns the object path to store inline on the
+// message.
 export async function uploadAttachment(
   supabase: StorageClient,
   params: {
     orgId: string;
     conversationId: string;
-    mediaType: SupportedImageType;
+    mediaType: AttachmentMediaType;
     bytes: Buffer | Uint8Array;
   },
 ): Promise<{ storagePath: string }> {
