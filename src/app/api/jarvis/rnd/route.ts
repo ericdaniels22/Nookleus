@@ -9,6 +9,7 @@ import {
   type StorageClient,
 } from "@/lib/jarvis/attachments/storage";
 import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
+import { withPromptCache } from "@/lib/jarvis/prompt-cache";
 import type { JarvisAttachment } from "@/lib/types";
 import * as fs from "fs";
 import * as path from "path";
@@ -488,14 +489,17 @@ export async function POST(request: NextRequest) {
     ];
 
     // Runs on the beta Messages API so a routed PDF document block (#199)
-    // is accepted alongside image blocks.
+    // is accepted alongside image blocks. A cache_control breakpoint on
+    // the last block of the last message caches the rendered prefix
+    // (tools → system → messages) so replayed image and document blocks
+    // hit the cache on follow-up turns (#203).
     let response: Anthropic.Beta.BetaMessage;
     try {
       response = await anthropic.beta.messages.create({
         model: "claude-opus-4-6",
         max_tokens: 16384,
         system: RND_SYSTEM_PROMPT,
-        messages: claudeMessages,
+        messages: withPromptCache(claudeMessages),
         tools: allTools,
         betas: [ANTHROPIC_FILES_BETA],
       }, { timeout: CLAUDE_TIMEOUT_MS });
@@ -546,7 +550,7 @@ export async function POST(request: NextRequest) {
           model: "claude-opus-4-6",
           max_tokens: 16384,
           system: RND_SYSTEM_PROMPT,
-          messages: claudeMessages,
+          messages: withPromptCache(claudeMessages),
           tools: allTools,
           betas: [ANTHROPIC_FILES_BETA],
         }, { timeout: CLAUDE_TIMEOUT_MS });
