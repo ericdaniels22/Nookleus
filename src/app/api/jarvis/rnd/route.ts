@@ -3,6 +3,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { RND_SYSTEM_PROMPT } from "@/lib/jarvis/prompts/rnd";
+import { buildClaudeMessages } from "@/lib/jarvis/attachments/content-blocks";
+import {
+  orgScopedImageResolver,
+  type StorageClient,
+} from "@/lib/jarvis/attachments/storage";
+import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
+import type { JarvisAttachment } from "@/lib/types";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -399,7 +406,19 @@ async function executeRndTool(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { question, context }: { question: string; context?: string } = body;
+    const {
+      question,
+      context,
+      attachments,
+      org_id,
+    }: {
+      question: string;
+      context?: string;
+      // Chat attachments that rode in with the routed turn (#201), plus
+      // the caller's org id so each storage path can be scope-checked.
+      attachments?: JarvisAttachment[];
+      org_id?: string;
+    } = body;
 
     if (!question) {
       return NextResponse.json(
@@ -437,9 +456,27 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    const claudeMessages: Anthropic.MessageParam[] = [
-      { role: "user", content: userContent },
-    ];
+    // Build the Claude messages via the shared content-block assembly
+    // module — routed Chat attachments (#201) become image/document
+    // blocks on the user turn. Defense-in-depth: an attachment path
+    // always begins with its owning org id, so bytes outside the caller's
+    // Organization are never loaded (buildClaudeMessages degrades to text
+    // on a throw).
+    const claudeMessages: Anthropic.Beta.BetaMessageParam[] =
+      await buildClaudeMessages(
+        [
+          {
+            role: "user",
+            content: userContent,
+            timestamp: new Date().toISOString(),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          },
+        ],
+        orgScopedImageResolver(
+          supabase as unknown as StorageClient,
+          org_id ?? null,
+        ),
+      );
 
     // Build tools array — include web_search as a native tool
     const allTools: Anthropic.Messages.Tool[] = [
@@ -450,14 +487,17 @@ export async function POST(request: NextRequest) {
       } as unknown as Anthropic.Messages.Tool,
     ];
 
-    let response: Anthropic.Messages.Message;
+    // Runs on the beta Messages API so a routed PDF document block (#199)
+    // is accepted alongside image blocks.
+    let response: Anthropic.Beta.BetaMessage;
     try {
-      response = await anthropic.messages.create({
+      response = await anthropic.beta.messages.create({
         model: "claude-opus-4-6",
         max_tokens: 16384,
         system: RND_SYSTEM_PROMPT,
         messages: claudeMessages,
         tools: allTools,
+        betas: [ANTHROPIC_FILES_BETA],
       }, { timeout: CLAUDE_TIMEOUT_MS });
     } catch (apiErr) {
       const status = (apiErr as { status?: number }).status;
@@ -475,10 +515,11 @@ export async function POST(request: NextRequest) {
       iterations++;
 
       const toolUseBlocks = response.content.filter(
-        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+        (block): block is Anthropic.Beta.BetaToolUseBlock =>
+          block.type === "tool_use"
       );
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      const toolResults: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const toolUse of toolUseBlocks) {
         // web_search is handled natively by Claude — skip execution
         if (toolUse.name === "web_search") continue;
@@ -501,12 +542,13 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        response = await anthropic.messages.create({
+        response = await anthropic.beta.messages.create({
           model: "claude-opus-4-6",
           max_tokens: 16384,
           system: RND_SYSTEM_PROMPT,
           messages: claudeMessages,
           tools: allTools,
+          betas: [ANTHROPIC_FILES_BETA],
         }, { timeout: CLAUDE_TIMEOUT_MS });
       } catch (apiErr) {
         const status = (apiErr as { status?: number }).status;
@@ -518,7 +560,7 @@ export async function POST(request: NextRequest) {
 
     // Extract final text
     const textBlocks = response.content.filter(
-      (block): block is Anthropic.TextBlock => block.type === "text"
+      (block): block is Anthropic.Beta.BetaTextBlock => block.type === "text"
     );
     const rndResponse =
       textBlocks.map((b) => b.text).join("\n") ||

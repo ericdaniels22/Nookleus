@@ -8,7 +8,7 @@ import {
 } from "@/lib/jarvis/tools";
 import { buildClaudeMessages } from "@/lib/jarvis/attachments/content-blocks";
 import {
-  loadAttachmentBase64,
+  orgScopedImageResolver,
   type StorageClient,
 } from "@/lib/jarvis/attachments/storage";
 import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
@@ -249,6 +249,15 @@ export const POST = withRequestContext(
       if (departmentEndpoint === "field-ops" && job_id) {
         deptBody.job_id = job_id;
       }
+      // Chat attachments follow the turn to the department (#201) — the
+      // references ride on the internal call body, paired with the
+      // caller's org id so the department can scope-check each storage
+      // path before loading any bytes. Holds on every explicit-routing
+      // path: @-prefix, department mode, and the Field Ops auto-route.
+      if (attachments && attachments.length > 0) {
+        deptBody.attachments = attachments;
+        deptBody.org_id = ctx.orgId;
+      }
 
       const deptResponse = await fetch(`${baseUrl}/api/jarvis/${departmentEndpoint}`, {
         method: "POST",
@@ -332,25 +341,14 @@ export const POST = withRequestContext(
 
       // Beta message params — a PDF document block uses a `file` source,
       // which is a Files-API beta feature, so the Jarvis call below runs
-      // on `anthropic.beta.messages.create` (#199).
+      // on `anthropic.beta.messages.create` (#199). The org-scoped
+      // resolver refuses any attachment reference outside the caller's
+      // Organization (#201).
       const claudeMessages: Anthropic.Beta.BetaMessageParam[] =
-        await buildClaudeMessages(windowMessages, async (att) => {
-          // Defense-in-depth: an attachment path always begins with its
-          // owning org id. Refuse to load bytes from outside the caller's
-          // Organization even if a crafted reference reaches the window —
-          // buildClaudeMessages degrades the message to text on a throw.
-          if (!att.storage_path.startsWith(`${ctx.orgId}/`)) {
-            throw new Error("Attachment outside caller's organization");
-          }
-          return {
-            base64: await loadAttachmentBase64(
-              supabase as unknown as StorageClient,
-              att.storage_path,
-            ),
-            mediaType: att.media_type,
-          };
-        },
-      );
+        await buildClaudeMessages(
+          windowMessages,
+          orgScopedImageResolver(supabase as unknown as StorageClient, ctx.orgId),
+        );
 
       // Call Claude API
       const anthropic = new Anthropic({

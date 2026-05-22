@@ -93,6 +93,17 @@ export function makeSupabaseFake(): SupabaseFake {
         );
         return { data: row ?? null, error: null };
       },
+      // `.single()` — supabase-js errors when the match is not exactly
+      // one row; the fake mirrors `.maybeSingle()` (first match or null),
+      // enough for routes that read `data?.field` off the result.
+      async single() {
+        const err = state.errors[`${table}.select`];
+        if (err) return { data: null, error: err };
+        const row = (state.rows[table] ?? []).find((r) =>
+          matchesFilters(r, filters),
+        );
+        return { data: row ?? null, error: null };
+      },
       then(
         resolve: (v: {
           data: unknown;
