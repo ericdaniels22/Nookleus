@@ -146,6 +146,25 @@ user's explicit plain-text "yes apply" (per
 - Slice 2 should extend this same component with a "+ New" mode — the
   `value` / `onChange` interface was designed to stay stable when that lands.
 
+## Post-handoff update
+
+After this handoff was written, the user asked to commit the feature branch,
+open a PR, and merge it. The first "What's next" item is now done:
+
+- **Feature branch committed and pushed** — one commit `2887ca1` (`feat:
+  insurance-company picker on job detail (#193)`, 7 files, +364/−15) on
+  `193-insurance-company-picker`.
+- **[PR #196](https://github.com/ericdaniels22/Nookleus/pull/196)** opened
+  against `main` with `Closes #193`, then **merged** (`gh pr merge --merge
+  --delete-branch`) — merge commit `800eb18` on `main`, issue **#193
+  auto-closed**.
+- The worktree `.claude/worktrees/193-insurance-company-picker` and its local
+  + remote branch were removed; the main checkout was synced to `800eb18`.
+
+The migration was already applied to AAA prod, so the merge makes no schema
+change; its Vercel deploy ships the picker UI to the web. The end-to-end path
+still has not been browser-verified (see "Open threads").
+
 ## Links
 
 - Issue: [#193](https://github.com/ericdaniels22/Nookleus/issues/193)
