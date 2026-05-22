@@ -231,6 +231,88 @@ describe("POST /api/jarvis/chat — attachments follow routing (#201)", () => {
     ).toBe(3);
   });
 
+  it("forwards attachments to R&D on the tool-consult path (#202)", async () => {
+    // Jarvis Core delegates mid-answer through the `consult_rnd` tool —
+    // not an @-prefix. A tool call's input is model-generated text and
+    // cannot carry image bytes, so the turn's attachments must travel
+    // through the executor context, not the tool input.
+    betaCreateMock.mockReset();
+    betaCreateMock.mockResolvedValueOnce({
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "consult_rnd",
+          input: { question: "what's wrong with this beam?" },
+        },
+      ],
+    });
+    betaCreateMock.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Here's what R&D found." }],
+    });
+
+    const res = await POST(
+      chatRequest({
+        context_type: "general",
+        // No @-prefix — Jarvis Core decides to consult R&D itself.
+        message: "what's wrong with this beam?",
+        attachments: [IMAGE_ATTACHMENT],
+      }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+
+    const rndCall = departmentCall(fetchMock, "rnd");
+    expect(rndCall).toBeDefined();
+    // The attachment reference rode the tool-consult call to the
+    // department — the model-generated tool input never carried it.
+    expect(rndCall!.body.attachments).toEqual([IMAGE_ATTACHMENT]);
+    // ...paired with the caller's org id so the department can scope-
+    // check the storage path before loading any bytes (#201 contract).
+    expect(rndCall!.body.org_id).toBe("org-1");
+  });
+
+  it("forwards attachments to Marketing on the tool-consult path (#202)", async () => {
+    // Same contract as `consult_rnd` but routed through the
+    // `consult_marketing` tool, which uses a `query` input field. The
+    // attachment still travels via the executor context, not the input.
+    betaCreateMock.mockReset();
+    betaCreateMock.mockResolvedValueOnce({
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_m1",
+          name: "consult_marketing",
+          input: { query: "write a caption for this" },
+        },
+      ],
+    });
+    betaCreateMock.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Caption ready." }],
+    });
+
+    const res = await POST(
+      chatRequest({
+        context_type: "general",
+        message: "write a caption for this",
+        attachments: [IMAGE_ATTACHMENT],
+      }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+
+    const marketingCall = departmentCall(fetchMock, "marketing");
+    expect(marketingCall).toBeDefined();
+    expect(marketingCall!.body.attachments).toEqual([IMAGE_ATTACHMENT]);
+    expect(marketingCall!.body.org_id).toBe("org-1");
+  });
+
   it("keeps the personality-pass relay text-only", async () => {
     await POST(
       chatRequest({
