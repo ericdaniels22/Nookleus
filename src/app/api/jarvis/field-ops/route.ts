@@ -4,6 +4,13 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { buildFieldOpsPrompt } from "@/lib/jarvis/prompts/field-ops";
 import { embedQuery } from "@/lib/knowledge/embeddings";
+import { buildClaudeMessages } from "@/lib/jarvis/attachments/content-blocks";
+import {
+  orgScopedImageResolver,
+  type StorageClient,
+} from "@/lib/jarvis/attachments/storage";
+import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
+import type { JarvisAttachment } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -357,7 +364,17 @@ export async function POST(request: NextRequest) {
       question,
       context,
       job_id,
-    }: { question: string; context?: string; job_id?: string } = body;
+      attachments,
+      org_id,
+    }: {
+      question: string;
+      context?: string;
+      job_id?: string;
+      // Chat attachments that rode in with the routed turn (#201), plus
+      // the caller's org id so each storage path can be scope-checked.
+      attachments?: JarvisAttachment[];
+      org_id?: string;
+    } = body;
 
     if (!question) {
       return NextResponse.json(
@@ -433,19 +450,40 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
-    const claudeMessages: Anthropic.MessageParam[] = [
-      { role: "user", content: userContent },
-    ];
+    // Build the Claude messages via the shared content-block assembly
+    // module — routed Chat attachments (#201) become image/document
+    // blocks on the user turn. Defense-in-depth: an attachment path
+    // always begins with its owning org id, so bytes outside the caller's
+    // Organization are never loaded (buildClaudeMessages degrades to text
+    // on a throw).
+    const claudeMessages: Anthropic.Beta.BetaMessageParam[] =
+      await buildClaudeMessages(
+        [
+          {
+            role: "user",
+            content: userContent,
+            timestamp: new Date().toISOString(),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          },
+        ],
+        orgScopedImageResolver(
+          supabase as unknown as StorageClient,
+          org_id ?? null,
+        ),
+      );
 
-    let response: Anthropic.Messages.Message;
+    // Runs on the beta Messages API so a routed PDF document block (#199)
+    // is accepted alongside image blocks.
+    let response: Anthropic.Beta.BetaMessage;
     try {
-      response = await anthropic.messages.create(
+      response = await anthropic.beta.messages.create(
         {
           model: "claude-sonnet-4-20250514",
           max_tokens: 8192,
           system: systemPrompt,
           messages: claudeMessages,
           tools: fieldOpsToolDefinitions,
+          betas: [ANTHROPIC_FILES_BETA],
         },
         { timeout: CLAUDE_TIMEOUT_MS }
       );
@@ -468,10 +506,11 @@ export async function POST(request: NextRequest) {
       iterations++;
 
       const toolUseBlocks = response.content.filter(
-        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+        (block): block is Anthropic.Beta.BetaToolUseBlock =>
+          block.type === "tool_use"
       );
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      const toolResults: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const toolUse of toolUseBlocks) {
         const result = await executeFieldOpsTool(
           toolUse.name,
@@ -491,13 +530,14 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        response = await anthropic.messages.create(
+        response = await anthropic.beta.messages.create(
           {
             model: "claude-sonnet-4-20250514",
             max_tokens: 8192,
             system: systemPrompt,
             messages: claudeMessages,
             tools: fieldOpsToolDefinitions,
+            betas: [ANTHROPIC_FILES_BETA],
           },
           { timeout: CLAUDE_TIMEOUT_MS }
         );
@@ -514,7 +554,7 @@ export async function POST(request: NextRequest) {
 
     // Extract final text
     const textBlocks = response.content.filter(
-      (block): block is Anthropic.TextBlock => block.type === "text"
+      (block): block is Anthropic.Beta.BetaTextBlock => block.type === "text"
     );
     const fieldOpsResponse =
       textBlocks.map((b) => b.text).join("\n") ||

@@ -6,6 +6,7 @@
 // `{organization_id}/{conversation_id}/` with a single prefix sweep.
 
 import type { SupportedImageType } from "./normalize";
+import type { AttachmentResolver } from "./content-blocks";
 
 // Media types the bucket stores — images (#198) plus PDF (#199).
 export type AttachmentMediaType = SupportedImageType | "application/pdf";
@@ -118,6 +119,30 @@ export async function loadAttachmentBase64(
   }
   const arrayBuffer = await data.arrayBuffer();
   return Buffer.from(arrayBuffer).toString("base64");
+}
+
+// An AttachmentResolver that loads image bytes from the bucket but
+// refuses any reference outside the caller's Organization — an
+// attachment path always begins with its owning org id. A cross-org or
+// org-less reference throws, so `buildClaudeMessages` degrades that
+// attachment to a text note rather than ever loading another tenant's
+// image. Shared by the chat route and the three department routes
+// (#201) so the org-scoping check lives in exactly one place. Only
+// image attachments hit the resolver — a PDF rides by its file_id and
+// never touches storage (#199).
+export function orgScopedImageResolver(
+  supabase: StorageClient,
+  orgId: string | null,
+): AttachmentResolver {
+  return async (attachment) => {
+    if (!orgId || !attachment.storage_path.startsWith(`${orgId}/`)) {
+      throw new Error("Attachment outside caller's organization");
+    }
+    return {
+      base64: await loadAttachmentBase64(supabase, attachment.storage_path),
+      mediaType: attachment.media_type,
+    };
+  };
 }
 
 // Delete every attachment under a conversation's prefix. Called when the
