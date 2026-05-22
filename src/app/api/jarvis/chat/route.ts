@@ -12,6 +12,7 @@ import {
   type StorageClient,
 } from "@/lib/jarvis/attachments/storage";
 import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
+import { withPromptCache } from "@/lib/jarvis/prompt-cache";
 import type { JarvisAttachment, JarvisMessage } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -355,11 +356,16 @@ export const POST = withRequestContext(
         apiKey: process.env.ANTHROPIC_API_KEY,
       });
 
+      // A cache_control breakpoint on the last content block of the last
+      // message caches the rendered prefix (tools → system → messages)
+      // before that block. A long conversation that replays many image and
+      // document blocks each turn hits the cache on follow-up turns
+      // instead of paying full input cost (#203).
       let response = await anthropic.beta.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
         system: systemPrompt,
-        messages: claudeMessages,
+        messages: withPromptCache(claudeMessages),
         tools: jarvisToolDefinitions,
         betas: [ANTHROPIC_FILES_BETA],
       });
@@ -415,7 +421,7 @@ export const POST = withRequestContext(
           model: "claude-sonnet-4-20250514",
           max_tokens: 1024,
           system: systemPrompt,
-          messages: claudeMessages,
+          messages: withPromptCache(claudeMessages),
           tools: jarvisToolDefinitions,
           betas: [ANTHROPIC_FILES_BETA],
         });
