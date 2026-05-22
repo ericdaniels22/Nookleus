@@ -40,7 +40,7 @@ function JarvisAttachmentImage({
 
   if (failed) {
     return (
-      <div className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/70">
+      <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/10 px-3 text-center text-xs text-white/70">
         Image unavailable
       </div>
     );
@@ -56,7 +56,7 @@ function JarvisAttachmentImage({
       <img
         src={url}
         alt={attachment.filename || "Attached image"}
-        className="max-h-60 max-w-full rounded-xl object-cover"
+        className="h-40 w-40 rounded-xl object-cover"
       />
     </a>
   );
@@ -106,8 +106,14 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
         >
           {isUser ? (
             <div className="space-y-2">
-              {message.attachment?.kind === "image" && (
-                <JarvisAttachmentImage attachment={message.attachment} />
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {message.attachments.map((att, i) =>
+                    att.kind === "image" ? (
+                      <JarvisAttachmentImage key={i} attachment={att} />
+                    ) : null,
+                  )}
+                </div>
               )}
               {message.content && (
                 <p className="text-sm whitespace-pre-wrap">

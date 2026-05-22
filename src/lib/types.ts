@@ -383,7 +383,10 @@ export interface JarvisMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-  attachment?: JarvisAttachment;
+  // Up to five Chat attachments per message (#200). #198 shipped a single
+  // `attachment`; this list supersedes it. There is no production
+  // conversation data, so the shape change carries no migration.
+  attachments?: JarvisAttachment[];
 }
 
 export interface JarvisConversation {

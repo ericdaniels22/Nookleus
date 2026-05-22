@@ -206,12 +206,15 @@ export default function JarvisChat({
     };
   }, []);
 
-  async function handleSend(content: string, attachment?: JarvisAttachment) {
+  async function handleSend(
+    content: string,
+    attachments?: JarvisAttachment[],
+  ) {
     const userMsg: JarvisMessageType = {
       role: "user",
       content,
       timestamp: new Date().toISOString(),
-      ...(attachment ? { attachment } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
 
     const newMessages = [...messages, userMsg];
@@ -247,7 +250,7 @@ export default function JarvisChat({
           message: content,
           conversation_id: conv?.id,
           ...(directDepartment ? { direct_department: directDepartment } : {}),
-          ...(attachment ? { attachment } : {}),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
         signal: abortControllerRef.current.signal,
       });

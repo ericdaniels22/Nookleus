@@ -40,14 +40,14 @@ export const POST = withRequestContext(
       message,
       conversation_id,
       direct_department,
-      attachment,
+      attachments,
     }: {
       context_type: "general" | "job" | "rnd" | "marketing";
       job_id?: string;
       message: string;
       conversation_id?: string;
       direct_department?: "rnd" | "marketing" | "field-ops";
-      attachment?: JarvisAttachment;
+      attachments?: JarvisAttachment[];
     } = body;
 
     if (!message || !context_type) {
@@ -311,13 +311,13 @@ export const POST = withRequestContext(
         }
       }
 
-      // The incoming user message — carries its attachment, if any, so it
+      // The incoming user message — carries its attachments, if any, so it
       // sits in the history window like every other message.
       const incomingUserMessage: JarvisMessage = {
         role: "user",
         content: message,
         timestamp: new Date().toISOString(),
-        ...(attachment ? { attachment } : {}),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
 
       // Build messages for Claude — truncate to the window, then resolve
@@ -443,7 +443,7 @@ export const POST = withRequestContext(
       timestamp: now,
       // Stored inline in the conversation `messages` JSONB — no separate
       // attachments table (#198).
-      ...(attachment ? { attachment } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     const assistantMsg: JarvisMessage = {
       role: "assistant",
