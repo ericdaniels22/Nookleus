@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Input } from "@/components/ui/input";
+import { formatPhoneNumber } from "@/lib/phone";
 import {
   Dialog,
   DialogContent,
@@ -256,7 +257,7 @@ export default function UsersSettingsPage() {
                       )}
                       {user.phone && (
                         <span className="inline-flex items-center gap-1">
-                          <Phone size={11} /> {user.phone}
+                          <Phone size={11} /> {formatPhoneNumber(user.phone)}
                         </span>
                       )}
                       {user.last_login_at && (

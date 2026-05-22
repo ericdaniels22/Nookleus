@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "./phone";
+import {
+  formatPhoneNumber,
+  isValidUSPhone,
+  normalizePhoneToE164,
+  phoneMatchesQuery,
+} from "./phone";
 
 describe("formatPhoneNumber", () => {
   it("returns an empty string for empty input", () => {
@@ -80,6 +85,38 @@ describe("normalizePhoneToE164", () => {
 
   it("returns null for an 11-digit number that is not country-code-prefixed", () => {
     expect(normalizePhoneToE164("25551234567")).toBeNull();
+  });
+});
+
+describe("phoneMatchesQuery", () => {
+  it("matches a stored E.164 number against a formatted query", () => {
+    expect(phoneMatchesQuery("+15551234567", "(555) 123-4567")).toBe(true);
+  });
+
+  it("does not match when the query has no digits", () => {
+    expect(phoneMatchesQuery("+15551234567", "john")).toBe(false);
+  });
+
+  it("matches a raw-digit query", () => {
+    expect(phoneMatchesQuery("+15551234567", "5551234567")).toBe(true);
+  });
+
+  it("matches a partial query against the area code or any digit run", () => {
+    expect(phoneMatchesQuery("+15551234567", "555")).toBe(true);
+    expect(phoneMatchesQuery("+15551234567", "234")).toBe(true);
+  });
+
+  it("does not match when the query digits are absent from the number", () => {
+    expect(phoneMatchesQuery("+15551234567", "999")).toBe(false);
+  });
+
+  it("does not match a null or undefined stored phone", () => {
+    expect(phoneMatchesQuery(null, "555")).toBe(false);
+    expect(phoneMatchesQuery(undefined, "555")).toBe(false);
+  });
+
+  it("matches across formats — a country-code query against a 10-digit stored value", () => {
+    expect(phoneMatchesQuery("5551234567", "1 (555) 123-4567")).toBe(true);
   });
 });
 

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Contact } from "@/lib/types";
+import { formatPhoneNumber, normalizePhoneToE164, phoneMatchesQuery } from "@/lib/phone";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -137,7 +138,7 @@ export default function ContactsPage() {
       return (
         fullName.includes(q) ||
         c.email?.toLowerCase().includes(q) ||
-        c.phone?.toLowerCase().includes(q) ||
+        phoneMatchesQuery(c.phone, search) ||
         c.company?.toLowerCase().includes(q)
       );
     }
@@ -159,7 +160,7 @@ export default function ContactsPage() {
     setEditingContact(contact);
     setForm({
       full_name: contact.full_name,
-      phone: contact.phone || "",
+      phone: formatPhoneNumber(contact.phone || ""),
       email: contact.email || "",
       role: contact.role,
       company: contact.company || "",
@@ -179,7 +180,7 @@ export default function ContactsPage() {
 
     const payload = {
       full_name: form.full_name.trim(),
-      phone: form.phone.trim() || null,
+      phone: normalizePhoneToE164(form.phone) ?? (form.phone.trim() || null),
       email: form.email.trim() || null,
       role: form.role,
       company: form.company.trim() || null,
@@ -359,7 +360,7 @@ export default function ContactsPage() {
                     {contact.phone && (
                       <span className="inline-flex items-center gap-1">
                         <Phone size={12} className="text-muted-foreground/60" />
-                        {contact.phone}
+                        {formatPhoneNumber(contact.phone)}
                       </span>
                     )}
                     {contact.email && (
@@ -472,7 +473,7 @@ export default function ContactsPage() {
                 </label>
                 <Input
                   value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  onChange={(e) => setForm({ ...form, phone: formatPhoneNumber(e.target.value) })}
                   placeholder="(555) 123-4567"
                 />
               </div>

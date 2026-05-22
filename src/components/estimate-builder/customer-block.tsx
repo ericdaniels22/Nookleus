@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, User } from "lucide-react";
 import type { BuilderMode, Contact, Job } from "@/lib/types";
+import { formatPhoneNumber } from "@/lib/phone";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CustomerBlock — read-only display of customer info pulled from the job.
@@ -56,7 +57,7 @@ export function CustomerBlock({ job, mode = "estimate" }: CustomerBlockProps) {
             <div className="text-muted-foreground">{contact.email}</div>
           )}
           {contact?.phone && (
-            <div className="text-muted-foreground">{contact.phone}</div>
+            <div className="text-muted-foreground">{formatPhoneNumber(contact.phone)}</div>
           )}
         </div>
       )}

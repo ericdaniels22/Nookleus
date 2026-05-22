@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { formatCurrency } from "@/lib/format";
+import { formatPhoneNumber } from "@/lib/phone";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
@@ -259,7 +260,7 @@ export default async function EstimateViewPage({
             <p className="text-sm text-muted-foreground">{contact.email}</p>
           )}
           {contact.phone && (
-            <p className="text-sm text-muted-foreground">{contact.phone}</p>
+            <p className="text-sm text-muted-foreground">{formatPhoneNumber(contact.phone)}</p>
           )}
         </div>
       )}
