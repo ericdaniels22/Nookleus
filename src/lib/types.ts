@@ -368,10 +368,22 @@ export interface JobCustomField {
 }
 
 // Jarvis
+
+// An image attached to a Jarvis message (#198). Stored inline in the
+// conversation's `messages` JSONB — there is no `jarvis_attachments` table.
+// `storage_path` points into the private `jarvis-attachments` bucket.
+export interface JarvisAttachment {
+  kind: "image";
+  storage_path: string;
+  media_type: string;
+  filename?: string;
+}
+
 export interface JarvisMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  attachment?: JarvisAttachment;
 }
 
 export interface JarvisConversation {

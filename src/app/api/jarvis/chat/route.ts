@@ -6,7 +6,12 @@ import {
   jarvisToolDefinitions,
   executeJarvisTool,
 } from "@/lib/jarvis/tools";
-import type { JarvisMessage } from "@/lib/types";
+import { buildClaudeMessages } from "@/lib/jarvis/attachments/content-blocks";
+import {
+  loadAttachmentBase64,
+  type StorageClient,
+} from "@/lib/jarvis/attachments/storage";
+import type { JarvisAttachment, JarvisMessage } from "@/lib/types";
 
 export const maxDuration = 120;
 
@@ -35,12 +40,14 @@ export const POST = withRequestContext(
       message,
       conversation_id,
       direct_department,
+      attachment,
     }: {
       context_type: "general" | "job" | "rnd" | "marketing";
       job_id?: string;
       message: string;
       conversation_id?: string;
       direct_department?: "rnd" | "marketing" | "field-ops";
+      attachment?: JarvisAttachment;
     } = body;
 
     if (!message || !context_type) {
@@ -304,20 +311,43 @@ export const POST = withRequestContext(
         }
       }
 
-      // Build messages for Claude — truncate if needed
-      const historyMessages = conversationMessages_inner.slice(
-        -MAX_CONVERSATION_MESSAGES
-      );
+      // The incoming user message — carries its attachment, if any, so it
+      // sits in the history window like every other message.
+      const incomingUserMessage: JarvisMessage = {
+        role: "user",
+        content: message,
+        timestamp: new Date().toISOString(),
+        ...(attachment ? { attachment } : {}),
+      };
 
-      const claudeMessages: Anthropic.MessageParam[] = historyMessages.map(
-        (m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })
-      );
+      // Build messages for Claude — truncate to the window, then resolve
+      // every attachment reference to a base64 image block. Jarvis re-sees
+      // every image in the window on each turn (#198 replay), not just the
+      // one freshly attached.
+      const windowMessages = [
+        ...conversationMessages_inner,
+        incomingUserMessage,
+      ].slice(-MAX_CONVERSATION_MESSAGES);
 
-      // Add the new user message
-      claudeMessages.push({ role: "user", content: message });
+      const claudeMessages: Anthropic.MessageParam[] = await buildClaudeMessages(
+        windowMessages,
+        async (att) => {
+          // Defense-in-depth: an attachment path always begins with its
+          // owning org id. Refuse to load bytes from outside the caller's
+          // Organization even if a crafted reference reaches the window —
+          // buildClaudeMessages degrades the message to text on a throw.
+          if (!att.storage_path.startsWith(`${ctx.orgId}/`)) {
+            throw new Error("Attachment outside caller's organization");
+          }
+          return {
+            base64: await loadAttachmentBase64(
+              supabase as unknown as StorageClient,
+              att.storage_path,
+            ),
+            mediaType: att.media_type,
+          };
+        },
+      );
 
       // Call Claude API
       const anthropic = new Anthropic({
@@ -411,6 +441,9 @@ export const POST = withRequestContext(
       role: "user",
       content: message,
       timestamp: now,
+      // Stored inline in the conversation `messages` JSONB — no separate
+      // attachments table (#198).
+      ...(attachment ? { attachment } : {}),
     };
     const assistantMsg: JarvisMessage = {
       role: "assistant",
