@@ -55,12 +55,20 @@ disconnect it (e.g. when the owner leaves the company) but cannot read its
 messages.
 _Avoid_: private inbox, user account
 
+**Chat attachment**:
+An image (JPEG/PNG/GIF/WebP) or PDF a User adds to a message when
+talking with Jarvis, as visual context for the AI to reason over. Lives
+inside one Jarvis conversation and is content-private to it — it never
+becomes part of a job's records.
+_Avoid_: upload, file, photo; bare "attachment" (that means an email attachment)
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
 - A **Request Context** names exactly one **Active Organization**.
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
 - An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
+- A **Chat attachment** belongs to one message in one Jarvis conversation; opening Jarvis from inside a job does not turn it into a job photo or job file.
 
 ## Example dialogue
 
@@ -70,3 +78,4 @@ _Avoid_: private inbox, user account
 ## Flagged ambiguities
 
 - "auth gate" was used for four near-identical route helpers (`requirePermission`, `requireAdmin`, `requireViewAccounting`, and an inline `requireLogExpenses`) — resolved: these collapse into the one **Request Context** wrapper.
+- "attachment" is overloaded — an **email attachment** (mail Nookleus synced) versus a **Chat attachment** (a file added to a Jarvis chat). Don't use the bare word; qualify it.
