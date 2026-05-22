@@ -8,6 +8,13 @@ related: ["[[2026-05-21-184-masked-date-field]]"]
 
 # Build 185 Handoff — 2026-05-21
 
+> **Post-handoff addendum.** The user **merged PR #191** (`04cce03`) moments
+> after this handoff was first committed — **#185 is now CLOSED (COMPLETED)**.
+> The "PR open / unmerged / #185 stays OPEN" framing below was true at the
+> instant of writing; treat #185 as merged and shipped. `00-NOW.md` was
+> corrected in the same follow-up commit. PRD #45 now has a single open slice,
+> #187. The `.claude/worktrees/185-phone-rollout` worktree can be removed.
+
 ## What shipped this session
 
 Implemented issue [#185](https://github.com/ericdaniels22/Nookleus/issues/185)
