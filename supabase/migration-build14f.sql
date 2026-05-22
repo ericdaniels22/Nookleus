@@ -68,7 +68,7 @@ INSERT INTO form_config (config, version, created_by) VALUES (
       "fields": [
         {"id": "damage_type", "type": "pill", "label": "Type of Damage", "required": true, "is_default": true, "visible": true, "maps_to": "job.damage_type", "options_source": "damage_types"},
         {"id": "damage_source", "type": "text", "label": "Source of Damage", "required": false, "is_default": true, "visible": true, "maps_to": "job.damage_source"},
-        {"id": "when_happened", "type": "text", "label": "When Did It Happen?", "required": false, "is_default": true, "visible": true},
+        {"id": "when_happened", "type": "date", "label": "When Did It Happen?", "required": false, "is_default": true, "visible": true},
         {"id": "affected_areas", "type": "text", "label": "Affected Areas", "required": false, "is_default": true, "visible": true, "maps_to": "job.affected_areas"}
       ]
     },
