@@ -14,7 +14,8 @@ import { useConfig } from "@/lib/config-context";
 import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "@/lib/phone";
 import { isValidPastDate } from "@/lib/date-field";
 import { DateField } from "@/components/date-field";
-import type { FormConfig, FormField } from "@/lib/types";
+import InsuranceCompanyPicker from "@/components/insurance-company-picker";
+import type { Contact, FormConfig, FormField } from "@/lib/types";
 
 export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
   const router = useRouter();
@@ -23,6 +24,12 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [formConfig, setFormConfig] = useState<FormConfig | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  // The field mapped to job.insurance_company is chosen with the
+  // InsuranceCompanyPicker rather than typed. This holds the picked
+  // contact so the submit can write its id; the company-name snapshot
+  // is mirrored into `values` so the existing required-field check and
+  // the insurance_company write keep working unchanged (#195).
+  const [insuranceContact, setInsuranceContact] = useState<Contact | null>(null);
 
   // Load form config
   useEffect(() => {
@@ -47,6 +54,14 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
 
   function setValue(fieldId: string, value: string) {
     setValues((prev) => ({ ...prev, [fieldId]: value }));
+  }
+
+  // The insurance picker yields a contact (or null) rather than text.
+  // Mirror its name into `values` as the company-name snapshot so the
+  // required check and insurance_company write see it like any field.
+  function setInsurance(fieldId: string, contact: Contact | null) {
+    setInsuranceContact(contact);
+    setValue(fieldId, contact?.full_name ?? "");
   }
 
   function getVal(id: string): string {
@@ -175,6 +190,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
           affected_areas: valueByMapsTo("job.affected_areas") || null,
           urgency: valueByMapsTo("job.urgency") || "scheduled",
           insurance_company: valueByMapsTo("job.insurance_company") || null,
+          insurance_contact_id: insuranceContact?.id ?? null,
           claim_number: valueByMapsTo("job.claim_number") || null,
           access_notes: valueByMapsTo("job.access_notes") || null,
         })
@@ -281,6 +297,8 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
                     value={getVal(field.id)}
                     onChange={(v) => setValue(field.id, v)}
                     damageTypes={damageTypes}
+                    insuranceContact={insuranceContact}
+                    onInsuranceChange={(c) => setInsurance(field.id, c)}
                   />
                 ))}
             </div>
@@ -315,11 +333,15 @@ function DynamicField({
   value,
   onChange,
   damageTypes,
+  insuranceContact,
+  onInsuranceChange,
 }: {
   field: FormField;
   value: string;
   onChange: (v: string) => void;
   damageTypes: { name: string; display_label: string; bg_color: string; text_color: string }[];
+  insuranceContact: Contact | null;
+  onInsuranceChange: (c: Contact | null) => void;
 }) {
   // Get options — from damage_types config or field.options
   let options = field.options || [];
@@ -330,6 +352,12 @@ function DynamicField({
       color: `bg-[${dt.bg_color}] text-[${dt.text_color}] border-[${dt.text_color}]/20`,
     }));
   }
+
+  // Quiet-swap: the field mapped to job.insurance_company renders the
+  // shared InsuranceCompanyPicker (search + inline create) in place of
+  // its configured plain input — same idea as the damage_types option
+  // source above, no new field type, no form-config change (#195).
+  const isInsuranceCompany = field.maps_to === "job.insurance_company";
 
   return (
     <div>
@@ -344,7 +372,15 @@ function DynamicField({
         <p className="text-xs text-muted-foreground/70 mb-1.5">{field.help_text}</p>
       )}
 
-      {(field.type === "text" || field.type === "phone" || field.type === "email") && (
+      {isInsuranceCompany && (
+        <InsuranceCompanyPicker
+          value={insuranceContact}
+          onChange={onInsuranceChange}
+        />
+      )}
+
+      {!isInsuranceCompany &&
+        (field.type === "text" || field.type === "phone" || field.type === "email") && (
         <Input
           type={field.type === "phone" ? "tel" : field.type === "email" ? "email" : "text"}
           value={value}
