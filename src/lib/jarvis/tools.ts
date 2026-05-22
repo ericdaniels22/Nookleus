@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import type { JarvisAttachment } from "@/lib/types";
 
 // --- Types ---
 
@@ -16,6 +17,11 @@ export interface ToolExecutionContext {
   // the Active Organization — scoping by null then matches nothing, which is
   // the safe outcome.
   orgId: string | null;
+  // The turn's Chat attachments, if any. A tool call's input is model-
+  // generated text and cannot carry image bytes, so the consult_rnd /
+  // consult_marketing executors forward attachments to the department via
+  // this context — never via `toolInput` (#202).
+  attachments?: JarvisAttachment[];
 }
 
 // --- Tool Definitions for Claude API ---
@@ -257,12 +263,14 @@ export async function executeJarvisTool(
         break;
       case "consult_rnd":
         result = await toolConsultRnd(
-          toolInput as { question: string; context?: string }
+          toolInput as { question: string; context?: string },
+          context
         );
         break;
       case "consult_marketing":
         result = await toolConsultMarketing(
-          toolInput as { query: string }
+          toolInput as { query: string },
+          context
         );
         break;
       default:
@@ -672,7 +680,8 @@ async function toolLogActivity(
 }
 
 async function toolConsultRnd(
-  input: { question: string; context?: string }
+  input: { question: string; context?: string },
+  ctx: ToolExecutionContext
 ): Promise<{ content: string } | { error: string }> {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
@@ -682,16 +691,26 @@ async function toolConsultRnd(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120_000);
 
+    // The turn's Chat attachments ride along on the internal call via the
+    // executor context — the model-generated `toolInput` cannot carry image
+    // bytes. Pairs with `org_id` so R&D scope-checks each storage path
+    // before loading any bytes (#201/#202 contract).
+    const reqBody: Record<string, unknown> = {
+      question: input.question,
+      context: input.context,
+    };
+    if (ctx.attachments && ctx.attachments.length > 0) {
+      reqBody.attachments = ctx.attachments;
+      reqBody.org_id = ctx.orgId;
+    }
+
     const response = await fetch(`${baseUrl}/api/jarvis/rnd`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
       },
-      body: JSON.stringify({
-        question: input.question,
-        context: input.context,
-      }),
+      body: JSON.stringify(reqBody),
       signal: controller.signal,
     });
 
@@ -710,7 +729,8 @@ async function toolConsultRnd(
 }
 
 async function toolConsultMarketing(
-  input: { query: string }
+  input: { query: string },
+  ctx: ToolExecutionContext
 ): Promise<{ content: string } | { error: string }> {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
@@ -720,15 +740,22 @@ async function toolConsultMarketing(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
 
+    // Same attachment-via-context contract as `consult_rnd` (#202).
+    const reqBody: Record<string, unknown> = {
+      question: input.query,
+    };
+    if (ctx.attachments && ctx.attachments.length > 0) {
+      reqBody.attachments = ctx.attachments;
+      reqBody.org_id = ctx.orgId;
+    }
+
     const response = await fetch(`${baseUrl}/api/jarvis/marketing`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
       },
-      body: JSON.stringify({
-        question: input.query,
-      }),
+      body: JSON.stringify(reqBody),
       signal: controller.signal,
     });
 

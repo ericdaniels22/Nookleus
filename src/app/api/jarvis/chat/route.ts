@@ -393,6 +393,11 @@ export const POST = withRequestContext(
               jobId: job_id,
               supabase,
               orgId: ctx.orgId,
+              // Tool-consult attachment forwarding (#202): the turn's
+              // attachments reach `consult_rnd` / `consult_marketing` via
+              // the executor context, never via the model-generated
+              // `toolInput` (which is text and cannot carry image bytes).
+              attachments,
             }
           );
           toolResults.push({
