@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useConfig } from "@/lib/config-context";
+import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "@/lib/phone";
 import type { FormConfig, FormField } from "@/lib/types";
 
 export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
@@ -76,6 +77,14 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
             toast.error(`Please fill in: ${field.label}`);
             return;
           }
+          if (
+            field.type === "phone" &&
+            getVal(field.id).trim() &&
+            !isValidUSPhone(getVal(field.id))
+          ) {
+            toast.error(`${field.label} must be a valid 10-digit US phone number.`);
+            return;
+          }
         }
       }
     }
@@ -109,7 +118,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         .insert({
           organization_id: orgId,
           full_name: fullName,
-          phone: valueByMapsTo("contact.phone") || null,
+          phone: normalizePhoneToE164(valueByMapsTo("contact.phone")),
           email: valueByMapsTo("contact.email") || null,
           role: valueByMapsTo("contact.role") || "homeowner",
           notes: valueByMapsTo("contact.notes") || null,
@@ -127,7 +136,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
           .insert({
             organization_id: orgId,
             full_name: adjusterFullName.trim(),
-            phone: valueByMapsTo("adjuster.phone") || getVal("adjuster_phone") || null,
+            phone: normalizePhoneToE164(valueByMapsTo("adjuster.phone") || getVal("adjuster_phone")),
             role: "adjuster",
             title: valueByMapsTo("adjuster.title") || getVal("adjuster_title") || null,
           })
@@ -329,7 +338,9 @@ function DynamicField({
         <Input
           type={field.type === "phone" ? "tel" : field.type === "email" ? "email" : "text"}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) =>
+            onChange(field.type === "phone" ? formatPhoneNumber(e.target.value) : e.target.value)
+          }
           placeholder={field.placeholder}
         />
       )}
