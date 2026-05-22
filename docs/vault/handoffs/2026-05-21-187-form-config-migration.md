@@ -131,6 +131,33 @@ after the user's explicit plain-text "yes apply" (per
   `origin/main` at `43cacf7` (concurrent sessions' #185/#186 vault commits had
   already landed).
 
+## Post-handoff update
+
+After this handoff was first written, the user asked to "merge everything",
+then to verify in the browser. All of the "What's next" items above are now
+done:
+
+- **PR #192 merged** — `gh pr merge --merge --delete-branch`; merge commit
+  `17713b5` on `main`, issue **#187 auto-closed**. The main checkout was
+  fast-forwarded to `17713b5`; the `187-form-config-migration` worktree and
+  its local + remote branch were removed.
+- **PRD #45 closed** — all five slices (#183–#187) are closed and merged; the
+  parent PRD was closed with a wrap-up comment listing every slice.
+- **Browser-verified on AAA prod.** Checked the intake form's "When Did It
+  Happen?" field in the live app (`www.nookleus.app/intake`) for **AAA
+  Disaster Recovery** — an org whose `form_config` predates #184 and was among
+  the 8 rows #187 flipped. Confirmed: the field renders the masked `DateField`
+  (calendar icon + `MM/DD/YYYY` placeholder), **not** the old free-text input;
+  live masking (`12312020` → `12/31/2020`); the calendar popover opens to the
+  right month with the selected day highlighted; a future date (`12/31/2030`)
+  is rejected with "The date can't be in the future." This retroactively
+  covers the #184 date-component browser-check the handoff flagged as
+  outstanding. Verification used the user's existing authenticated tab (the
+  intake form is auth-gated); no intake was submitted, the tab was returned to
+  `/jobs`.
+
+Nothing remains open on #187 or PRD #45.
+
 ## Links
 
 - Issue: [#187](https://github.com/ericdaniels22/Nookleus/issues/187)
