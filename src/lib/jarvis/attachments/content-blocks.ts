@@ -1,12 +1,15 @@
-// Claude content-block assembly for Jarvis Chat attachments (#198, #199).
+// Claude content-block assembly for Jarvis Chat attachments (#198, #199, #200).
 //
 // Turns the JarvisMessage history into the Anthropic message-params
-// array: text stays text, an attached image becomes a base64 image
-// content block, and an attached PDF becomes a document block that
-// references its Anthropic Files API file_id. A reference-to-source
-// resolver is injected for images so this is testable without touching
-// storage; a PDF needs no resolver because its file_id rides inline on
-// the reference (so a replayed PDF is never re-encoded).
+// array: text stays text, each attached image becomes a base64 image
+// content block, and each attached PDF becomes a document block that
+// references its Anthropic Files API file_id. A message may carry several
+// attachments (#200), so every one is mapped, in order, ahead of the text.
+//
+// A reference-to-source resolver is injected for images so this is
+// testable without touching storage; a PDF needs no resolver because its
+// file_id rides inline on the reference (so a replayed PDF is never
+// re-encoded).
 //
 // The result is typed against the beta message params: a document block
 // with a `file` source is a beta-only feature, so the Jarvis routes call
@@ -26,44 +29,9 @@ export type AttachmentResolver = (
   attachment: JarvisAttachment,
 ) => Promise<ResolvedImage>;
 
-export async function buildClaudeMessages(
-  history: JarvisMessage[],
-  resolveImage: AttachmentResolver,
-): Promise<Anthropic.Beta.BetaMessageParam[]> {
-  return Promise.all(
-    history.map(async (message) => {
-      const attachment = message.attachment;
-      if (!attachment) {
-        return { role: message.role, content: message.content };
-      }
-
-      let attachmentBlock: Anthropic.Beta.BetaContentBlockParam;
-      try {
-        attachmentBlock =
-          attachment.kind === "pdf"
-            ? documentBlock(attachment)
-            : imageBlock(await resolveImage(attachment));
-      } catch {
-        // The image or PDF is gone or unreadable — degrade to text so
-        // Jarvis can still respond and tell the user it is unavailable.
-        return {
-          role: message.role,
-          content: degradedText(message.content, attachment.kind),
-        };
-      }
-
-      const content: Anthropic.Beta.BetaContentBlockParam[] = [attachmentBlock];
-      // An empty text block is rejected by the API — a message may carry
-      // just an attachment with no caption.
-      if (message.content.trim().length > 0) {
-        content.push({ type: "text", text: message.content });
-      }
-      return { role: message.role, content };
-    }),
-  );
-}
-
-function imageBlock(resolved: ResolvedImage): Anthropic.Beta.BetaImageBlockParam {
+function imageBlock(
+  resolved: ResolvedImage,
+): Anthropic.Beta.BetaImageBlockParam {
   return {
     type: "image",
     source: {
@@ -77,7 +45,7 @@ function imageBlock(resolved: ResolvedImage): Anthropic.Beta.BetaImageBlockParam
 
 // A PDF is referenced by its Anthropic Files API file_id, so a replayed
 // PDF is never re-encoded turn after turn. A reference with no file_id (a
-// failed upload) throws, degrading the message to text.
+// failed upload) throws, degrading that attachment to a text note.
 function documentBlock(
   attachment: JarvisAttachment,
 ): Anthropic.Beta.BetaRequestDocumentBlock {
@@ -90,11 +58,61 @@ function documentBlock(
   };
 }
 
-function degradedText(
-  content: string,
-  kind: JarvisAttachment["kind"],
-): string {
-  const noun = kind === "pdf" ? "A PDF" : "An image";
-  const note = `[${noun} was attached here but could not be loaded.]`;
-  return content.trim() ? `${content}\n\n${note}` : note;
+// An unreadable attachment degrades to a text note so Jarvis can still
+// answer and explain it is unavailable — without dropping the readable
+// attachments on the same message.
+function degradeNote(failedImages: number, failedPdfs: number): string {
+  const parts: string[] = [];
+  if (failedImages > 0) {
+    parts.push(failedImages === 1 ? "an image" : `${failedImages} images`);
+  }
+  if (failedPdfs > 0) {
+    parts.push(failedPdfs === 1 ? "a PDF" : `${failedPdfs} PDFs`);
+  }
+  const phrase = parts.join(" and ");
+  return `[${phrase.charAt(0).toUpperCase()}${phrase.slice(1)} attached here could not be loaded.]`;
+}
+
+export async function buildClaudeMessages(
+  history: JarvisMessage[],
+  resolveImage: AttachmentResolver,
+): Promise<Anthropic.Beta.BetaMessageParam[]> {
+  return Promise.all(
+    history.map(async (message): Promise<Anthropic.Beta.BetaMessageParam> => {
+      const attachments = message.attachments ?? [];
+      if (attachments.length === 0) {
+        return { role: message.role, content: message.content };
+      }
+
+      const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+      let failedImages = 0;
+      let failedPdfs = 0;
+      for (const attachment of attachments) {
+        try {
+          content.push(
+            attachment.kind === "pdf"
+              ? documentBlock(attachment)
+              : imageBlock(await resolveImage(attachment)),
+          );
+        } catch {
+          // This attachment is gone or unreadable. Drop it but keep going
+          // so the other attachments on the message still reach Claude.
+          if (attachment.kind === "pdf") failedPdfs++;
+          else failedImages++;
+        }
+      }
+
+      let text = message.content.trim();
+      if (failedImages > 0 || failedPdfs > 0) {
+        const note = degradeNote(failedImages, failedPdfs);
+        text = text ? `${text}\n\n${note}` : note;
+      }
+      // An empty text block is rejected by the API — a message may carry
+      // just attachments with no caption.
+      if (text.length > 0) {
+        content.push({ type: "text", text });
+      }
+      return { role: message.role, content };
+    }),
+  );
 }
