@@ -28,6 +28,7 @@ import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
 import CaptureFab from "@/components/mobile/capture-fab";
+import InsuranceCompanyPicker from "@/components/insurance-company-picker";
 import {
   MapPin,
   Home,
@@ -127,7 +128,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     const [jobRes, activitiesRes, paymentsRes, invoicesRes, photosRes, photoCountRes, tagsRes, reportsRes, emailsRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("*, contact:contacts!contact_id(*), job_adjusters(*, adjuster:contacts!contact_id(*))")
+        .select("*, contact:contacts!contact_id(*), insurance_contact:contacts!insurance_contact_id(*), job_adjusters(*, adjuster:contacts!contact_id(*))")
         .eq("id", jobId)
         .single(),
       supabase
@@ -664,6 +665,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               <div className="rounded-lg border border-border bg-background/50 p-3 mb-3">
                 {job.insurance_company && (
                   <p className="text-sm font-medium text-foreground mb-1">{job.insurance_company}</p>
+                )}
+                {job.insurance_contact?.email && (
+                  <a
+                    href={`mailto:${job.insurance_contact.email}`}
+                    className="block text-xs text-primary hover:underline mb-1"
+                  >
+                    {job.insurance_contact.email}
+                  </a>
                 )}
                 <p className="text-xs text-muted-foreground">
                   {[
@@ -1446,8 +1455,13 @@ function EditInsuranceDialog({
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  // The linked insurance company is chosen with InsuranceCompanyPicker
+  // rather than typed. `insuranceTouched` records whether the picker was
+  // actually used this session — when it was not, the save leaves a
+  // legacy job's free-text insurance_company name untouched (#193).
+  const [insuranceContact, setInsuranceContact] = useState<Contact | null>(null);
+  const [insuranceTouched, setInsuranceTouched] = useState(false);
   const [form, setForm] = useState({
-    insurance_company: "",
     claim_number: "",
     policy_number: "",
     date_of_loss: "",
@@ -1460,8 +1474,9 @@ function EditInsuranceDialog({
 
   useEffect(() => {
     if (open) {
+      setInsuranceContact(job.insurance_contact ?? null);
+      setInsuranceTouched(false);
       setForm({
-        insurance_company: job.insurance_company || "",
         claim_number: job.claim_number || "",
         policy_number: job.policy_number || "",
         date_of_loss: job.date_of_loss || "",
@@ -1477,19 +1492,28 @@ function EditInsuranceDialog({
   async function handleSave() {
     setSaving(true);
     const supabase = createClient();
+    const jobUpdate: Record<string, unknown> = {
+      claim_number: form.claim_number.trim() || null,
+      policy_number: form.policy_number.trim() || null,
+      date_of_loss: form.date_of_loss || null,
+      deductible: form.deductible ? Number(form.deductible) : null,
+      hoa_name: form.hoa_name.trim() || null,
+      hoa_contact_name: form.hoa_contact_name.trim() || null,
+      hoa_contact_phone: normalizePhoneToE164(form.hoa_contact_phone) ?? (form.hoa_contact_phone.trim() || null),
+      hoa_contact_email: form.hoa_contact_email.trim() || null,
+    };
+    // Only rewrite the insurance link when the picker was actually used.
+    // A legacy job carries a free-text insurance_company name and no
+    // insurance_contact_id; saving unrelated fields must not erase it.
+    // When the picker is used, insurance_company is snapshotted from the
+    // selected contact's name so existing free-text readers stay valid.
+    if (insuranceTouched) {
+      jobUpdate.insurance_contact_id = insuranceContact?.id ?? null;
+      jobUpdate.insurance_company = insuranceContact?.full_name ?? null;
+    }
     const { error } = await supabase
       .from("jobs")
-      .update({
-        insurance_company: form.insurance_company.trim() || null,
-        claim_number: form.claim_number.trim() || null,
-        policy_number: form.policy_number.trim() || null,
-        date_of_loss: form.date_of_loss || null,
-        deductible: form.deductible ? Number(form.deductible) : null,
-        hoa_name: form.hoa_name.trim() || null,
-        hoa_contact_name: form.hoa_contact_name.trim() || null,
-        hoa_contact_phone: normalizePhoneToE164(form.hoa_contact_phone) ?? (form.hoa_contact_phone.trim() || null),
-        hoa_contact_email: form.hoa_contact_email.trim() || null,
-      })
+      .update(jobUpdate)
       .eq("id", jobId);
 
     if (error) {
@@ -1515,7 +1539,18 @@ function EditInsuranceDialog({
         <div className="space-y-4 pt-2 max-h-[70vh] overflow-y-auto">
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Insurance Company</label>
-            <Input value={form.insurance_company} onChange={(e) => update("insurance_company", e.target.value)} placeholder="e.g. State Farm" />
+            {job.insurance_company && !job.insurance_contact_id && !insuranceTouched && (
+              <p className="text-xs text-muted-foreground/70 mb-1.5">
+                Currently: {job.insurance_company} &middot; not linked to a contact
+              </p>
+            )}
+            <InsuranceCompanyPicker
+              value={insuranceContact}
+              onChange={(c) => {
+                setInsuranceContact(c);
+                setInsuranceTouched(true);
+              }}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
