@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
+import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import FinancialsTab from "@/components/job-detail/financials-tab";
 import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
 import { Badge } from "@/components/ui/badge";
@@ -611,7 +612,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {[job.contact.phone, job.contact.email].filter(Boolean).join(" \u00b7 ")}
+                  {[formatPhoneNumber(job.contact.phone || ""), job.contact.email].filter(Boolean).join(" \u00b7 ")}
                 </p>
               </div>
             )}
@@ -699,7 +700,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                   )}
                   {job.hoa_contact_name && (
                     <p className="text-xs text-muted-foreground">
-                      {[job.hoa_contact_name, job.hoa_contact_phone].filter(Boolean).join(" \u00b7 ")}
+                      {[job.hoa_contact_name, formatPhoneNumber(job.hoa_contact_phone || "")].filter(Boolean).join(" \u00b7 ")}
                     </p>
                   )}
                   {job.hoa_contact_email && (
@@ -1087,7 +1088,7 @@ function AdjusterCard({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{[adj.title, adj.company].filter(Boolean).join(" \u00b7 ")}</p>
-      <p className="text-xs text-muted-foreground mt-0.5">{[adj.phone, adj.email].filter(Boolean).join(" \u00b7 ")}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">{[formatPhoneNumber(adj.phone || ""), adj.email].filter(Boolean).join(" \u00b7 ")}</p>
     </div>
   );
 }
@@ -1340,7 +1341,7 @@ function EditContactDialog({
     if (open && job.contact) {
       setForm({
         full_name: job.contact.full_name || "",
-        phone: job.contact.phone || "",
+        phone: formatPhoneNumber(job.contact.phone || ""),
         email: job.contact.email || "",
         role: job.contact.role || "homeowner",
       });
@@ -1362,7 +1363,7 @@ function EditContactDialog({
       .from("contacts")
       .update({
         full_name: form.full_name.trim(),
-        phone: form.phone.trim() || null,
+        phone: normalizePhoneToE164(form.phone) ?? (form.phone.trim() || null),
         email: form.email.trim() || null,
         role: form.role,
       })
@@ -1397,7 +1398,7 @@ function EditContactDialog({
           </div>
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Phone</label>
-            <Input type="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="(512) 555-0101" />
+            <Input type="tel" value={form.phone} onChange={(e) => update("phone", formatPhoneNumber(e.target.value))} placeholder="(512) 555-0101" />
           </div>
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Email</label>
@@ -1467,7 +1468,7 @@ function EditInsuranceDialog({
         deductible: job.deductible != null ? String(job.deductible) : "",
         hoa_name: job.hoa_name || "",
         hoa_contact_name: job.hoa_contact_name || "",
-        hoa_contact_phone: job.hoa_contact_phone || "",
+        hoa_contact_phone: formatPhoneNumber(job.hoa_contact_phone || ""),
         hoa_contact_email: job.hoa_contact_email || "",
       });
     }
@@ -1486,7 +1487,7 @@ function EditInsuranceDialog({
         deductible: form.deductible ? Number(form.deductible) : null,
         hoa_name: form.hoa_name.trim() || null,
         hoa_contact_name: form.hoa_contact_name.trim() || null,
-        hoa_contact_phone: form.hoa_contact_phone.trim() || null,
+        hoa_contact_phone: normalizePhoneToE164(form.hoa_contact_phone) ?? (form.hoa_contact_phone.trim() || null),
         hoa_contact_email: form.hoa_contact_email.trim() || null,
       })
       .eq("id", jobId);
@@ -1549,7 +1550,7 @@ function EditInsuranceDialog({
               </div>
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">Contact Phone</label>
-                <Input type="tel" value={form.hoa_contact_phone} onChange={(e) => update("hoa_contact_phone", e.target.value)} />
+                <Input type="tel" value={form.hoa_contact_phone} onChange={(e) => update("hoa_contact_phone", formatPhoneNumber(e.target.value))} />
               </div>
             </div>
             <div className="mt-3">
@@ -1664,7 +1665,7 @@ function AddAdjusterDialog({
         full_name: createForm.full_name.trim(),
         title: createForm.title.trim() || null,
         company: createForm.company.trim() || null,
-        phone: createForm.phone.trim() || null,
+        phone: normalizePhoneToE164(createForm.phone) ?? (createForm.phone.trim() || null),
         email: createForm.email.trim() || null,
         role: "adjuster",
       })
@@ -1746,7 +1747,7 @@ function AddAdjusterDialog({
                   >
                     <p className="text-sm font-medium text-foreground">{c.full_name}</p>
                     <p className="text-xs text-muted-foreground">{[c.title, c.company].filter(Boolean).join(" \u00b7 ")}</p>
-                    <p className="text-xs text-muted-foreground">{[c.phone, c.email].filter(Boolean).join(" \u00b7 ")}</p>
+                    <p className="text-xs text-muted-foreground">{[formatPhoneNumber(c.phone || ""), c.email].filter(Boolean).join(" \u00b7 ")}</p>
                   </button>
                 ))}
               </div>
@@ -1773,7 +1774,7 @@ function AddAdjusterDialog({
             </div>
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-1">Phone</label>
-              <Input type="tel" value={createForm.phone} onChange={(e) => updateCreate("phone", e.target.value)} placeholder="(512) 555-0101" />
+              <Input type="tel" value={createForm.phone} onChange={(e) => updateCreate("phone", formatPhoneNumber(e.target.value))} placeholder="(512) 555-0101" />
             </div>
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-1">Email</label>

@@ -29,3 +29,14 @@ export function normalizePhoneToE164(input: string): string | null {
 export function isValidUSPhone(input: string): boolean {
   return normalizePhoneToE164(input) !== null;
 }
+
+/**
+ * True when `query`'s digits appear within `phone`'s digits — used by the
+ * contacts search so a stored E.164 number matches whether the query was
+ * typed formatted, as raw digits, or partially.
+ */
+export function phoneMatchesQuery(phone: string | null | undefined, query: string): boolean {
+  const queryDigits = tenDigits(query);
+  if (queryDigits.length === 0) return false;
+  return tenDigits(phone ?? "").includes(queryDigits);
+}
