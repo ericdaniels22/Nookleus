@@ -12,6 +12,8 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useConfig } from "@/lib/config-context";
 import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "@/lib/phone";
+import { isValidPastDate } from "@/lib/date-field";
+import { DateField } from "@/components/date-field";
 import type { FormConfig, FormField } from "@/lib/types";
 
 export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
@@ -83,6 +85,14 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
             !isValidUSPhone(getVal(field.id))
           ) {
             toast.error(`${field.label} must be a valid 10-digit US phone number.`);
+            return;
+          }
+          if (
+            field.type === "date" &&
+            getVal(field.id).trim() &&
+            !isValidPastDate(getVal(field.id))
+          ) {
+            toast.error(`${field.label} must be a valid date that is not in the future.`);
             return;
           }
         }
@@ -355,10 +365,10 @@ function DynamicField({
       )}
 
       {field.type === "date" && (
-        <Input
-          type="date"
+        <DateField
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={onChange}
+          placeholder={field.placeholder}
         />
       )}
 
