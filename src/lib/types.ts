@@ -26,6 +26,10 @@ export interface Job {
   property_stories: number | null;
   affected_areas: string | null;
   insurance_company: string | null;
+  /** FK to a `contacts` row with role = 'insurance' (PRD #47). When set,
+   *  the linked company's name is also snapshotted into `insurance_company`
+   *  above so existing free-text readers stay untouched. */
+  insurance_contact_id: string | null;
   claim_number: string | null;
   policy_number: string | null;
   payer_type: "insurance" | "homeowner" | "mixed" | null;
@@ -45,6 +49,7 @@ export interface Job {
   deleted_at?: string | null;
   // Joined fields
   contact?: Contact;
+  insurance_contact?: Contact | null;
   job_adjusters?: JobAdjuster[];
   cover_photo?: Photo | null;
   // Tallied by the Comfortable-view loader (see attachJobCounts).
