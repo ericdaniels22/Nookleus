@@ -12,6 +12,20 @@ vi.mock("@/lib/supabase-api", () => ({
   createServiceClient: vi.fn(),
 }));
 
+// The Anthropic SDK is the integration boundary for the PDF path (#199):
+// a PDF is uploaded to the Files API and the route records the file_id.
+const anthropicFilesUpload = vi
+  .fn()
+  .mockResolvedValue({ id: "file_test123", type: "file" });
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: vi.fn(function MockAnthropic() {
+    return { beta: { files: { upload: anthropicFilesUpload } } };
+  }),
+  toFile: vi.fn(async (_bytes: unknown, filename: string) => ({
+    name: filename,
+  })),
+}));
+
 import { POST, GET } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
@@ -45,6 +59,13 @@ async function pngFile(name = "photo.png"): Promise<File> {
   return new File([new Uint8Array(bytes)], name, { type: "image/png" });
 }
 
+function pdfFile(name = "contract.pdf"): File {
+  // A minimal PDF byte sequence — the route stores bytes verbatim and does
+  // not parse them, so a valid header is enough.
+  const bytes = new TextEncoder().encode("%PDF-1.4\n%minimal\n");
+  return new File([bytes], name, { type: "application/pdf" });
+}
+
 describe("POST /api/jarvis/attachments (#198)", () => {
   let service: SupabaseFake;
 
@@ -73,8 +94,8 @@ describe("POST /api/jarvis/attachments (#198)", () => {
     const form = new FormData();
     form.append(
       "file",
-      new File([new Uint8Array([1, 2, 3])], "notes.pdf", {
-        type: "application/pdf",
+      new File([new Uint8Array([1, 2, 3])], "notes.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       }),
     );
     form.append("conversation_id", "conv-1");
@@ -82,7 +103,7 @@ describe("POST /api/jarvis/attachments (#198)", () => {
     const res = await POST(postRequest(form), routeCtx);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toMatch(/image/i);
+    expect(body.error).toMatch(/image|pdf/i);
     // Nothing should have been written to the bucket.
     expect(service.state.storageUploads).toHaveLength(0);
   });
@@ -124,6 +145,47 @@ describe("POST /api/jarvis/attachments (#198)", () => {
     expect(service.state.storageUploads[0].path).toBe(
       body.attachment.storage_path,
     );
+  });
+
+  it("stores a valid PDF and records the Anthropic file_id (#199)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "admin" }) as never,
+    );
+    const form = new FormData();
+    form.append("file", pdfFile());
+    form.append("conversation_id", "conv-pdf");
+
+    const res = await POST(postRequest(form), routeCtx);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.attachment.kind).toBe("pdf");
+    expect(body.attachment.media_type).toBe("application/pdf");
+    // The PDF is uploaded to the Anthropic Files API and its file_id is
+    // recorded on the reference so a replayed PDF is not re-encoded.
+    expect(body.attachment.file_id).toBe("file_test123");
+    expect(body.attachment.storage_path).toMatch(
+      /^org-1\/conv-pdf\/.+\.pdf$/,
+    );
+
+    expect(service.state.storageUploads).toHaveLength(1);
+    expect(service.state.storageUploads[0].bucket).toBe("jarvis-attachments");
+  });
+
+  it("rejects the attachment when the Anthropic Files API upload fails (#199)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      makeAuthedFake("user-1", { role: "admin" }) as never,
+    );
+    anthropicFilesUpload.mockRejectedValueOnce(new Error("Files API down"));
+
+    const form = new FormData();
+    form.append("file", pdfFile());
+    form.append("conversation_id", "conv-pdf");
+
+    const res = await POST(postRequest(form), routeCtx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBeTruthy();
   });
 });
 

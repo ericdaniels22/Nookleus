@@ -67,6 +67,10 @@ describe("extensionForMediaType", () => {
     expect(extensionForMediaType("image/gif")).toBe("gif");
     expect(extensionForMediaType("image/webp")).toBe("webp");
   });
+
+  it("maps application/pdf to the pdf extension (#199)", () => {
+    expect(extensionForMediaType("application/pdf")).toBe("pdf");
+  });
 });
 
 describe("deleteConversationAttachments", () => {
