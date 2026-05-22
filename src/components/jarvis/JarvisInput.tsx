@@ -8,12 +8,15 @@ import {
   type KeyboardEvent,
   type DragEvent,
 } from "react";
-import { ArrowUp, Paperclip, X, Loader2, RotateCw } from "lucide-react";
+import { ArrowUp, Paperclip, X, Loader2, RotateCw, FileText } from "lucide-react";
 import type { JarvisAttachment } from "@/lib/types";
 import {
   admitAttachments,
   MAX_ATTACHMENTS_PER_MESSAGE,
 } from "@/lib/jarvis/attachments/selection";
+
+// Accepted attachment types — images and PDF (#198, #199, #200).
+const ACCEPTED_ATTACHMENT_TYPES = "image/*,application/pdf";
 
 interface JarvisInputProps {
   onSend: (message: string, attachments: JarvisAttachment[]) => void;
@@ -39,6 +42,10 @@ interface AttachmentSlot {
 
 const GENERIC_UPLOAD_ERROR =
   "Upload failed — check your connection and try again.";
+
+function isAcceptedFile(file: File): boolean {
+  return file.type.startsWith("image/") || file.type === "application/pdf";
+}
 
 export default function JarvisInput({
   onSend,
@@ -137,18 +144,15 @@ export default function JarvisInput({
     (incoming: File[]) => {
       if (!onUploadAttachment || disabled || incoming.length === 0) return;
 
-      // Client-side type gate — mirrors the server's image-only rule. PDF
-      // and other types arrive once issue #199 widens this.
-      const images = incoming.filter((f) => f.type.startsWith("image/"));
-      const hadUnsupported = images.length < incoming.length;
+      // Client-side type gate — mirrors the server's image-and-PDF rule.
+      const supported = incoming.filter(isAcceptedFile);
+      const hadUnsupported = supported.length < incoming.length;
 
-      const { accepted, rejected } = admitAttachments(slots.length, images);
+      const { accepted, rejected } = admitAttachments(slots.length, supported);
 
       const messages: string[] = [];
       if (hadUnsupported) {
-        messages.push(
-          "Only images can be attached — JPEG, PNG, GIF, or WebP.",
-        );
+        messages.push("Only images and PDFs can be attached.");
       }
       if (rejected.length > 0) {
         messages.push(
@@ -193,8 +197,8 @@ export default function JarvisInput({
     setSelectionError(null);
   }
 
-  // Desktop drag-and-drop — drop image files anywhere on the chat box to
-  // attach them, matching the Job Files drag-and-drop behavior.
+  // Desktop drag-and-drop — drop image/PDF files anywhere on the chat box
+  // to attach them, matching the Job Files drag-and-drop behavior.
   function handleDragOver(e: DragEvent) {
     if (!canAttach || disabled) return;
     e.preventDefault();
@@ -221,8 +225,8 @@ export default function JarvisInput({
 
   function handleSend() {
     const trimmed = value.trim();
-    // A message may carry just images with no text — but never send while
-    // an upload is in flight or a file is sitting in an error state.
+    // A message may carry just attachments with no text — but never send
+    // while an upload is in flight or a file is sitting in an error state.
     if (disabled || hasPendingSlot) return;
     if (!trimmed && doneSlots.length === 0) return;
 
@@ -256,49 +260,70 @@ export default function JarvisInput({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Attachment strip — one thumbnail per picked file, each with its
-          own upload / error state. */}
+      {/* Attachment strip — one tile per picked file (image thumbnail or
+          PDF chip), each with its own upload / error state. */}
       {(slots.length > 0 || selectionError) && (
         <div className="mb-2 space-y-1.5">
           {slots.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {slots.map((slot) => (
-                <div key={slot.id} className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={slot.previewUrl}
-                    alt={slot.file.name}
-                    className={`h-16 w-16 rounded-lg border object-cover ${
-                      slot.status === "error"
-                        ? "border-destructive"
-                        : "border-border"
-                    }`}
-                  />
-                  {slot.status === "uploading" && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
-                      <Loader2 size={18} className="animate-spin text-white" />
-                    </div>
-                  )}
-                  {slot.status === "error" && (
+              {slots.map((slot) => {
+                const isPdf = slot.file.type === "application/pdf";
+                const errored = slot.status === "error";
+                return (
+                  <div key={slot.id} className="relative">
+                    {isPdf ? (
+                      <div
+                        className={`flex h-16 w-32 flex-col items-center justify-center gap-1 rounded-lg border px-2 ${
+                          errored ? "border-destructive" : "border-border"
+                        } bg-muted`}
+                      >
+                        <FileText
+                          size={18}
+                          className="flex-shrink-0 text-muted-foreground"
+                        />
+                        <span className="max-w-full truncate text-[10px] text-foreground">
+                          {slot.file.name}
+                        </span>
+                      </div>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={slot.previewUrl}
+                        alt={slot.file.name}
+                        className={`h-16 w-16 rounded-lg border object-cover ${
+                          errored ? "border-destructive" : "border-border"
+                        }`}
+                      />
+                    )}
+                    {slot.status === "uploading" && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
+                        <Loader2
+                          size={18}
+                          className="animate-spin text-white"
+                        />
+                      </div>
+                    )}
+                    {errored && (
+                      <button
+                        type="button"
+                        onClick={() => runUpload(slot.id, slot.file)}
+                        aria-label="Retry upload"
+                        className="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/50 text-white"
+                      >
+                        <RotateCw size={16} />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => runUpload(slot.id, slot.file)}
-                      aria-label="Retry upload"
-                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/50 text-white"
+                      onClick={() => removeSlot(slot.id)}
+                      aria-label="Remove attachment"
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow"
                     >
-                      <RotateCw size={16} />
+                      <X size={12} />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeSlot(slot.id)}
-                    aria-label="Remove attachment"
-                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
           {selectionError && (
@@ -317,7 +342,7 @@ export default function JarvisInput({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={ACCEPTED_ATTACHMENT_TYPES}
               multiple
               onChange={handleFilePicked}
               className="hidden"
@@ -326,7 +351,7 @@ export default function JarvisInput({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={attachDisabled}
-              aria-label="Attach images"
+              aria-label="Attach images or PDFs"
               className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-muted-foreground transition-all hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <Paperclip size={16} />

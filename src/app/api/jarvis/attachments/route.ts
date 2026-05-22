@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import {
   validateAttachment,
@@ -9,13 +10,16 @@ import {
   JARVIS_ATTACHMENTS_BUCKET,
   type StorageClient,
 } from "@/lib/jarvis/attachments/storage";
+import { uploadPdfToAnthropic } from "@/lib/jarvis/attachments/anthropic-files";
 import type { JarvisAttachment } from "@/lib/types";
 
-// Issue #198 — Jarvis Chat attachments.
+// Issue #198, #199 — Jarvis Chat attachments.
 //
-// POST: accepts a single image, validates type/size, resizes large images,
-// stores it in the private `jarvis-attachments` bucket, and returns an
-// attachment reference for the client to attach to its message.
+// POST: accepts a single image or PDF, validates type/size, resizes large
+// images, stores the bytes in the private `jarvis-attachments` bucket, and
+// returns an attachment reference for the client to attach to its message.
+// A PDF is additionally uploaded to the Anthropic Files API so it can be
+// referenced by file_id on every replay (#199).
 //
 // GET: returns a short-lived signed URL for rendering a stored attachment.
 //
@@ -61,35 +65,67 @@ export const POST = withRequestContext(
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    let stored: { storagePath: string };
-    let mediaType = validation.mediaType;
+    let attachment: JarvisAttachment;
     try {
       const original = Buffer.from(await file.arrayBuffer());
-      const resized = await resizeImage(original, validation.mediaType);
-      mediaType = resized.mediaType;
-      stored = await uploadAttachment(ctx.serviceClient as StorageClient, {
-        orgId: ctx.orgId,
-        conversationId,
-        mediaType: resized.mediaType,
-        bytes: resized.bytes,
-      });
+
+      if (validation.kind === "pdf") {
+        // PDFs are not resized. Store the bytes, then upload to the
+        // Anthropic Files API — a failed Files upload throws, so the catch
+        // below rejects the whole attachment (a PDF with no file_id can
+        // never reach Claude).
+        const stored = await uploadAttachment(
+          ctx.serviceClient as StorageClient,
+          {
+            orgId: ctx.orgId,
+            conversationId,
+            mediaType: validation.mediaType,
+            bytes: original,
+          },
+        );
+        const anthropic = new Anthropic({
+          apiKey: process.env.ANTHROPIC_API_KEY,
+        });
+        const fileId = await uploadPdfToAnthropic(anthropic, {
+          bytes: original,
+          filename: file.name || "document.pdf",
+        });
+        attachment = {
+          kind: "pdf",
+          storage_path: stored.storagePath,
+          media_type: validation.mediaType,
+          filename: file.name || undefined,
+          file_id: fileId,
+        };
+      } else {
+        const resized = await resizeImage(original, validation.mediaType);
+        const stored = await uploadAttachment(
+          ctx.serviceClient as StorageClient,
+          {
+            orgId: ctx.orgId,
+            conversationId,
+            mediaType: resized.mediaType,
+            bytes: resized.bytes,
+          },
+        );
+        attachment = {
+          kind: "image",
+          storage_path: stored.storagePath,
+          media_type: resized.mediaType,
+          filename: file.name || undefined,
+        };
+      }
     } catch (err) {
       console.error("Jarvis attachment upload failed:", err);
       return NextResponse.json(
         {
           error:
-            "Couldn't process that image — try again, or pick a different file.",
+            "Couldn't process that file — try again, or pick a different one.",
         },
         { status: 500 },
       );
     }
 
-    const attachment: JarvisAttachment = {
-      kind: "image",
-      storage_path: stored.storagePath,
-      media_type: mediaType,
-      filename: file.name || undefined,
-    };
     return NextResponse.json({ attachment });
   },
 );

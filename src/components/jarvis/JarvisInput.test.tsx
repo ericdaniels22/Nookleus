@@ -106,7 +106,7 @@ describe("JarvisInput — multi-file attachments (#200)", () => {
     await waitFor(() => expect(onUpload).toHaveBeenCalledTimes(2));
   });
 
-  it("rejects a dropped non-image with a clear message", async () => {
+  it("attaches a PDF dropped onto the chat box", async () => {
     const onUpload = uploadStub();
     const { container } = render(
       <JarvisInput onSend={vi.fn()} onUploadAttachment={onUpload} />,
@@ -118,7 +118,24 @@ describe("JarvisInput — multi-file attachments (#200)", () => {
       },
     });
 
-    expect(await screen.findByText(/only images/i)).toBeTruthy();
+    // A PDF shows as a labelled chip, not an image thumbnail.
+    expect(await screen.findByText("contract.pdf")).toBeTruthy();
+    await waitFor(() => expect(onUpload).toHaveBeenCalledTimes(1));
+  });
+
+  it("rejects a dropped unsupported file type with a clear message", async () => {
+    const onUpload = uploadStub();
+    const { container } = render(
+      <JarvisInput onSend={vi.fn()} onUploadAttachment={onUpload} />,
+    );
+
+    fireEvent.drop(container.firstChild as HTMLElement, {
+      dataTransfer: {
+        files: [new File(["x"], "clip.mp4", { type: "video/mp4" })],
+      },
+    });
+
+    expect(await screen.findByText(/images and pdfs/i)).toBeTruthy();
     expect(
       screen.queryAllByRole("button", { name: /remove attachment/i }),
     ).toHaveLength(0);

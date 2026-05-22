@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { FileText } from "lucide-react";
 import type {
   JarvisAttachment,
   JarvisMessage as JarvisMessageType,
@@ -62,6 +63,53 @@ function JarvisAttachmentImage({
   );
 }
 
+// Renders a PDF attachment inside a message bubble as a labelled chip
+// (#199). A short-lived signed URL is fetched on mount so the chip opens
+// the PDF in a new tab; if the fetch fails the chip is still shown, just
+// not linked.
+function JarvisAttachmentPdf({
+  attachment,
+}: {
+  attachment: JarvisAttachment;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/jarvis/attachments?path=${encodeURIComponent(attachment.storage_path)}`,
+        );
+        const data = await res.json();
+        if (!cancelled && res.ok && data.url) setUrl(data.url);
+      } catch {
+        // Leave the chip unlinked — the filename is still informative.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment.storage_path]);
+
+  const label = attachment.filename || "PDF document";
+  const chip = (
+    <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2">
+      <FileText size={16} className="flex-shrink-0 text-white/80" />
+      <span className="max-w-[200px] truncate text-xs text-white">
+        {label}
+      </span>
+    </div>
+  );
+
+  if (!url) return chip;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {chip}
+    </a>
+  );
+}
+
 function formatRelativeTime(timestamp: string): string {
   const now = Date.now();
   const then = new Date(timestamp).getTime();
@@ -109,9 +157,11 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
               {message.attachments && message.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {message.attachments.map((att, i) =>
-                    att.kind === "image" ? (
+                    att.kind === "pdf" ? (
+                      <JarvisAttachmentPdf key={i} attachment={att} />
+                    ) : (
                       <JarvisAttachmentImage key={i} attachment={att} />
-                    ) : null,
+                    ),
                   )}
                 </div>
               )}

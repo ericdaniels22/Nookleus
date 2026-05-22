@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import { buildClaudeMessages } from "./content-blocks";
 import type { JarvisAttachment, JarvisMessage } from "@/lib/types";
 
-// Issue #198 / #200 — the chat route turns the JarvisMessage history into
-// the Anthropic message-params array. Text stays text; each attached image
-// becomes an image content block. A message may carry several attachments
-// (#200), so every one is mapped, in order. A reference-to-source resolver
-// is injected so this maps cleanly without touching storage.
+// Issue #198 / #199 / #200 — the chat route turns the JarvisMessage history
+// into the Anthropic message-params array. Text stays text; each attached
+// image becomes an image content block and each attached PDF a document
+// block. A message may carry several attachments (#200), so every one is
+// mapped, in order. A reference-to-source resolver is injected so this maps
+// cleanly without touching storage; a PDF needs no resolver (its file_id
+// rides inline on the reference).
 
 function msg(
   partial: Partial<JarvisMessage> & { role: JarvisMessage["role"] },
@@ -20,6 +22,15 @@ function msg(
 
 function image(storagePath: string, mediaType: string): JarvisAttachment {
   return { kind: "image", storage_path: storagePath, media_type: mediaType };
+}
+
+function pdf(storagePath: string, fileId?: string): JarvisAttachment {
+  return {
+    kind: "pdf",
+    storage_path: storagePath,
+    media_type: "application/pdf",
+    ...(fileId ? { file_id: fileId } : {}),
+  };
 }
 
 describe("buildClaudeMessages", () => {
@@ -69,6 +80,35 @@ describe("buildClaudeMessages", () => {
     ]);
   });
 
+  it("maps a user message with a PDF attachment to a document + text block (#199)", async () => {
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "What does this contract say?",
+        attachments: [pdf("org-1/conv-9/contract.pdf", "file_abc123")],
+      }),
+    ];
+
+    // A PDF carries its Anthropic Files API file_id on the reference, so the
+    // resolver — which fetches image bytes — is never called for it.
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "file", file_id: "file_abc123" },
+          },
+          { type: "text", text: "What does this contract say?" },
+        ],
+      },
+    ]);
+  });
+
   it("omits the text block when an attachment message has no text", async () => {
     const history: JarvisMessage[] = [
       msg({
@@ -100,14 +140,40 @@ describe("buildClaudeMessages", () => {
     ]);
   });
 
-  it("maps every attachment on a multi-file message to image blocks, in order", async () => {
+  it("omits the text block for a PDF attachment with no caption (#199)", async () => {
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "",
+        attachments: [pdf("org-1/conv-9/report.pdf", "file_nocaption")],
+      }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "file", file_id: "file_nocaption" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("maps every attachment on a multi-file message to blocks, in order", async () => {
     const history: JarvisMessage[] = [
       msg({
         role: "user",
         content: "what do you make of these?",
         attachments: [
           image("org-1/conv-9/a.jpg", "image/jpeg"),
-          image("org-1/conv-9/b.png", "image/png"),
+          pdf("org-1/conv-9/b.pdf", "file_b"),
           image("org-1/conv-9/c.webp", "image/webp"),
         ],
       }),
@@ -131,12 +197,8 @@ describe("buildClaudeMessages", () => {
             },
           },
           {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: "image/png",
-              data: "data-org-1/conv-9/b.png",
-            },
+            type: "document",
+            source: { type: "file", file_id: "file_b" },
           },
           {
             type: "image",
@@ -191,6 +253,36 @@ describe("buildClaudeMessages", () => {
       }
     }
     expect(imageData).toEqual(["data-p1", "data-p2", "data-p3"]);
+  });
+
+  it("replays a PDF by its file_id on a later turn (#199)", async () => {
+    // The PDF was attached on an earlier turn; a follow-up turn carries
+    // only text. On replay the PDF is re-sent as a document block that
+    // reuses the stored file_id — it is never re-encoded.
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "review this contract",
+        attachments: [pdf("org-1/conv-9/contract.pdf", "file_replay")],
+      }),
+      msg({ role: "assistant", content: "It looks standard." }),
+      msg({ role: "user", content: "any liability risks?" }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    const documentFileIds: string[] = [];
+    for (const message of result) {
+      if (!Array.isArray(message.content)) continue;
+      for (const block of message.content) {
+        if (block.type === "document" && block.source.type === "file") {
+          documentFileIds.push(block.source.file_id);
+        }
+      }
+    }
+    expect(documentFileIds).toEqual(["file_replay"]);
   });
 
   it("keeps the readable images when one attachment in the message fails", async () => {
@@ -250,5 +342,30 @@ describe("buildClaudeMessages", () => {
     expect(content.filter((b) => b.type === "image")).toHaveLength(0);
     const text = content.find((b) => b.type === "text");
     expect(text?.type === "text" && text.text).toMatch(/image|attachment/i);
+  });
+
+  it("degrades a PDF with no file_id to a text note (#199)", async () => {
+    // A failed Files API upload leaves a PDF reference with no file_id.
+    const history: JarvisMessage[] = [
+      msg({
+        role: "user",
+        content: "what does this say?",
+        attachments: [pdf("org-1/conv-9/broken.pdf")],
+      }),
+    ];
+
+    const result = await buildClaudeMessages(history, async () => {
+      throw new Error("resolver should not be called for a PDF");
+    });
+
+    expect(result).toHaveLength(1);
+    const content = result[0].content;
+    expect(Array.isArray(content)).toBe(true);
+    if (!Array.isArray(content)) return;
+
+    expect(content.filter((b) => b.type === "document")).toHaveLength(0);
+    const text = content.find((b) => b.type === "text");
+    expect(text?.type === "text" && text.text).toMatch(/what does this say\?/);
+    expect(text?.type === "text" && text.text).toMatch(/pdf|document/i);
   });
 });
