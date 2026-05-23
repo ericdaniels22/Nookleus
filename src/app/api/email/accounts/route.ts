@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { encrypt } from "@/lib/encryption";
 import { assignAccountColor } from "@/lib/email/assign-account-color";
+import { canCreateEmailAccount } from "@/lib/email/email-account-access";
 
 // GET /api/email/accounts — list accounts for the active org (passwords excluded).
 //
@@ -56,10 +57,23 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     );
   }
 
-  // ADR 0001 ownership rule. Admin may set any owner (or null for Shared);
-  // non-admin may only own the account themselves — any other `user_id`,
-  // including null, is denied.
-  if (ctx.role !== "admin" && user_id !== ctx.userId) {
+  // ADR 0001 ownership rule lives in the access-decision module. The matrix
+  // is captured once; this route delegates rather than re-implementing it.
+  const proposedUserId = user_id ?? null;
+  const allowed = canCreateEmailAccount(
+    {
+      userId: ctx.userId,
+      organizationId: ctx.orgId ?? "",
+      role: ctx.role,
+      grantedPermissions: ctx.grantedPermissions,
+    },
+    {
+      kind: proposedUserId === null ? "shared" : "personal",
+      organizationId: ctx.orgId ?? "",
+      userId: proposedUserId,
+    },
+  );
+  if (!allowed) {
     return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }
 
