@@ -24,8 +24,8 @@ import PhotoUploadModal from "@/components/photo-upload";
 import PhotoDetailModal from "@/components/photo-detail";
 import PhotoAnnotator from "@/components/photo-annotator";
 import ComposeEmailModal from "@/components/compose-email";
-import { EmailBodyFrame } from "@/components/email/email-body-frame";
-import { EmailAttachments } from "@/components/email/email-attachments";
+import { JobEmailRow } from "@/components/email/job-email-row";
+import { buildQuotedReply } from "@/components/email/build-quoted-reply";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
@@ -45,9 +45,7 @@ import {
   ArrowLeft,
   Droplets,
   Pencil,
-  Inbox,
   Send,
-  Clock,
   Loader2,
   Copy,
   Trash2,
@@ -93,7 +91,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const [customFields, setCustomFields] = useState<{ field_key: string; field_value: string }[]>([]);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeDefaults, setComposeDefaults] = useState({ to: "", subject: "", replyToMessageId: "" });
+  const [composeDefaults, setComposeDefaults] = useState({ to: "", subject: "", body: "", replyToMessageId: "" });
   const [loading, setLoading] = useState(true);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -851,7 +849,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               const primaryAdj = (job.job_adjusters || []).find((ja) => ja.is_primary)?.adjuster;
               const defaultTo = job.contact?.email || primaryAdj?.email || "";
               const defaultSubject = job.job_number ? `Re: ${job.job_number}` : "";
-              setComposeDefaults({ to: defaultTo, subject: defaultSubject, replyToMessageId: "" });
+              setComposeDefaults({ to: defaultTo, subject: defaultSubject, body: "", replyToMessageId: "" });
               setComposeOpen(true);
             }}
             className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-colors gap-1.5"
@@ -866,13 +864,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           jobId={jobId}
           defaultTo={composeDefaults.to}
           defaultSubject={composeDefaults.subject}
+          defaultBody={composeDefaults.body}
           replyToMessageId={composeDefaults.replyToMessageId || undefined}
           onSent={fetchData}
         />
         {emails.length > 0 && (
           <div className="space-y-2">
             {emails.map((email) => (
-              <EmailRow
+              <JobEmailRow
                 key={email.id}
                 email={email}
                 isExpanded={expandedEmailId === email.id}
@@ -881,7 +880,12 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                   const isSent = email.folder === "sent" || email.folder === "drafts";
                   const replyTo = isSent ? (email.to_addresses?.[0]?.email || "") : email.from_address;
                   const replySubject = email.subject.startsWith("Re:") ? email.subject : "Re: " + email.subject;
-                  setComposeDefaults({ to: replyTo, subject: replySubject, replyToMessageId: email.message_id });
+                  setComposeDefaults({
+                    to: replyTo,
+                    subject: replySubject,
+                    body: buildQuotedReply(email),
+                    replyToMessageId: email.message_id,
+                  });
                   setComposeOpen(true);
                 }}
               />
@@ -1100,116 +1104,6 @@ function AdjusterCard({
       </div>
       <p className="text-xs text-muted-foreground">{[adj.title, adj.company].filter(Boolean).join(" \u00b7 ")}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{[formatPhoneNumber(adj.phone || ""), adj.email].filter(Boolean).join(" \u00b7 ")}</p>
-    </div>
-  );
-}
-
-export function EmailRow({
-  email,
-  isExpanded,
-  onToggle,
-  onReply,
-}: {
-  email: Email;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onReply: () => void;
-}) {
-  const isSent = email.folder === "sent" || email.folder === "drafts";
-  const toLine = (email.to_addresses || []).map((a) => a.name || a.email).join(", ");
-  const ccLine = (email.cc_addresses || []).map((a) => a.name || a.email).join(", ");
-  const bccLine = (email.bcc_addresses || []).map((a) => a.name || a.email).join(", ");
-  const showCc = (email.cc_addresses || []).length > 0;
-  const showBcc = isSent && (email.bcc_addresses || []).length > 0;
-
-  const directionIcon = isSent
-    ? <Send size={14} className="text-primary" />
-    : <Inbox size={14} className="text-primary" />;
-
-  const iconBg = isSent ? "bg-primary/10" : "bg-vibrant-blue/10";
-  const folderBadge = isSent ? "bg-[#E1F5EE] text-[#085041]" : "bg-[#E6F1FB] text-[#0C447C]";
-
-  const fromDisplay = isSent
-    ? "To: " + toLine
-    : "From: " + (email.from_name || email.from_address);
-
-  const fullFrom = email.from_name
-    ? email.from_name + " (" + email.from_address + ")"
-    : email.from_address;
-
-  return (
-    <div className="border border-border/50 rounded-lg overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-start gap-3 p-3 hover:bg-accent/50 transition-colors text-left"
-      >
-        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5", iconBg)}>
-          {directionIcon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className={cn("text-sm font-medium text-foreground truncate", !email.is_read && "font-bold")}>
-              {email.subject || "(No Subject)"}
-            </p>
-            <Badge className={cn("text-[10px] px-1.5 py-0 rounded flex-shrink-0", folderBadge)}>
-              {email.folder}
-            </Badge>
-            {email.matched_by && (
-              <Badge className="text-[10px] px-1.5 py-0 rounded bg-muted text-[#666] flex-shrink-0">
-                {email.matched_by}
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-xs text-muted-foreground truncate">{fromDisplay}</p>
-            <span className="text-xs text-muted-foreground/60 flex items-center gap-1 flex-shrink-0">
-              <Clock size={10} />
-              {format(new Date(email.received_at), "MMM d, h:mm a")}
-            </span>
-          </div>
-          {!isExpanded && email.snippet && (
-            <p className="text-xs text-muted-foreground/60 mt-1 line-clamp-1">{email.snippet}</p>
-          )}
-        </div>
-      </button>
-      {isExpanded && (
-        <div className="px-3 pb-3 pt-0 border-t border-border/50">
-          <div className="mt-3 text-xs text-muted-foreground space-y-1 mb-3">
-            <p><span className="font-medium text-foreground/80">From:</span> {fullFrom}</p>
-            <p><span className="font-medium text-foreground/80">To:</span> {toLine}</p>
-            {showCc && (
-              <p><span className="font-medium text-foreground/80">CC:</span> {ccLine}</p>
-            )}
-            {showBcc && (
-              <p><span className="font-medium text-foreground/80">BCC:</span> {bccLine}</p>
-            )}
-            <p><span className="font-medium text-foreground/80">Date:</span> {format(new Date(email.received_at), "EEEE, MMM d, yyyy 'at' h:mm a")}</p>
-          </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-sm text-foreground/80 leading-relaxed max-h-80 overflow-y-auto">
-            {email.body_html ? (
-              <EmailBodyFrame html={email.body_html} />
-            ) : (
-              <div className="whitespace-pre-wrap">
-                {email.body_text || email.snippet || "(No content)"}
-              </div>
-            )}
-          </div>
-          {email.has_attachments && (
-            <div className="mt-3">
-              <EmailAttachments
-                attachments={email.attachments}
-                hasAttachments={email.has_attachments}
-              />
-            </div>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onReply(); }}
-            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-          >
-            <Send size={12} /> Reply
-          </button>
-        </div>
-      )}
     </div>
   );
 }
