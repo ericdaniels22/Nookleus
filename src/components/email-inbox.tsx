@@ -23,6 +23,7 @@ import EmailReader from "@/components/email-reader";
 import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
 import CategoryTabs, { type CategoryFilter } from "@/components/email/category-tabs";
+import { buildQuotedReply } from "@/components/email/build-quoted-reply";
 import { useEmailSync } from "@/lib/email/use-email-sync";
 import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
 
@@ -510,19 +511,6 @@ export default function EmailInbox() {
     }
   }
 
-  // Build quoted HTML for reply/forward
-  function buildQuotedHtml(email: Email): string {
-    const date = format(new Date(email.received_at), "MMM d, yyyy 'at' h:mm a");
-    const from = email.from_name
-      ? `${email.from_name} &lt;${email.from_address}&gt;`
-      : email.from_address;
-    const originalBody = email.body_html || `<p>${(email.body_text || "").replace(/\n/g, "<br>")}</p>`;
-    return `<br><div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;">
-      <p style="margin: 0 0 8px; font-size: 12px;">On ${date}, ${from} wrote:</p>
-      ${originalBody}
-    </div>`;
-  }
-
   // Reply
   function handleReply(email: Email) {
     setComposeMode("reply");
@@ -530,7 +518,7 @@ export default function EmailInbox() {
       to: email.from_address,
       cc: "",
       subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
-      body: buildQuotedHtml(email),
+      body: buildQuotedReply(email),
       messageId: email.message_id,
       jobId: email.job_id || "",
       bcc: "",
@@ -554,7 +542,7 @@ export default function EmailInbox() {
       cc: ccList,
       bcc: "",
       subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
-      body: buildQuotedHtml(email),
+      body: buildQuotedReply(email),
       messageId: email.message_id,
       jobId: email.job_id || "",
     });
@@ -569,7 +557,7 @@ export default function EmailInbox() {
       cc: "",
       bcc: "",
       subject: email.subject.startsWith("Fwd:") ? email.subject : `Fwd: ${email.subject}`,
-      body: buildQuotedHtml(email),
+      body: buildQuotedReply(email),
       messageId: email.message_id,
       jobId: email.job_id || "",
     });
