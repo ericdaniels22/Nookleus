@@ -24,6 +24,8 @@ import PhotoUploadModal from "@/components/photo-upload";
 import PhotoDetailModal from "@/components/photo-detail";
 import PhotoAnnotator from "@/components/photo-annotator";
 import ComposeEmailModal from "@/components/compose-email";
+import { EmailBodyFrame } from "@/components/email/email-body-frame";
+import { EmailAttachments } from "@/components/email/email-attachments";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
@@ -164,7 +166,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .order("created_at", { ascending: false }),
       supabase
         .from("emails")
-        .select("*")
+        .select("*, attachments:email_attachments(*)")
         .eq("job_id", jobId)
         .order("received_at", { ascending: false }),
     ]);
@@ -1173,9 +1175,23 @@ function EmailRow({
             <p><span className="font-medium text-foreground/80">To:</span> {toLine}</p>
             <p><span className="font-medium text-foreground/80">Date:</span> {format(new Date(email.received_at), "EEEE, MMM d, yyyy 'at' h:mm a")}</p>
           </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
-            {email.body_text || email.snippet || "(No content)"}
+          <div className="bg-muted/50 rounded-lg p-3 text-sm text-foreground/80 leading-relaxed max-h-80 overflow-y-auto">
+            {email.body_html ? (
+              <EmailBodyFrame html={email.body_html} />
+            ) : (
+              <div className="whitespace-pre-wrap">
+                {email.body_text || email.snippet || "(No content)"}
+              </div>
+            )}
           </div>
+          {email.has_attachments && (
+            <div className="mt-3">
+              <EmailAttachments
+                attachments={email.attachments}
+                hasAttachments={email.has_attachments}
+              />
+            </div>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onReply(); }}
             className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"

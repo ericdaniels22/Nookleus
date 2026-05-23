@@ -13,6 +13,7 @@ import { Loader2, Send, ChevronDown, ChevronUp, Paperclip, X, FileIcon, Save } f
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
+import { htmlToText } from "@/lib/email/html-to-text";
 
 interface EmailAccountData {
   id: string;
@@ -240,9 +241,7 @@ export default function ComposeEmailModal({
     const currentCc = ccRecipientsRef.current;
     const currentBcc = bccRecipientsRef.current;
 
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = bodyHtml;
-    const bodyText = tempDiv.textContent || tempDiv.innerText || "";
+    const bodyText = htmlToText(bodyHtml);
 
     setSavingDraft(true);
     try {
@@ -302,10 +301,7 @@ export default function ComposeEmailModal({
       return;
     }
 
-    // Extract plain text from HTML for body_text
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = bodyHtml;
-    const bodyText = tempDiv.textContent || tempDiv.innerText || "";
+    const bodyText = htmlToText(bodyHtml);
 
     if (!bodyText.trim()) {
       toast.error("Please write a message.");

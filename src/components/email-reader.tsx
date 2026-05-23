@@ -12,58 +12,14 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
-  Download,
-  FileIcon,
   Trash2,
   ShieldAlert,
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Email } from "@/lib/types";
-
-function EmailBodyFrame({ html }: { html: string }) {
-  const ref = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(200);
-
-  useEffect(() => {
-    const iframe = ref.current;
-    if (!iframe) return;
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-
-    const baseStyles = `
-      :root { color-scheme: light; }
-      html, body { margin: 0; padding: 0; background: #fff; color: #333;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 14px; line-height: 1.5; word-wrap: break-word; }
-      img { max-width: 100%; height: auto; }
-      a { color: #2B5EA7; }
-      table { max-width: 100%; }
-    `;
-
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${baseStyles}</style></head><body>${html}</body></html>`);
-    doc.close();
-
-    const resize = () => {
-      if (!doc.body) return;
-      setHeight(doc.body.scrollHeight + 16);
-    };
-    resize();
-    const obs = new ResizeObserver(resize);
-    if (doc.body) obs.observe(doc.body);
-    return () => obs.disconnect();
-  }, [html]);
-
-  return (
-    <iframe
-      ref={ref}
-      title="Email body"
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      style={{ width: "100%", height, border: 0, display: "block" }}
-    />
-  );
-}
+import { EmailBodyFrame } from "@/components/email/email-body-frame";
+import { EmailAttachments } from "@/components/email/email-attachments";
 
 interface EmailReaderProps {
   emailId: string;
@@ -467,48 +423,12 @@ export default function EmailReader({
                     )}
                   </div>
 
-                  {/* Attachments — list when uploaded, "Downloading…" placeholder
-                       briefly while after() finishes the post-response upload. */}
                   {email.has_attachments && (
                     <div className="px-4 py-3 border-t border-gray-100">
-                      {email.attachments && email.attachments.length > 0 ? (
-                        <>
-                          <p className="text-xs font-medium text-[#666] mb-2 flex items-center gap-1">
-                            <Paperclip size={12} />
-                            {email.attachments.length} attachment{email.attachments.length !== 1 ? "s" : ""}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {email.attachments.map((att) => (
-                              <a
-                                key={att.id}
-                                href={`/api/email/attachments/${att.id}`}
-                                download={att.filename}
-                                className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors group"
-                              >
-                                <FileIcon size={16} className="text-[#2B5EA7] shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-sm text-[#333] truncate max-w-[200px]">
-                                    {att.filename}
-                                  </p>
-                                  {att.file_size && (
-                                    <p className="text-[10px] text-[#999]">
-                                      {att.file_size > 1024 * 1024
-                                        ? `${(att.file_size / (1024 * 1024)).toFixed(1)}MB`
-                                        : `${(att.file_size / 1024).toFixed(0)}KB`}
-                                    </p>
-                                  )}
-                                </div>
-                                <Download size={14} className="text-[#999] group-hover:text-[#2B5EA7] shrink-0" />
-                              </a>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-xs text-[#999] flex items-center gap-2">
-                          <Paperclip size={12} />
-                          Downloading…
-                        </p>
-                      )}
+                      <EmailAttachments
+                        attachments={email.attachments}
+                        hasAttachments={email.has_attachments}
+                      />
                     </div>
                   )}
                 </div>
