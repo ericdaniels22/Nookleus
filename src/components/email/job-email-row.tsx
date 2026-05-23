@@ -21,6 +21,10 @@ export function JobEmailRow({
 }) {
   const isSent = email.folder === "sent" || email.folder === "drafts";
   const toLine = (email.to_addresses || []).map((a) => a.name || a.email).join(", ");
+  const ccLine = (email.cc_addresses || []).map((a) => a.name || a.email).join(", ");
+  const bccLine = (email.bcc_addresses || []).map((a) => a.name || a.email).join(", ");
+  const showCc = (email.cc_addresses || []).length > 0;
+  const showBcc = isSent && (email.bcc_addresses || []).length > 0;
 
   const directionIcon = isSent
     ? <Send size={14} className="text-primary" />
@@ -77,6 +81,12 @@ export function JobEmailRow({
           <div className="mt-3 text-xs text-muted-foreground space-y-1 mb-3">
             <p><span className="font-medium text-foreground/80">From:</span> {fullFrom}</p>
             <p><span className="font-medium text-foreground/80">To:</span> {toLine}</p>
+            {showCc && (
+              <p><span className="font-medium text-foreground/80">CC:</span> {ccLine}</p>
+            )}
+            {showBcc && (
+              <p><span className="font-medium text-foreground/80">BCC:</span> {bccLine}</p>
+            )}
             <p><span className="font-medium text-foreground/80">Date:</span> {format(new Date(email.received_at), "EEEE, MMM d, yyyy 'at' h:mm a")}</p>
           </div>
           <div className="bg-muted/50 rounded-lg p-3 text-sm text-foreground/80 leading-relaxed max-h-80 overflow-y-auto">

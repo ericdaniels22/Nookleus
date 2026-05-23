@@ -100,6 +100,70 @@ beforeEach(() => {
   composeMock.mockClear();
 });
 
+// #216 — CC always when populated; BCC only on sender-side folders
+// (sent / drafts) so received emails never leak BCC even if the
+// field is set. Originally landed as `src/components/job-detail.test.tsx`
+// in PR #218 against the inline EmailRow export; moved here when #215
+// extracted EmailRow into JobEmailRow.
+describe("JobEmailRow CC/BCC visibility (#216)", () => {
+  function renderRow(email: Email) {
+    return render(
+      <JobEmailRow
+        email={email}
+        isExpanded={true}
+        onToggle={() => undefined}
+        onReply={() => undefined}
+      />,
+    );
+  }
+
+  it("shows CC line on a sent email with CC recipients", () => {
+    renderRow(fixtureEmail({
+      folder: "sent",
+      cc_addresses: [{ email: "carol@example.com", name: "Carol" }],
+    }));
+    expect(screen.getByText(/^CC:/)).toBeDefined();
+    expect(screen.getByText(/Carol/)).toBeDefined();
+  });
+
+  it("shows CC line on a received email with CC recipients", () => {
+    renderRow(fixtureEmail({
+      folder: "inbox",
+      cc_addresses: [{ email: "dave@example.com", name: "Dave" }],
+    }));
+    expect(screen.getByText(/^CC:/)).toBeDefined();
+    expect(screen.getByText(/Dave/)).toBeDefined();
+  });
+
+  it("shows BCC line on a sent email with BCC recipients", () => {
+    renderRow(fixtureEmail({
+      folder: "sent",
+      bcc_addresses: [{ email: "eve@example.com", name: "Eve" }],
+    }));
+    expect(screen.getByText(/^BCC:/)).toBeDefined();
+    expect(screen.getByText(/Eve/)).toBeDefined();
+  });
+
+  it("hides BCC line on a received email even when bcc_addresses is populated", () => {
+    renderRow(fixtureEmail({
+      folder: "inbox",
+      bcc_addresses: [{ email: "frank@example.com", name: "Frank" }],
+    }));
+    expect(screen.queryByText(/^BCC:/)).toBeNull();
+    expect(screen.queryByText(/Frank/)).toBeNull();
+  });
+
+  it("renders no CC label when cc_addresses is empty", () => {
+    renderRow(fixtureEmail({ folder: "sent", cc_addresses: [] }));
+    expect(screen.queryByText(/^CC:/)).toBeNull();
+  });
+
+  it("renders no BCC label when bcc_addresses is empty on a sent email", () => {
+    renderRow(fixtureEmail({ folder: "sent", bcc_addresses: [] }));
+    expect(screen.queryByText(/^BCC:/)).toBeNull();
+  });
+});
+
 describe("Job View Reply integration (#215)", () => {
   it("clicking Reply passes a buildQuotedReply-shaped defaultBody to ComposeEmailModal", () => {
     const email = fixtureEmail();
