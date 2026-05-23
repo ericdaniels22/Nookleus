@@ -1,24 +1,25 @@
-// `evaluateEmailAccountAccess` — the access-decision module for Email
-// accounts. A pure function: no I/O, no Supabase, no HTTP. Given a caller
-// and an Email account, it answers the three questions every email-area
-// route needs:
+// The access-decision module for Email accounts. Pure functions: no I/O,
+// no Supabase, no HTTP. Given a caller and an Email account (existing or
+// proposed), they answer the four questions every email-area route needs:
 //
 //   canSee    — does the account appear in the caller's UI?
 //   canRead   — can the caller open its mail?
 //   canManage — can the caller edit its settings or disconnect it?
+//   canCreate — may the caller create an account of this kind / owner?
 //
-// The decision matrix is fixed by ADR 0001 (Shared and Personal email
-// accounts). The matrix varies by account kind and the caller's role and
-// permissions within the account's Organization; cross-Organization
-// callers get all-false on every account, regardless of permissions —
-// the same 404-equivalent convention as #98/#101/#119.
+// The first three are returned together by `evaluateEmailAccountAccess`;
+// the fourth is returned by `canCreateEmailAccount`. The matrix is fixed
+// by ADR 0001 (Shared and Personal email accounts) and varies by account
+// kind and the caller's role and permissions within the account's
+// Organization; cross-Organization callers get denied on every account,
+// regardless of permissions — the same 404-equivalent convention as
+// #98/#101/#119.
 //
 // This module is the single source of truth for the matrix. Routes
-// delegate to it rather than re-implementing the rule; the next slice
-// wires it into the email-area Service-client routes.
+// delegate to it rather than re-implementing the rule.
 //
-// An unknown account kind throws, never quietly returns all-false —
-// same posture as the #97 resolver registry: an unregistered case is a
+// An unknown account kind throws, never quietly returns false — same
+// posture as the #97 resolver registry: an unregistered case is a
 // programming error, not a silent deny.
 
 export type EmailAccountKind = "shared" | "personal";
@@ -116,4 +117,54 @@ export function evaluateEmailAccountAccess(
     );
   }
   return evaluator(caller, account);
+}
+
+// One create-evaluator per account kind. Mirrors EVALUATORS above: each
+// evaluator only deals with the in-org branches of the create matrix, and
+// canCreateEmailAccount handles the cross-Organization short-circuit at the
+// top.
+type CreateEvaluator = (
+  caller: EmailAccountCaller,
+  proposed: EmailAccount,
+) => boolean;
+
+const canCreateShared: CreateEvaluator = (caller) => caller.role === "admin";
+
+const canCreatePersonal: CreateEvaluator = (caller, proposed) => {
+  if (caller.role === "admin") return true;
+  return proposed.userId === caller.userId;
+};
+
+const CREATE_EVALUATORS: Record<EmailAccountKind, CreateEvaluator> = {
+  shared: canCreateShared,
+  personal: canCreatePersonal,
+};
+
+/**
+ * Decides whether a caller may create an Email account of a given kind for a
+ * proposed owner. See ADR 0001: the access matrix is captured once, in this
+ * module; every route delegates. This function is the create branch of that
+ * matrix.
+ */
+export function canCreateEmailAccount(
+  caller: EmailAccountCaller,
+  proposed: EmailAccount,
+): boolean {
+  if (caller.organizationId !== proposed.organizationId) {
+    return false;
+  }
+  // Belt-and-suspenders: the email-area route wrapper gates send_email at
+  // the door, but a future caller (CLI, server action, script) might wire
+  // this function in without that wrapper. Re-check here so the answer is
+  // safe regardless of how we're called.
+  if (!caller.grantedPermissions.includes("send_email")) {
+    return false;
+  }
+  const evaluator = CREATE_EVALUATORS[proposed.kind];
+  if (!evaluator) {
+    throw new Error(
+      `canCreateEmailAccount: unknown email account kind "${proposed.kind}"`,
+    );
+  }
+  return evaluator(caller, proposed);
 }

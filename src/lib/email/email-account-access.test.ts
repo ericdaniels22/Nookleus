@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  canCreateEmailAccount,
   evaluateEmailAccountAccess,
   type EmailAccount,
   type EmailAccountCaller,
@@ -157,6 +158,142 @@ describe("evaluateEmailAccountAccess", () => {
       };
       expect(() =>
         evaluateEmailAccountAccess(caller({ role: "admin" }), bogus),
+      ).toThrow(/unknown email account kind "service"/);
+    });
+  });
+});
+
+describe("canCreateEmailAccount", () => {
+  describe("shared account", () => {
+    it("same-org admin with send_email: allowed", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: ["send_email"] }),
+          shared(),
+        ),
+      ).toBe(true);
+    });
+
+    it("same-org non-admin with send_email: denied (admin-only kind)", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "crew_lead", grantedPermissions: ["send_email"] }),
+          shared(),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe("personal account", () => {
+    it("same-org admin with send_email creates Personal owned by self: allowed", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: ["send_email"] }),
+          personal(ALICE),
+        ),
+      ).toBe(true);
+    });
+
+    it("same-org admin with send_email creates Personal owned by another user: allowed", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: ["send_email"] }),
+          personal(BOB),
+        ),
+      ).toBe(true);
+    });
+
+    it("same-org non-admin with send_email creates Personal owned by self: allowed", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "crew_lead", grantedPermissions: ["send_email"] }),
+          personal(ALICE),
+        ),
+      ).toBe(true);
+    });
+
+    it("same-org non-admin with send_email creates Personal owned by another user: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "crew_lead", grantedPermissions: ["send_email"] }),
+          personal(BOB),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe("belt-and-suspenders send_email re-check", () => {
+    // The route wrapper already gates send_email. The function re-checks
+    // defensively — if a future caller wires the function in without the
+    // wrapper, the answer must still be no.
+    it("admin without send_email creating Shared: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: [] }),
+          shared(),
+        ),
+      ).toBe(false);
+    });
+
+    it("admin without send_email creating Personal-as-self: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: [] }),
+          personal(ALICE),
+        ),
+      ).toBe(false);
+    });
+
+    it("non-admin without send_email creating Personal-as-self: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "crew_lead", grantedPermissions: [] }),
+          personal(ALICE),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe("cross-Organization caller", () => {
+    it("admin in another org with send_email creating Shared in the target org: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({
+            organizationId: OTHER_ORG,
+            role: "admin",
+            grantedPermissions: ["send_email"],
+          }),
+          shared(),
+        ),
+      ).toBe(false);
+    });
+
+    it("admin in another org with send_email creating Personal-as-self in the target org: denied", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({
+            organizationId: OTHER_ORG,
+            role: "admin",
+            grantedPermissions: ["send_email"],
+          }),
+          personal(ALICE),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe("guard rails", () => {
+    it("throws for an unknown account kind (never quietly returns false)", () => {
+      const bogus = {
+        kind: "service" as unknown as EmailAccount["kind"],
+        organizationId: ORG,
+        userId: null,
+      };
+      expect(() =>
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: ["send_email"] }),
+          bogus,
+        ),
       ).toThrow(/unknown email account kind "service"/);
     });
   });
