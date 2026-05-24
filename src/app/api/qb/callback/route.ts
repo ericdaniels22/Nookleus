@@ -18,8 +18,8 @@ function settingsUrl(request: Request, path: string, qs?: Record<string, string>
 // GET /api/qb/callback?code=...&state=...&realmId=...
 // Validates the state cookie, exchanges the code for tokens, encrypts +
 // stores them, and hands off to the setup wizard. Errors redirect back
-// to /settings/accounting with a query-string flag so the UI can show
-// a toast.
+// to /settings/money?tab=quickbooks with a query-string flag so the UI
+// can show a toast.
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -29,12 +29,12 @@ export async function GET(request: Request) {
 
   if (errorParam) {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: errorParam }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: errorParam }),
     );
   }
   if (!code || !state || !realmId) {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "missing_params" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "missing_params" }),
     );
   }
 
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
   const expectedState = cookieStore.get("qb_oauth_state")?.value;
   if (!expectedState || expectedState !== state) {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "state_mismatch" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "state_mismatch" }),
     );
   }
   cookieStore.delete("qb_oauth_state");
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     .maybeSingle<{ role: string }>();
   if (membership?.role !== "admin") {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "forbidden" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "forbidden" }),
     );
   }
 
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
     tokenResp = await oauth.createToken(request.url);
   } catch {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "token_exchange_failed" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "token_exchange_failed" }),
     );
   }
   const token = tokenResp.getToken();
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
   const refreshExpiresIn = token.x_refresh_token_expires_in ?? 8640000;
   if (!accessToken || !refreshToken) {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "empty_tokens" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "empty_tokens" }),
     );
   }
 
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
   });
   if (upsertErr) {
     return NextResponse.redirect(
-      settingsUrl(request, "/settings/accounting", { oauth_error: "db_write_failed" }),
+      settingsUrl(request, "/settings/money?tab=quickbooks", { oauth_error: "db_write_failed" }),
     );
   }
 

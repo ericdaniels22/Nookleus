@@ -34,7 +34,7 @@ export default function QbExpiredBanner() {
         QuickBooks connection expired. Reconnect to resume sync.
       </span>
       <Link
-        href="/settings/accounting"
+        href="/settings/money?tab=quickbooks"
         className="px-3 py-1 rounded bg-red-500 text-white text-xs font-medium hover:brightness-110"
       >
         Reconnect

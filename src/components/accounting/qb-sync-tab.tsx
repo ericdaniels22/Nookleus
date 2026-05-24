@@ -156,7 +156,7 @@ export default function QbSyncTab() {
       <div className="py-12 text-center">
         <p className="text-muted-foreground">QuickBooks is not connected.</p>
         <Link
-          href="/settings/accounting"
+          href="/settings/money?tab=quickbooks"
           className="text-primary hover:underline text-sm mt-2 inline-block"
         >
           Connect in Settings →
@@ -218,7 +218,7 @@ export default function QbSyncTab() {
             Sync now
           </button>
           <Link
-            href="/settings/accounting"
+            href="/settings/money?tab=quickbooks"
             className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-accent flex items-center gap-1.5"
           >
             <SettingsIcon size={14} /> Settings
@@ -234,7 +234,7 @@ export default function QbSyncTab() {
             <p className="font-medium text-amber-700">Dry run mode — nothing is being written to QuickBooks</p>
             <p className="text-sm text-amber-600/90 mt-1">
               Review the log below. Switch to live mode in{" "}
-              <Link href="/settings/accounting" className="underline">
+              <Link href="/settings/money?tab=quickbooks" className="underline">
                 Settings
               </Link>{" "}
               when you&apos;re ready.

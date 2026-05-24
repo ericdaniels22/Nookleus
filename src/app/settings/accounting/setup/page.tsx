@@ -21,11 +21,11 @@ export default async function AccountingSetupPage() {
     .eq("user_id", user.id)
     .eq("organization_id", orgId)
     .maybeSingle<{ role: string }>();
-  if (membership?.role !== "admin") redirect("/settings/accounting");
+  if (membership?.role !== "admin") redirect("/settings/money?tab=quickbooks");
 
   const service = createServiceClient();
   const conn = await getActiveConnection(service);
-  if (!conn) redirect("/settings/accounting");
+  if (!conn) redirect("/settings/money?tab=quickbooks");
 
   const { data: damageTypes } = await service
     .from("damage_types")
