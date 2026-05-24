@@ -38,7 +38,7 @@ function getSnapshot(): JobsViewMode {
 // The server has no localStorage; render the default so the server markup
 // matches the first client paint and React hydrates without a mismatch.
 function getServerSnapshot(): JobsViewMode {
-  return "grid";
+  return "comfortable";
 }
 
 /**
