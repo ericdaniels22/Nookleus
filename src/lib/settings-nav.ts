@@ -4,7 +4,6 @@ import {
   ListChecks,
   Users,
   Mail,
-  FileSignature,
   FileText,
   Download,
   Send,
@@ -34,12 +33,7 @@ export const settingsNavItems: SettingsNavItem[] = [
   { href: "/settings/pdf-presets", label: "PDF Presets", icon: FileText },
   { href: "/settings/money", label: "Money", icon: CircleDollarSign },
   { href: "/settings/people", label: "People", icon: Users },
-  { href: "/settings/email", label: "Email Accounts", icon: Mail },
-  {
-    href: "/settings/signatures",
-    label: "Email Signatures",
-    icon: FileSignature,
-  },
+  { href: "/settings/email", label: "Email", icon: Mail },
   {
     href: "/settings/contract-templates",
     label: "Contract Templates",
