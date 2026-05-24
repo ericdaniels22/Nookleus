@@ -1,5 +1,5 @@
-import TemplateListClient from "@/components/templates/template-list-client";
+import { redirect } from "next/navigation";
 
-export default function TemplatesPage() {
-  return <TemplateListClient />;
+export default function EstimateTemplatesRedirectPage() {
+  redirect("/settings/templates?tab=estimates");
 }
