@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
   const errorParam = url.searchParams.get("error");
 
   const back = (msg: string) => {
-    const dest = new URL(`${appUrl}/settings/stripe`);
+    const dest = new URL(`${appUrl}/settings/money`);
+    dest.searchParams.set("tab", "stripe");
     dest.searchParams.set("connect_error", msg);
     return NextResponse.redirect(dest.toString(), { status: 303 });
   };
@@ -117,7 +118,8 @@ export async function GET(req: NextRequest) {
   });
   if (insertErr) return back("db_insert_failed");
 
-  const dest = new URL(`${appUrl}/settings/stripe`);
+  const dest = new URL(`${appUrl}/settings/money`);
+  dest.searchParams.set("tab", "stripe");
   dest.searchParams.set("connected", "1");
   return NextResponse.redirect(dest.toString(), { status: 303 });
 }

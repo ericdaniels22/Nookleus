@@ -15,13 +15,39 @@ export interface SettingsTabsProps {
   defaultTab?: string;
 }
 
+// The Tabs primitive needs the active tab key resolved on first render — we
+// read it from `?tab=`, which means useSearchParams. Next 16 requires any
+// useSearchParams caller to sit inside a Suspense boundary so the rest of
+// the page can prerender statically; we wrap once here so every shell page
+// gets the behavior for free.
 export function SettingsTabs(props: SettingsTabsProps) {
-  // useSearchParams() opts the subtree out of prerendering; Suspense lets the
-  // shell prerender statically and stream the URL-aware bits client-side.
   return (
-    <Suspense fallback={<SettingsTabsView {...props} />}>
+    <Suspense fallback={<TabsFallback {...props} />}>
       <SettingsTabsInner {...props} />
     </Suspense>
+  );
+}
+
+// The fallback is the same tab strip frozen on the static-default key, so
+// users see the tab labels and the default body during hydration rather
+// than a blank box.
+function TabsFallback({ tabs, defaultTab }: SettingsTabsProps) {
+  const activeKey = defaultTab ?? tabs[0]?.key ?? "";
+  return (
+    <Tabs value={activeKey}>
+      <TabsList>
+        {tabs.map((t) => (
+          <TabsTrigger key={t.key} value={t.key}>
+            {t.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {tabs.map((t) => (
+        <TabsContent key={t.key} value={t.key}>
+          {t.content}
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
@@ -42,21 +68,8 @@ function SettingsTabsInner({ tabs, defaultTab }: SettingsTabsProps) {
     router.replace(`${pathname}?${params.toString()}`);
   }
 
-  return <SettingsTabsView tabs={tabs} activeKey={activeKey} onValueChange={handleChange} />;
-}
-
-function SettingsTabsView({
-  tabs,
-  defaultTab,
-  activeKey,
-  onValueChange,
-}: SettingsTabsProps & {
-  activeKey?: string;
-  onValueChange?: (next: unknown) => void;
-}) {
-  const value = activeKey ?? defaultTab ?? tabs[0]?.key ?? "";
   return (
-    <Tabs value={value} onValueChange={onValueChange}>
+    <Tabs value={activeKey} onValueChange={handleChange}>
       <TabsList>
         {tabs.map((t) => (
           <TabsTrigger key={t.key} value={t.key}>
