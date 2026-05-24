@@ -55,12 +55,24 @@ disconnect it (e.g. when the owner leaves the company) but cannot read its
 messages.
 _Avoid_: private inbox, user account
 
+**Outgoing email**:
+The per-document-kind configuration that decides, when Nookleus sends out
+one of its document kinds (Invoice, Contract, Payment link, Estimate),
+which Email account it leaves from and what the body of the email says.
+Distinct from an Email account itself — an Email account is the mailbox;
+an Outgoing email is the rule for using a mailbox to send a specific kind
+of thing. The settings UI groups these together because they share a shape
+(pick an account + edit a template) regardless of which document kind is
+being sent.
+_Avoid_: send config, mail rule, payment email / invoice email / contract email (use "Outgoing email for X")
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
 - A **Request Context** names exactly one **Active Organization**.
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
 - An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
+- An **Outgoing email** belongs to one **Organization** and names exactly one **Email account** (the mailbox the document is sent from). There is one Outgoing email per document kind per Organization.
 
 ## Example dialogue
 
