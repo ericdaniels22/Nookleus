@@ -15,5 +15,5 @@ export function parseJobsViewMode(
   if (raw && (JOBS_VIEW_MODES as readonly string[]).includes(raw)) {
     return raw as JobsViewMode;
   }
-  return "grid";
+  return "comfortable";
 }

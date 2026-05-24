@@ -13,14 +13,14 @@ describe("parseJobsViewMode", () => {
     expect(parseJobsViewMode("list")).toBe("list");
   });
 
-  it("falls back to grid when nothing is stored", () => {
-    expect(parseJobsViewMode(null)).toBe("grid");
-    expect(parseJobsViewMode(undefined)).toBe("grid");
+  it("falls back to comfortable when nothing is stored", () => {
+    expect(parseJobsViewMode(null)).toBe("comfortable");
+    expect(parseJobsViewMode(undefined)).toBe("comfortable");
   });
 
-  it("falls back to grid for an unrecognized stored value", () => {
-    expect(parseJobsViewMode("banana")).toBe("grid");
-    expect(parseJobsViewMode("")).toBe("grid");
-    expect(parseJobsViewMode("GRID")).toBe("grid");
+  it("falls back to comfortable for an unrecognized stored value", () => {
+    expect(parseJobsViewMode("banana")).toBe("comfortable");
+    expect(parseJobsViewMode("")).toBe("comfortable");
+    expect(parseJobsViewMode("GRID")).toBe("comfortable");
   });
 });
