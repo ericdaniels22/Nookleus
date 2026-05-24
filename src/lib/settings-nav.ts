@@ -24,7 +24,6 @@ export const settingsNavItems: SettingsNavItem[] = [
   { href: "/settings/money", label: "Money", icon: CircleDollarSign },
   { href: "/settings/people", label: "People", icon: Users },
   { href: "/settings/email", label: "Email", icon: Mail },
-  { href: "/settings/contracts", label: "Contracts", icon: Send },
-  { href: "/settings/payments", label: "Outgoing Emails", icon: Mail },
+  { href: "/settings/outgoing", label: "Outgoing Emails", icon: Send },
   { href: "/settings/data", label: "Data", icon: Download },
 ];

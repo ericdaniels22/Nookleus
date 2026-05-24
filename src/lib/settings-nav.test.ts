@@ -75,3 +75,28 @@ describe("settingsNavItems (Slice 7 — Company + Branding merge)", () => {
     expect(labels).not.toContain("Company Profile");
   });
 });
+
+// #234 — Slice 8 collapses the misleadingly-named "Contracts" (which
+// configured the contract email, not contracts themselves) and the
+// equally misleadingly-named "Outgoing Emails" (which configured only
+// the payment-link email) into a single honest "Outgoing Emails" entry
+// pointing at the new combined /settings/outgoing section.
+describe("settingsNavItems — Outgoing Emails section (slice 8)", () => {
+  const hrefs = settingsNavItems.map((i) => i.href);
+
+  it("includes an Outgoing Emails entry pointing at /settings/outgoing", () => {
+    const outgoing = settingsNavItems.find(
+      (i) => i.href === "/settings/outgoing",
+    );
+    expect(outgoing).toBeDefined();
+    expect(outgoing?.label).toBe("Outgoing Emails");
+  });
+
+  it("no longer lists the misleadingly-named /settings/contracts entry", () => {
+    expect(hrefs).not.toContain("/settings/contracts");
+  });
+
+  it("no longer lists the misleadingly-named /settings/payments entry", () => {
+    expect(hrefs).not.toContain("/settings/payments");
+  });
+});
