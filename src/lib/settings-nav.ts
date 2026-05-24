@@ -1,10 +1,8 @@
 import {
   Building2,
-  Palette,
   ListChecks,
   Users,
   Mail,
-  FileText,
   Download,
   Send,
   CircleDollarSign,
@@ -20,11 +18,9 @@ export interface SettingsNavItem {
 }
 
 export const settingsNavItems: SettingsNavItem[] = [
-  { href: "/settings/company", label: "Company Profile", icon: Building2 },
-  { href: "/settings/appearance", label: "Appearance", icon: Palette },
+  { href: "/settings/company", label: "Company", icon: Building2 },
   { href: "/settings/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings/templates", label: "Templates", icon: LayoutTemplate },
-  { href: "/settings/pdf-presets", label: "PDF Presets", icon: FileText },
   { href: "/settings/money", label: "Money", icon: CircleDollarSign },
   { href: "/settings/people", label: "People", icon: Users },
   { href: "/settings/email", label: "Email", icon: Mail },

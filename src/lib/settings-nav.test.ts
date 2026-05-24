@@ -46,12 +46,41 @@ describe("settingsNavItems — Money section (slice 4)", () => {
   });
 });
 
+// #233 — guard the canonical settings nav shape after Slice 7. A single
+// "Company" entry replaces "Company Profile" and now owns Appearance and
+// PDF Presets as tabs inside /settings/company. The old top-level entries
+// for those two pages are gone.
+describe("settingsNavItems (Slice 7 — Company + Branding merge)", () => {
+  it("has a single Company entry pointing at /settings/company", () => {
+    const companyEntries = settingsNavItems.filter(
+      (item) => item.href === "/settings/company",
+    );
+    expect(companyEntries).toHaveLength(1);
+    expect(companyEntries[0].label).toBe("Company");
+  });
+
+  it("no longer has top-level Appearance or PDF Presets entries", () => {
+    const appearance = settingsNavItems.find(
+      (item) => item.href === "/settings/appearance",
+    );
+    const pdfPresets = settingsNavItems.find(
+      (item) => item.href === "/settings/pdf-presets",
+    );
+    expect(appearance).toBeUndefined();
+    expect(pdfPresets).toBeUndefined();
+  });
+
+  it("no longer has the legacy 'Company Profile' label", () => {
+    const labels = settingsNavItems.map((item) => item.label);
+    expect(labels).not.toContain("Company Profile");
+  });
+});
+
 // #234 — Slice 8 collapses the misleadingly-named "Contracts" (which
 // configured the contract email, not contracts themselves) and the
 // equally misleadingly-named "Outgoing Emails" (which configured only
 // the payment-link email) into a single honest "Outgoing Emails" entry
 // pointing at the new combined /settings/outgoing section.
-
 describe("settingsNavItems — Outgoing Emails section (slice 8)", () => {
   const hrefs = settingsNavItems.map((i) => i.href);
 
