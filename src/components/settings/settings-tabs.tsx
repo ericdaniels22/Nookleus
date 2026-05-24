@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -14,7 +15,17 @@ export interface SettingsTabsProps {
   defaultTab?: string;
 }
 
-export function SettingsTabs({ tabs, defaultTab }: SettingsTabsProps) {
+export function SettingsTabs(props: SettingsTabsProps) {
+  // useSearchParams() opts the subtree out of prerendering; Suspense lets the
+  // shell prerender statically and stream the URL-aware bits client-side.
+  return (
+    <Suspense fallback={<SettingsTabsView {...props} />}>
+      <SettingsTabsInner {...props} />
+    </Suspense>
+  );
+}
+
+function SettingsTabsInner({ tabs, defaultTab }: SettingsTabsProps) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -31,8 +42,21 @@ export function SettingsTabs({ tabs, defaultTab }: SettingsTabsProps) {
     router.replace(`${pathname}?${params.toString()}`);
   }
 
+  return <SettingsTabsView tabs={tabs} activeKey={activeKey} onValueChange={handleChange} />;
+}
+
+function SettingsTabsView({
+  tabs,
+  defaultTab,
+  activeKey,
+  onValueChange,
+}: SettingsTabsProps & {
+  activeKey?: string;
+  onValueChange?: (next: unknown) => void;
+}) {
+  const value = activeKey ?? defaultTab ?? tabs[0]?.key ?? "";
   return (
-    <Tabs value={activeKey} onValueChange={handleChange}>
+    <Tabs value={value} onValueChange={onValueChange}>
       <TabsList>
         {tabs.map((t) => (
           <TabsTrigger key={t.key} value={t.key}>
