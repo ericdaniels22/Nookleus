@@ -255,7 +255,7 @@ export default function SetupWizardClient({
     }
     toast.success("Mappings saved");
     if (connection.setup_completed_at) {
-      router.push("/settings/accounting");
+      router.push("/settings/money?tab=quickbooks");
     } else {
       setStep(3);
     }
@@ -285,10 +285,10 @@ export default function SetupWizardClient({
   return (
     <div className="max-w-3xl">
       <Link
-        href="/settings/accounting"
+        href="/settings/money?tab=quickbooks"
         className="text-sm text-primary hover:underline inline-flex items-center gap-1 mb-3"
       >
-        <ArrowLeft size={14} /> Back to Accounting Settings
+        <ArrowLeft size={14} /> Back to QuickBooks Settings
       </Link>
       <h1 className="text-3xl font-extrabold text-foreground mb-1">
         QuickBooks Setup

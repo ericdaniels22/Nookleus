@@ -23,3 +23,25 @@ describe("settingsNavItems — People consolidation (#228)", () => {
     expect(hrefs).not.toContain("/settings/notifications");
   });
 });
+
+// #230 — Slice 4 of the Settings redesign collapses Vendors, Expense
+// Categories, Accounting, and Stripe Payments into a single Money entry.
+// This test pins the navigation contract: one Money entry pointing at the
+// new combined route, and the four old entries are gone.
+
+describe("settingsNavItems — Money section (slice 4)", () => {
+  it("includes a Money entry pointing at /settings/money", () => {
+    const money = settingsNavItems.find((i) => i.href === "/settings/money");
+    expect(money).toBeDefined();
+    expect(money?.label).toBe("Money");
+  });
+
+  it("no longer lists the four pre-redesign entries", () => {
+    const stale = settingsNavItems.filter((i) =>
+      ["/settings/vendors", "/settings/expense-categories", "/settings/accounting", "/settings/stripe"].includes(
+        i.href,
+      ),
+    );
+    expect(stale).toEqual([]);
+  });
+});
