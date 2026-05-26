@@ -21,9 +21,15 @@ export default function Sidebar() {
   const { order } = useNavOrder();
   const { collapsed, toggle } = useSidebarCollapse();
 
-  // Sort the canonical nav items by DB sort_order.
+  // Filter by membership role first, then sort by DB sort_order.
   // Items missing from the DB fall to the bottom in code-defined order.
-  const sortedNavItems = [...navItems].sort((a, b) => {
+  // An item with `requiredRoles` is hidden from any caller whose role
+  // isn't in the list (e.g. crew_member never sees Referral Partners).
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.requiredRoles) return true;
+    return profile?.role ? item.requiredRoles.includes(profile.role) : false;
+  });
+  const sortedNavItems = [...visibleNavItems].sort((a, b) => {
     const aOrder = order.get(a.href) ?? Infinity;
     const bOrder = order.get(b.href) ?? Infinity;
     if (aOrder !== bOrder) return aOrder - bOrder;
