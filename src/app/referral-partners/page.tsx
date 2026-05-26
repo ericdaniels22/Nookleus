@@ -11,6 +11,7 @@
 // rule; it just owns the form state and delegates.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Handshake, Plus, Search } from "lucide-react";
 import NewTargetDialog from "@/components/referral-partners/new-target-dialog";
 import {
@@ -175,18 +176,23 @@ export default function ReferralPartnersPage() {
       ) : (
         <ul className="divide-y rounded-lg border border-border bg-card">
           {visiblePartners.map((p) => (
-            <li key={p.id} className="flex items-center gap-4 px-4 py-3">
-              <span
-                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[p.status]}`}
+            <li key={p.id}>
+              <Link
+                href={`/referral-partners/${p.id}`}
+                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors"
               >
-                {STATUS_LABEL[p.status]}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{p.company_name}</p>
-                {p.industry && (
-                  <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
-                )}
-              </div>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[p.status]}`}
+                >
+                  {STATUS_LABEL[p.status]}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{p.company_name}</p>
+                  {p.industry && (
+                    <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
+                  )}
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
