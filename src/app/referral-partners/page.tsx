@@ -8,6 +8,7 @@
 // slices (#251, #254).
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Handshake, Plus } from "lucide-react";
 import NewTargetDialog from "@/components/referral-partners/new-target-dialog";
 
@@ -83,18 +84,23 @@ export default function ReferralPartnersPage() {
       ) : (
         <ul className="divide-y rounded-lg border border-border bg-card">
           {partners.map((p) => (
-            <li key={p.id} className="flex items-center gap-4 px-4 py-3">
-              <span
-                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[p.status]}`}
+            <li key={p.id}>
+              <Link
+                href={`/referral-partners/${p.id}`}
+                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors"
               >
-                {STATUS_LABEL[p.status]}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{p.company_name}</p>
-                {p.industry && (
-                  <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
-                )}
-              </div>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[p.status]}`}
+                >
+                  {STATUS_LABEL[p.status]}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{p.company_name}</p>
+                  {p.industry && (
+                    <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
+                  )}
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
