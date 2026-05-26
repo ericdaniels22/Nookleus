@@ -79,7 +79,7 @@ export default async function EstimateEditPage({
   //    Destructure error separately (Task 19 lesson: don't swallow lookup errors).
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("*, contact:contacts(*)")
+    .select("*, contact:contacts!contact_id(*)")
     .eq("id", estimate.job_id)
     .maybeSingle<Job & { contact: Contact | null }>();
 

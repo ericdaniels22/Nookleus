@@ -43,7 +43,7 @@ export const GET = withRequestContext(
 
     let listQuery = supabase
       .from("invoices")
-      .select("*, job:jobs!job_id(job_number, contact_id, contact:contacts(*))")
+      .select("*, job:jobs!job_id(job_number, contact_id, contact:contacts!contact_id(*))")
       .not("deleted_at", "is", null)
       .order("deleted_at", { ascending: false });
     if (jobId) listQuery = listQuery.eq("job_id", jobId);
