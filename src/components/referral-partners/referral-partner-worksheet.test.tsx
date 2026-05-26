@@ -77,6 +77,24 @@ beforeEach(() => {
           }),
         } as Response;
       }
+      if (url.endsWith("/contacts")) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            contact: {
+              id: "c-new",
+              organization_id: "org-1",
+              referral_partner_id: "p-1",
+              full_name: body.full_name,
+              phone: body.phone || null,
+              email: body.email || null,
+              notes: body.notes || null,
+              role: "referral_contact",
+            },
+          }),
+        } as Response;
+      }
       return {
         ok: true,
         status: 200,
@@ -411,6 +429,14 @@ describe("ReferralPartnerWorksheet — Log a call (PRD #249, issue #254 AC #2 + 
     expect(body.follow_up_at).toBe("2026-06-15");
   });
 
+  // ── + Add contact integration tests (issue #255) ─────────────────────
+  //
+  // Mounts the Worksheet, clicks "+ Add contact", fills the inline 4-field
+  // form (name, number, email, note), submits, and asserts the new contact
+  // is visible in (a) the "Contacts at this company" list, (b) the Primary
+  // contact dropdown, AND (c) the Owner contact dropdown — all on the SAME
+  // render (no reload). This is the load-bearing contract for the slice.
+
   it("the referral_contact dropdown defaults to the Primary contact", () => {
     renderWorksheet({
       partner: { primary_contact_id: "c-primary" },
@@ -480,5 +506,115 @@ describe("ReferralPartnerWorksheet — Log a call (PRD #249, issue #254 AC #2 + 
     const section = screen.getByTestId("worksheet-call-log");
     expect(section.textContent).toMatch(/last call/i);
     expect(section.textContent).toMatch(/interested/i);
+  });
+});
+
+describe("ReferralPartnerWorksheet — + Add contact (PRD #249, issue #255)", () => {
+  it("renders a + Add contact button inside the Contacts at this company section", () => {
+    renderWorksheet();
+    const list = screen.getByTestId("worksheet-contacts-list");
+    expect(
+      within(list).getByRole("button", { name: /\+ add contact/i }),
+    ).toBeDefined();
+  });
+
+  it("clicking + Add contact reveals an inline 4-field form (name, number, email, note)", () => {
+    renderWorksheet();
+    const list = screen.getByTestId("worksheet-contacts-list");
+    fireEvent.click(
+      within(list).getByRole("button", { name: /\+ add contact/i }),
+    );
+    const form = screen.getByTestId("worksheet-add-contact-form");
+    expect(within(form).getByLabelText(/^name$/i)).toBeDefined();
+    expect(within(form).getByLabelText(/^number$/i)).toBeDefined();
+    expect(within(form).getByLabelText(/^email$/i)).toBeDefined();
+    expect(within(form).getByLabelText(/^note$/i)).toBeDefined();
+  });
+
+  it("renders a Primary contact dropdown and an Owner contact dropdown that include every Referral Contact", () => {
+    renderWorksheet({
+      contacts: [
+        { id: "c-1", full_name: "Pat Smith", phone: null, email: null },
+        { id: "c-2", full_name: "Jamie Other", phone: null, email: null },
+      ],
+    });
+    const primarySelect = screen.getByLabelText(
+      /primary contact/i,
+    ) as HTMLSelectElement;
+    const ownerSelect = screen.getByLabelText(
+      /owner contact/i,
+    ) as HTMLSelectElement;
+    expect(within(primarySelect).getByText("Pat Smith")).toBeDefined();
+    expect(within(primarySelect).getByText("Jamie Other")).toBeDefined();
+    expect(within(ownerSelect).getByText("Pat Smith")).toBeDefined();
+    expect(within(ownerSelect).getByText("Jamie Other")).toBeDefined();
+  });
+
+  // ── THE LOAD-BEARING CONTRACT TEST (issue #255 acceptance criteria) ─────
+  //
+  // After clicking + Add contact and submitting the inline form, the new
+  // Referral Contact MUST appear, on the same render, in:
+  //   (a) the "Contacts at this company" list
+  //   (b) the Primary contact dropdown
+  //   (c) the Owner contact dropdown
+  // — without any page reload. List-page filtering of Referral Contacts and
+  // the Worksheet's own primary/owner pickers depend on this contract.
+  it("submitting + Add contact POSTs the new contact and makes it visible in the list AND both dropdowns without reload", async () => {
+    renderWorksheet({ contacts: [] });
+
+    const list = screen.getByTestId("worksheet-contacts-list");
+    fireEvent.click(
+      within(list).getByRole("button", { name: /\+ add contact/i }),
+    );
+
+    const form = screen.getByTestId("worksheet-add-contact-form");
+    fireEvent.change(within(form).getByLabelText(/^name$/i), {
+      target: { value: "Pat Smith" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^number$/i), {
+      target: { value: "5551234567" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^email$/i), {
+      target: { value: "pat@acme.test" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^note$/i), {
+      target: { value: "found via Yelp" },
+    });
+    fireEvent.click(
+      within(form).getByRole("button", { name: /^save contact$/i }),
+    );
+
+    // POST goes to the new endpoint with the 4-field payload.
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/referral-partners/p-1/contacts",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[0] === "/api/referral-partners/p-1/contacts",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.full_name).toBe("Pat Smith");
+    expect(body.email).toBe("pat@acme.test");
+    expect(body.notes).toBe("found via Yelp");
+
+    // (a) Visible in the Contacts at this company list, without reload.
+    await waitFor(() => {
+      const refreshedList = screen.getByTestId("worksheet-contacts-list");
+      expect(within(refreshedList).getByText("Pat Smith")).toBeDefined();
+    });
+
+    // (b) Visible in the Primary contact dropdown.
+    const primarySelect = screen.getByLabelText(
+      /primary contact/i,
+    ) as HTMLSelectElement;
+    expect(within(primarySelect).getByText("Pat Smith")).toBeDefined();
+
+    // (c) Visible in the Owner contact dropdown.
+    const ownerSelect = screen.getByLabelText(
+      /owner contact/i,
+    ) as HTMLSelectElement;
+    expect(within(ownerSelect).getByText("Pat Smith")).toBeDefined();
   });
 });

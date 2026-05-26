@@ -19,6 +19,8 @@ import {
   type CallLogEntry,
   type CallOutcome,
 } from "@/lib/referral-partner-call";
+import { shouldOfferCreate } from "@/lib/insurance-picker";
+import type { NewReferralContactInput } from "@/lib/referral-contact-form";
 
 export interface ReferralPartnerForWorksheet {
   id: string;
@@ -172,35 +174,78 @@ function EditableField({
   );
 }
 
-// One Primary or Owner contact slot. Display-only in this slice — wiring
-// the linked-contact picker lands in a later slice (#6).
+// One Primary or Owner contact slot. Renders the current contact's details
+// and a dropdown that lists every Referral Contact at this company — so the
+// user can promote a newly added contact to Primary/Owner without leaving
+// the Worksheet (issue #255 AC #3). Changing the selection PATCHes the FK
+// on the partner row. The full linked-contact picker (search, type-ahead,
+// etc.) is the concern of a later slice (#6).
 function ContactSlot({
   testId,
   heading,
+  column,
+  partnerId,
   contact,
+  contacts,
 }: {
   testId: string;
   heading: string;
+  column: "primary_contact_id" | "owner_contact_id";
+  partnerId: string;
   contact: ReferralContactForWorksheet | null;
+  contacts: ReferralContactForWorksheet[];
 }) {
+  const [selectedId, setSelectedId] = useState<string>(contact?.id ?? "");
+  const selectId = `worksheet-${column}`;
+
+  const onChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value;
+    setSelectedId(next);
+    await fetch(`/api/referral-partners/${partnerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [column]: next || null }),
+    });
+  };
+
+  const selectedContact =
+    contacts.find((c) => c.id === selectedId) ?? contact ?? null;
+
   return (
     <div
       data-testid={testId}
       className="rounded-lg border border-border bg-card px-5 py-4"
     >
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+      <label
+        htmlFor={selectId}
+        className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2 block"
+      >
         {heading}
-      </p>
-      {contact ? (
+      </label>
+      <select
+        id={selectId}
+        aria-label={heading}
+        value={selectedId}
+        onChange={onChange}
+        className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none mb-2"
+      >
+        <option value="">— Not set —</option>
+        {contacts.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.full_name}
+          </option>
+        ))}
+      </select>
+      {selectedContact ? (
         <div className="space-y-0.5">
-          <p className="font-medium text-foreground">{contact.full_name}</p>
-          {contact.phone && (
+          <p className="font-medium text-foreground">{selectedContact.full_name}</p>
+          {selectedContact.phone && (
             <p className="text-sm text-muted-foreground">
-              {formatPhoneNumber(contact.phone)}
+              {formatPhoneNumber(selectedContact.phone)}
             </p>
           )}
-          {contact.email && (
-            <p className="text-sm text-muted-foreground">{contact.email}</p>
+          {selectedContact.email && (
+            <p className="text-sm text-muted-foreground">{selectedContact.email}</p>
           )}
         </div>
       ) : (
@@ -214,13 +259,25 @@ export function ReferralPartnerWorksheet({
   partner,
   primaryContact,
   ownerContact,
-  contacts,
+  contacts: initialContacts,
   initialCalls,
 }: Props) {
   // Local Lifecycle status drives the chip + active-button ring; we
   // update it optimistically on click so the user sees the new label
   // without a reload (PRD #249 #28, issue #253 AC #2 & #3).
   const [status, setStatus] = useState<LifecycleStatus>(partner.status);
+
+  // Local contacts state so the inline + Add contact form can prepend a
+  // new Referral Contact and surface it in the list, the Primary contact
+  // dropdown, and the Owner contact dropdown on the SAME render — without
+  // any page reload (issue #255 AC #3).
+  const [contacts, setContacts] = useState<ReferralContactForWorksheet[]>(
+    initialContacts,
+  );
+
+  const addContact = useCallback((c: ReferralContactForWorksheet) => {
+    setContacts((prev) => [c, ...prev]);
+  }, []);
 
   const flipStatus = useCallback(
     async (next: LifecycleStatus) => {
@@ -366,12 +423,18 @@ export function ReferralPartnerWorksheet({
         <ContactSlot
           testId="worksheet-primary-contact"
           heading="Primary contact"
+          column="primary_contact_id"
+          partnerId={partner.id}
           contact={primaryContact}
+          contacts={contacts}
         />
         <ContactSlot
           testId="worksheet-owner-contact"
           heading="Owner contact"
+          column="owner_contact_id"
+          partnerId={partner.id}
           contact={ownerContact}
+          contacts={contacts}
         />
       </div>
 
@@ -380,9 +443,16 @@ export function ReferralPartnerWorksheet({
         data-testid="worksheet-contacts-list"
         className="rounded-lg border border-border bg-card px-5 py-4"
       >
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
-          Contacts at this company
-        </p>
+        <div className="flex items-center justify-between mb-3 gap-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Contacts at this company
+          </p>
+          <AddContactAffordance
+            partnerId={partner.id}
+            existingNames={contacts.map((c) => c.full_name)}
+            onAdded={addContact}
+          />
+        </div>
         {contacts.length === 0 ? (
           <p className="text-sm italic text-muted-foreground">
             No contacts yet.
@@ -410,6 +480,179 @@ export function ReferralPartnerWorksheet({
         primaryContactId={partner.primary_contact_id}
       />
     </div>
+  );
+}
+
+// Inline "+ Add contact" affordance on the Call Worksheet (PRD #249, issue
+// #255). A button reveals a 4-field form (name / number / email / note);
+// submitting POSTs to /api/referral-partners/[id]/contacts and hands the
+// new Referral Contact back up to the parent so it surfaces in the list
+// AND both Primary/Owner contact dropdowns on the SAME render (no reload).
+//
+// The "save is offered" guard reuses `shouldOfferCreate` from
+// `src/lib/insurance-picker.ts` (PRD #47) — typing a duplicate name (case-
+// insensitive, exact match against existing Referral Contacts at this
+// company) withholds the save button so loose duplicates aren't created.
+function AddContactAffordance({
+  partnerId,
+  existingNames,
+  onAdded,
+}: {
+  partnerId: string;
+  existingNames: string[];
+  onAdded: (c: ReferralContactForWorksheet) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<NewReferralContactInput>({
+    full_name: "",
+    phone: "",
+    email: "",
+    notes: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const setField = (k: keyof NewReferralContactInput, v: string) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
+
+  // Same gate the insurance-picker uses — only offer save when the typed
+  // name is non-empty AND not an exact, case-insensitive match for an
+  // existing Referral Contact at this company.
+  const canSave = shouldOfferCreate(form.full_name, existingNames);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSave || submitting) return;
+    setSubmitting(true);
+    const res = await fetch(`/api/referral-partners/${partnerId}/contacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: form.full_name,
+        phone: form.phone,
+        email: form.email,
+        notes: form.notes,
+      }),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as {
+        contact: {
+          id: string;
+          full_name: string;
+          phone: string | null;
+          email: string | null;
+        };
+      };
+      onAdded({
+        id: body.contact.id,
+        full_name: body.contact.full_name,
+        phone: body.contact.phone,
+        email: body.contact.email,
+      });
+      setForm({ full_name: "", phone: "", email: "", notes: "" });
+      setOpen(false);
+    }
+    setSubmitting(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs font-medium text-[var(--brand-primary)] hover:underline"
+      >
+        + Add contact
+      </button>
+    );
+  }
+
+  const inputClass =
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none";
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      data-testid="worksheet-add-contact-form"
+      className="w-full rounded-md border border-border bg-background p-3 grid grid-cols-1 sm:grid-cols-2 gap-3"
+    >
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="add-contact-name"
+          className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Name
+        </label>
+        <input
+          id="add-contact-name"
+          aria-label="Name"
+          value={form.full_name}
+          onChange={(e) => setField("full_name", e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="add-contact-number"
+          className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Number
+        </label>
+        <input
+          id="add-contact-number"
+          aria-label="Number"
+          value={form.phone}
+          onChange={(e) => setField("phone", e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="add-contact-email"
+          className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Email
+        </label>
+        <input
+          id="add-contact-email"
+          aria-label="Email"
+          type="email"
+          value={form.email}
+          onChange={(e) => setField("email", e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="add-contact-note"
+          className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Note
+        </label>
+        <input
+          id="add-contact-note"
+          aria-label="Note"
+          value={form.notes}
+          onChange={(e) => setField("notes", e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="sm:col-span-2 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-md border border-border bg-card text-muted-foreground px-3 py-1.5 text-xs font-medium hover:bg-accent"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!canSave || submitting}
+          className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        >
+          Save contact
+        </button>
+      </div>
+    </form>
   );
 }
 

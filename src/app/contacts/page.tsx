@@ -47,6 +47,10 @@ const roleColors: Record<string, string> = {
   property_manager: "bg-[#FAEEDA] text-[#633806]",
   adjuster: "bg-[#E1F5EE] text-[#085041]",
   insurance: "bg-[#FFF8E6] text-[#7A5E00]",
+  // PRD #249, issue #255: badge for `referral_contact` rows on the
+  // Contacts tab — visually consistent with the existing role badges so
+  // a user can pick out Referral Partner contacts at a glance.
+  referral_contact: "bg-[#FDECEF] text-[#7A1B2B]",
 };
 
 const roleLabels: Record<string, string> = {
@@ -55,6 +59,7 @@ const roleLabels: Record<string, string> = {
   property_manager: "Prop Manager",
   adjuster: "Adjuster",
   insurance: "Insurance",
+  referral_contact: "Referral Contact",
 };
 
 type ContactWithJobs = Contact & {
