@@ -83,8 +83,8 @@ _Avoid_: nested section, child section, sub-group
 A single billable row — name, description, code, quantity, unit, unit
 price, total. Belongs to exactly one Section or exactly one Subsection;
 which one it belongs to is held in a single polymorphic reference, so a
-Line item can be moved between a Section and a Subsection (or between
-any two such receptacles) without changing what kind of thing it is.
+Line item can be moved between any Section and any Subsection without
+changing what kind of thing it is.
 _Avoid_: line, item, row, entry
 
 ## Relationships
