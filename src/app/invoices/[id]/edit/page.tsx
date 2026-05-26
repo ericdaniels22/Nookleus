@@ -78,7 +78,7 @@ export default async function InvoiceEditPage({
   // 3. Fetch the parent job + contact for the customer block.
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("*, contact:contacts(*)")
+    .select("*, contact:contacts!contact_id(*)")
     .eq("id", inv.job_id)
     .maybeSingle<Job & { contact: Contact | null }>();
 
