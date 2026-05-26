@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { purgeInvoiceStorage } from "@/lib/documents/purge";
+import { INVOICE_TRASH_WITH_JOB_HOMEOWNER_EMBED } from "@/lib/embeds/jobs-contacts";
 
 const RETENTION_DAYS = 30;
 
@@ -43,7 +44,7 @@ export const GET = withRequestContext(
 
     let listQuery = supabase
       .from("invoices")
-      .select("*, job:jobs!job_id(job_number, contact_id, contact:contacts!contact_id(*))")
+      .select(INVOICE_TRASH_WITH_JOB_HOMEOWNER_EMBED)
       .not("deleted_at", "is", null)
       .order("deleted_at", { ascending: false });
     if (jobId) listQuery = listQuery.eq("job_id", jobId);
