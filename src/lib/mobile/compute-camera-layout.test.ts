@@ -89,4 +89,18 @@ describe("computeCameraLayout", () => {
 
     expect(layout.mode).toBe("split");
   });
+
+  it("landscape with residual width less than controlsMinSize falls back to stacked", () => {
+    // Pathological landscape where the controls cluster cannot fit:
+    // viewportWidth (250) is less than controlsMinSize (300), so we
+    // cannot carve out the controls strip without producing a degenerate
+    // preview. Per spec: fall back to stacked.
+    const layout = computeCameraLayout({
+      viewportWidth: 250,
+      viewportHeight: 200,
+      controlsMinSize: 300,
+    });
+
+    expect(layout.mode).toBe("stacked");
+  });
 });

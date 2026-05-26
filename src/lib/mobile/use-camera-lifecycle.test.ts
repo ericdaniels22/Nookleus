@@ -119,6 +119,38 @@ describe("useCameraLifecycle", () => {
     if (r) r();
   });
 
+  it("an orientation flip triggers exactly one restart with the new rect", async () => {
+    // Landscape rect at iPad 1024x768 split layout.
+    const landscape = { x: 0, y: 113, width: 724, height: 543 };
+    const { rerender } = renderHook(
+      ({ rect }) =>
+        useCameraLifecycle({ rect, position: "rear", safeAreaTop: 0 }),
+      { initialProps: { rect: landscape } },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(startMock).toHaveBeenCalledTimes(1);
+    startMock.mockClear();
+    stopMock.mockClear();
+
+    // Rotate to portrait — the layout module would produce a tall rect.
+    const portrait = { x: 0, y: 0, width: 543, height: 724 };
+    await act(async () => {
+      rerender({ rect: portrait });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Exactly one stop + one start, with the new rect.
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(startMock).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 543, height: 724 }),
+    );
+  });
+
   it("does not restart when the rect change is within tolerance", async () => {
     const initial = { x: 0, y: 0, width: 390, height: 520 };
     const { rerender } = renderHook(
