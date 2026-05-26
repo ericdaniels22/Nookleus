@@ -35,6 +35,10 @@ import {
   sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
+import {
+  moveLineItemAcrossContainers,
+  resolveLineItemDropTarget,
+} from "./move-line-item";
 import { HeaderBar } from "./header-bar";
 import { TotalsPanel } from "./totals-panel";
 import { MetadataBar } from "./metadata-bar";
@@ -1311,32 +1315,27 @@ export function EstimateBuilder({
       }
 
       if (activeType === "line-item") {
-        const activeParentSectionId = active.data.current?.parentSectionId as string | undefined;
-        const overParentSectionId = over.data.current?.parentSectionId as string | undefined;
-        if (activeParentSectionId !== overParentSectionId) return;
-        const reorderedSections = state.entity.data.sections.map((s) => {
-          if (s.id === activeParentSectionId) {
-            const oldIdx = s.items.findIndex((i) => i.id === active.id);
-            const newIdx = s.items.findIndex((i) => i.id === over.id);
-            if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return s;
-            return { ...s, items: arrayMove(s.items, oldIdx, newIdx) };
-          }
-          return {
-            ...s,
-            subsections: s.subsections.map((sub) => {
-              if (sub.id !== activeParentSectionId) return sub;
-              const oldIdx = sub.items.findIndex((i) => i.id === active.id);
-              const newIdx = sub.items.findIndex((i) => i.id === over.id);
-              if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return sub;
-              return { ...sub, items: arrayMove(sub.items, oldIdx, newIdx) };
-            }),
-          };
-        });
+        // Cross-container Line item drag (#264). Helpers handle same-container
+        // reorder, the four cross-container shapes, drop-on-self, and invalid
+        // input. The existing debounced rootPut of builder_state persists the
+        // resulting tree — no per-item HTTP path.
+        const dest = resolveLineItemDropTarget(over);
+        if (!dest) return;
+        const result = moveLineItemAcrossContainers(
+          state.entity.data.sections,
+          String(active.id),
+          dest.destinationContainerId,
+          dest.overItemId ?? null,
+        );
+        if (!result) return;
         setState((prev) => {
           if (prev.entity.kind !== "template") return prev;
           return {
             ...prev,
-            entity: { ...prev.entity, data: { ...prev.entity.data, sections: reorderedSections } } as BuilderEntity,
+            entity: {
+              ...prev.entity,
+              data: { ...prev.entity.data, sections: result.sections },
+            } as BuilderEntity,
           };
         });
       }

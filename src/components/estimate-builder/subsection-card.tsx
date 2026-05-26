@@ -13,6 +13,8 @@
 import { useState } from "react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useDndMonitor } from "@dnd-kit/core";
+import { resolveLineItemDropTarget } from "./move-line-item";
 import {
   GripVertical,
   MoreVertical,
@@ -152,6 +154,20 @@ export function SubsectionCard({
   const [draftTitle, setDraftTitle] = useState(subsection.title);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Auto-expand on drop: if a Line item is dropped onto this Subsection
+  // (either onto its chrome or onto one of its items) while it is collapsed,
+  // expand so the user can see where the item landed.
+  useDndMonitor({
+    onDragEnd(event) {
+      const activeType = event.active.data.current?.type as string | undefined;
+      if (activeType !== "line-item") return;
+      const dest = resolveLineItemDropTarget(event.over ?? null);
+      if (dest && dest.destinationContainerId === subsection.id) {
+        setIsCollapsed(false);
+      }
+    },
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
