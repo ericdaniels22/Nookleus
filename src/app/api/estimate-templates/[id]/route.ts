@@ -4,7 +4,7 @@ import { apiDbError } from "@/lib/api-errors";
 import {
   getTemplateWithContents,
   updateTemplate,
-  deactivateTemplate,
+  hardDeleteTemplate,
   serializeStructureFromBuilder,
 } from "@/lib/estimate-templates";
 import type { TemplateStructure, TemplateWithContents } from "@/lib/types";
@@ -78,7 +78,7 @@ export const DELETE = withRequestContext(
   async (_request, ctx, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params;
     try {
-      await deactivateTemplate(ctx.supabase, id);
+      await hardDeleteTemplate(ctx.supabase, id);
       return NextResponse.json({ ok: true });
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "DELETE /api/estimate-templates/[id]");
