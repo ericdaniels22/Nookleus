@@ -43,6 +43,9 @@ yarn-error.log*
 !.claude/commands/
 !.claude/agents/
 
+# git worktrees
+.worktrees/
+
 # vercel
 .vercel
 
