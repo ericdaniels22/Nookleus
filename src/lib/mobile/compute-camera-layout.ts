@@ -28,21 +28,25 @@ export function computeCameraLayout(
     const naturalWidth = (viewportHeight * 4) / 3;
     const maxWidth = viewportWidth - controlsMinSize;
 
-    if (naturalWidth <= maxWidth) {
-      const width = Math.round(naturalWidth);
+    if (maxWidth > 0) {
+      if (naturalWidth <= maxWidth) {
+        const width = Math.round(naturalWidth);
+        return {
+          mode: "split",
+          previewRect: { x: 0, y: 0, width, height: viewportHeight },
+        };
+      }
+
+      const width = Math.round(maxWidth);
+      const height = Math.round((width * 3) / 4);
+      const y = Math.round((viewportHeight - height) / 2);
       return {
         mode: "split",
-        previewRect: { x: 0, y: 0, width, height: viewportHeight },
+        previewRect: { x: 0, y, width, height },
       };
     }
-
-    const width = Math.round(maxWidth);
-    const height = Math.round((width * 3) / 4);
-    const y = Math.round((viewportHeight - height) / 2);
-    return {
-      mode: "split",
-      previewRect: { x: 0, y, width, height },
-    };
+    // Fall through to stacked when the controls cluster cannot fit
+    // alongside the preview — pathological narrow landscape windows.
   }
 
   // Stacked: 3:4 portrait preview, controls strip below.
