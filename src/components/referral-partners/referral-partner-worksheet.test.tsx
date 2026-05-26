@@ -14,6 +14,7 @@ import {
   type ReferralPartnerForWorksheet,
   type ReferralContactForWorksheet,
 } from "./referral-partner-worksheet";
+import type { CallLogEntry } from "@/lib/referral-partner-call";
 
 const BASE_PARTNER: ReferralPartnerForWorksheet = {
   id: "p-1",
@@ -38,6 +39,7 @@ function renderWorksheet(overrides: {
   primaryContact?: ReferralContactForWorksheet | null;
   ownerContact?: ReferralContactForWorksheet | null;
   contacts?: ReferralContactForWorksheet[];
+  initialCalls?: CallLogEntry[];
 } = {}) {
   const partner = { ...BASE_PARTNER, ...overrides.partner };
   return render(
@@ -46,6 +48,7 @@ function renderWorksheet(overrides: {
       primaryContact={overrides.primaryContact ?? null}
       ownerContact={overrides.ownerContact ?? null}
       contacts={overrides.contacts ?? []}
+      initialCalls={overrides.initialCalls ?? []}
     />,
   );
 }
@@ -56,8 +59,24 @@ function renderWorksheet(overrides: {
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url: string, init?: RequestInit) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
+      // POST /api/.../calls returns { call: ... }; PATCH returns { referral_partner: ... }
+      if (url.endsWith("/calls")) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            call: {
+              id: "call-stub",
+              referral_partner_id: "p-1",
+              called_at: "2026-05-15T10:00:00Z",
+              outcome: body.outcome ?? "spoke",
+              follow_up_at: body.follow_up_at ?? null,
+            },
+          }),
+        } as Response;
+      }
       return {
         ok: true,
         status: 200,
@@ -301,9 +320,165 @@ describe("ReferralPartnerWorksheet — contacts surface (unchanged from #252)", 
     expect(list.textContent).toMatch(/no contacts/i);
   });
 
-  it("renders a Call log placeholder section (write lands in #5)", () => {
+  it("renders an empty Call log section when the partner has no history", () => {
     renderWorksheet();
     const section = screen.getByTestId("worksheet-call-log");
     expect(section.textContent).toMatch(/call log/i);
+    expect(section.textContent).toMatch(/no calls/i);
+  });
+});
+
+describe("ReferralPartnerWorksheet — Call log read (PRD #249, issue #254 AC #1)", () => {
+  it("renders the Call log chronologically, newest first", () => {
+    renderWorksheet({
+      initialCalls: [
+        {
+          id: "call-old",
+          referral_partner_id: "p-1",
+          called_at: "2026-04-01T10:00:00Z",
+          outcome: "voicemail",
+          follow_up_at: null,
+        },
+        {
+          id: "call-new",
+          referral_partner_id: "p-1",
+          called_at: "2026-05-10T11:00:00Z",
+          outcome: "spoke",
+          follow_up_at: null,
+        },
+      ],
+    });
+    const section = screen.getByTestId("worksheet-call-log");
+    const entries = within(section).getAllByTestId(/^call-log-entry-/);
+    expect(entries[0].getAttribute("data-testid")).toBe("call-log-entry-call-new");
+    expect(entries[1].getAttribute("data-testid")).toBe("call-log-entry-call-old");
+  });
+
+  it("displays each entry's outcome and notes", () => {
+    renderWorksheet({
+      initialCalls: [
+        {
+          id: "call-1",
+          referral_partner_id: "p-1",
+          called_at: "2026-05-10T11:00:00Z",
+          outcome: "interested",
+          follow_up_at: null,
+        },
+      ],
+    });
+    const section = screen.getByTestId("worksheet-call-log");
+    expect(section.textContent).toMatch(/interested/i);
+  });
+});
+
+describe("ReferralPartnerWorksheet — Log a call (PRD #249, issue #254 AC #2 + #3)", () => {
+  it("renders an inline 'Log a call' form with outcome / notes / follow-up / contact fields", () => {
+    renderWorksheet();
+    expect(screen.getByLabelText(/^outcome$/i)).toBeDefined();
+    expect(screen.getByLabelText(/^call notes$/i)).toBeDefined();
+    expect(screen.getByLabelText(/^follow[- ]up date$/i)).toBeDefined();
+    expect(screen.getByLabelText(/^referral contact$/i)).toBeDefined();
+  });
+
+  it("submitting the form POSTs the new call to /api/referral-partners/[id]/calls", async () => {
+    renderWorksheet();
+
+    fireEvent.change(screen.getByLabelText(/^outcome$/i), {
+      target: { value: "spoke" },
+    });
+    fireEvent.change(screen.getByLabelText(/^call notes$/i), {
+      target: { value: "Asked for a quote" },
+    });
+    fireEvent.change(screen.getByLabelText(/^follow[- ]up date$/i), {
+      target: { value: "2026-06-15" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^log call$/i }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/referral-partners/p-1/calls",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[0] === "/api/referral-partners/p-1/calls",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.outcome).toBe("spoke");
+    expect(body.notes).toBe("Asked for a quote");
+    expect(body.follow_up_at).toBe("2026-06-15");
+  });
+
+  it("the referral_contact dropdown defaults to the Primary contact", () => {
+    renderWorksheet({
+      partner: { primary_contact_id: "c-primary" },
+      primaryContact: { id: "c-primary", full_name: "Pat Smith", phone: null, email: null },
+      contacts: [
+        { id: "c-primary", full_name: "Pat Smith", phone: null, email: null },
+        { id: "c-other", full_name: "Jamie Other", phone: null, email: null },
+      ],
+    });
+    const select = screen.getByLabelText(/^referral contact$/i) as HTMLSelectElement;
+    expect(select.value).toBe("c-primary");
+  });
+
+  // ── THE LOAD-BEARING CONTRACT TEST (issue #254 AC #6) ──────────────────
+  //
+  // "RTL integration test mounts the Worksheet, logs a call, and asserts
+  // both the call appears in history AND the partner's denormalized fields
+  // are observable on next render."
+  //
+  // This is the test that pins the rule the whole feature depends on —
+  // without it, list-page sort/filter silently breaks.
+  it("logging a call adds the entry to history AND surfaces the new denormalized last-called info", async () => {
+    // The fetch stub from beforeEach echoes the body back as the new call.
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        if (url.endsWith("/calls") && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              call: {
+                id: "call-new",
+                referral_partner_id: "p-1",
+                called_at: "2026-05-15T10:00:00Z",
+                outcome: body.outcome,
+                follow_up_at: body.follow_up_at ?? null,
+                notes: body.notes ?? null,
+                referral_contact_id: body.referral_contact_id ?? null,
+              },
+            }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }),
+    );
+
+    renderWorksheet();
+
+    fireEvent.change(screen.getByLabelText(/^outcome$/i), {
+      target: { value: "interested" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^log call$/i }));
+
+    // The new call appears in history.
+    await waitFor(() => {
+      const section = screen.getByTestId("worksheet-call-log");
+      expect(within(section).getByTestId("call-log-entry-call-new")).toBeDefined();
+    });
+
+    // The denormalized last-called outcome is observable on the rendered
+    // page. The Call log section surfaces "Last call: …" so the user can
+    // see at a glance what just happened — the same value the list page
+    // reads off the `referral_partners` row.
+    const section = screen.getByTestId("worksheet-call-log");
+    expect(section.textContent).toMatch(/last call/i);
+    expect(section.textContent).toMatch(/interested/i);
   });
 });

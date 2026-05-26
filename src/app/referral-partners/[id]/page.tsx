@@ -25,6 +25,7 @@ import {
   type ReferralPartnerForWorksheet,
   type ReferralContactForWorksheet,
 } from "@/components/referral-partners/referral-partner-worksheet";
+import type { CallLogEntry } from "@/lib/referral-partner-call";
 
 interface ErrorPageProps {
   title: string;
@@ -82,9 +83,10 @@ export default async function ReferralPartnerWorksheetPage({
   if (!partner) notFound();
 
   // 3. Fetch the contacts surface — the linked Primary + Owner slots and
-  //    every Referral Contact at this company. Three parallel reads keep
-  //    the page-render path short.
-  const [primary, owner, contactsList] = await Promise.all([
+  //    every Referral Contact at this company — plus the partner's Call
+  //    log (issue #254). Four parallel reads keep the page-render path
+  //    short.
+  const [primary, owner, contactsList, calls] = await Promise.all([
     partner.primary_contact_id
       ? supabase
           .from("contacts")
@@ -107,6 +109,12 @@ export default async function ReferralPartnerWorksheetPage({
       .eq("referral_partner_id", id)
       .order("full_name", { ascending: true })
       .then((r) => (r.data ?? []) as ReferralContactForWorksheet[]),
+    supabase
+      .from("referral_partner_calls")
+      .select("id, referral_partner_id, called_at, outcome, follow_up_at")
+      .eq("referral_partner_id", id)
+      .order("called_at", { ascending: false })
+      .then((r) => (r.data ?? []) as CallLogEntry[]),
   ]);
 
   return (
@@ -125,6 +133,7 @@ export default async function ReferralPartnerWorksheetPage({
         primaryContact={primary}
         ownerContact={owner}
         contacts={contactsList}
+        initialCalls={calls}
       />
     </>
   );

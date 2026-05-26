@@ -19,12 +19,36 @@ import {
   filterReferralPartners,
   type LifecycleStatus,
 } from "@/lib/referral-partner-filter";
+import type { CallOutcome } from "@/lib/referral-partner-call";
 
 interface ReferralPartner {
   id: string;
   company_name: string;
   status: LifecycleStatus;
   industry: string | null;
+  last_called_at: string | null;
+  last_call_outcome: CallOutcome | null;
+  next_follow_up_at: string | null;
+}
+
+const OUTCOME_LABEL: Record<CallOutcome, string> = {
+  no_answer: "No answer",
+  voicemail: "Voicemail",
+  spoke: "Spoke",
+  not_interested: "Not interested",
+  interested: "Interested",
+  scheduled_followup: "Scheduled follow-up",
+};
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 const STATUS_CHIP_CLASS: Record<LifecycleStatus, string> = {
@@ -190,6 +214,24 @@ export default function ReferralPartnersPage() {
                   <p className="font-medium truncate">{p.company_name}</p>
                   {p.industry && (
                     <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
+                  )}
+                </div>
+                {/* Denormalized last-call / next-follow-up surface
+                    (PRD #249, issue #254 AC: list page surfaces last
+                    called, last call outcome, next follow-up). */}
+                <div className="hidden sm:flex flex-col text-right text-xs text-muted-foreground min-w-[12rem]">
+                  {p.last_called_at && (
+                    <span>
+                      Last call: {formatDate(p.last_called_at)}
+                      {p.last_call_outcome && (
+                        <> — {OUTCOME_LABEL[p.last_call_outcome]}</>
+                      )}
+                    </span>
+                  )}
+                  {p.next_follow_up_at && (
+                    <span>
+                      Next follow-up: {formatDate(p.next_follow_up_at)}
+                    </span>
                   )}
                 </div>
               </Link>
