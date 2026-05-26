@@ -50,4 +50,53 @@ describe("/referral-partners list page", () => {
     const betaLink = screen.getByText("Beta Restoration").closest("a");
     expect(betaLink?.getAttribute("href")).toBe("/referral-partners/p-2");
   });
+
+  // ── PRD #249 issue #254 AC: list page surfaces denormalized columns ──
+  it("surfaces last-called, last-call outcome, and next follow-up on each partner row", async () => {
+    mockList([
+      {
+        id: "p-1",
+        company_name: "Acme Plumbing",
+        status: "yellow",
+        industry: "Plumbing",
+        last_called_at: "2026-05-10T11:00:00Z",
+        last_call_outcome: "interested",
+        next_follow_up_at: "2026-06-15T15:00:00Z",
+      },
+    ]);
+
+    render(<ReferralPartnersPage />);
+
+    const row = await waitFor(() => {
+      const text = screen.getByText("Acme Plumbing");
+      return text.closest("a") as HTMLAnchorElement;
+    });
+    // The three denormalized values are visible somewhere in the row.
+    expect(row.textContent).toMatch(/interested/i);
+    // Date formatting is locale-dependent — assert the year is present.
+    expect(row.textContent).toMatch(/2026/);
+    // The "Next follow-up" label is the unambiguous marker that the
+    // follow-up date column is being rendered.
+    expect(row.textContent).toMatch(/follow[- ]up/i);
+  });
+
+  it("renders a row with no call history without crashing", async () => {
+    mockList([
+      {
+        id: "p-1",
+        company_name: "Acme Plumbing",
+        status: "grey",
+        industry: "Plumbing",
+        last_called_at: null,
+        last_call_outcome: null,
+        next_follow_up_at: null,
+      },
+    ]);
+
+    render(<ReferralPartnersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Acme Plumbing")).toBeDefined();
+    });
+  });
 });

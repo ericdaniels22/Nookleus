@@ -10,9 +10,15 @@
 // new status with one click. No automated transitions of any kind —
 // every state change is a deliberate user action.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Handshake } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/phone";
+import {
+  CALL_OUTCOMES,
+  recomputeDenormalizedFields,
+  type CallLogEntry,
+  type CallOutcome,
+} from "@/lib/referral-partner-call";
 
 export interface ReferralPartnerForWorksheet {
   id: string;
@@ -44,6 +50,27 @@ interface Props {
   primaryContact: ReferralContactForWorksheet | null;
   ownerContact: ReferralContactForWorksheet | null;
   contacts: ReferralContactForWorksheet[];
+  initialCalls: CallLogEntry[];
+}
+
+const OUTCOME_LABEL: Record<CallOutcome, string> = {
+  no_answer: "No answer",
+  voicemail: "Voicemail",
+  spoke: "Spoke",
+  not_interested: "Not interested",
+  interested: "Interested",
+  scheduled_followup: "Scheduled follow-up",
+};
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 type LifecycleStatus = ReferralPartnerForWorksheet["status"];
@@ -188,6 +215,7 @@ export function ReferralPartnerWorksheet({
   primaryContact,
   ownerContact,
   contacts,
+  initialCalls,
 }: Props) {
   // Local Lifecycle status drives the chip + active-button ring; we
   // update it optimistically on click so the user sees the new label
@@ -374,18 +402,234 @@ export function ReferralPartnerWorksheet({
         )}
       </section>
 
-      {/* ── CALL LOG (placeholder until slice #5) ─────────────────────── */}
-      <section
-        data-testid="worksheet-call-log"
-        className="rounded-lg border border-border bg-card px-5 py-4"
-      >
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
+      {/* ── CALL LOG ─────────────────────────────────────────────────── */}
+      <CallLogSection
+        partnerId={partner.id}
+        initialCalls={initialCalls}
+        contacts={contacts}
+        primaryContactId={partner.primary_contact_id}
+      />
+    </div>
+  );
+}
+
+// The Call log section — chronological history (newest first) plus the
+// inline "Log a call" form (PRD #249, issue #254). Submitting the form
+// POSTs to /api/referral-partners/[id]/calls; on success the new row is
+// prepended to local state and the denormalized last-call info is
+// recomputed locally via the pure rule so the UI reflects the same
+// values the server just wrote to the partner row.
+function CallLogSection({
+  partnerId,
+  initialCalls,
+  contacts,
+  primaryContactId,
+}: {
+  partnerId: string;
+  initialCalls: CallLogEntry[];
+  contacts: ReferralContactForWorksheet[];
+  primaryContactId: string | null;
+}) {
+  const [calls, setCalls] = useState<CallLogEntry[]>(initialCalls);
+  const [outcome, setOutcome] = useState<CallOutcome>("spoke");
+  const [notes, setNotes] = useState("");
+  const [followUpAt, setFollowUpAt] = useState("");
+  const [contactId, setContactId] = useState<string>(primaryContactId ?? "");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Sort newest-first by called_at so the most recent call sits at the top
+  // regardless of insert order in `initialCalls`.
+  const sortedCalls = useMemo(
+    () => [...calls].sort((a, b) => (a.called_at < b.called_at ? 1 : -1)),
+    [calls],
+  );
+
+  // Compute denormalized fields locally so the section header updates the
+  // moment a call lands, without a server round-trip. The rule is shared
+  // with the server's POST handler — same input, same output.
+  const denormalized = useMemo(
+    () =>
+      recomputeDenormalizedFields(calls, {
+        now: new Date().toISOString(),
+      }),
+    [calls],
+  );
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    const res = await fetch(`/api/referral-partners/${partnerId}/calls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        outcome,
+        notes: notes.trim() || null,
+        follow_up_at: followUpAt || null,
+        referral_contact_id: contactId || null,
+      }),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { call: CallLogEntry };
+      setCalls((prev) => [body.call, ...prev]);
+      setNotes("");
+      setFollowUpAt("");
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <section
+      data-testid="worksheet-call-log"
+      className="rounded-lg border border-border bg-card px-5 py-4"
+    >
+      <div className="flex items-baseline justify-between mb-3 gap-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Call log
         </p>
+        {denormalized.last_called_at && denormalized.last_call_outcome && (
+          <p
+            data-testid="worksheet-last-call-summary"
+            className="text-xs text-muted-foreground"
+          >
+            Last call: {formatDate(denormalized.last_called_at)} —{" "}
+            {OUTCOME_LABEL[denormalized.last_call_outcome]}
+            {denormalized.next_follow_up_at && (
+              <>
+                {" • Next follow-up: "}
+                {formatDate(denormalized.next_follow_up_at)}
+              </>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* ── Log a call form ──────────────────────────────────────────── */}
+      <form
+        onSubmit={onSubmit}
+        className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border border-border bg-background p-3"
+        data-testid="worksheet-log-call-form"
+      >
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="log-call-contact"
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          >
+            Referral contact
+          </label>
+          <select
+            id="log-call-contact"
+            aria-label="Referral contact"
+            value={contactId}
+            onChange={(e) => setContactId(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+          >
+            <option value="">— Unspecified —</option>
+            {contacts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="log-call-outcome"
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          >
+            Outcome
+          </label>
+          <select
+            id="log-call-outcome"
+            aria-label="Outcome"
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value as CallOutcome)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+          >
+            {CALL_OUTCOMES.map((o) => (
+              <option key={o} value={o}>
+                {OUTCOME_LABEL[o]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label
+            htmlFor="log-call-notes"
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          >
+            Call notes
+          </label>
+          <textarea
+            id="log-call-notes"
+            aria-label="Call notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="log-call-follow-up"
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          >
+            Follow-up date
+          </label>
+          <input
+            id="log-call-follow-up"
+            type="date"
+            aria-label="Follow-up date"
+            value={followUpAt}
+            onChange={(e) => setFollowUpAt(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+          />
+        </div>
+
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          >
+            Log call
+          </button>
+        </div>
+      </form>
+
+      {/* ── History ──────────────────────────────────────────────────── */}
+      {sortedCalls.length === 0 ? (
         <p className="text-sm italic text-muted-foreground">
-          The Call log lands with the Log-a-call form in the next slice.
+          No calls logged yet.
         </p>
-      </section>
-    </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {sortedCalls.map((c) => (
+            <li
+              key={c.id}
+              data-testid={`call-log-entry-${c.id}`}
+              className="py-2 first:pt-0 last:pb-0"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="font-medium text-foreground text-sm">
+                  {OUTCOME_LABEL[c.outcome] ?? c.outcome}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(c.called_at)}
+                </p>
+              </div>
+              {c.follow_up_at && (
+                <p className="text-xs text-muted-foreground">
+                  Follow-up: {formatDate(c.follow_up_at)}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
