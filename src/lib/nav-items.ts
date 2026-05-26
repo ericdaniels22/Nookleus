@@ -10,6 +10,7 @@ import {
   Sparkles,
   Megaphone,
   Calculator,
+  Handshake,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -17,6 +18,9 @@ export interface NavItem {
   href: string;
   label: string;
   icon: ComponentType<{ size?: number }>;
+  /** Membership roles allowed to see this item. Undefined = visible to every
+   *  authenticated member (the default for legacy items). */
+  requiredRoles?: readonly string[];
 }
 
 /**
@@ -33,6 +37,11 @@ export const navItems: NavItem[] = [
   { href: "/",          label: "Dashboard",  icon: LayoutDashboard },
   { href: "/jarvis",    label: "Jarvis",     icon: Sparkles },
   { href: "/marketing", label: "Marketing",  icon: Megaphone },
+  // Referral Partners sits directly below Marketing — gated to admin and
+  // crew_lead since referral-fee terms and decline reasons aren't
+  // crew_member-visible (PRD #249).
+  { href: "/referral-partners", label: "Referral Partners", icon: Handshake,
+    requiredRoles: ["admin", "crew_lead"] },
   { href: "/intake",    label: "New Intake", icon: ClipboardPlus },
   { href: "/jobs",      label: "Jobs",       icon: Briefcase },
   { href: "/photos",    label: "Photos",     icon: Camera },
