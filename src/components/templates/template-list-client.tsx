@@ -36,11 +36,19 @@ export default function TemplateListClient() {
     router.push(`/settings/estimate-templates/${tmpl.id}/edit`);
   }
 
-  async function handleDeactivate(id: string) {
-    if (!confirm("Deactivate this template?")) return;
-    const res = await fetch(`/api/estimate-templates/${id}`, { method: "DELETE" });
-    if (res.ok) { toast.success("Deactivated"); void load(); }
-    else toast.error("Failed");
+  async function handleToggleActive(t: EstimateTemplate, next: boolean) {
+    setRows((prev) =>
+      prev.map((row) => (row.id === t.id ? { ...row, is_active: next } : row)),
+    );
+    const res = await fetch(`/api/estimate-templates/${t.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: next }),
+    });
+    if (!res.ok) {
+      toast.error("Failed to update");
+      void load();
+    }
   }
 
   return (
@@ -52,6 +60,15 @@ export default function TemplateListClient() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {rows.map((t) => (
           <div key={t.id} className={`rounded-lg border border-border p-4 ${t.is_active ? "" : "opacity-60"}`}>
+            <label className="inline-flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={t.is_active}
+                onChange={(e) => handleToggleActive(t, e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-[var(--brand-primary)]"
+              />
+              <span className="text-xs text-muted-foreground">Active</span>
+            </label>
             <h3 className="font-semibold">{t.name}</h3>
             <div className="text-xs text-muted-foreground mt-1">
               {t.damage_type_tags.map((dt) => <span key={dt} className="mr-1 inline-block px-2 py-0.5 rounded bg-blue-100">{dt}</span>)}
@@ -71,13 +88,6 @@ export default function TemplateListClient() {
                 Edit
               </Link>
               <Button variant="ghost" size="sm" disabled title="Coming soon">Duplicate</Button>
-              {t.is_active
-                ? <Button variant="ghost" size="sm" onClick={() => handleDeactivate(t.id)}>Deactivate</Button>
-                : <Button variant="ghost" size="sm" onClick={async () => {
-                    await fetch(`/api/estimate-templates/${t.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: true }) });
-                    void load();
-                  }}>Reactivate</Button>
-              }
             </div>
           </div>
         ))}

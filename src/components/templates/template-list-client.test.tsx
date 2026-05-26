@@ -102,8 +102,6 @@ function calledWith(
 beforeEach(() => {
   vi.clearAllMocks();
   navState.pushCalls = [];
-  // Disable confirm() so handleDeactivate runs through.
-  vi.stubGlobal("confirm", () => true);
 });
 
 describe("TemplateListClient — styling fix (#284)", () => {
@@ -136,9 +134,6 @@ describe("TemplateListClient — styling fix (#284)", () => {
 
     const duplicate = screen.getByRole("button", { name: /duplicate/i });
     expect(duplicate.getAttribute("data-slot")).toBe("button");
-
-    const deactivate = screen.getByRole("button", { name: /deactivate/i });
-    expect(deactivate.getAttribute("data-slot")).toBe("button");
   });
 
   it("renders \"+ New Template\" as the default solid <Button> (primary)", async () => {
@@ -192,27 +187,81 @@ describe("TemplateListClient — styling fix (#284)", () => {
   });
 });
 
-describe("TemplateListClient — behavior unchanged (#284 regression guards)", () => {
-  it("Deactivate fires DELETE /api/estimate-templates/:id on an active template", async () => {
-    const fetchSpy = stubFetch([makeTemplate({ id: "tmpl-1" })]);
+describe("TemplateListClient — inline Active checkbox (#285)", () => {
+  it("renders an inline 'Active' checkbox per card, checked when is_active", async () => {
+    stubFetch([makeTemplate({ id: "tmpl-1", name: "Roof Replacement", is_active: true })]);
 
     render(<TemplateListClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /deactivate/i }));
+    const checkbox = (await screen.findByRole("checkbox", {
+      name: /active/i,
+    })) as HTMLInputElement;
+    expect(checkbox.type).toBe("checkbox");
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("renders the checkbox unchecked when is_active is false", async () => {
+    stubFetch([makeTemplate({ id: "tmpl-2", name: "Hail", is_active: false })]);
+
+    render(<TemplateListClient />);
+
+    const checkbox = (await screen.findByRole("checkbox", {
+      name: /active/i,
+    })) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("no longer renders Deactivate or Reactivate buttons", async () => {
+    stubFetch([
+      makeTemplate({ id: "tmpl-1" }),
+      makeTemplate({ id: "tmpl-2", name: "Hail", is_active: false }),
+    ]);
+
+    render(<TemplateListClient />);
+
+    await screen.findByText("Roof Replacement");
+
+    expect(screen.queryByRole("button", { name: /deactivate/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reactivate/i })).toBeNull();
+  });
+
+  it("toggling an active card's checkbox PUTs { is_active: false }", async () => {
+    const fetchSpy = stubFetch([makeTemplate({ id: "tmpl-1", is_active: true })]);
+
+    render(<TemplateListClient />);
+
+    const checkbox = (await screen.findByRole("checkbox", {
+      name: /active/i,
+    })) as HTMLInputElement;
+
+    fireEvent.click(checkbox);
 
     await waitFor(() => {
-      expect(calledWith(fetchSpy, "/api/estimate-templates/tmpl-1", "DELETE")).toBe(true);
+      const putCall = fetchSpy.mock.calls.find(
+        (c) =>
+          c[0] === "/api/estimate-templates/tmpl-1" &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(putCall).toBeDefined();
+      const body = JSON.parse(
+        (putCall![1] as RequestInit).body as string,
+      ) as { is_active: boolean };
+      expect(body.is_active).toBe(false);
     });
   });
 
-  it("Reactivate fires PUT /api/estimate-templates/:id with { is_active: true }", async () => {
+  it("toggling an inactive card's checkbox PUTs { is_active: true }", async () => {
     const fetchSpy = stubFetch([
       makeTemplate({ id: "tmpl-2", name: "Hail", is_active: false }),
     ]);
 
     render(<TemplateListClient />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /reactivate/i }));
+    const checkbox = (await screen.findByRole("checkbox", {
+      name: /active/i,
+    })) as HTMLInputElement;
+
+    fireEvent.click(checkbox);
 
     await waitFor(() => {
       const putCall = fetchSpy.mock.calls.find(
@@ -228,6 +277,26 @@ describe("TemplateListClient — behavior unchanged (#284 regression guards)", (
     });
   });
 
+  it("after toggling an active card off, the card gains the opacity-60 fade without a reload", async () => {
+    stubFetch([makeTemplate({ id: "tmpl-1", is_active: true })]);
+
+    const { container } = render(<TemplateListClient />);
+
+    const checkbox = (await screen.findByRole("checkbox", {
+      name: /active/i,
+    })) as HTMLInputElement;
+
+    expect(container.querySelector(".opacity-60")).toBeNull();
+
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(container.querySelector(".opacity-60")).not.toBeNull();
+    });
+  });
+});
+
+describe("TemplateListClient — behavior unchanged (regression guards)", () => {
   it("+ New Template POSTs and pushes the edit route for the new template", async () => {
     const fetchSpy = stubFetch([]);
 
