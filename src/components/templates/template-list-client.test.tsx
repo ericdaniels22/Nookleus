@@ -296,6 +296,85 @@ describe("TemplateListClient — inline Active checkbox (#285)", () => {
   });
 });
 
+describe("TemplateListClient — trash icon hard-delete (#286)", () => {
+  it("renders a trash icon button per card with destructive hover styling", async () => {
+    stubFetch([
+      makeTemplate({ id: "tmpl-1", name: "Roof Replacement" }),
+      makeTemplate({ id: "tmpl-2", name: "Hail" }),
+    ]);
+
+    render(<TemplateListClient />);
+
+    const trashButtons = await screen.findAllByRole("button", {
+      name: /delete template/i,
+    });
+    expect(trashButtons).toHaveLength(2);
+    for (const btn of trashButtons) {
+      expect(btn.className).toMatch(/hover:text-destructive/);
+    }
+  });
+
+  it("clicking the trash icon opens a confirm dialog displaying the template name", async () => {
+    stubFetch([makeTemplate({ id: "tmpl-1", name: "Roof Replacement" })]);
+
+    render(<TemplateListClient />);
+
+    const trash = await screen.findByRole("button", { name: /delete template/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(trash);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toMatch(/Roof Replacement/);
+  });
+
+  it("cancelling the dialog closes it without firing any request", async () => {
+    const fetchSpy = stubFetch([makeTemplate({ id: "tmpl-1", name: "Roof Replacement" })]);
+
+    render(<TemplateListClient />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /delete template/i }));
+    await screen.findByRole("dialog");
+
+    const callCountBefore = fetchSpy.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    // No new fetch calls fired between opening the dialog and cancelling.
+    expect(fetchSpy.mock.calls.length).toBe(callCountBefore);
+  });
+
+  it("confirming fires DELETE /api/estimate-templates/<id> and removes the row", async () => {
+    const fetchSpy = stubFetch([
+      makeTemplate({ id: "tmpl-1", name: "Roof Replacement" }),
+      makeTemplate({ id: "tmpl-2", name: "Hail" }),
+    ]);
+
+    render(<TemplateListClient />);
+
+    const trashButtons = await screen.findAllByRole("button", {
+      name: /delete template/i,
+    });
+    fireEvent.click(trashButtons[0]);
+
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => {
+      expect(
+        calledWith(fetchSpy, "/api/estimate-templates/tmpl-1", "DELETE"),
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Roof Replacement")).toBeNull();
+    });
+    expect(screen.getByText("Hail")).toBeDefined();
+  });
+});
+
 describe("TemplateListClient — behavior unchanged (regression guards)", () => {
   it("+ New Template POSTs and pushes the edit route for the new template", async () => {
     const fetchSpy = stubFetch([]);

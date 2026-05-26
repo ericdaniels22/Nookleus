@@ -188,18 +188,10 @@ export async function updateTemplate(
   return data;
 }
 
-export async function deactivateTemplate(supabase: SupabaseClient, id: string): Promise<void> {
+export async function hardDeleteTemplate(supabase: SupabaseClient, id: string): Promise<void> {
   const { error } = await supabase
     .from("estimate_templates")
-    .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
-}
-
-export async function reactivateTemplate(supabase: SupabaseClient, id: string): Promise<void> {
-  const { error } = await supabase
-    .from("estimate_templates")
-    .update({ is_active: true, updated_at: new Date().toISOString() })
+    .delete()
     .eq("id", id);
   if (error) throw error;
 }

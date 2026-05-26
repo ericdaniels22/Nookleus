@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { DeleteTemplateConfirmDialog } from "./delete-template-confirm-dialog";
 import type { EstimateTemplate } from "@/lib/types";
 
 export default function TemplateListClient() {
   const router = useRouter();
   const [rows, setRows] = useState<EstimateTemplate[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<EstimateTemplate | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/estimate-templates?_`);
@@ -51,6 +55,25 @@ export default function TemplateListClient() {
     }
   }
 
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/estimate-templates/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        toast.error("Failed to delete template");
+        return;
+      }
+      setRows((prev) => prev.filter((row) => row.id !== id));
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-4">
@@ -79,15 +102,27 @@ export default function TemplateListClient() {
             <div className="text-xs text-muted-foreground mt-1">
               Edited {new Date(t.updated_at).toLocaleDateString()}
             </div>
-            <div className="mt-3 flex gap-2 text-sm">
-              <Link
-                href={`/settings/estimate-templates/${t.id}/edit`}
-                data-slot="button"
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <div className="flex gap-2">
+                <Link
+                  href={`/settings/estimate-templates/${t.id}/edit`}
+                  data-slot="button"
+                  className={buttonVariants({ variant: "ghost", size: "sm" })}
+                >
+                  Edit
+                </Link>
+                <Button variant="ghost" size="sm" disabled title="Coming soon">Duplicate</Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Delete template"
+                title="Delete template"
+                className="hover:text-destructive"
+                onClick={() => setDeleteTarget(t)}
               >
-                Edit
-              </Link>
-              <Button variant="ghost" size="sm" disabled title="Coming soon">Duplicate</Button>
+                <Trash2 />
+              </Button>
             </div>
           </div>
         ))}
@@ -97,6 +132,13 @@ export default function TemplateListClient() {
           No templates yet. Click &quot;+ New Template&quot; to create one.
         </div>
       )}
+      <DeleteTemplateConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        templateName={deleteTarget?.name ?? ""}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }
