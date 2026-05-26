@@ -1607,41 +1607,24 @@ export function EstimateBuilder({
     }
 
     if (activeType === "line-item") {
-      // Cross-section/cross-subsection drags: snap back.
-      const activeParentSectionId = active.data.current?.parentSectionId as string | undefined;
-      const overParentSectionId = over.data.current?.parentSectionId as string | undefined;
-      if (activeParentSectionId !== overParentSectionId) return; // snap back
+      // Cross-container Line item drag (#266). Helpers from #264 handle the
+      // four cross-container shapes, same-container reorder, drop-on-self, and
+      // invalid input. The estimate line-items reorder route already supports
+      // cross-container moves (validates each section_id belongs to this
+      // estimate, then updates section_id + sort_order per item), so the
+      // payload covers every item in BOTH the source and destination
+      // containers.
+      const dest = resolveLineItemDropTarget(over);
+      if (!dest) return;
+      const result = moveLineItemAcrossContainers(
+        state.entity.data.sections,
+        String(active.id),
+        dest.destinationContainerId,
+        dest.overItemId ?? null,
+      );
+      if (!result) return;
 
-      // Compute outside setState — synchronous event handler, state is current.
-      let reorderedItems: import("@/lib/types").EstimateLineItem[] = [];
-      const reorderedSections = state.entity.data.sections.map((s) => {
-        // Check direct items
-        if (s.id === activeParentSectionId) {
-          const items = s.items;
-          const oldIdx = items.findIndex((i) => i.id === active.id);
-          const newIdx = items.findIndex((i) => i.id === over.id);
-          if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return s;
-          reorderedItems = arrayMove(items, oldIdx, newIdx);
-          return { ...s, items: reorderedItems };
-        }
-        // Check subsection items
-        return {
-          ...s,
-          subsections: s.subsections.map((sub) => {
-            if (sub.id !== activeParentSectionId) return sub;
-            const items = sub.items;
-            const oldIdx = items.findIndex((i) => i.id === active.id);
-            const newIdx = items.findIndex((i) => i.id === over.id);
-            if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return sub;
-            reorderedItems = arrayMove(items, oldIdx, newIdx);
-            return { ...sub, items: reorderedItems };
-          }),
-        };
-      });
-
-      if (reorderedItems.length === 0) return; // no valid reorder found
-
-      const snapshot = state.entity.data; // capture before setState
+      const snapshot = state.entity.data;
 
       setState((prev) => {
         if (prev.entity.kind !== "estimate") return prev;
@@ -1649,18 +1632,15 @@ export function EstimateBuilder({
           ...prev,
           entity: {
             ...prev.entity,
-            data: {
-              ...prev.entity.data,
-              sections: reorderedSections,
-            },
+            data: { ...prev.entity.data, sections: result.sections },
           },
         };
       });
 
-      const itemPayload = reorderedItems.map((item, idx) => ({
-        id: item.id,
-        section_id: item.section_id,
-        sort_order: idx,
+      const itemPayload = result.affectedItems.map((it) => ({
+        id: it.id,
+        section_id: it.section_id,
+        sort_order: it.sort_order,
       }));
 
       void saveLineItemsReorder(itemPayload).then((ok) => {
