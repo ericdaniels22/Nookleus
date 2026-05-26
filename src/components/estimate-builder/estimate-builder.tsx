@@ -1439,35 +1439,21 @@ export function EstimateBuilder({
       }
 
       if (activeType === "line-item") {
-        const activeParentSectionId = active.data.current?.parentSectionId as string | undefined;
-        const overParentSectionId = over.data.current?.parentSectionId as string | undefined;
-        if (activeParentSectionId !== overParentSectionId) return;
-
-        let reorderedItems: import("@/lib/types").InvoiceLineItem[] = [];
-        const reorderedSections = state.entity.data.sections.map((s) => {
-          if (s.id === activeParentSectionId) {
-            const items = s.items;
-            const oldIdx = items.findIndex((i) => i.id === active.id);
-            const newIdx = items.findIndex((i) => i.id === over.id);
-            if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return s;
-            reorderedItems = arrayMove(items, oldIdx, newIdx);
-            return { ...s, items: reorderedItems };
-          }
-          return {
-            ...s,
-            subsections: s.subsections.map((sub) => {
-              if (sub.id !== activeParentSectionId) return sub;
-              const items = sub.items;
-              const oldIdx = items.findIndex((i) => i.id === active.id);
-              const newIdx = items.findIndex((i) => i.id === over.id);
-              if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return sub;
-              reorderedItems = arrayMove(items, oldIdx, newIdx);
-              return { ...sub, items: reorderedItems };
-            }),
-          };
-        });
-
-        if (reorderedItems.length === 0) return;
+        // Cross-container Line item drag (#267). Helpers from #264 handle the
+        // four cross-container shapes, same-container reorder, drop-on-self,
+        // and invalid input. The invoice line-items reorder route (with the
+        // body.items field fix from #265) updates section_id + sort_order
+        // per item, so the payload covers every item in BOTH the source and
+        // destination containers.
+        const dest = resolveLineItemDropTarget(over);
+        if (!dest) return;
+        const result = moveLineItemAcrossContainers(
+          state.entity.data.sections,
+          String(active.id),
+          dest.destinationContainerId,
+          dest.overItemId ?? null,
+        );
+        if (!result) return;
 
         const snapshot = state.entity.data;
 
@@ -1477,20 +1463,23 @@ export function EstimateBuilder({
             ...prev,
             entity: {
               ...prev.entity,
-              data: { ...prev.entity.data, sections: reorderedSections },
+              data: { ...prev.entity.data, sections: result.sections },
             },
           };
         });
 
-        // InvoiceLineItem.section_id is `string | null`; the reorder route
-        // requires string. Filter the null case defensively, though the
-        // builder UI never produces orphan items.
-        const itemPayload = reorderedItems
-          .filter((item): item is typeof item & { section_id: string } => item.section_id !== null)
-          .map((item, idx) => ({
-            id: item.id,
-            section_id: item.section_id,
-            sort_order: idx,
+        // InvoiceLineItem.section_id is `string | null` in the type system
+        // (unlike EstimateLineItem's `string`), though the builder UI never
+        // produces orphan items. Preserve the defensive filter — affected
+        // items returned by the helper always carry a string section_id
+        // (the helper sets section_id = destinationContainerId), so this
+        // filter is a no-op in practice but keeps the type narrowing tight.
+        const itemPayload = result.affectedItems
+          .filter((it): it is typeof it & { section_id: string } => it.section_id !== null)
+          .map((it) => ({
+            id: it.id,
+            section_id: it.section_id,
+            sort_order: it.sort_order,
           }));
 
         void saveLineItemsReorder(itemPayload).then((ok) => {
