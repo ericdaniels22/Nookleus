@@ -444,7 +444,16 @@ export default function CameraView({
       )}
 
       {showLeaveConfirm && (
-        <div className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/70 px-6">
+        <div
+          data-testid="leave-confirm"
+          data-mode={layout.mode}
+          className={cn(
+            "absolute z-[1030] flex items-center justify-center bg-black/70",
+            stacked
+              ? "inset-0 px-6"
+              : "inset-y-0 right-0 w-80 max-w-[60%] px-4",
+          )}
+        >
           <div className="w-full max-w-sm rounded-2xl bg-black p-6 text-white">
             <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
             <p className="mb-6 text-sm text-white/85">
@@ -472,6 +481,8 @@ export default function CameraView({
 
       {settingsOpen && (
         <div
+          data-testid="settings-sheet"
+          data-mode={layout.mode}
           className={cn(
             "absolute z-[1020] bg-black/95 px-5 backdrop-blur",
             stacked
@@ -497,6 +508,8 @@ export default function CameraView({
 
       {pendingTag && (
         <div
+          data-testid="tag-sheet"
+          data-mode={layout.mode}
           className={cn(
             "absolute z-[1010] bg-black/95 px-5 backdrop-blur",
             stacked
