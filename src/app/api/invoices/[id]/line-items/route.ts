@@ -133,7 +133,7 @@ export const POST = withRequestContext(
 );
 
 interface PutBody {
-  reorder: Array<{
+  items: Array<{
     id: string;
     section_id: string;
     sort_order: number;
@@ -155,8 +155,8 @@ export const PUT = withRequestContext(
     if (trashedPut) return trashedPut;
 
     const body = (await request.json().catch(() => null)) as PutBody | null;
-    if (!body || !Array.isArray(body.reorder)) {
-      return NextResponse.json({ error: "reorder array required" }, { status: 400 });
+    if (!body || !Array.isArray(body.items)) {
+      return NextResponse.json({ error: "items array required" }, { status: 400 });
     }
 
     try {
@@ -169,17 +169,17 @@ export const PUT = withRequestContext(
       }
 
       // Pre-validate every section_id belongs to this invoice (defense-in-depth — RLS catches cross-org)
-      const sectionIds = Array.from(new Set(body.reorder.map((r) => r.section_id)));
+      const sectionIds = Array.from(new Set(body.items.map((r) => r.section_id)));
       const { data: sections } = await supabase
         .from("invoice_sections").select("id").in("id", sectionIds).eq("invoice_id", id);
       const validIds = new Set((sections ?? []).map((s) => s.id));
-      for (const r of body.reorder) {
+      for (const r of body.items) {
         if (!validIds.has(r.section_id)) {
           return NextResponse.json({ error: "section_not_in_invoice", section_id: r.section_id }, { status: 400 });
         }
       }
 
-      for (const r of body.reorder) {
+      for (const r of body.items) {
         const { error } = await supabase
           .from("invoice_line_items")
           .update({ section_id: r.section_id, sort_order: r.sort_order })
