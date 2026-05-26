@@ -66,6 +66,27 @@ of thing. The settings UI groups these together because they share a shape
 being sent.
 _Avoid_: send config, mail rule, payment email / invoice email / contract email (use "Outgoing email for X")
 
+**Section**:
+A top-level grouping inside an Estimate, Invoice, or Estimate template.
+Has a title, a sort order, and directly contains zero or more Subsections
+and/or Line items. Distinguished from a Subsection by having a null
+parent reference.
+_Avoid_: top-level section, group, category
+
+**Subsection**:
+A second-level grouping that lives inside one Section. One level deep
+only — a Subsection cannot itself contain Subsections. Holds zero or
+more Line items.
+_Avoid_: nested section, child section, sub-group
+
+**Line item**:
+A single billable row — name, description, code, quantity, unit, unit
+price, total. Belongs to exactly one Section or exactly one Subsection;
+which one it belongs to is held in a single polymorphic reference, so a
+Line item can be moved between a Section and a Subsection (or between
+any two such receptacles) without changing what kind of thing it is.
+_Avoid_: line, item, row, entry
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
@@ -73,6 +94,9 @@ _Avoid_: send config, mail rule, payment email / invoice email / contract email 
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
 - An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
 - An **Outgoing email** belongs to one **Organization** and names exactly one **Email account** (the mailbox the document is sent from). There is one Outgoing email per document kind per Organization.
+- A **Section** belongs to one Estimate, Invoice, or Estimate template; it directly contains zero or more **Subsections** and zero or more **Line items**.
+- A **Subsection** belongs to exactly one **Section**; it directly contains zero or more **Line items**.
+- A **Line item** belongs to exactly one **Section** or exactly one **Subsection** — never both, never neither.
 
 ## Example dialogue
 
