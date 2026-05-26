@@ -11,6 +11,7 @@ import {
 } from "@/lib/jarvis/attachments/storage";
 import { ANTHROPIC_FILES_BETA } from "@/lib/jarvis/attachments/anthropic-files";
 import { withPromptCache } from "@/lib/jarvis/prompt-cache";
+import { JARVIS_JOB_CONTEXT_EMBED } from "@/lib/embeds/jobs-contacts";
 import type { JarvisAttachment } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -106,7 +107,7 @@ async function executeFieldOpsTool(
         // Get job with contact info
         const { data: job, error: jobError } = await supabase
           .from("jobs")
-          .select("*, contact:contacts!contact_id(*), job_adjusters(*, adjuster:contacts!contact_id(*))")
+          .select(JARVIS_JOB_CONTEXT_EMBED)
           .eq("id", jobId)
           .single();
 

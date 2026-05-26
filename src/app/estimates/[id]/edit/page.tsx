@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { EstimateBuilder } from "@/components/estimate-builder/estimate-builder";
+import { JOB_WITH_HOMEOWNER_EMBED } from "@/lib/embeds/jobs-contacts";
 import type { Contact, Job } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ export default async function EstimateEditPage({
   //    Destructure error separately (Task 19 lesson: don't swallow lookup errors).
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("*, contact:contacts!contact_id(*)")
+    .select(JOB_WITH_HOMEOWNER_EMBED)
     .eq("id", estimate.job_id)
     .maybeSingle<Job & { contact: Contact | null }>();
 

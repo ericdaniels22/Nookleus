@@ -1,0 +1,50 @@
+# Supabase local-stack config for the integration harness (#283).
+#
+# Production config is managed in the Supabase dashboard; this file
+# only exists so `supabase start` can boot a local stack for
+# `npm run test:integration`. Most services are disabled because the
+# harness only needs Postgres + PostgREST (the embed disambiguation
+# bug class lives in PostgREST). Studio / Storage / Realtime / Edge
+# Functions add boot time without changing what's under test.
+
+project_id = "nookleus"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = false
+
+[realtime]
+enabled = false
+
+[studio]
+enabled = false
+
+[storage]
+enabled = false
+
+[auth]
+# Kept enabled so the service-role key the CLI prints is a valid JWT
+# signed by the local jwt secret. The test client uses
+# `persistSession: false`, so we never actually exercise the auth flows.
+enabled = true
+site_url = "http://localhost:3000"
+
+[edge_runtime]
+enabled = false
+
+[functions]
+enabled = false
+
+[analytics]
+enabled = false

@@ -10,6 +10,7 @@ import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
+import { JOB_WITH_HOMEOWNER_EMBED } from "@/lib/embeds/jobs-contacts";
 import type {
   Contact,
   EstimateLineItem,
@@ -125,7 +126,7 @@ export default async function EstimateViewPage({
   //    Destructure error separately (Task 19 lesson).
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("*, contact:contacts!contact_id(*)")
+    .select(JOB_WITH_HOMEOWNER_EMBED)
     .eq("id", estimate.job_id)
     .maybeSingle<Job & { contact: Contact | null }>();
 
