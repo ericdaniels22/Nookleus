@@ -11,7 +11,8 @@
 // every state change is a deliberate user action.
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Handshake } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Handshake, Trash2 } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/phone";
 import {
   CALL_OUTCOMES,
@@ -266,6 +267,8 @@ export function ReferralPartnerWorksheet({
   // update it optimistically on click so the user sees the new label
   // without a reload (PRD #249 #28, issue #253 AC #2 & #3).
   const [status, setStatus] = useState<LifecycleStatus>(partner.status);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   // Local contacts state so the inline + Add contact form can prepend a
   // new Referral Contact and surface it in the list, the Primary contact
@@ -292,6 +295,33 @@ export function ReferralPartnerWorksheet({
     [partner.id, status],
   );
 
+  // Soft-delete the Referral Partner: confirm, POST /delete, then return
+  // the user to the list page. The partner disappears from the default
+  // list (which filters `deleted_at IS NULL`) and reappears in Trash
+  // (issue #256).
+  const onDelete = useCallback(async () => {
+    if (deleting) return;
+    if (
+      !confirm(
+        `Move "${partner.company_name}" to the Trash? You'll have 30 days to restore it before it's permanently deleted.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    const res = await fetch(
+      `/api/referral-partners/${partner.id}/delete`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      setDeleting(false);
+      alert("Couldn't delete this Referral Partner.");
+      return;
+    }
+    router.push("/referral-partners");
+    router.refresh();
+  }, [deleting, partner.company_name, partner.id, router]);
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* ── HEADER ─────────────────────────────────────────────────────── */}
@@ -307,6 +337,17 @@ export function ReferralPartnerWorksheet({
           >
             {STATUS_LABEL[status]}
           </span>
+          <button
+            type="button"
+            data-testid="worksheet-delete-button"
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label="Delete Referral Partner"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
         </div>
 
         {/* ── LIFECYCLE STATUS FLIP BUTTONS ────────────────────────────── */}

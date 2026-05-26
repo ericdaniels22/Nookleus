@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Handshake, Plus, Search } from "lucide-react";
+import { Handshake, Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import NewTargetDialog from "@/components/referral-partners/new-target-dialog";
 import {
   distinctIndustries,
@@ -20,6 +20,8 @@ import {
   type LifecycleStatus,
 } from "@/lib/referral-partner-filter";
 import type { CallOutcome } from "@/lib/referral-partner-call";
+
+const RETENTION_DAYS = 30;
 
 interface ReferralPartner {
   id: string;
@@ -29,6 +31,7 @@ interface ReferralPartner {
   last_called_at: string | null;
   last_call_outcome: CallOutcome | null;
   next_follow_up_at: string | null;
+  deleted_at?: string | null;
 }
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
@@ -67,11 +70,17 @@ const STATUS_LABEL: Record<LifecycleStatus, string> = {
 
 const ALL_STATUSES: ReadonlyArray<LifecycleStatus> = ["grey", "yellow", "green", "red"];
 
+type View = "active" | "trash";
+
 export default function ReferralPartnersPage() {
   const [partners, setPartners] = useState<ReferralPartner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Active vs Trash view (issue #256). Mirrors the Build 66 jobs pattern —
+  // a single tab toggle on the list page swaps which endpoint feeds the
+  // rows. No separate route segment.
+  const [view, setView] = useState<View>("active");
 
   // Filter state — every chip on by default so the user sees everything
   // before narrowing. Industry and query empty until the user picks one.
@@ -84,7 +93,11 @@ export default function ReferralPartnersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const res = await fetch("/api/referral-partners");
+    const endpoint =
+      view === "trash"
+        ? "/api/referral-partners/trash"
+        : "/api/referral-partners";
+    const res = await fetch(endpoint);
     if (!res.ok) {
       setError(res.status === 403 ? "You don't have access to Referral Partners." : "Could not load partners.");
       setLoading(false);
@@ -93,7 +106,7 @@ export default function ReferralPartnersPage() {
     const body = await res.json();
     setPartners(body.referral_partners ?? []);
     setLoading(false);
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     void load();
@@ -101,14 +114,19 @@ export default function ReferralPartnersPage() {
 
   const industries = useMemo(() => distinctIndustries(partners), [partners]);
 
+  // Trash uses the API's own ordering (deleted_at desc) and bypasses the
+  // status/industry/query filters — Trash is its own slice of the dataset
+  // and gets a different row treatment (with Restore + Delete forever).
   const visiblePartners = useMemo(
     () =>
-      filterReferralPartners(partners, {
-        status: Array.from(activeStatuses),
-        industry,
-        query,
-      }),
-    [partners, activeStatuses, industry, query],
+      view === "trash"
+        ? partners
+        : filterReferralPartners(partners, {
+            status: Array.from(activeStatuses),
+            industry,
+            query,
+          }),
+    [view, partners, activeStatuses, industry, query],
   );
 
   const toggleStatus = (s: LifecycleStatus) => {
@@ -127,16 +145,51 @@ export default function ReferralPartnersPage() {
           <Handshake size={24} className="text-primary" />
           <h1 className="text-2xl font-heading font-semibold">Referral Partners</h1>
         </div>
-        <button
-          onClick={() => setDialogOpen(true)}
-          className="btn btn-primary inline-flex items-center gap-2"
-        >
-          <Plus size={16} />
-          Add Target
-        </button>
+        {view === "active" && (
+          <button
+            onClick={() => setDialogOpen(true)}
+            className="btn btn-primary inline-flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add Target
+          </button>
+        )}
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      {/* ── View tabs (Active / Trash) — issue #256 ─────────────────────── */}
+      <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "active"}
+          onClick={() => setView("active")}
+          className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+            view === "active"
+              ? "bg-primary text-primary-foreground"
+              : "bg-card border border-border text-foreground hover:bg-muted/40"
+          }`}
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          role="tab"
+          data-testid="referral-partners-trash-tab"
+          aria-selected={view === "trash"}
+          onClick={() => setView("trash")}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+            view === "trash"
+              ? "bg-primary text-primary-foreground"
+              : "bg-card border border-border text-foreground hover:bg-muted/40"
+          }`}
+        >
+          <Trash2 size={14} />
+          Trash
+        </button>
+      </div>
+
+      {view === "active" && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
         <div
           className="flex flex-wrap items-center gap-2"
           role="group"
@@ -183,12 +236,23 @@ export default function ReferralPartnersPage() {
             className="w-full rounded-md border border-border bg-card pl-7 pr-2 py-1 text-sm"
           />
         </label>
-      </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : error ? (
         <p className="text-sm text-destructive" role="alert">{error}</p>
+      ) : view === "trash" ? (
+        visiblePartners.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Trash is empty.</p>
+        ) : (
+          <div className="space-y-3">
+            {visiblePartners.map((p) => (
+              <TrashRow key={p.id} partner={p} onChange={load} />
+            ))}
+          </div>
+        )
       ) : partners.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No partners yet. Click <strong>Add Target</strong> to start your cold-call list.
@@ -245,6 +309,109 @@ export default function ReferralPartnersPage() {
         onOpenChange={setDialogOpen}
         onCreated={() => void load()}
       />
+    </div>
+  );
+}
+
+// One Trash row — mirrors the Build 66 jobs Trash row shape so the platform
+// has one Trash visual language across surfaces. Restore nulls `deleted_at`;
+// "Delete forever" hard-deletes (FK CASCADE on calls + SET NULL on contacts).
+function TrashRow({
+  partner,
+  onChange,
+}: {
+  partner: ReferralPartner;
+  onChange: () => void;
+}) {
+  const [busy, setBusy] = useState<"restore" | "purge" | null>(null);
+
+  // Capture "now" at mount so the rendered "N days until permanent delete"
+  // is stable across re-renders — same pattern as JobsPage TrashRow.
+  const [mountedAt] = useState(() => Date.now());
+  const daysRemaining = partner.deleted_at
+    ? Math.max(
+        0,
+        RETENTION_DAYS -
+          Math.floor((mountedAt - new Date(partner.deleted_at).getTime()) / 86_400_000),
+      )
+    : null;
+
+  async function handleRestore() {
+    setBusy("restore");
+    const res = await fetch(
+      `/api/referral-partners/${partner.id}/restore`,
+      { method: "POST" },
+    );
+    setBusy(null);
+    if (!res.ok) {
+      alert("Couldn't restore Referral Partner");
+      return;
+    }
+    onChange();
+  }
+
+  async function handlePurge() {
+    if (
+      !confirm(
+        `Permanently delete "${partner.company_name}" and all its Call log entries? Linked contacts will be preserved but unlinked. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBusy("purge");
+    const res = await fetch(`/api/referral-partners/${partner.id}`, {
+      method: "DELETE",
+    });
+    setBusy(null);
+    if (!res.ok) {
+      alert("Couldn't delete Referral Partner");
+      return;
+    }
+    onChange();
+  }
+
+  return (
+    <div
+      data-testid={`referral-partners-trash-row-${partner.id}`}
+      className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-base font-semibold text-foreground truncate">
+          {partner.company_name}
+        </p>
+        {partner.industry && (
+          <p className="text-sm text-muted-foreground truncate">{partner.industry}</p>
+        )}
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          {daysRemaining !== null
+            ? daysRemaining === 0
+              ? "Auto-purges today"
+              : `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} until permanent deletion`
+            : null}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          data-testid={`referral-partners-trash-restore-${partner.id}`}
+          onClick={handleRestore}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          {busy === "restore" ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+          Restore
+        </button>
+        <button
+          type="button"
+          data-testid={`referral-partners-trash-purge-${partner.id}`}
+          onClick={handlePurge}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"
+        >
+          {busy === "purge" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+          Delete forever
+        </button>
+      </div>
     </div>
   );
 }

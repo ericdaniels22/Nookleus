@@ -4,6 +4,31 @@ import { apiDbError } from "@/lib/api-errors";
 import { buildEditPayload } from "@/lib/referral-partner-edit";
 import { EDIT_REFERRAL_PARTNERS } from "@/lib/referral-partners/permission";
 
+// DELETE /api/referral-partners/[id] — hard-delete (force-purge) a Referral
+// Partner. The "Delete forever" button on the Trash row is the only UI
+// caller; the lazy 30-day sweep in /api/referral-partners/trash issues the
+// same DELETE against `referral_partners` directly. Both rely on the same
+// FK behaviour: `referral_partner_calls` cascade, `contacts.referral_
+// partner_id` set to NULL (the contact rows survive). See PRD #249 user
+// story #23 and the build78 migration.
+//
+// Gated on EDIT_REFERRAL_PARTNERS — crew_member 403s.
+export const DELETE = withRequestContext(
+  EDIT_REFERRAL_PARTNERS,
+  async (_request, { supabase }, { params }: { params: Promise<{ id: string }> }) => {
+    const { id } = await params;
+
+    const { error } = await supabase
+      .from("referral_partners")
+      .delete()
+      .eq("id", id);
+    if (error) {
+      return apiDbError(error.message, "DELETE /api/referral-partners/[id]");
+    }
+    return NextResponse.json({ ok: true });
+  },
+);
+
 // PATCH /api/referral-partners/[id] — the Call Worksheet's edit endpoint
 // (PRD #249, issue #253). Updates one or more whitelisted columns on a
 // `referral_partners` row, plus the Lifecycle status. Gated on
