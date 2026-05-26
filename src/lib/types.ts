@@ -4,10 +4,24 @@ export interface Contact {
   full_name: string;
   phone: string | null;
   email: string | null;
-  role: "homeowner" | "tenant" | "property_manager" | "adjuster" | "insurance";
+  // `referral_contact` (PRD #249, issue #250 migration build78) identifies
+  // a contact that belongs to a Referral Partner company — surfaced on
+  // the Call Worksheet's "Contacts at this company" list and the
+  // Contacts tab's Referral Contact badge (issue #255).
+  role:
+    | "homeowner"
+    | "tenant"
+    | "property_manager"
+    | "adjuster"
+    | "insurance"
+    | "referral_contact";
   company: string | null;
   title: string | null;
   notes: string | null;
+  /** FK to a `referral_partners` row when role = 'referral_contact'. ON
+   *  DELETE SET NULL so a hard-deleted partner leaves its people behind
+   *  as orphans rather than dragging them out of /contacts. */
+  referral_partner_id?: string | null;
   created_at: string;
   updated_at: string;
 }
