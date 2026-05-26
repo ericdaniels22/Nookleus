@@ -1,18 +1,19 @@
-// Read-only Call Worksheet (PRD #249, issue #252).
-//
-// The page-level Server Component fetches a Referral Partner, its Primary
-// contact, its Owner contact, and every Referral Contact at the company, then
-// hands them to this presentational component. This slice ships *read-only*:
-// no editing, no Lifecycle-status flip buttons, no "Log a call" form, no
-// "+ Add contact" affordance. Those land in slices #4, #5, and #6.
+"use client";
 
+// Editable Call Worksheet (PRD #249, issues #252 base + #253 editable).
+//
+// The Server-Component page at /referral-partners/[id] fetches the
+// partner row, its Primary / Owner contacts, and the "Contacts at this
+// company" list, then hands them to this client component. The Worksheet
+// is editable in place: every column listed on issue #253 saves on blur,
+// and the header row of four Lifecycle status flip buttons writes the
+// new status with one click. No automated transitions of any kind —
+// every state change is a deliberate user action.
+
+import { useCallback, useRef, useState } from "react";
 import { Handshake } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/phone";
 
-// The columns from `referral_partners` this surface needs. The page fetches
-// the row with `select('*')` so the shape it hands in carries everything;
-// we name just the columns the Worksheet actually reads so the prop type
-// stays a contract rather than a free-for-all.
 export interface ReferralPartnerForWorksheet {
   id: string;
   organization_id: string;
@@ -31,10 +32,6 @@ export interface ReferralPartnerForWorksheet {
   owner_contact_id: string | null;
 }
 
-// The minimum fields the Worksheet needs from a linked Referral Contact —
-// name + phone + email — to render the Primary / Owner contact slots and
-// the "Contacts at this company" list. The underlying `contacts` row has
-// more columns; this is the read-only slice's view.
 export interface ReferralContactForWorksheet {
   id: string;
   full_name: string;
@@ -49,42 +46,107 @@ interface Props {
   contacts: ReferralContactForWorksheet[];
 }
 
-// Lifecycle-status display values. Mirrors the labels used on the list page
-// (`src/app/referral-partners/page.tsx`) so the chip reads the same string
-// the user already learned there.
-const STATUS_CHIP_CLASS: Record<ReferralPartnerForWorksheet["status"], string> = {
+type LifecycleStatus = ReferralPartnerForWorksheet["status"];
+
+const STATUS_CHIP_CLASS: Record<LifecycleStatus, string> = {
   grey: "bg-gray-200 text-gray-700",
   yellow: "bg-yellow-200 text-yellow-900",
   green: "bg-green-200 text-green-900",
   red: "bg-red-200 text-red-900",
 };
 
-const STATUS_LABEL: Record<ReferralPartnerForWorksheet["status"], string> = {
+const STATUS_BUTTON_CLASS: Record<LifecycleStatus, string> = {
+  grey: "bg-gray-200 text-gray-700 hover:bg-gray-300",
+  yellow: "bg-yellow-200 text-yellow-900 hover:bg-yellow-300",
+  green: "bg-green-200 text-green-900 hover:bg-green-300",
+  red: "bg-red-200 text-red-900 hover:bg-red-300",
+};
+
+const STATUS_LABEL: Record<LifecycleStatus, string> = {
   grey: "Uncontacted",
   yellow: "In progress",
   green: "Active",
   red: "Declined",
 };
 
-// One read-only label/value row used by both the company-info grid and the
-// contact-slot detail lines. Empty `value` is rendered as an em-dash so
-// missing columns are visually distinct from "Not set" (which is reserved
-// for the contact-slot empty state in PRD #249).
-function InfoRow({ label, value }: { label: string; value: string | null }) {
-  const display = value && value.trim().length > 0 ? value : "—";
+const STATUS_ORDER: ReadonlyArray<LifecycleStatus> = [
+  "grey",
+  "yellow",
+  "green",
+  "red",
+];
+
+// One editable text field. The Worksheet's edit pattern is save-on-blur:
+// the user types, the field shows the typed value, on blur we PATCH only
+// if the value changed. An identical-on-blur is a no-op (no empty saves,
+// no toasts on unchanged fields).
+function EditableField({
+  label,
+  partnerId,
+  column,
+  initial,
+  multiline,
+  formatOnBlur,
+}: {
+  label: string;
+  partnerId: string;
+  column: string;
+  initial: string | null;
+  multiline?: boolean;
+  formatOnBlur?: (v: string) => string;
+}) {
+  const [value, setValue] = useState(initial ?? "");
+  const baselineRef = useRef(initial ?? "");
+
+  const onBlur = async () => {
+    const formatted = formatOnBlur ? formatOnBlur(value) : value;
+    if (formatted !== value) setValue(formatted);
+    if (formatted === baselineRef.current) return;
+    baselineRef.current = formatted;
+    await fetch(`/api/referral-partners/${partnerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [column]: formatted }),
+    });
+  };
+
+  const inputClass =
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none";
+
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="flex flex-col gap-1">
+      <label
+        htmlFor={`worksheet-field-${column}`}
+        className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+      >
         {label}
-      </span>
-      <span className="text-sm text-foreground">{display}</span>
+      </label>
+      {multiline ? (
+        <textarea
+          id={`worksheet-field-${column}`}
+          aria-label={label}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={onBlur}
+          rows={3}
+          className={inputClass}
+        />
+      ) : (
+        <input
+          id={`worksheet-field-${column}`}
+          aria-label={label}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={onBlur}
+          className={inputClass}
+        />
+      )}
     </div>
   );
 }
 
-// One Primary or Owner contact slot. Shows the linked Referral Contact's
-// name + formatted phone + email when set; "Not set" otherwise (PRD #249
-// #19, #29; issue #252 acceptance criteria).
+// One Primary or Owner contact slot. Display-only in this slice — wiring
+// the linked-contact picker lands in a later slice (#6).
 function ContactSlot({
   testId,
   heading,
@@ -127,27 +189,69 @@ export function ReferralPartnerWorksheet({
   ownerContact,
   contacts,
 }: Props) {
-  const formattedOfficePhone = partner.office_phone
-    ? formatPhoneNumber(partner.office_phone)
-    : null;
+  // Local Lifecycle status drives the chip + active-button ring; we
+  // update it optimistically on click so the user sees the new label
+  // without a reload (PRD #249 #28, issue #253 AC #2 & #3).
+  const [status, setStatus] = useState<LifecycleStatus>(partner.status);
+
+  const flipStatus = useCallback(
+    async (next: LifecycleStatus) => {
+      if (next === status) return;
+      setStatus(next);
+      await fetch(`/api/referral-partners/${partner.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+    },
+    [partner.id, status],
+  );
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* ── HEADER ─────────────────────────────────────────────────────── */}
-      <header className="flex items-center gap-3">
-        <Handshake size={22} className="text-primary shrink-0" />
-        <h1 className="text-2xl font-heading font-semibold text-foreground">
-          {partner.company_name}
-        </h1>
-        <span
-          data-testid="worksheet-lifecycle-status-chip"
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[partner.status]}`}
+      <header className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Handshake size={22} className="text-primary shrink-0" />
+          <h1 className="text-2xl font-heading font-semibold text-foreground">
+            {partner.company_name}
+          </h1>
+          <span
+            data-testid="worksheet-lifecycle-status-chip"
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[status]}`}
+          >
+            {STATUS_LABEL[status]}
+          </span>
+        </div>
+
+        {/* ── LIFECYCLE STATUS FLIP BUTTONS ────────────────────────────── */}
+        {/* All four buttons are always visible — any status can transition
+            to any other status with one click. No automated transitions. */}
+        <div
+          data-testid="worksheet-lifecycle-flip-buttons"
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Lifecycle status"
         >
-          {STATUS_LABEL[partner.status]}
-        </span>
+          {STATUS_ORDER.map((s) => (
+            <button
+              key={s}
+              type="button"
+              data-testid={`worksheet-lifecycle-flip-${s}`}
+              aria-label={`Set Lifecycle status to ${STATUS_LABEL[s]}`}
+              aria-pressed={status === s}
+              onClick={() => flipStatus(s)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-shadow ${STATUS_BUTTON_CLASS[s]} ${
+                status === s ? "ring-2 ring-foreground/40" : ""
+              }`}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {/* ── COMPANY INFO ──────────────────────────────────────────────── */}
+      {/* ── COMPANY INFO (every column editable) ──────────────────────── */}
       <section
         data-testid="worksheet-company-info"
         className="rounded-lg border border-border bg-card px-5 py-4"
@@ -156,28 +260,77 @@ export function ReferralPartnerWorksheet({
           Company info
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          <InfoRow label="Industry" value={partner.industry} />
-          <InfoRow label="Lead source" value={partner.lead_source} />
-          <InfoRow label="Operation size" value={partner.operation_size} />
-          <InfoRow label="Office phone" value={formattedOfficePhone} />
-          <InfoRow label="Office email" value={partner.office_email} />
-          <InfoRow label="Website" value={partner.website} />
-          <InfoRow label="Address" value={partner.address} />
-          <InfoRow
-            label="Referral-fee terms"
-            value={partner.referral_fee_terms}
+          <EditableField
+            label="Company name"
+            partnerId={partner.id}
+            column="company_name"
+            initial={partner.company_name}
           />
-        </div>
-        {partner.notes && partner.notes.trim().length > 0 && (
-          <div className="mt-4 flex flex-col gap-0.5">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Notes
-            </span>
-            <p className="text-sm text-foreground whitespace-pre-wrap">
-              {partner.notes}
-            </p>
+          <EditableField
+            label="Industry"
+            partnerId={partner.id}
+            column="industry"
+            initial={partner.industry}
+          />
+          <EditableField
+            label="Lead source"
+            partnerId={partner.id}
+            column="lead_source"
+            initial={partner.lead_source}
+          />
+          <EditableField
+            label="Operation size"
+            partnerId={partner.id}
+            column="operation_size"
+            initial={partner.operation_size}
+          />
+          <EditableField
+            label="Office phone"
+            partnerId={partner.id}
+            column="office_phone"
+            initial={
+              partner.office_phone
+                ? formatPhoneNumber(partner.office_phone) ?? partner.office_phone
+                : null
+            }
+            formatOnBlur={(v) => formatPhoneNumber(v) ?? v}
+          />
+          <EditableField
+            label="Office email"
+            partnerId={partner.id}
+            column="office_email"
+            initial={partner.office_email}
+          />
+          <EditableField
+            label="Website"
+            partnerId={partner.id}
+            column="website"
+            initial={partner.website}
+          />
+          <EditableField
+            label="Address"
+            partnerId={partner.id}
+            column="address"
+            initial={partner.address}
+          />
+          <div className="sm:col-span-2">
+            <EditableField
+              label="Referral-fee terms"
+              partnerId={partner.id}
+              column="referral_fee_terms"
+              initial={partner.referral_fee_terms}
+            />
           </div>
-        )}
+          <div className="sm:col-span-2">
+            <EditableField
+              label="Notes"
+              partnerId={partner.id}
+              column="notes"
+              initial={partner.notes}
+              multiline
+            />
+          </div>
+        </div>
       </section>
 
       {/* ── PRIMARY + OWNER CONTACT SLOTS ─────────────────────────────── */}
