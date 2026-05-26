@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 // Mock the native camera plugin entirely.
 vi.mock("@capacitor-community/camera-preview", () => ({
@@ -108,5 +108,167 @@ describe("CameraView adaptive layout", () => {
     const shutter = screen.getByLabelText(/Capture photo/i);
     const panel = screen.getByTestId("camera-controls-panel");
     expect(panel.contains(shutter)).toBe(true);
+  });
+});
+
+describe("CameraView in-camera surfaces (issue #272)", () => {
+  beforeEach(() => {
+    viewportMock.mockReset();
+  });
+
+  describe("split mode (iPad landscape)", () => {
+    beforeEach(() => {
+      viewportMock.mockReturnValue({
+        width: 1024,
+        height: 768,
+        orientation: "landscape",
+      });
+    });
+
+    it("settings sheet anchors to the right and is dismissible", () => {
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText(/Camera settings/i));
+
+      const sheet = screen.getByTestId("settings-sheet");
+      expect(sheet.getAttribute("data-mode")).toBe("split");
+      expect(sheet.className).toMatch(/right-0/);
+      expect(sheet.className).not.toMatch(/bottom-0/);
+
+      fireEvent.click(within(sheet).getByText(/Close/i));
+      expect(screen.queryByTestId("settings-sheet")).toBeNull();
+    });
+
+    it("tag-after sheet anchors to the right and is dismissible", async () => {
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText(/Capture photo/i));
+
+      const sheet = await screen.findByTestId("tag-sheet");
+      expect(sheet.getAttribute("data-mode")).toBe("split");
+      expect(sheet.className).toMatch(/right-0/);
+      expect(sheet.className).not.toMatch(/bottom-0/);
+
+      fireEvent.click(within(sheet).getByText(/Continue/i));
+      await waitFor(() => {
+        expect(screen.queryByTestId("tag-sheet")).toBeNull();
+      });
+    });
+
+    it("leave-confirm dialog anchors to the right and Stay dismisses it", async () => {
+      const onAbort = vi.fn();
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={onAbort}
+        />,
+      );
+
+      // Capture one photo so the leave guard triggers.
+      fireEvent.click(screen.getByLabelText(/Capture photo/i));
+      const tagSheet = await screen.findByTestId("tag-sheet");
+      fireEvent.click(within(tagSheet).getByText(/Continue/i));
+      await waitFor(() => {
+        expect(screen.queryByTestId("tag-sheet")).toBeNull();
+      });
+
+      fireEvent.click(screen.getByLabelText(/Cancel capture/i));
+
+      const dialog = screen.getByTestId("leave-confirm");
+      expect(dialog.getAttribute("data-mode")).toBe("split");
+      expect(dialog.className).toMatch(/right-0/);
+      expect(dialog.className).not.toMatch(/inset-0/);
+
+      fireEvent.click(within(dialog).getByText(/^Stay$/));
+      expect(screen.queryByTestId("leave-confirm")).toBeNull();
+      expect(onAbort).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("stacked mode (iPhone + iPad portrait) — visual regression", () => {
+    beforeEach(() => {
+      viewportMock.mockReturnValue({
+        width: 390,
+        height: 844,
+        orientation: "portrait",
+      });
+    });
+
+    it("settings sheet slides up from the bottom", () => {
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText(/Camera settings/i));
+
+      const sheet = screen.getByTestId("settings-sheet");
+      expect(sheet.getAttribute("data-mode")).toBe("stacked");
+      expect(sheet.className).toMatch(/bottom-0/);
+      expect(sheet.className).not.toMatch(/right-0/);
+    });
+
+    it("tag-after sheet slides up from the bottom", async () => {
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText(/Capture photo/i));
+
+      const sheet = await screen.findByTestId("tag-sheet");
+      expect(sheet.getAttribute("data-mode")).toBe("stacked");
+      expect(sheet.className).toMatch(/bottom-0/);
+      expect(sheet.className).not.toMatch(/right-0/);
+    });
+
+    it("leave-confirm dialog covers the full screen", async () => {
+      render(
+        <CameraView
+          jobId="job-1"
+          sessionId="sess-1"
+          onDone={() => undefined}
+          onAbort={() => undefined}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText(/Capture photo/i));
+      const tagSheet = await screen.findByTestId("tag-sheet");
+      fireEvent.click(within(tagSheet).getByText(/Continue/i));
+      await waitFor(() => {
+        expect(screen.queryByTestId("tag-sheet")).toBeNull();
+      });
+
+      fireEvent.click(screen.getByLabelText(/Cancel capture/i));
+
+      const dialog = screen.getByTestId("leave-confirm");
+      expect(dialog.getAttribute("data-mode")).toBe("stacked");
+      expect(dialog.className).toMatch(/inset-0/);
+      expect(dialog.className).not.toMatch(/right-0/);
+    });
   });
 });
