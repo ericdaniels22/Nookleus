@@ -9,6 +9,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 
+// The Worksheet now navigates back to the list page after a successful
+// soft-delete (issue #256). The component pulls `useRouter` from
+// next/navigation; we stub it here so the existing render-only tests still
+// pass and the new delete-flow test can assert on the push call.
+const routerPush = vi.fn();
+const routerRefresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPush, refresh: routerRefresh }),
+}));
+
 import {
   ReferralPartnerWorksheet,
   type ReferralPartnerForWorksheet,
@@ -57,10 +67,16 @@ function renderWorksheet(overrides: {
 // PATCH /api/referral-partners/[id]; we mock at the global so the
 // component doesn't have to take a fetch prop just for testability.
 beforeEach(() => {
+  routerPush.mockReset();
+  routerRefresh.mockReset();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
+      // POST /api/.../delete — soft-delete (issue #256).
+      if (url.endsWith("/delete")) {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+      }
       // POST /api/.../calls returns { call: ... }; PATCH returns { referral_partner: ... }
       if (url.endsWith("/calls")) {
         return {
@@ -616,5 +632,40 @@ describe("ReferralPartnerWorksheet — + Add contact (PRD #249, issue #255)", ()
       /owner contact/i,
     ) as HTMLSelectElement;
     expect(within(ownerSelect).getByText("Pat Smith")).toBeDefined();
+  });
+});
+
+// ── Soft-delete from the Worksheet (issue #256) ────────────────────────
+describe("ReferralPartnerWorksheet — Delete action", () => {
+  it("renders a Delete button in the header", () => {
+    renderWorksheet();
+    expect(screen.getByTestId("worksheet-delete-button")).toBeDefined();
+  });
+
+  it("on Delete: confirms, POSTs to /delete, and navigates back to /referral-partners", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderWorksheet();
+
+    fireEvent.click(screen.getByTestId("worksheet-delete-button"));
+
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith("/referral-partners");
+    });
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(routerRefresh).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("if the user cancels the confirmation, no fetch fires and no navigation happens", () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderWorksheet();
+
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockClear();
+    fireEvent.click(screen.getByTestId("worksheet-delete-button"));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

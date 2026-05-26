@@ -30,6 +30,11 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw NOT_FOUND_ERROR;
   },
+  // The Worksheet's Delete action (issue #256) reads `useRouter()` so it can
+  // navigate back to the list page after a successful soft-delete. The page-
+  // render tests don't exercise the delete flow, but the hook is still
+  // called on render — return a no-op router.
+  useRouter: () => ({ push: () => {}, refresh: () => {} }),
 }));
 
 import Page from "./page";
