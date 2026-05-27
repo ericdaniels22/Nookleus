@@ -3,6 +3,7 @@ import {
   ListChecks,
   Users,
   Mail,
+  Phone,
   Download,
   Send,
   CircleDollarSign,
@@ -24,6 +25,7 @@ export const settingsNavItems: SettingsNavItem[] = [
   { href: "/settings/money", label: "Money", icon: CircleDollarSign },
   { href: "/settings/people", label: "People", icon: Users },
   { href: "/settings/email", label: "Email", icon: Mail },
+  { href: "/settings/phone", label: "Phone", icon: Phone },
   { href: "/settings/outgoing", label: "Outgoing Emails", icon: Send },
   { href: "/settings/data", label: "Data", icon: Download },
 ];
