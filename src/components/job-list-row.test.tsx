@@ -34,6 +34,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     affected_areas: null,
     insurance_company: null,
     insurance_contact_id: null,
+    referral_partner_id: null,
     claim_number: null,
     policy_number: null,
     payer_type: null,

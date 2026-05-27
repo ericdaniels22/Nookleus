@@ -44,6 +44,12 @@ export interface Job {
    *  the linked company's name is also snapshotted into `insurance_company`
    *  above so existing free-text readers stay untouched. */
   insurance_contact_id: string | null;
+  /** FK to the `referral_partners` row that referred this Job (#298). Null
+   *  when no Referral Partner is attributed; the read view in Job Info
+   *  column 1 omits the line in that case. `ON DELETE SET NULL` clears it
+   *  when a partner is permanently deleted (the soft-delete path keeps the
+   *  FK pointing at the trashed row, by design). */
+  referral_partner_id: string | null;
   claim_number: string | null;
   policy_number: string | null;
   payer_type: "insurance" | "homeowner" | "mixed" | null;
@@ -64,6 +70,7 @@ export interface Job {
   // Joined fields
   contact?: Contact;
   insurance_contact?: Contact | null;
+  referral_partner?: { id: string; company_name: string } | null;
   job_adjusters?: JobAdjuster[];
   cover_photo?: Photo | null;
   // Tallied by the Comfortable-view loader (see attachJobCounts).

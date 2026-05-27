@@ -31,6 +31,9 @@ import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
 import CaptureFab from "@/components/mobile/capture-fab";
 import InsuranceCompanyPicker from "@/components/insurance-company-picker";
+import ReferrerPicker, {
+  type ReferrerPickerPartner,
+} from "@/components/referral-partners/referrer-picker";
 import {
   MapPin,
   Home,
@@ -128,7 +131,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     const [jobRes, activitiesRes, paymentsRes, invoicesRes, photosRes, photoCountRes, tagsRes, reportsRes, emailsRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("*, contact:contacts!contact_id(*), insurance_contact:contacts!insurance_contact_id(*), job_adjusters(*, adjuster:contacts!contact_id(*))")
+        .select("*, contact:contacts!contact_id(*), insurance_contact:contacts!insurance_contact_id(*), referral_partner:referral_partners!referral_partner_id(id, company_name), job_adjusters(*, adjuster:contacts!contact_id(*))")
         .eq("id", jobId)
         .single(),
       supabase
@@ -542,6 +545,20 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                 label="Intake Date"
                 value={format(new Date(job.created_at), "MMM d, yyyy 'at' h:mm a")}
               />
+              {job.referral_partner && (
+                <div className="flex items-start gap-3">
+                  <User size={16} className="text-primary/60 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">Referred by</p>
+                    <Link
+                      href={`/referral-partners/${job.referral_partner.id}`}
+                      className="text-foreground hover:underline"
+                    >
+                      {job.referral_partner.company_name} →
+                    </Link>
+                  </div>
+                </div>
+              )}
               {/* Estimated crew labor cost — inline edit gated by edit_jobs */}
               <div className="flex items-start gap-3">
                 <Layers size={16} className="text-primary/60 flex-shrink-0 mt-0.5" />
@@ -1133,6 +1150,8 @@ function EditJobInfoDialog({
     affected_areas: "",
     access_notes: "",
   });
+  const [referralPartnerId, setReferralPartnerId] = useState<string | null>(null);
+  const [partners, setPartners] = useState<ReferrerPickerPartner[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -1145,8 +1164,48 @@ function EditJobInfoDialog({
         affected_areas: job.affected_areas || "",
         access_notes: job.access_notes || "",
       });
+      setReferralPartnerId(job.referral_partner_id ?? null);
     }
   }, [open, job]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("referral_partners")
+        .select("id, company_name, status, deleted_at")
+        .is("deleted_at", null)
+        .order("company_name", { ascending: true });
+      if (!cancelled && data) {
+        setPartners(data as ReferrerPickerPartner[]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  async function handlePromoteAndPick(partnerId: string) {
+    // Two writes, both hitting the server (per ADR-0002): flip the partner
+    // to green via PATCH /api/referral-partners/[id], then attach via the
+    // dialog's normal save. We optimistically update local state so the
+    // picker shows the row as pickable immediately on close-and-reopen.
+    const res = await fetch(`/api/referral-partners/${partnerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "green" }),
+    });
+    if (!res.ok) {
+      toast.error("Couldn't promote the Target — try again.");
+      return;
+    }
+    setPartners((prev) =>
+      prev.map((p) => (p.id === partnerId ? { ...p, status: "green" } : p)),
+    );
+    setReferralPartnerId(partnerId);
+  }
 
   async function handleSave() {
     if (!form.property_address.trim()) {
@@ -1170,11 +1229,30 @@ function EditJobInfoDialog({
 
     if (error) {
       toast.error("Failed to update job info.");
-    } else {
-      toast.success("Job info updated.");
-      onOpenChange(false);
-      onSaved();
+      setSaving(false);
+      return;
     }
+
+    // Referral-partner FK goes through the API route so eligibility is
+    // enforced server-side (ADR-0002). Only PATCH when it actually
+    // changed; an unchanged value skips the round-trip.
+    if (referralPartnerId !== (job.referral_partner_id ?? null)) {
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referral_partner_id: referralPartnerId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? "Failed to update referrer.");
+        setSaving(false);
+        return;
+      }
+    }
+
+    toast.success("Job info updated.");
+    onOpenChange(false);
+    onSaved();
     setSaving(false);
   }
 
@@ -1230,6 +1308,15 @@ function EditJobInfoDialog({
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Access Notes</label>
             <Textarea value={form.access_notes} onChange={(e) => update("access_notes", e.target.value)} rows={2} placeholder="Gate code, lockbox, etc." />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Referrer</label>
+            <ReferrerPicker
+              partners={partners}
+              value={referralPartnerId}
+              onChange={setReferralPartnerId}
+              onPromoteAndPick={handlePromoteAndPick}
+            />
           </div>
         </div>
         <DialogFooter>
