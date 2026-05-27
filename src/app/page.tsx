@@ -6,10 +6,15 @@ import { Briefcase, FileText, CalendarDays, Camera } from "lucide-react";
 import Link from "next/link";
 import { Job } from "@/lib/types";
 import JobCard from "@/components/job-card";
+import { useAuth } from "@/lib/auth-context";
+import { getFirstName } from "@/lib/first-name";
 
 export default function DashboardPage() {
+  const { profile } = useAuth();
   const [stats, setStats] = useState({ active: 0, pendingInvoice: 0, thisMonth: 0, reports: 0 });
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
+
+  const firstName = getFirstName(profile?.full_name);
 
   useEffect(() => {
     async function load() {
@@ -63,7 +68,7 @@ export default function DashboardPage() {
           <span className="gradient-text">Dashboard</span>
         </h1>
         <p className="text-muted-foreground mt-1">
-          Welcome back, Eric. Here&apos;s your overview.
+          {firstName ? `Welcome back, ${firstName}.` : "Welcome back."} Here&apos;s your overview.
         </p>
       </div>
 
