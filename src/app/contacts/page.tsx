@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Contact } from "@/lib/types";
 import { formatPhoneNumber, normalizePhoneToE164, phoneMatchesQuery } from "@/lib/phone";
+import { ClickToText } from "@/components/phone/click-to-text";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -363,9 +364,16 @@ export default function ContactsPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     {contact.phone && (
-                      <span className="inline-flex items-center gap-1">
-                        <Phone size={12} className="text-muted-foreground/60" />
-                        {formatPhoneNumber(contact.phone)}
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1">
+                          <Phone size={12} className="text-muted-foreground/60" />
+                          {formatPhoneNumber(contact.phone)}
+                        </span>
+                        <ClickToText
+                          e164={normalizePhoneToE164(contact.phone) ?? contact.phone}
+                          className="text-[11px] text-[var(--brand-primary)] hover:underline"
+                          label="Text"
+                        />
                       </span>
                     )}
                     {contact.email && (

@@ -114,10 +114,18 @@ describe("POST /api/phone/messages/[id]/tag", () => {
             {
               id: "m-1",
               organization_id: "org-1",
+              conversation_id: "c-1",
               job_tag: null,
               tagged_by_user_id: null,
             },
           ],
+          phone_conversations: [
+            { id: "c-1", organization_id: "org-1", phone_number_id: "n-shared" },
+          ],
+          phone_numbers: [
+            { id: "n-shared", organization_id: "org-1", kind: "shared", user_id: null },
+          ],
+          jobs: [{ id: "job-1", organization_id: "org-1" }],
         },
       }) as never,
     );
@@ -146,15 +154,168 @@ describe("POST /api/phone/messages/[id]/tag", () => {
             {
               id: "m-1",
               organization_id: "org-1",
+              conversation_id: "c-1",
               job_tag: "job-old",
               tagged_by_user_id: null,
             },
+          ],
+          phone_conversations: [
+            { id: "c-1", organization_id: "org-1", phone_number_id: "n-shared" },
+          ],
+          phone_numbers: [
+            { id: "n-shared", organization_id: "org-1", kind: "shared", user_id: null },
           ],
         },
       }) as never,
     );
 
     const res = await POST(postReq({ jobId: null }), params("m-1"));
+    expect(res.status).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // Slice 5 (#309) — canReTag access policy.
+  //
+  // AC: "Re-tag menu changes phone_messages.job_tag and is visible only
+  //      to callers who pass phone-event-access.canRead for the current
+  //      and target Jobs"
+  //
+  // The route already passed canRead on the current message by virtue of
+  // the existing org-match (slice 4's Shared-team rule). Slice 5 tightens
+  // the TARGET side: when jobId is non-null, the route must check the
+  // target Job is in the active org. Otherwise a caller could silently
+  // move a visible message to a Job they cannot see, smuggling content
+  // into an inaccessible bucket.
+  // -------------------------------------------------------------------------
+
+  it("returns 403 when the target Job does not exist in the active org", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "u-1" },
+        tables: memberTables({
+          userId: "u-1",
+          role: "crew_lead",
+          grants: ["view_phone"],
+        }),
+      }) as never,
+    );
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_messages: [
+            {
+              id: "m-1",
+              organization_id: "org-1",
+              conversation_id: "c-1",
+              job_tag: null,
+              tagged_by_user_id: null,
+            },
+          ],
+          phone_conversations: [
+            { id: "c-1", organization_id: "org-1", phone_number_id: "n-shared" },
+          ],
+          phone_numbers: [
+            { id: "n-shared", organization_id: "org-1", kind: "shared", user_id: null },
+          ],
+          // No jobs visible — the target jobId will fail the visibility check.
+          jobs: [],
+        },
+      }) as never,
+    );
+
+    const res = await POST(postReq({ jobId: "job-foreign" }), params("m-1"));
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when caller cannot read the message itself (untagged Personal, non-owner)", async () => {
+    // Personal-number untagged content is owner-only per ADR 0003. A
+    // crew_lead who is not the owner cannot read; therefore cannot
+    // re-tag either.
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "u-not-owner" },
+        tables: memberTables({
+          userId: "u-not-owner",
+          role: "crew_lead",
+          grants: ["view_phone"],
+        }),
+      }) as never,
+    );
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_messages: [
+            {
+              id: "m-1",
+              organization_id: "org-1",
+              conversation_id: "c-1",
+              job_tag: null,
+              tagged_by_user_id: null,
+            },
+          ],
+          phone_conversations: [
+            { id: "c-1", organization_id: "org-1", phone_number_id: "n-personal" },
+          ],
+          phone_numbers: [
+            {
+              id: "n-personal",
+              organization_id: "org-1",
+              kind: "personal",
+              user_id: "u-owner",
+            },
+          ],
+          jobs: [{ id: "job-1", organization_id: "org-1" }],
+        },
+      }) as never,
+    );
+
+    const res = await POST(postReq({ jobId: "job-1" }), params("m-1"));
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows the Personal-number owner to re-tag their own message", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "u-owner" },
+        tables: memberTables({
+          userId: "u-owner",
+          role: "crew_lead",
+          grants: ["view_phone"],
+        }),
+      }) as never,
+    );
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_messages: [
+            {
+              id: "m-1",
+              organization_id: "org-1",
+              conversation_id: "c-1",
+              job_tag: null,
+              tagged_by_user_id: null,
+            },
+          ],
+          phone_conversations: [
+            { id: "c-1", organization_id: "org-1", phone_number_id: "n-personal" },
+          ],
+          phone_numbers: [
+            {
+              id: "n-personal",
+              organization_id: "org-1",
+              kind: "personal",
+              user_id: "u-owner",
+            },
+          ],
+          jobs: [{ id: "job-1", organization_id: "org-1" }],
+        },
+      }) as never,
+    );
+
+    const res = await POST(postReq({ jobId: "job-1" }), params("m-1"));
+
     expect(res.status).toBe(200);
   });
 });

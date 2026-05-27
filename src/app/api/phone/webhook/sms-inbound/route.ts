@@ -1,6 +1,10 @@
 import type { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase-api";
-import { validateTwilioSignature } from "@/lib/phone/twilio-client";
+import {
+  createTwilioClient,
+  sendSms,
+  validateTwilioSignature,
+} from "@/lib/phone/twilio-client";
 import { normalizePhoneToE164 } from "@/lib/phone";
 import {
   routeInbound,
@@ -8,6 +12,8 @@ import {
   type PhoneNumberForRoute,
 } from "@/lib/phone/route-inbound";
 import type { ActiveJob } from "@/lib/phone/smart-attach";
+import { classifyOptOutKeyword } from "@/lib/phone/opt-out-registry";
+import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
 
 // PRD #304 — Nookleus Phone. Slice 4 (#308) — Inbound SMS webhook.
 //
@@ -74,6 +80,41 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
 
   if (!numberRow || numberRow.released_at) {
     return twimlResponse();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Slice 5 (#309) — TCPA STOP / HELP keyword handling.
+  //
+  // The classifier runs on every inbound. A STOP-side keyword writes
+  // (or upserts) into phone_opt_outs by (org, outside_e164) BEFORE we
+  // persist the message itself — defense-in-depth so the gate cannot be
+  // bypassed by a database write that succeeds halfway. A HELP-side
+  // keyword does NOT block; we still persist the inbound, and the
+  // outbound auto-reply (with the org name + opt-out instructions) is
+  // dispatched after the message row lands.
+  //
+  // Twilio's A2P 10DLC carrier rules handle the STOP-confirmation message
+  // back to the customer automatically — we do NOT send a Nookleus-side
+  // STOP auto-reply. HELP, however, has no carrier-side auto-reply; we
+  // must send our own.
+  // ---------------------------------------------------------------------------
+  const optOutVerdict = classifyOptOutKeyword(params.Body ?? "");
+  if (optOutVerdict === "stop") {
+    await supabase
+      .from("phone_opt_outs")
+      .upsert(
+        {
+          organization_id: numberRow.organization_id,
+          outside_e164: fromE164,
+          opted_out_at: new Date().toISOString(),
+          // STOP-after-re-opt-in clears the re_opted_in_at marker so the
+          // outbound gate blocks again.
+          re_opted_in_at: null,
+          re_opted_in_note: null,
+          re_opted_in_by_user_id: null,
+        },
+        { onConflict: "organization_id,outside_e164" },
+      );
   }
 
   // 2. Load the org's contacts (slice 4: every contact in the org —
@@ -169,6 +210,60 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     .from("phone_conversations")
     .update({ unread_count: (conv.unread_count ?? 0) + 1, last_event_at: now })
     .eq("id", conv.id);
+
+  // ---------------------------------------------------------------------------
+  // 8. Slice 5 (#309) — HELP auto-reply.
+  //
+  // If the inbound classified as HELP/INFO, we owe the customer a
+  // standard-format reply identifying the organization and telling them
+  // how to opt out. The reply is dispatched via Twilio with the same
+  // outbound number the inbound was received on (a Shared number; in
+  // slice 13 a Personal number that the customer dialed will also work
+  // since `numberRow.e164` is whatever number they reached).
+  // ---------------------------------------------------------------------------
+  // The HELP auto-reply is itself an OUTBOUND SMS, so it's gated by the
+  // same #305 feature flag as the compose route. Until A2P clears, we
+  // skip the reply entirely; Twilio's carrier-mandated HELP response
+  // still goes to the customer at the carrier level.
+  if (optOutVerdict === "help" && isPhoneOutboundEnabled()) {
+    const { data: orgRow } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", numberRow.organization_id)
+      .maybeSingle<{ name: string }>();
+    const orgName = orgRow?.name ?? "Nookleus";
+    const helpReplyBody = `${orgName}: Reply STOP to unsubscribe. Standard message rates apply.`;
+    try {
+      const dispatch = await sendSms(createTwilioClient(), {
+        from: toE164,
+        to: fromE164,
+        body: helpReplyBody,
+      });
+      const replyNow = new Date().toISOString();
+      await supabase.from("phone_messages").insert({
+        organization_id: numberRow.organization_id,
+        conversation_id: conv.id,
+        direction: "out",
+        from_e164: toE164,
+        to_e164: fromE164,
+        body: helpReplyBody,
+        media_urls: [],
+        twilio_sid: dispatch.sid,
+        status: dispatch.status,
+        // Auto-replies are not tagged to a Job — they're system
+        // messaging, not part of the Job's conversation.
+        job_tag: null,
+        tagged_by_user_id: null,
+        sent_by_user_id: null,
+        sent_at: replyNow,
+      });
+    } catch {
+      // A failed HELP-auto-reply is non-fatal; the customer still
+      // receives Twilio's carrier-mandated HELP response. We swallow
+      // the error rather than 5xx-ing Twilio's webhook (which would
+      // retry the inbound and double-write the row).
+    }
+  }
 
   return twimlResponse();
 }

@@ -1,13 +1,21 @@
 "use client";
 
+import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { PhoneNumbersTab } from "./phone-numbers-tab";
+import { OptOutsTab } from "./opt-outs-tab";
 
-// PRD #304 — Nookleus Phone. Slice 3 (#307).
-//
-// Settings → Phone. Slice 3 lands one tab (Numbers). Slice 5 will likely
-// add an Opt-outs tab and slice 8 an Inbound rules editor; the tab shell
-// from /settings/email is already the template if/when that happens.
+// PRD #304 — Nookleus Phone. Slice 3 (#307) opened the page with a single
+// Numbers tab. Slice 5 (#309) adds an Opt-outs tab; slice 8 will add an
+// Inbound-rule editor.
 
 export default function PhoneSettingsPage() {
-  return <PhoneNumbersTab />;
+  return (
+    <SettingsTabs
+      defaultTab="numbers"
+      tabs={[
+        { key: "numbers", label: "Numbers", content: <PhoneNumbersTab /> },
+        { key: "opt-outs", label: "Opt-outs", content: <OptOutsTab /> },
+      ]}
+    />
+  );
 }

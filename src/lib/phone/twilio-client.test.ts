@@ -15,6 +15,7 @@ import {
   listAvailableLocalNumbers,
   provisionNumber,
   releaseNumber,
+  sendSms,
   type TwilioClientLike,
 } from "./twilio-client";
 
@@ -22,15 +23,24 @@ function fakeClient(opts: {
   listResult?: unknown[];
   createResult?: { sid: string; phoneNumber: string };
   removeImpl?: () => Promise<void>;
+  messageCreateResult?: { sid: string; status: string };
+  messageCreateImpl?: (params: unknown) => Promise<unknown>;
   listSpy?: ReturnType<typeof vi.fn>;
   createSpy?: ReturnType<typeof vi.fn>;
   removeSpy?: ReturnType<typeof vi.fn>;
+  messageCreateSpy?: ReturnType<typeof vi.fn>;
 }): TwilioClientLike {
   const list = opts.listSpy ?? vi.fn(async () => opts.listResult ?? []);
   const create =
     opts.createSpy ??
     vi.fn(async () => opts.createResult ?? { sid: "PNxxx", phoneNumber: "+15555550100" });
   const remove = opts.removeSpy ?? vi.fn(opts.removeImpl ?? (async () => undefined));
+  const messageCreate =
+    opts.messageCreateSpy ??
+    vi.fn(
+      opts.messageCreateImpl ??
+        (async () => opts.messageCreateResult ?? { sid: "SMabc", status: "queued" }),
+    );
   // Twilio SDK shape: `incomingPhoneNumbers` is callable (sid) → resource AND
   // has a `.create` method. We replicate that surface here so the helper
   // can stay byte-identical between fake and real client.
@@ -41,6 +51,7 @@ function fakeClient(opts: {
   return {
     availablePhoneNumbers: (_country: string) => ({ local: { list } }),
     incomingPhoneNumbers,
+    messages: { create: messageCreate },
   } as TwilioClientLike;
 }
 
@@ -158,5 +169,78 @@ describe("releaseNumber", () => {
   it("rejects an empty sid (programming-error guard)", async () => {
     const client = fakeClient({});
     await expect(releaseNumber(client, "")).rejects.toThrow(/sid/i);
+  });
+});
+
+describe("sendSms", () => {
+  it("dispatches a Twilio message and returns the SID + status", async () => {
+    const messageCreateSpy = vi.fn(async () => ({
+      sid: "SMxyz",
+      status: "queued",
+    }));
+    const client = fakeClient({ messageCreateSpy });
+
+    const result = await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hello from Nookleus",
+      statusCallback: "https://example.com/cb",
+    });
+
+    expect(messageCreateSpy).toHaveBeenCalledTimes(1);
+    expect(messageCreateSpy).toHaveBeenCalledWith({
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hello from Nookleus",
+      statusCallback: "https://example.com/cb",
+    });
+    expect(result).toEqual({ sid: "SMxyz", status: "queued" });
+  });
+
+  it("omits statusCallback from the SDK call when not provided", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMa", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hi",
+    });
+
+    const calls = messageCreateSpy.mock.calls as Array<unknown[]>;
+    const payload = calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("statusCallback");
+  });
+
+  it("rejects when from is not E.164", async () => {
+    const client = fakeClient({});
+    await expect(
+      sendSms(client, { from: "5125550000", to: "+15551234567", body: "hi" }),
+    ).rejects.toThrow(/from.*E\.164/);
+  });
+
+  it("rejects when to is not E.164", async () => {
+    const client = fakeClient({});
+    await expect(
+      sendSms(client, { from: "+15125550000", to: "5551234567", body: "hi" }),
+    ).rejects.toThrow(/to.*E\.164/);
+  });
+
+  it("rejects when body is empty", async () => {
+    const client = fakeClient({});
+    await expect(
+      sendSms(client, { from: "+15125550000", to: "+15551234567", body: "" }),
+    ).rejects.toThrow(/body/i);
+  });
+
+  it("propagates errors from the SDK (caller can surface as 5xx)", async () => {
+    const client = fakeClient({
+      messageCreateImpl: async () => {
+        throw new Error("twilio: 21610 message blocked");
+      },
+    });
+    await expect(
+      sendSms(client, { from: "+15125550000", to: "+15551234567", body: "hi" }),
+    ).rejects.toThrow(/21610/);
   });
 });
