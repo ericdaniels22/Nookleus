@@ -1,22 +1,7 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
-import { PERMISSION_KEYS, type PermissionKey } from "@/lib/permissions/permission-keys";
-
-// Default permission grants per role. A new member is seeded a row for every
-// canonical key (PERMISSION_KEYS); these lists decide which start
-// `granted: true`. `admin` lists every key for consistency only — admins
-// auto-pass every rule regardless of their grants.
-const ROLE_DEFAULTS: Record<string, readonly PermissionKey[]> = {
-  admin: PERMISSION_KEYS,
-  crew_lead: [
-    "view_jobs", "edit_jobs", "create_jobs",
-    "log_activities", "upload_photos", "edit_photos",
-    "view_billing", "record_payments",
-    "view_email", "send_email", "manage_reports",
-  ],
-  crew_member: ["view_jobs", "log_activities", "upload_photos"],
-  custom: [],
-};
+import { PERMISSION_KEYS } from "@/lib/permissions/permission-keys";
+import { ROLE_DEFAULTS } from "@/lib/permissions/role-defaults";
 
 // GET /api/settings/users — list all members of the active org with their
 // user_profiles joined. Role is sourced from user_organizations (per-org).

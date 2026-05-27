@@ -59,6 +59,10 @@ export const PERMISSION_CATALOG = [
   { key: "view_email", label: "View Email", group: "Email" },
   { key: "send_email", label: "Send Email", group: "Email" },
 
+  // PRD #304 — Nookleus Phone (in-app text and call with customers).
+  // Defaults live in `role-defaults.ts`: Admin ON, Crew Lead ON, Crew Member OFF.
+  { key: "view_phone", label: "View Phone", group: "Phone" },
+
   { key: "manage_reports", label: "Manage Reports", group: "Reports" },
 
   { key: "manage_templates", label: "Manage Estimate Templates", group: "Templates" },

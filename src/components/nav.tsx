@@ -17,17 +17,27 @@ import { Tooltip } from "@base-ui/react/tooltip";
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, hasPermission } = useAuth();
   const { order } = useNavOrder();
   const { collapsed, toggle } = useSidebarCollapse();
 
-  // Filter by membership role first, then sort by DB sort_order.
-  // Items missing from the DB fall to the bottom in code-defined order.
-  // An item with `requiredRoles` is hidden from any caller whose role
-  // isn't in the list (e.g. crew_member never sees Referral Partners).
+  // Filter by membership role + required permission, then sort by DB
+  // sort_order. Items missing from the DB fall to the bottom in code-
+  // defined order. An item with `requiredRoles` is hidden from any caller
+  // whose role isn't in the list (e.g. crew_member never sees Referral
+  // Partners). An item with `requiredPermission` is hidden from any caller
+  // who lacks that grant (e.g. Phone is hidden from a crew_member without
+  // view_phone — PRD #304 / #306).
   const visibleNavItems = navItems.filter((item) => {
-    if (!item.requiredRoles) return true;
-    return profile?.role ? item.requiredRoles.includes(profile.role) : false;
+    if (item.requiredRoles) {
+      if (!profile?.role || !item.requiredRoles.includes(profile.role)) {
+        return false;
+      }
+    }
+    if (item.requiredPermission && !hasPermission(item.requiredPermission)) {
+      return false;
+    }
+    return true;
   });
   const sortedNavItems = [...visibleNavItems].sort((a, b) => {
     const aOrder = order.get(a.href) ?? Infinity;
