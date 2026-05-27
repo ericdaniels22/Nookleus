@@ -12,18 +12,53 @@ import {
 } from "@/lib/referral-partners/permission";
 
 // GET /api/referral-partners — list every Referral Partner in the Active
-// Organization that isn't in the soft-delete bin. Gated to admin / crew_lead;
-// crew_member receives 403.
+// Organization that isn't in the soft-delete bin. Each row carries a
+// lifetime `job_count` of non-trashed Jobs attributed to that partner
+// (slice C1 / #300). The count query filters `deleted_at IS NULL` so it
+// uses the partial index `(referral_partner_id) WHERE deleted_at IS NULL`
+// added in slice B's migration. Gated to admin / crew_lead; crew_member
+// receives 403.
 export const GET = withRequestContext(
   VIEW_REFERRAL_PARTNERS,
   async (_request, { supabase }) => {
-    const { data, error } = await supabase
+    const { data: partners, error } = await supabase
       .from("referral_partners")
       .select("*")
       .is("deleted_at", null)
       .order("company_name", { ascending: true });
     if (error) return apiDbError(error.message, "GET /api/referral-partners list");
-    return NextResponse.json({ referral_partners: data ?? [] });
+
+    const rows = (partners ?? []) as Array<{ id: string }>;
+    if (rows.length === 0) {
+      return NextResponse.json({ referral_partners: [] });
+    }
+
+    // One batched read — `referral_partner_id IN (...)` AND `deleted_at IS
+    // NULL`. The aggregate is computed in the route, but the filtering
+    // happens in SQL and rides the partial index.
+    const partnerIds = rows.map((r) => r.id);
+    const { data: jobRows, error: jobsError } = await supabase
+      .from("jobs")
+      .select("referral_partner_id")
+      .in("referral_partner_id", partnerIds)
+      .is("deleted_at", null);
+    if (jobsError) {
+      return apiDbError(jobsError.message, "GET /api/referral-partners job_count");
+    }
+
+    const counts = new Map<string, number>();
+    for (const { referral_partner_id } of (jobRows ?? []) as Array<{
+      referral_partner_id: string | null;
+    }>) {
+      if (!referral_partner_id) continue;
+      counts.set(referral_partner_id, (counts.get(referral_partner_id) ?? 0) + 1);
+    }
+
+    const withCounts = rows.map((row) => ({
+      ...row,
+      job_count: counts.get(row.id) ?? 0,
+    }));
+    return NextResponse.json({ referral_partners: withCounts });
   },
 );
 

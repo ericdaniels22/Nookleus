@@ -72,7 +72,8 @@ describe("GET /api/referral-partners", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.referral_partners).toEqual([partner]);
+    // job_count (slice C1) is attached to every row; defaults to 0.
+    expect(body.referral_partners).toEqual([{ ...partner, job_count: 0 }]);
   });
 
   it("returns the list of partners for a crew_lead", async () => {
@@ -87,6 +88,41 @@ describe("GET /api/referral-partners", () => {
       params: Promise.resolve({}),
     });
     expect(res.status).toBe(200);
+  });
+
+  // ── Slice C1 (#300) AC: each row carries a lifetime `job_count`. ──
+  it("attaches a job_count to each partner row, computed from non-trashed jobs", async () => {
+    useUser({
+      user: { id: "user-1" },
+      tables: {
+        ...memberTables({ userId: "user-1", role: "admin" }),
+        referral_partners: [
+          { id: "p-1", organization_id: "org-1", company_name: "Acme",  status: "green" },
+          { id: "p-2", organization_id: "org-1", company_name: "Beta",  status: "yellow" },
+          { id: "p-3", organization_id: "org-1", company_name: "Gamma", status: "grey" },
+        ],
+        // The route's SQL filters `deleted_at IS NULL`, so the rows that
+        // would flow into the count include only the three live jobs below.
+        // Three for Acme, one for Beta, zero for Gamma.
+        jobs: [
+          { id: "j-1", referral_partner_id: "p-1", deleted_at: null },
+          { id: "j-2", referral_partner_id: "p-1", deleted_at: null },
+          { id: "j-3", referral_partner_id: "p-1", deleted_at: null },
+          { id: "j-4", referral_partner_id: "p-2", deleted_at: null },
+        ],
+      },
+    });
+    const res = await GET(new Request("http://test/api/referral-partners"), {
+      params: Promise.resolve({}),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const byId = Object.fromEntries(
+      (body.referral_partners as Array<{ id: string; job_count: number }>).map(
+        (p) => [p.id, p.job_count],
+      ),
+    );
+    expect(byId).toEqual({ "p-1": 3, "p-2": 1, "p-3": 0 });
   });
 });
 

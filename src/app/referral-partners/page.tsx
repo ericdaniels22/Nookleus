@@ -38,6 +38,11 @@ interface ReferralPartner {
   last_call_outcome: CallOutcome | null;
   next_follow_up_at: string | null;
   deleted_at?: string | null;
+  // Lifetime count of non-trashed Jobs attributed to this partner. Computed
+  // by the list endpoint (slice C1 / #300) and always present on rows that
+  // come back from the API; defaulted to 0 in case an older client renders
+  // a row from elsewhere.
+  job_count?: number;
 }
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
@@ -313,11 +318,15 @@ function PartnerRow({ partner: p }: { partner: ReferralPartner }) {
         >
           {style.label}
         </span>
+        {/* Lifetime jobs count — slice C1 (#300). Zero shows as "0 jobs",
+            not hidden, so a partner who has sent nothing reads the same as
+            one who has, plus zero. Populates the slot reserved by A2. */}
         <span
           data-testid={`referral-partner-lifetime-count-${p.id}`}
-          aria-hidden
           className="shrink-0 text-[11px] text-muted-foreground min-w-[2.5rem] text-right"
-        />
+        >
+          {p.job_count ?? 0} jobs
+        </span>
       </div>
 
       {/* Line 2: industry · office phone (either may be missing). */}
@@ -430,11 +439,19 @@ function TrashRow({
           <p className="text-sm text-muted-foreground truncate">{partner.industry}</p>
         )}
         <p className="text-xs text-muted-foreground/70 mt-1">
-          {daysRemaining !== null
-            ? daysRemaining === 0
-              ? "Auto-purges today"
-              : `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} until permanent deletion`
-            : null}
+          {/* Lifetime jobs count — slice C1 (#300). Shown next to the
+              days-remaining countdown so the cost of permanently deleting
+              this partner is visible before the user confirms. Zero shows
+              as "0 jobs · …" so the row reads consistently. */}
+          {`${partner.job_count ?? 0} jobs`}
+          {daysRemaining !== null ? (
+            <>
+              {" · "}
+              {daysRemaining === 0
+                ? "Auto-purges today"
+                : `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} until permanent deletion`}
+            </>
+          ) : null}
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">

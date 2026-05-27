@@ -65,8 +65,45 @@ export const GET = withRequestContext(
     if (error) {
       return apiDbError(error.message, "GET /api/referral-partners/trash list");
     }
+
+    // 4. Attach the lifetime job_count to each Trash row (slice C1 / #300)
+    //    so the row can render "N jobs · X days until permanent deletion".
+    //    A trashed partner's referred Jobs keep the FK (soft delete preserves
+    //    the row), so the count depends only on the Job's own deleted_at and
+    //    the same partial index `(referral_partner_id) WHERE deleted_at IS
+    //    NULL` is used.
+    const rows = (trashed ?? []) as Array<{ id: string }>;
+    let withCounts: Array<Record<string, unknown>> = rows as Array<
+      Record<string, unknown>
+    >;
+    if (rows.length > 0) {
+      const partnerIds = rows.map((r) => r.id);
+      const { data: jobRows, error: jobsError } = await supabase
+        .from("jobs")
+        .select("referral_partner_id")
+        .in("referral_partner_id", partnerIds)
+        .is("deleted_at", null);
+      if (jobsError) {
+        return apiDbError(
+          jobsError.message,
+          "GET /api/referral-partners/trash job_count",
+        );
+      }
+      const counts = new Map<string, number>();
+      for (const { referral_partner_id } of (jobRows ?? []) as Array<{
+        referral_partner_id: string | null;
+      }>) {
+        if (!referral_partner_id) continue;
+        counts.set(referral_partner_id, (counts.get(referral_partner_id) ?? 0) + 1);
+      }
+      withCounts = rows.map((row) => ({
+        ...row,
+        job_count: counts.get(row.id) ?? 0,
+      }));
+    }
+
     return NextResponse.json({
-      referral_partners: trashed ?? [],
+      referral_partners: withCounts,
       autoPurged,
       retentionDays: RETENTION_DAYS,
     });
