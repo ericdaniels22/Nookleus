@@ -14,6 +14,14 @@ import {
 import type { ActiveJob } from "@/lib/phone/smart-attach";
 import { classifyOptOutKeyword } from "@/lib/phone/opt-out-registry";
 import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
+import {
+  uploadPhoneAttachment,
+  type PhoneStorageClient,
+} from "@/lib/phone/attachments-storage";
+import {
+  validateMmsAttachment,
+  type MmsMediaType,
+} from "@/lib/phone/mms-attachments";
 
 // PRD #304 — Nookleus Phone. Slice 4 (#308) — Inbound SMS webhook.
 //
@@ -42,6 +50,58 @@ import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
 
 const ACTIVE_STATUSES = ["new", "in_progress", "pending_invoice"] as const;
+
+interface PersistedMmsAttachment {
+  storage_path: string;
+  media_type: string;
+}
+
+// Fetch each MediaUrlN out of the Twilio payload, copy the bytes to the
+// `phone-attachments` bucket, and return what to persist on
+// phone_messages.media_urls. Per-attachment failures are swallowed —
+// losing the inbound message because one media fetch failed would be
+// worse than a partial copy. Twilio retains its media for ~24h; a
+// follow-up reconciliation could re-fetch the missing ones, but slice 6
+// keeps the inbound write atomic.
+async function copyTwilioMediaToBucket(
+  client: PhoneStorageClient,
+  params: Record<string, string>,
+  orgId: string,
+): Promise<PersistedMmsAttachment[]> {
+  const numMedia = Number.parseInt(params.NumMedia ?? "0", 10);
+  if (!Number.isFinite(numMedia) || numMedia <= 0) return [];
+
+  const out: PersistedMmsAttachment[] = [];
+  for (let i = 0; i < numMedia; i++) {
+    const url = params[`MediaUrl${i}`];
+    const contentType = params[`MediaContentType${i}`] ?? "";
+    if (!url) continue;
+
+    const validation = validateMmsAttachment({
+      type: contentType,
+      size: 0,
+    });
+    if (!validation.ok) continue;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const stored = await uploadPhoneAttachment(client, {
+        orgId,
+        mediaType: validation.mediaType as MmsMediaType,
+        bytes,
+      });
+      out.push({
+        storage_path: stored.storagePath,
+        media_type: stored.mediaType,
+      });
+    } catch {
+      // Best-effort: continue to the next attachment.
+    }
+  }
+  return out;
+}
 
 function twimlResponse(status = 200): Response {
   return new Response(EMPTY_TWIML, {
@@ -183,6 +243,17 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     .single<{ id: string; unread_count: number }>();
   if (!conv) return twimlResponse();
 
+  // Slice 6 (#310) — MMS copy. If Twilio's payload carries media, fetch
+  // each URL and re-upload to the Nookleus bucket so the references on
+  // disk outlive Twilio's media retention. Per-attachment failures
+  // degrade gracefully (the message itself still persists with
+  // whatever copies succeeded).
+  const mediaUrls = await copyTwilioMediaToBucket(
+    supabase as unknown as PhoneStorageClient,
+    params,
+    decision.organizationId,
+  );
+
   // 6. Insert the message.
   const jobTag =
     decision.smartAttach.kind === "auto" ? decision.smartAttach.jobId : null;
@@ -193,7 +264,7 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     from_e164: decision.outsideE164,
     to_e164: toE164,
     body: params.Body ?? null,
-    media_urls: [],
+    media_urls: mediaUrls,
     twilio_sid: params.MessageSid ?? null,
     status: params.SmsStatus ?? null,
     job_tag: jobTag,

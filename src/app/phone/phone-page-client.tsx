@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Phone as PhoneIcon, Plus, UserPlus, Send } from "lucide-react";
+import { Phone as PhoneIcon, Plus, UserPlus, Send, Paperclip, X } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import { usePhoneSync } from "@/lib/phone/use-phone-sync";
 import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
+import {
+  validateMmsAttachment,
+  isMmsImageMediaType,
+} from "@/lib/phone/mms-attachments";
 
 // PRD #304 — Nookleus Phone. Slice 4 (#308) — two-pane Phone-tab UI.
 //
@@ -35,6 +39,12 @@ export interface PhoneConversationItem {
   active_jobs: Array<{ id: string; label: string }>;
 }
 
+interface PhoneAttachmentRef {
+  storage_path: string;
+  media_type: string;
+  filename?: string;
+}
+
 interface PhoneMessage {
   id: string;
   conversation_id: string;
@@ -42,6 +52,21 @@ interface PhoneMessage {
   body: string | null;
   sent_at: string;
   job_tag: string | null;
+  media_urls?: PhoneAttachmentRef[];
+}
+
+// Slice 6 (#310) — a staged attachment in the compose strip. Either the
+// upload is in flight (no storage_path yet) or it has completed and the
+// path is the one the outbound /api/phone/messages POST will reference.
+interface StagedAttachment {
+  id: string;
+  filename: string;
+  previewUrl: string;
+  mediaType: string;
+  kind: "image" | "file";
+  storage_path?: string;
+  uploading: boolean;
+  error?: string;
 }
 
 export interface PhonePageClientProps {
@@ -81,6 +106,14 @@ export function PhonePageClient({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [retagMenuFor, setRetagMenuFor] = useState<string | null>(null);
+  // Slice 6 (#310) — staged MMS attachments + the file input ref the
+  // paperclip button hands clicks to.
+  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Slice 6 (#310) — lightbox state: the storage_path of the image
+  // currently being shown full-size, or null.
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
   // #309 outbound surfaces are gated on the A2P 10DLC feature flag.
   // Computed once at mount — the flag flips by env-var redeploy, not at
   // runtime, so we never need to re-evaluate. The read path (thread,
@@ -116,8 +149,109 @@ export function PhonePageClient({
     if (!selectedId) return;
     setDraft("");
     setSendError(null);
+    setAttachments([]);
+    setAttachError(null);
     void loadMessages(selectedId);
   }, [selectedId, loadMessages]);
+
+  // Slice 6 (#310) — pre-upload one picked/dropped file. Returns the
+  // staged ID so the caller can correlate the in-flight slot.
+  const stageOneFile = useCallback(async (file: File) => {
+    const validation = validateMmsAttachment({
+      type: file.type,
+      size: file.size,
+    });
+    if (!validation.ok) {
+      setAttachError(validation.error);
+      return;
+    }
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`;
+    const previewUrl = URL.createObjectURL(file);
+    setAttachError(null);
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id,
+        filename: file.name,
+        previewUrl,
+        mediaType: validation.mediaType,
+        kind: validation.kind,
+        uploading: true,
+      },
+    ]);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/phone/attachments", {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  uploading: false,
+                  error: err.error ?? `Upload failed (${res.status})`,
+                }
+              : a,
+          ),
+        );
+        return;
+      }
+      const body = (await res.json()) as {
+        attachment: {
+          storage_path: string;
+          media_type: string;
+          kind: "image" | "file";
+          filename?: string;
+        };
+      };
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                uploading: false,
+                storage_path: body.attachment.storage_path,
+                mediaType: body.attachment.media_type,
+                kind: body.attachment.kind,
+              }
+            : a,
+        ),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, uploading: false, error: message } : a,
+        ),
+      );
+    }
+  }, []);
+
+  const onPickFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files) return;
+      for (const file of Array.from(files)) {
+        void stageOneFile(file);
+      }
+    },
+    [stageOneFile],
+  );
+
+  const onRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => {
+      const removed = prev.find((a) => a.id === id);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  }, []);
 
   const onCreateConversation = useCallback(async () => {
     if (!newConv) return;
@@ -175,11 +309,30 @@ export function PhonePageClient({
     }
   }, [newConv, organizationId]);
 
+  const readyAttachments = useMemo(
+    () =>
+      attachments.filter(
+        (a): a is StagedAttachment & { storage_path: string } =>
+          !!a.storage_path && !a.uploading && !a.error,
+      ),
+    [attachments],
+  );
+  const anyUploading = attachments.some((a) => a.uploading);
+
   const onSend = useCallback(async () => {
-    if (!selected || draft.trim().length === 0) return;
+    if (!selected) return;
+    if (anyUploading) return;
+    const hasText = draft.trim().length > 0;
+    const hasAttachments = readyAttachments.length > 0;
+    if (!hasText && !hasAttachments) return;
     setSending(true);
     setSendError(null);
     try {
+      const outAttachments = readyAttachments.map((a) => ({
+        storage_path: a.storage_path,
+        media_type: a.mediaType,
+        ...(a.filename ? { filename: a.filename } : {}),
+      }));
       const res = await fetch("/api/phone/messages", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -187,6 +340,9 @@ export function PhonePageClient({
           conversationId: selected.id,
           body: draft,
           sourceContext: { kind: "phone-tab" },
+          ...(outAttachments.length > 0
+            ? { attachments: outAttachments }
+            : {}),
         }),
       });
       if (!res.ok) {
@@ -211,6 +367,7 @@ export function PhonePageClient({
           body: draft,
           sent_at: now,
           job_tag: null,
+          media_urls: outAttachments,
         },
       ]);
       setConversations((prev) =>
@@ -221,10 +378,13 @@ export function PhonePageClient({
         ),
       );
       setDraft("");
+      // Drop the strip; the message bubble now shows the media inline.
+      attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+      setAttachments([]);
     } finally {
       setSending(false);
     }
-  }, [selected, draft]);
+  }, [selected, draft, readyAttachments, anyUploading, attachments]);
 
   // Realtime: when a new inbound lands, reload the affected thread and
   // bump the conversation in the list. Slice 4's update is intentionally
@@ -415,6 +575,14 @@ export function PhonePageClient({
         </ul>
       </aside>
 
+      {/* Slice 6 (#310) — lightbox over the selected attachment, if any. */}
+      {lightboxPath ? (
+        <PhoneAttachmentLightbox
+          path={lightboxPath}
+          onClose={() => setLightboxPath(null)}
+        />
+      ) : null}
+
       {/* Right pane — selected thread */}
       <section className="flex-1 flex flex-col">
         {selected ? (
@@ -470,6 +638,21 @@ export function PhonePageClient({
                       }`}
                     >
                       {m.body}
+                      {/* Slice 6 (#310) — render inline attachments under the body.
+                          Images become thumbnails (click → lightbox);
+                          non-images become a downloadable filename chip. */}
+                      {m.media_urls && m.media_urls.length > 0 ? (
+                        <ul className="mt-2 flex flex-wrap gap-2">
+                          {m.media_urls.map((mu, idx) => (
+                            <li key={`${m.id}-att-${idx}`}>
+                              <MessageAttachment
+                                attachment={mu}
+                                onOpenLightbox={(p) => setLightboxPath(p)}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                       {/* Re-tag affordance — small button on every message. */}
                       <button
                         type="button"
@@ -530,7 +713,15 @@ export function PhonePageClient({
                 small banner explaining the wait so users aren't left
                 wondering why they can't reply. */}
             {outboundEnabled ? (
-              <div className="border-t border-border p-3 space-y-2">
+              <div
+                data-dropzone="phone-compose"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  onPickFiles(e.dataTransfer?.files ?? null);
+                }}
+                className="border-t border-border p-3 space-y-2"
+              >
                 {sendError ? (
                   <p
                     role="alert"
@@ -539,12 +730,78 @@ export function PhonePageClient({
                     {sendError}
                   </p>
                 ) : null}
+                {attachError ? (
+                  <p
+                    role="alert"
+                    className="text-sm text-red-600 dark:text-red-400"
+                  >
+                    {attachError}
+                  </p>
+                ) : null}
                 {selected.active_jobs.length > 0 && selected.contact_id ? (
                   <p className="text-xs text-muted-foreground">
                     This message will be smart-attached when sent.
                   </p>
                 ) : null}
+                {attachments.length > 0 ? (
+                  <ul className="flex flex-wrap gap-2">
+                    {attachments.map((a) => (
+                      <li
+                        key={a.id}
+                        className="relative inline-flex items-center rounded-md border border-border bg-background p-1 text-xs"
+                      >
+                        {a.kind === "image" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={a.previewUrl}
+                            alt={a.filename}
+                            className="h-14 w-14 rounded object-cover"
+                          />
+                        ) : (
+                          <span className="block max-w-[12rem] truncate px-2">
+                            {a.filename}
+                          </span>
+                        )}
+                        {a.uploading ? (
+                          <span className="ml-2 text-muted-foreground">
+                            Uploading…
+                          </span>
+                        ) : null}
+                        {a.error ? (
+                          <span className="ml-2 text-red-600">{a.error}</span>
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label="Remove attachment"
+                          onClick={() => onRemoveAttachment(a.id)}
+                          className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-background shadow"
+                        >
+                          <X size={12} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <div className="flex items-end gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      onPickFiles(e.target.files);
+                      // Reset so re-picking the same file fires onChange.
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Attach"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-accent"
+                  >
+                    <Paperclip size={16} />
+                  </button>
                   <textarea
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
@@ -554,8 +811,10 @@ export function PhonePageClient({
                     onKeyDown={(e) => {
                       if (
                         (e.key === "Enter" && (e.metaKey || e.ctrlKey)) &&
-                        draft.trim().length > 0 &&
-                        !sending
+                        (draft.trim().length > 0 ||
+                          readyAttachments.length > 0) &&
+                        !sending &&
+                        !anyUploading
                       ) {
                         e.preventDefault();
                         void onSend();
@@ -565,7 +824,12 @@ export function PhonePageClient({
                   <button
                     type="button"
                     onClick={() => void onSend()}
-                    disabled={sending || draft.trim().length === 0}
+                    disabled={
+                      sending ||
+                      anyUploading ||
+                      (draft.trim().length === 0 &&
+                        readyAttachments.length === 0)
+                    }
                     className="inline-flex items-center gap-1 rounded-md bg-[var(--brand-primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
                     <Send size={14} /> Send
@@ -584,6 +848,112 @@ export function PhonePageClient({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// Slice 6 (#310) — render one stored attachment in a message bubble.
+// Images load via the signed-URL endpoint and click open the lightbox;
+// non-image media is a labelled download link (also via the signed URL).
+function MessageAttachment({
+  attachment,
+  onOpenLightbox,
+}: {
+  attachment: PhoneAttachmentRef;
+  onOpenLightbox: (path: string) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(
+        `/api/phone/attachments?path=${encodeURIComponent(attachment.storage_path)}`,
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { url: string };
+      if (!cancelled) setUrl(body.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment.storage_path]);
+
+  if (isMmsImageMediaType(attachment.media_type)) {
+    return (
+      <button
+        type="button"
+        aria-label={`Open attachment ${attachment.filename ?? ""}`.trim()}
+        onClick={() => onOpenLightbox(attachment.storage_path)}
+        className="block overflow-hidden rounded border border-border bg-background"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url ?? ""}
+          alt={`attachment ${attachment.filename ?? ""}`.trim()}
+          className="block h-32 w-32 object-cover"
+        />
+      </button>
+    );
+  }
+  const label = attachment.filename ?? "Download attachment";
+  return (
+    <a
+      href={url ?? "#"}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground hover:underline"
+    >
+      {label}
+    </a>
+  );
+}
+
+// Slice 6 (#310) — full-size image overlay. Click outside or press Escape
+// to dismiss. Loads via the same signed-URL endpoint so a fresh URL is
+// minted; the TTL is short, but the URL is fetched at open time.
+function PhoneAttachmentLightbox({
+  path,
+  onClose,
+}: {
+  path: string;
+  onClose: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(
+        `/api/phone/attachments?path=${encodeURIComponent(path)}`,
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { url: string };
+      if (!cancelled) setUrl(body.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-label="Attachment preview"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url ?? ""}
+        alt="attachment full size"
+        className="max-h-[90vh] max-w-[90vw] rounded shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      />
     </div>
   );
 }

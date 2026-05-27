@@ -29,6 +29,15 @@ vi.mock("@/lib/supabase-api", () => ({
   createServiceClient: () => createServiceClientMock(),
 }));
 
+// Slice 6 (#310) — inbound MMS copies Twilio's media to the Nookleus
+// `phone-attachments` bucket so it survives Twilio's media retention.
+// Mocked at the module boundary; the test asserts the upload was called
+// and the persisted media_urls match.
+const uploadPhoneAttachmentMock = vi.fn();
+vi.mock("@/lib/phone/attachments-storage", () => ({
+  uploadPhoneAttachment: (...args: unknown[]) => uploadPhoneAttachmentMock(...args),
+}));
+
 import { POST } from "./route";
 
 interface Row { [key: string]: unknown }
@@ -117,12 +126,19 @@ function inboundForm(opts: {
   To?: string;
   Body?: string;
   MessageSid?: string;
+  Media?: Array<{ url: string; contentType: string }>;
 }): { req: Request; bodyString: string } {
   const params = new URLSearchParams();
   params.set("From", opts.From ?? "+15551234567");
   params.set("To", opts.To ?? "+15125550000");
   params.set("Body", opts.Body ?? "hello");
   params.set("MessageSid", opts.MessageSid ?? "SM-abc");
+  const media = opts.Media ?? [];
+  params.set("NumMedia", String(media.length));
+  media.forEach((m, i) => {
+    params.set(`MediaUrl${i}`, m.url);
+    params.set(`MediaContentType${i}`, m.contentType);
+  });
   const bodyString = params.toString();
   const req = new Request("http://test/api/phone/webhook/sms-inbound", {
     method: "POST",
@@ -676,5 +692,177 @@ describe("inbound HELP — gated by #309 feature flag", () => {
     expect(res.status).toBe(200);
     expect(upserts.find((u) => u.table === "phone_opt_outs")).toBeDefined();
     expect(sendSmsModuleMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 6 (#310) — Inbound MMS attachments.
+//
+// When Twilio's webhook arrives with NumMedia > 0, the route fetches each
+// MediaUrlN, copies the bytes to the Nookleus `phone-attachments` bucket
+// (so the media survives Twilio's media retention), and persists the
+// storage paths on phone_messages.media_urls.
+// ---------------------------------------------------------------------------
+
+describe("inbound MMS — media copy to Nookleus storage", () => {
+  beforeEach(() => {
+    uploadPhoneAttachmentMock.mockReset();
+    // Default: each upload resolves with a path derived from the call index.
+    let callIdx = 0;
+    uploadPhoneAttachmentMock.mockImplementation(
+      async (_client: unknown, params: { mediaType: string }) => {
+        const ext = params.mediaType.split("/")[1] ?? "bin";
+        callIdx += 1;
+        return {
+          storagePath: `org-1/copied-${callIdx}.${ext}`,
+          mediaType: params.mediaType,
+        };
+      },
+    );
+  });
+
+  it("fetches each Twilio MediaUrl, copies it to the bucket, and persists media_urls", async () => {
+    // Stub global fetch — Twilio media URLs are publicly fetchable for
+    // a limited window; the route reads the bytes from there.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      });
+
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "pn-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({
+      Body: "look at this",
+      Media: [
+        {
+          url: "https://api.twilio.com/.../Media/ME111",
+          contentType: "image/jpeg",
+        },
+        {
+          url: "https://api.twilio.com/.../Media/ME222",
+          contentType: "image/png",
+        },
+      ],
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    // Two Twilio fetches.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect((fetchSpy.mock.calls[0][0] as string).toString()).toContain("ME111");
+    expect((fetchSpy.mock.calls[1][0] as string).toString()).toContain("ME222");
+    // Two bucket uploads.
+    expect(uploadPhoneAttachmentMock).toHaveBeenCalledTimes(2);
+    // Persisted media_urls on the inbound message.
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row).toMatchObject({
+      direction: "in",
+      body: "look at this",
+      media_urls: [
+        { storage_path: "org-1/copied-1.jpeg", media_type: "image/jpeg" },
+        { storage_path: "org-1/copied-2.png", media_type: "image/png" },
+      ],
+    });
+
+    fetchSpy.mockRestore();
+  });
+
+  it("persists the message even when a Twilio media fetch fails (best-effort copy)", async () => {
+    // A single failure should not lose the inbound message — without
+    // attachments we can still surface the body and the customer's number.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "pn-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({
+      Body: "broken",
+      Media: [
+        {
+          url: "https://api.twilio.com/.../Media/MEbad",
+          contentType: "image/jpeg",
+        },
+      ],
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(uploadPhoneAttachmentMock).not.toHaveBeenCalled();
+    // The message row is still inserted, with media_urls=[].
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row).toMatchObject({
+      direction: "in",
+      body: "broken",
+      media_urls: [],
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it("is a no-op (no fetches, no uploads) when NumMedia is 0", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "pn-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({ Body: "no media" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(uploadPhoneAttachmentMock).not.toHaveBeenCalled();
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row).toMatchObject({
+      direction: "in",
+      media_urls: [],
+    });
+    fetchSpy.mockRestore();
   });
 });

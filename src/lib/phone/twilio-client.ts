@@ -59,6 +59,7 @@ export interface TwilioClientLike {
       to: string;
       body: string;
       statusCallback?: string;
+      mediaUrl?: string[];
     }): Promise<{ sid: string; status: string }>;
   };
 }
@@ -137,6 +138,10 @@ export interface SendSmsParams {
   to: string;
   body: string;
   statusCallback?: string;
+  // Slice 6 (#310) — MMS attachments. Each entry is a publicly-fetchable
+  // URL Twilio downloads from; pass an empty/undefined array for plain SMS.
+  // An MMS may carry an empty body provided at least one mediaUrl is set.
+  mediaUrl?: string[];
 }
 
 export interface SendSmsResult {
@@ -167,20 +172,25 @@ export async function sendSms(
       `twilio-client: sendSms to "${params.to}" must be E.164 (e.g. +15125551234)`,
     );
   }
-  if (params.body.length === 0) {
-    throw new Error("twilio-client: sendSms body must not be empty");
+  const hasMedia = (params.mediaUrl?.length ?? 0) > 0;
+  if (params.body.length === 0 && !hasMedia) {
+    throw new Error(
+      "twilio-client: sendSms requires a non-empty body OR at least one mediaUrl",
+    );
   }
   const payload: {
     from: string;
     to: string;
     body: string;
     statusCallback?: string;
+    mediaUrl?: string[];
   } = {
     from: params.from,
     to: params.to,
     body: params.body,
   };
   if (params.statusCallback) payload.statusCallback = params.statusCallback;
+  if (hasMedia) payload.mediaUrl = params.mediaUrl;
   const created = await client.messages.create(payload);
   return { sid: created.sid, status: created.status };
 }

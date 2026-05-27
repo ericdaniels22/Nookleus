@@ -720,4 +720,351 @@ describe("PhonePageClient", () => {
       screen.queryByRole("button", { name: /new conversation/i }),
     ).toBeNull();
   });
+
+  // ---------------------------------------------------------------------------
+  // Slice 6 (#310) — MMS attachments.
+  //
+  // Drag-and-drop + file-picker stage attachments inline above the compose
+  // textarea; previews carry a remove-X; the Send button is gated on
+  // (text || attachments); inline thread images render from the
+  // attachments signed URL; non-image media shows as a download chip.
+  // ---------------------------------------------------------------------------
+
+  beforeEach(() => {
+    // jsdom has no object-URL support; the compose strip uses one per preview.
+    URL.createObjectURL = vi.fn(() => "blob:mock");
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  function imageFile(name = "damage.jpg", size = 1000): File {
+    return new File([new Uint8Array(size)], name, { type: "image/jpeg" });
+  }
+
+  function attachmentRoutesFor(convId: string) {
+    return async (input: RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      // Thread fetch.
+      if (
+        path === `/api/phone/conversations/${convId}/messages` &&
+        (!init || init.method !== "POST")
+      ) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      // Pre-upload — stages the attachment in the bucket and returns
+      // the storage path the client then sends to /api/phone/messages.
+      if (path === "/api/phone/attachments" && init?.method === "POST") {
+        const form = init.body as FormData;
+        const file = form.get("file") as File;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            attachment: {
+              kind: "image",
+              media_type: "image/jpeg",
+              storage_path: `org-1/${file.name}.uuid.jpg`,
+              filename: file.name,
+            },
+          }),
+        };
+      }
+      // Outbound send.
+      if (path === "/api/phone/messages" && init?.method === "POST") {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: "msg-out",
+            conversationId: convId,
+            twilio_sid: "SM-mms",
+            status: "queued",
+          }),
+        };
+      }
+      // Signed-URL for thread render (slice 6).
+      if (path.startsWith("/api/phone/attachments?path=")) {
+        const stored = decodeURIComponent(path.split("path=")[1]);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: `https://signed.example/${stored}` }),
+        };
+      }
+      throw new Error(`unmocked fetch: ${path} ${init?.method ?? "GET"}`);
+    };
+  }
+
+  it("renders an Attach button in the compose box", async () => {
+    respondWith({
+      "/api/phone/conversations/conv-1/messages": { ok: true, body: [] },
+    });
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+    expect(screen.getByRole("button", { name: /attach/i })).toBeDefined();
+  });
+
+  it("uploads a picked file via /api/phone/attachments and shows a preview with a remove-X", async () => {
+    mockFetch.mockImplementation(attachmentRoutesFor("conv-1"));
+
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [imageFile("photo.jpg")] } });
+
+    await waitFor(() => {
+      expect(screen.getByAltText("photo.jpg")).toBeDefined();
+    });
+    expect(
+      screen.getByRole("button", { name: /remove attachment/i }),
+    ).toBeDefined();
+  });
+
+  it("stages a drag-and-dropped file the same way as the file picker", async () => {
+    mockFetch.mockImplementation(attachmentRoutesFor("conv-1"));
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+
+    const dropzone = container.querySelector('[data-dropzone="phone-compose"]')!;
+    fireEvent.drop(dropzone, {
+      dataTransfer: { files: [imageFile("dropped.jpg")] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByAltText("dropped.jpg")).toBeDefined();
+    });
+  });
+
+  it("rejects an oversize file with a clear inline error and does NOT upload it", async () => {
+    mockFetch.mockImplementation(attachmentRoutesFor("conv-1"));
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    // 5 MB + 1 — past Twilio's per-MMS ceiling.
+    fireEvent.change(fileInput, {
+      target: { files: [imageFile("huge.jpg", 5 * 1024 * 1024 + 1)] },
+    });
+
+    await screen.findByText(/too large/i);
+    // No preview, no upload POST.
+    expect(screen.queryByAltText("huge.jpg")).toBeNull();
+    const uploadPost = mockFetch.mock.calls.find(
+      ([, init]) =>
+        (init as RequestInit | undefined)?.method === "POST" &&
+        (typeof init === "object"
+          ? init?.body instanceof FormData
+          : false),
+    );
+    expect(uploadPost).toBeUndefined();
+  });
+
+  it("enables Send when only attachments are staged (image-only MMS)", async () => {
+    mockFetch.mockImplementation(attachmentRoutesFor("conv-1"));
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+
+    const send = screen.getByRole("button", {
+      name: /^send$/i,
+    }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [imageFile("p.jpg")] } });
+
+    await waitFor(() => expect(send.disabled).toBe(false));
+  });
+
+  it("POSTs attachments[] to /api/phone/messages and renders the outbound row inline", async () => {
+    mockFetch.mockImplementation(attachmentRoutesFor("conv-1"));
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [imageFile("p.jpg")] } });
+
+    await waitFor(() => expect(screen.getByAltText("p.jpg")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => {
+      const sendCall = mockFetch.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/api/phone/messages") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(sendCall).toBeDefined();
+      const body = JSON.parse(
+        (sendCall![1] as RequestInit).body as string,
+      ) as { attachments: Array<{ storage_path: string }> };
+      expect(body.attachments).toHaveLength(1);
+      expect(body.attachments[0].storage_path).toBe("org-1/p.jpg.uuid.jpg");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 6 (#310) — thread render of attachments.
+// ---------------------------------------------------------------------------
+
+describe("PhonePageClient — thread media render (#310)", () => {
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => "blob:mock");
+  });
+
+  function setupMediaThread(media_urls: Array<Record<string, string>>) {
+    mockFetch.mockImplementation(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      if (path === "/api/phone/conversations/conv-mms/messages") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "m-1",
+              conversation_id: "conv-mms",
+              direction: "in",
+              body: "",
+              sent_at: "2026-05-27T10:00:00Z",
+              job_tag: null,
+              media_urls,
+            },
+          ],
+        };
+      }
+      if (path.startsWith("/api/phone/attachments?path=")) {
+        const stored = decodeURIComponent(path.split("path=")[1]);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: `https://signed.example/${stored}` }),
+        };
+      }
+      throw new Error(`unmocked fetch: ${path}`);
+    });
+  }
+
+  it("renders an inline image thumbnail for image attachments", async () => {
+    setupMediaThread([
+      { storage_path: "org-1/in.jpg", media_type: "image/jpeg" },
+    ]);
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          {
+            id: "conv-mms",
+            organization_id: "org-1",
+            phone_number_id: "pn-1",
+            outside_e164: "+15551112222",
+            contact_id: "c-1",
+            contact_name: "Alice",
+            last_event_at: "2026-05-27T10:00:00Z",
+            unread_count: 0,
+            active_jobs: [],
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const thumb = (await screen.findByRole("img", {
+      name: /attachment/i,
+    })) as HTMLImageElement;
+    await waitFor(() => expect(thumb.src).toContain("signed.example"));
+    expect(thumb.src).toContain("org-1/in.jpg");
+  });
+
+  it("renders a downloadable filename link for non-image attachments", async () => {
+    setupMediaThread([
+      {
+        storage_path: "org-1/estimate.pdf",
+        media_type: "application/pdf",
+        filename: "estimate.pdf",
+      },
+    ]);
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          {
+            id: "conv-mms",
+            organization_id: "org-1",
+            phone_number_id: "pn-1",
+            outside_e164: "+15551112222",
+            contact_id: "c-1",
+            contact_name: "Alice",
+            last_event_at: "2026-05-27T10:00:00Z",
+            unread_count: 0,
+            active_jobs: [],
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const link = (await screen.findByRole("link", {
+      name: /estimate\.pdf/i,
+    })) as HTMLAnchorElement;
+    await waitFor(() => expect(link.href).toContain("estimate.pdf"));
+  });
 });
