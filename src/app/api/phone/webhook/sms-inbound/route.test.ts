@@ -13,11 +13,15 @@
 // Twilio and Supabase are mocked at the module boundary. The pure routing
 // modules are NOT mocked — they exercise the real decision logic.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const validateSignatureMock = vi.fn();
+const sendSmsModuleMock = vi.fn();
+const createTwilioClientModuleMock = vi.fn();
 vi.mock("@/lib/phone/twilio-client", () => ({
   validateTwilioSignature: (...args: unknown[]) => validateSignatureMock(...args),
+  sendSms: (...args: unknown[]) => sendSmsModuleMock(...args),
+  createTwilioClient: () => createTwilioClientModuleMock(),
 }));
 
 const createServiceClientMock = vi.fn();
@@ -35,6 +39,8 @@ interface BuilderTables {
   jobs: Row[];
   phone_conversations: Row[];
   phone_messages: Row[];
+  phone_opt_outs?: Row[];
+  organizations?: Row[];
 }
 
 function makeServiceClient(tables: BuilderTables) {
@@ -132,6 +138,14 @@ function inboundForm(opts: {
 beforeEach(() => {
   vi.clearAllMocks();
   validateSignatureMock.mockReturnValue(true);
+  // The HELP auto-reply branch is gated on the #309 feature flag.
+  // Default each test to flag-ON so the existing inbound matrix runs
+  // unchanged; the flag-OFF case has its own dedicated test below.
+  vi.stubEnv("NEXT_PUBLIC_PHONE_OUTBOUND_ENABLED", "true");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("POST /api/phone/webhook/sms-inbound — signature validation", () => {
@@ -340,5 +354,327 @@ describe("POST /api/phone/webhook/sms-inbound — happy path", () => {
     expect(res.status).toBe(200);
     const msg = inserts.find((i) => i.table === "phone_messages");
     expect(msg!.row.job_tag).toBe("job-2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 5 (#309) — TCPA STOP / HELP handling on the inbound path.
+//
+// AC bullets:
+//   - "An inbound STOP / UNSUBSCRIBE / END / QUIT / CANCEL / STOPALL writes
+//      a phone_opt_outs row; subsequent outbound attempts to that number
+//      from any number in the org are blocked"
+//   - "An inbound HELP / INFO triggers an outbound auto-reply identifying
+//      the Organization (org name + how to opt out)"
+//
+// Wiring: the inbound webhook detects the classifier verdict and:
+//   - STOP-side: upserts into phone_opt_outs by (org, outside_e164) BEFORE
+//     persisting the message. The message row itself still lands in the
+//     thread (the customer's STOP is the record of why they opted out).
+//   - HELP-side: writes the inbound row, then dispatches an outbound
+//     auto-reply via Twilio with the org's name. The auto-reply is logged
+//     as its own outbound `phone_messages` row.
+// ---------------------------------------------------------------------------
+
+describe("inbound STOP — opt-out registry", () => {
+  beforeEach(() => {
+    sendSmsModuleMock.mockResolvedValue({ sid: "SM-auto", status: "queued" });
+    createTwilioClientModuleMock.mockReturnValue({});
+  });
+
+  it("writes a phone_opt_outs row on inbound STOP and still records the message", async () => {
+    const { client, upserts, inserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({
+      From: "+15551234567",
+      Body: "STOP",
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    // Opt-out registry row was written.
+    const oo = upserts.find((u) => u.table === "phone_opt_outs");
+    expect(oo).toBeDefined();
+    expect(oo?.row).toMatchObject({
+      organization_id: "org-1",
+      outside_e164: "+15551234567",
+    });
+    // The message itself is still persisted (the customer's STOP is the
+    // record).
+    const msg = inserts.find((i) => i.table === "phone_messages");
+    expect(msg?.row).toMatchObject({ direction: "in", body: "STOP" });
+    // STOP does NOT trigger an auto-reply (Twilio itself handles
+    // STOP confirmation per A2P 10DLC carrier rules).
+    expect(sendSmsModuleMock).not.toHaveBeenCalled();
+  });
+
+  it("upserts opt-out idempotently when STOP arrives twice", async () => {
+    const { client, upserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [
+        {
+          id: "oo-existing",
+          organization_id: "org-1",
+          outside_e164: "+15551234567",
+        },
+      ],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({
+      From: "+15551234567",
+      Body: "unsubscribe",
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const oo = upserts.find((u) => u.table === "phone_opt_outs");
+    expect(oo?.onConflict).toContain("organization_id");
+    expect(oo?.onConflict).toContain("outside_e164");
+  });
+
+  it("recognises every CTIA STOP synonym", async () => {
+    const synonyms = ["STOP", "UNSUBSCRIBE", "END", "QUIT", "CANCEL", "STOPALL"];
+    for (const word of synonyms) {
+      const { client, upserts } = makeServiceClient({
+        phone_numbers: [
+          {
+            id: "num-1",
+            organization_id: "org-1",
+            e164: "+15125550000",
+            kind: "shared",
+            user_id: null,
+            released_at: null,
+          },
+        ],
+        contacts: [],
+        jobs: [],
+        phone_conversations: [],
+        phone_messages: [],
+        phone_opt_outs: [],
+        organizations: [{ id: "org-1", name: "AAA Contracting" }],
+      });
+      createServiceClientMock.mockReturnValue(client);
+
+      const { req } = inboundForm({ Body: word });
+      const res = await POST(req);
+
+      expect(res.status).toBe(200);
+      expect(upserts.find((u) => u.table === "phone_opt_outs")).toBeDefined();
+    }
+  });
+});
+
+describe("inbound HELP — auto-reply with org name", () => {
+  beforeEach(() => {
+    sendSmsModuleMock.mockResolvedValue({ sid: "SM-auto", status: "queued" });
+    createTwilioClientModuleMock.mockReturnValue({});
+  });
+
+  it("dispatches an outbound auto-reply identifying the org on inbound HELP", async () => {
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({ From: "+15551234567", Body: "HELP" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(sendSmsModuleMock).toHaveBeenCalledOnce();
+    const sendArgs = sendSmsModuleMock.mock.calls[0][1] as {
+      from: string;
+      to: string;
+      body: string;
+    };
+    expect(sendArgs.from).toBe("+15125550000");
+    expect(sendArgs.to).toBe("+15551234567");
+    expect(sendArgs.body).toMatch(/AAA Contracting/i);
+    expect(sendArgs.body).toMatch(/STOP/i);
+    // The outbound auto-reply is logged as its own phone_messages row.
+    const out = inserts.find(
+      (i) => i.table === "phone_messages" && i.row.direction === "out",
+    );
+    expect(out?.row).toMatchObject({
+      direction: "out",
+      to_e164: "+15551234567",
+      twilio_sid: "SM-auto",
+    });
+  });
+
+  it("recognises HELP and INFO synonyms", async () => {
+    for (const word of ["HELP", "INFO", "help", "info"]) {
+      sendSmsModuleMock.mockClear();
+      const { client } = makeServiceClient({
+        phone_numbers: [
+          {
+            id: "num-1",
+            organization_id: "org-1",
+            e164: "+15125550000",
+            kind: "shared",
+            user_id: null,
+            released_at: null,
+          },
+        ],
+        contacts: [],
+        jobs: [],
+        phone_conversations: [],
+        phone_messages: [],
+        phone_opt_outs: [],
+        organizations: [{ id: "org-1", name: "AAA Contracting" }],
+      });
+      createServiceClientMock.mockReturnValue(client);
+
+      const { req } = inboundForm({ Body: word });
+      await POST(req);
+
+      expect(sendSmsModuleMock).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("does not auto-reply for ordinary inbound messages", async () => {
+    const { client } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({ Body: "hello, can you come tuesday" });
+    await POST(req);
+
+    expect(sendSmsModuleMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("inbound HELP — gated by #309 feature flag", () => {
+  it("does NOT dispatch the auto-reply when NEXT_PUBLIC_PHONE_OUTBOUND_ENABLED is off", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PHONE_OUTBOUND_ENABLED", "");
+    sendSmsModuleMock.mockResolvedValue({ sid: "SM-auto", status: "queued" });
+    createTwilioClientModuleMock.mockReturnValue({});
+
+    const { client } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({ Body: "HELP" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    // STOP-side persistence still happens regardless of flag (the inbound
+    // record is still written), but the outbound auto-reply is gated.
+    expect(sendSmsModuleMock).not.toHaveBeenCalled();
+  });
+
+  it("STILL writes the phone_opt_outs row on inbound STOP when the flag is off", async () => {
+    // The STOP path is inbound-only — no outbound SMS is involved — so
+    // it must keep working even when the outbound flag is off. The
+    // registry needs to be ready the moment the flag flips.
+    vi.stubEnv("NEXT_PUBLIC_PHONE_OUTBOUND_ENABLED", "");
+    sendSmsModuleMock.mockResolvedValue({ sid: "SM-auto", status: "queued" });
+    createTwilioClientModuleMock.mockReturnValue({});
+
+    const { client, upserts } = makeServiceClient({
+      phone_numbers: [
+        {
+          id: "num-1",
+          organization_id: "org-1",
+          e164: "+15125550000",
+          kind: "shared",
+          user_id: null,
+          released_at: null,
+        },
+      ],
+      contacts: [],
+      jobs: [],
+      phone_conversations: [],
+      phone_messages: [],
+      phone_opt_outs: [],
+      organizations: [{ id: "org-1", name: "AAA Contracting" }],
+    });
+    createServiceClientMock.mockReturnValue(client);
+
+    const { req } = inboundForm({ Body: "STOP" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(upserts.find((u) => u.table === "phone_opt_outs")).toBeDefined();
+    expect(sendSmsModuleMock).not.toHaveBeenCalled();
   });
 });

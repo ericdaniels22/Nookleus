@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import {
   canManage,
   canRead,
+  canReTag,
   type PhoneEventCaller,
   type PhoneEventForRead,
   type PhoneEventReadCaller,
@@ -349,5 +350,104 @@ describe("canRead (PRD #304, ADR 0003) — full access matrix", () => {
         canRead(readCaller({ role: "admin" }), bogus, { jobVisibleToCaller: false }),
       ).toThrow(/unknown phone number kind "service"/);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canReTag — PRD #304 § Re-tag affordance. Slice 5 (#309).
+//
+//   "Per-message menu that lets a user re-tag any message to a different
+//    Job or remove a tag. Tag changes write phone_messages.job_tag and
+//    tagged_by_user_id."
+//
+// AC: "Re-tag menu changes `phone_messages.job_tag` and is visible only
+//      to callers who pass `phone-event-access.canRead` for the current
+//      and target Jobs"
+//
+// The rule:
+//   * caller must already be able to read the message (canRead passes)
+//   * if the target tag is a Job, the caller must also be able to see
+//     that target Job (a "phantom move" to an invisible Job is silently
+//     dropped — the AC is the inverse: visible only if both pass)
+//   * removing the tag (target=null) is allowed whenever canRead allows
+//     viewing the message — losing privacy never violates ADR 0003
+//
+// The function takes the SAME inputs as canRead plus two booleans —
+// jobVisibleToCaller for the CURRENT job (drives canRead) and
+// targetJobVisibleToCaller for the new tag — so the route can compute
+// each independently without leaking the access policy into route code.
+// ---------------------------------------------------------------------------
+
+describe("canReTag (PRD #304, ADR 0003)", () => {
+  it("allows re-tag when caller can read the message AND see the target Job", () => {
+    expect(
+      canReTag(readCaller(), sharedEvent({ jobTag: "job-A" }), {
+        jobVisibleToCaller: true,
+        targetJobId: "job-B",
+        targetJobVisibleToCaller: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("denies re-tag when caller cannot read the message at all", () => {
+    expect(
+      canReTag(
+        readCaller({ userId: ALICE }),
+        personalEvent(BOB),
+        {
+          jobVisibleToCaller: false,
+          targetJobId: "job-B",
+          targetJobVisibleToCaller: true,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("denies re-tag when target Job is not visible to the caller", () => {
+    expect(
+      canReTag(readCaller(), sharedEvent({ jobTag: "job-A" }), {
+        jobVisibleToCaller: true,
+        targetJobId: "job-B",
+        targetJobVisibleToCaller: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows removing a tag (targetJobId=null) when caller can read the message", () => {
+    expect(
+      canReTag(readCaller(), sharedEvent({ jobTag: "job-A" }), {
+        jobVisibleToCaller: true,
+        targetJobId: null,
+        targetJobVisibleToCaller: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("denies removing a tag when caller cannot read the message in the first place", () => {
+    expect(
+      canReTag(
+        readCaller({ userId: ALICE }),
+        personalEvent(BOB),
+        {
+          jobVisibleToCaller: false,
+          targetJobId: null,
+          targetJobVisibleToCaller: false,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("denies cross-org re-tag", () => {
+    expect(
+      canReTag(
+        readCaller({ organizationId: OTHER_ORG }),
+        sharedEvent({ jobTag: "job-A" }),
+        {
+          jobVisibleToCaller: true,
+          targetJobId: "job-B",
+          targetJobVisibleToCaller: true,
+        },
+      ),
+    ).toBe(false);
   });
 });

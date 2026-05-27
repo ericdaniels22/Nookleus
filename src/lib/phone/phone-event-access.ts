@@ -169,3 +169,34 @@ export function canRead(
   }
   return evaluator(caller, event, context);
 }
+
+// ---------------------------------------------------------------------------
+// canReTag — PRD #304 § Re-tag affordance. Slice 5 (#309).
+//
+// The re-tag menu changes phone_messages.job_tag. The caller must:
+//   1. be able to read the current message (canRead passes), AND
+//   2. if the target tag is a non-null Job, be able to see that target Job.
+// Removing the tag (target=null) requires only (1) — losing access by
+// untagging is fine; gaining access to a Job-tagged-but-invisible message
+// is the case we must prevent.
+// ---------------------------------------------------------------------------
+
+export interface CanReTagContext extends CanReadContext {
+  // The Job the message is being re-tagged TO. null = remove tag.
+  targetJobId: string | null;
+  // Whether the caller can see the target Job. Ignored when targetJobId
+  // is null. The caller of this module is responsible for resolving Job
+  // visibility — slice 5's route uses the schema.sql "every member sees
+  // every Job in their active org" policy, identical to canRead.
+  targetJobVisibleToCaller: boolean;
+}
+
+export function canReTag(
+  caller: PhoneEventReadCaller,
+  event: PhoneEventForRead,
+  context: CanReTagContext,
+): boolean {
+  if (!canRead(caller, event, context)) return false;
+  if (context.targetJobId === null) return true;
+  return context.targetJobVisibleToCaller;
+}

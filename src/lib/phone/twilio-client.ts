@@ -53,6 +53,14 @@ export interface TwilioClientLike {
       phoneNumber: string;
     }>;
   };
+  messages: {
+    create(opts: {
+      from: string;
+      to: string;
+      body: string;
+      statusCallback?: string;
+    }): Promise<{ sid: string; status: string }>;
+  };
 }
 
 // US 3-digit area codes only. Twilio enforces the same; failing fast here
@@ -122,6 +130,59 @@ export async function releaseNumber(
     throw new Error("twilio-client: releaseNumber called with empty sid");
   }
   await client.incomingPhoneNumbers(sid).remove();
+}
+
+export interface SendSmsParams {
+  from: string;
+  to: string;
+  body: string;
+  statusCallback?: string;
+}
+
+export interface SendSmsResult {
+  sid: string;
+  status: string;
+}
+
+/**
+ * Send an outbound SMS through Twilio. Returns the Twilio message SID and
+ * initial status (typically `'queued'`). The status callback URL — when
+ * supplied — tells Twilio to POST delivery updates to our status-callback
+ * webhook so we can flip `phone_messages.status` to delivered / failed.
+ *
+ * Slice 5 (#309) is the first caller; slice 6 (MMS) extends with
+ * `mediaUrl` once the schema lands the attachment write path.
+ */
+export async function sendSms(
+  client: TwilioClientLike,
+  params: SendSmsParams,
+): Promise<SendSmsResult> {
+  if (!E164_RE.test(params.from)) {
+    throw new Error(
+      `twilio-client: sendSms from "${params.from}" must be E.164 (e.g. +15125551234)`,
+    );
+  }
+  if (!E164_RE.test(params.to)) {
+    throw new Error(
+      `twilio-client: sendSms to "${params.to}" must be E.164 (e.g. +15125551234)`,
+    );
+  }
+  if (params.body.length === 0) {
+    throw new Error("twilio-client: sendSms body must not be empty");
+  }
+  const payload: {
+    from: string;
+    to: string;
+    body: string;
+    statusCallback?: string;
+  } = {
+    from: params.from,
+    to: params.to,
+    body: params.body,
+  };
+  if (params.statusCallback) payload.statusCallback = params.statusCallback;
+  const created = await client.messages.create(payload);
+  return { sid: created.sid, status: created.status };
 }
 
 /**
