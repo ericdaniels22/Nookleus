@@ -14,12 +14,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Handshake, Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import NewTargetDialog from "@/components/referral-partners/new-target-dialog";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   distinctIndustries,
   filterReferralPartners,
   type LifecycleStatus,
 } from "@/lib/referral-partner-filter";
 import type { CallOutcome } from "@/lib/referral-partner-call";
+import { STATUS_ROW_STYLES } from "@/lib/referral-partner-row-styles";
+import { formatPhoneNumber } from "@/lib/phone";
 
 const RETENTION_DAYS = 30;
 
@@ -28,6 +32,8 @@ interface ReferralPartner {
   company_name: string;
   status: LifecycleStatus;
   industry: string | null;
+  office_phone?: string | null;
+  notes?: string | null;
   last_called_at: string | null;
   last_call_outcome: CallOutcome | null;
   next_follow_up_at: string | null;
@@ -146,13 +152,13 @@ export default function ReferralPartnersPage() {
           <h1 className="text-2xl font-heading font-semibold">Referral Partners</h1>
         </div>
         {view === "active" && (
-          <button
+          <Button
+            variant="gradient"
             onClick={() => setDialogOpen(true)}
-            className="btn btn-primary inline-flex items-center gap-2"
           >
-            <Plus size={16} />
+            <Plus />
             Add Target
-          </button>
+          </Button>
         )}
       </header>
 
@@ -262,46 +268,11 @@ export default function ReferralPartnersPage() {
           No partners match the current filters.
         </p>
       ) : (
-        <ul className="divide-y rounded-lg border border-border bg-card">
+        <div className="space-y-2">
           {visiblePartners.map((p) => (
-            <li key={p.id}>
-              <Link
-                href={`/referral-partners/${p.id}`}
-                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors"
-              >
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[p.status]}`}
-                >
-                  {STATUS_LABEL[p.status]}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{p.company_name}</p>
-                  {p.industry && (
-                    <p className="text-xs text-muted-foreground truncate">{p.industry}</p>
-                  )}
-                </div>
-                {/* Denormalized last-call / next-follow-up surface
-                    (PRD #249, issue #254 AC: list page surfaces last
-                    called, last call outcome, next follow-up). */}
-                <div className="hidden sm:flex flex-col text-right text-xs text-muted-foreground min-w-[12rem]">
-                  {p.last_called_at && (
-                    <span>
-                      Last call: {formatDate(p.last_called_at)}
-                      {p.last_call_outcome && (
-                        <> — {OUTCOME_LABEL[p.last_call_outcome]}</>
-                      )}
-                    </span>
-                  )}
-                  {p.next_follow_up_at && (
-                    <span>
-                      Next follow-up: {formatDate(p.next_follow_up_at)}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            </li>
+            <PartnerRow key={p.id} partner={p} />
           ))}
-        </ul>
+        </div>
       )}
 
       <NewTargetDialog
@@ -310,6 +281,82 @@ export default function ReferralPartnersPage() {
         onCreated={() => void load()}
       />
     </div>
+  );
+}
+
+// One Active-view row — tinted card mirroring the contracts row pattern
+// from src/components/contracts/contracts-section.tsx. Background+border
+// comes from STATUS_ROW_STYLES.wrap; the status label is colored uppercase
+// text inside the row (no left-side pill). PRD #297 / issue #299.
+function PartnerRow({ partner: p }: { partner: ReferralPartner }) {
+  const style = STATUS_ROW_STYLES[p.status];
+  const officePhone = p.office_phone ? formatPhoneNumber(p.office_phone) : "";
+  const notes = p.notes?.trim() ?? "";
+  return (
+    <Link
+      href={`/referral-partners/${p.id}`}
+      className={cn(
+        "block border rounded-lg px-4 py-3 transition-colors hover:brightness-105",
+        style.wrap,
+      )}
+    >
+      {/* Line 1: company name · status label · right-aligned lifetime-count slot (filled by slice C1). */}
+      <div className="flex items-baseline gap-2 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate flex-1 min-w-0">
+          {p.company_name}
+        </p>
+        <span
+          className={cn(
+            "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0 rounded",
+            style.text,
+          )}
+        >
+          {style.label}
+        </span>
+        <span
+          data-testid={`referral-partner-lifetime-count-${p.id}`}
+          aria-hidden
+          className="shrink-0 text-[11px] text-muted-foreground min-w-[2.5rem] text-right"
+        />
+      </div>
+
+      {/* Line 2: industry · office phone (either may be missing). */}
+      {(p.industry || officePhone) && (
+        <div className="text-xs text-muted-foreground mt-0.5 truncate">
+          {p.industry}
+          {p.industry && officePhone && <span> · </span>}
+          {officePhone}
+        </div>
+      )}
+
+      {/* Line 3: notes (one-line truncation, full text in title). */}
+      {notes && (
+        <div
+          data-testid={`referral-partner-notes-${p.id}`}
+          title={notes}
+          className="text-xs text-muted-foreground/80 mt-0.5 truncate"
+        >
+          {notes}
+        </div>
+      )}
+
+      {/* Line 4: existing last-call / next-follow-up surface (preserved). */}
+      {(p.last_called_at || p.next_follow_up_at) && (
+        <div className="text-xs text-muted-foreground/80 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+          {p.last_called_at && (
+            <span>
+              Last call: {formatDate(p.last_called_at)}
+              {p.last_call_outcome && (
+                <> — {OUTCOME_LABEL[p.last_call_outcome]}</>
+              )}
+            </span>
+          )}
+          {p.next_follow_up_at && (
+            <span>Next follow-up: {formatDate(p.next_follow_up_at)}</span>
+          )}
+        </div>
+      )}
+    </Link>
   );
 }
 
