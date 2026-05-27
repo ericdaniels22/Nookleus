@@ -6,6 +6,7 @@ import {
   Camera,
   FileText,
   Mail,
+  Phone,
   Settings,
   Sparkles,
   Megaphone,
@@ -13,6 +14,7 @@ import {
   Handshake,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import type { PermissionKey } from "@/lib/permissions/permission-keys";
 
 export interface NavItem {
   href: string;
@@ -21,6 +23,10 @@ export interface NavItem {
   /** Membership roles allowed to see this item. Undefined = visible to every
    *  authenticated member (the default for legacy items). */
   requiredRoles?: readonly string[];
+  /** Permission key required to see this item. Admin auto-passes. Undefined =
+   *  not gated on a permission (the default; legacy items rely on role gating
+   *  or no gating at all). */
+  requiredPermission?: PermissionKey;
 }
 
 /**
@@ -47,6 +53,9 @@ export const navItems: NavItem[] = [
   { href: "/photos",    label: "Photos",     icon: Camera },
   { href: "/reports",   label: "Reports",    icon: FileText },
   { href: "/contacts",  label: "Contacts",   icon: Users },
+  // Phone sits between Contacts and Email (PRD #304 / #306). Gated on
+  // view_phone — defaults Admin=ON, Crew Lead=ON, Crew Member=OFF.
+  { href: "/phone",     label: "Phone",      icon: Phone, requiredPermission: "view_phone" },
   { href: "/email",      label: "Email",      icon: Mail },
   { href: "/accounting", label: "Accounting", icon: Calculator },
   { href: "/settings",   label: "Settings",   icon: Settings },
