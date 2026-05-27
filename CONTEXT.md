@@ -66,6 +66,13 @@ of thing. The settings UI groups these together because they share a shape
 being sent.
 _Avoid_: send config, mail rule, payment email / invoice email / contract email (use "Outgoing email for X")
 
+**Active job**:
+A job that is still alive — its status is neither `completed` nor `cancelled`,
+and it has not been trashed (`deleted_at IS NULL`). A cancelled job is dead,
+not active. The dashboard's "Jobs to advance" and "People to respond to"
+sections both filter to Active jobs only.
+_Avoid_: open job, current job, running job, in-progress job (that one is a specific status, not the whole alive set)
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
@@ -82,3 +89,4 @@ _Avoid_: send config, mail rule, payment email / invoice email / contract email 
 ## Flagged ambiguities
 
 - "auth gate" was used for four near-identical route helpers (`requirePermission`, `requireAdmin`, `requireViewAccounting`, and an inline `requireLogExpenses`) — resolved: these collapse into the one **Request Context** wrapper.
+- "active" was being used for two unrelated concepts in `src/lib/accounting/margins.ts`: (a) a job with financial activity in a reporting period, and (b) a non-completed job (the user-facing filter pill on the Job Profitability page, which also folds cancelled jobs in with active ones). Neither matches the canonical **Active job** definition above. The dashboard rebuild adopts the canonical meaning; the accounting page is left as-is for now but is a cleanup candidate.
