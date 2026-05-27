@@ -71,4 +71,35 @@ describe("GET /api/referral-partners/trash — happy path", () => {
     expect(body.retentionDays).toBe(30);
     expect(Array.isArray(body.referral_partners)).toBe(true);
   });
+
+  // ── Slice C1 (#300) AC: Trash row shows `N jobs · X days remaining`. ──
+  it("attaches job_count to each trashed partner row from non-trashed jobs", async () => {
+    useUser({
+      user: { id: "user-1" },
+      tables: {
+        ...memberTables({ userId: "user-1", role: "admin" }),
+        referral_partners: [
+          { id: "p-1", organization_id: "org-1", company_name: "Acme",  deleted_at: "2026-05-20T00:00:00.000Z" },
+          { id: "p-2", organization_id: "org-1", company_name: "Beta",  deleted_at: "2026-05-21T00:00:00.000Z" },
+        ],
+        jobs: [
+          // Trashed-partner FKs still point at the partner row (soft delete
+          // preserves the row); the count rule depends on the Job's own
+          // `deleted_at IS NULL`, not the partner's.
+          { id: "j-1", referral_partner_id: "p-1", deleted_at: null },
+          { id: "j-2", referral_partner_id: "p-1", deleted_at: null },
+          { id: "j-3", referral_partner_id: "p-1", deleted_at: null },
+        ],
+      },
+    });
+    const res = await GET(REQ, { params: Promise.resolve({}) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const byId = Object.fromEntries(
+      (body.referral_partners as Array<{ id: string; job_count: number }>).map(
+        (p) => [p.id, p.job_count],
+      ),
+    );
+    expect(byId).toEqual({ "p-1": 3, "p-2": 0 });
+  });
 });

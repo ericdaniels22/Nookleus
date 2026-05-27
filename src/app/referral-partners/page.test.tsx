@@ -229,4 +229,71 @@ describe("/referral-partners list page", () => {
     expect(btn.getAttribute("data-slot")).toBe("button");
     expect(btn.className).not.toContain("btn-primary");
   });
+
+  // ── Slice C1 (#300) AC: each Active row shows `N jobs` on the right of
+  // line 1, in the slot reserved by slice A2 (testid:
+  // referral-partner-lifetime-count-<id>). Zero is rendered, not hidden. ──
+  it("shows the lifetime job count as `N jobs` on each Active row", async () => {
+    mockList([
+      { id: "p-1", company_name: "Acme Plumbing",    status: "green",  industry: "Plumbing", job_count: 47 },
+      { id: "p-2", company_name: "Beta Restoration", status: "yellow", industry: null,       job_count: 0 },
+    ]);
+
+    render(<ReferralPartnersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Acme Plumbing")).toBeDefined();
+    });
+    const acmeCount = screen.getByTestId("referral-partner-lifetime-count-p-1");
+    expect(acmeCount.textContent).toBe("47 jobs");
+    // Zero is rendered, not hidden.
+    const betaCount = screen.getByTestId("referral-partner-lifetime-count-p-2");
+    expect(betaCount.textContent).toBe("0 jobs");
+  });
+
+  // ── Slice C1 (#300) AC: Trash row shows `N jobs` alongside the
+  // days-remaining countdown. ──
+  it("shows `N jobs` alongside the days-remaining countdown on each Trash row", async () => {
+    // First fetch is Active (kept empty), second is Trash.
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ referral_partners: [] }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        referral_partners: [
+          {
+            id: "p-1",
+            company_name: "Acme Plumbing",
+            status: "green",
+            industry: "Plumbing",
+            // Two days ago — 28 days remaining at the 30-day retention.
+            deleted_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+            job_count: 12,
+          },
+        ],
+        retentionDays: 30,
+      }),
+    } as Response);
+
+    render(<ReferralPartnersPage />);
+
+    // Wait for the Active fetch to settle, then click the Trash tab.
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    const trashTab = screen.getByTestId("referral-partners-trash-tab");
+    trashTab.click();
+
+    await waitFor(() => {
+      expect(screen.getByText("Acme Plumbing")).toBeDefined();
+    });
+    const row = screen.getByTestId("referral-partners-trash-row-p-1");
+    expect(row.textContent).toMatch(/12 jobs/);
+    // The countdown wording is preserved.
+    expect(row.textContent).toMatch(/until permanent deletion/);
+  });
 });
