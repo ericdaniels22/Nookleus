@@ -13,6 +13,11 @@ let contactsSearchResult: { data: unknown; error: unknown } = {
   data: [],
   error: null,
 };
+// Per-table select fixtures. The intake form fetches referral_partners when
+// the config carries a `job.referral_partner_id`-mapped field (slice D, #302);
+// every other awaited select still resolves through contactsSearchResult so
+// the existing insurance-picker tests keep working unchanged.
+let selectResults: Record<string, { data: unknown; error: unknown }> = {};
 // Insert payloads captured per table, plus the row each insert reads back.
 let inserts: Record<string, Record<string, unknown>[]> = {};
 let insertResults: Record<string, { data: unknown; error: unknown }> = {};
@@ -38,12 +43,15 @@ vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
     from: (table: string) => {
       const builder: Record<string, unknown> = {};
-      for (const method of ["select", "eq", "or", "limit", "order"]) {
+      for (const method of ["select", "eq", "or", "is", "limit", "order"]) {
         builder[method] = () => builder;
       }
-      // Awaiting the builder resolves the embedded picker's contacts search.
+      // Awaiting the builder resolves a select. Per-table fixtures take
+      // precedence (referral_partners for slice D, #302); otherwise we fall
+      // back to the contacts-picker fixture so insurance-picker tests keep
+      // working unchanged.
       builder.then = (resolve: (r: unknown) => void) =>
-        resolve(contactsSearchResult);
+        resolve(selectResults[table] ?? contactsSearchResult);
       // `.insert(payload)` records the payload and supports both a
       // `.select().single()` read-back (contacts, jobs) and a bare await
       // (job_custom_fields, job_activities).
@@ -80,6 +88,51 @@ function makeContact(overrides: Partial<Contact> = {}): Contact {
     created_at: "2026-05-21T00:00:00Z",
     updated_at: "2026-05-21T00:00:00Z",
     ...overrides,
+  };
+}
+
+// A form config carrying the referrer field on top of the three fields
+// the submit hard-requires. The toggle in Settings → Intake Form maps to
+// the presence (or visibility) of this field in the config; slice D
+// (#302) adds the special render + write path for it.
+function makeConfigWithReferrer(): FormConfig {
+  return {
+    sections: [
+      {
+        id: "s1",
+        title: "Job",
+        fields: [
+          {
+            id: "f-name",
+            type: "text",
+            label: "Full Name",
+            placeholder: "name-input",
+            maps_to: "contact.full_name",
+          },
+          {
+            id: "f-damage",
+            type: "text",
+            label: "Damage Type",
+            placeholder: "damage-input",
+            maps_to: "job.damage_type",
+          },
+          {
+            id: "f-addr",
+            type: "text",
+            label: "Property Address",
+            placeholder: "address-input",
+            maps_to: "job.property_address",
+          },
+          {
+            id: "referrer",
+            type: "text",
+            label: "Referred by",
+            maps_to: "job.referral_partner_id",
+            is_default: true,
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -133,6 +186,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   formConfigFixture = makeConfig();
   contactsSearchResult = { data: [], error: null };
+  selectResults = {};
   inserts = {};
   insertResults = {
     contacts: { data: { id: "contact-1" }, error: null },
@@ -279,5 +333,141 @@ describe("IntakeForm — typed search text is never persisted (#195)", () => {
       insurance_contact_id: null,
       insurance_company: null,
     });
+  });
+});
+
+// ─── Referrer field (slice D, #302) ────────────────────────────────────────
+// The Settings → Intake Form toggle enables a built-in `referrer` field
+// (maps_to: "job.referral_partner_id"). When the field is in the config the
+// intake form renders the shared `<ReferrerPicker>` and writes the picked
+// partner's id to `jobs.referral_partner_id` directly — NOT to the generic
+// `job_custom_fields` key/value table (acceptance criterion: FK column, not
+// custom_fields).
+
+describe("IntakeForm — referrer field renders ReferrerPicker (#302)", () => {
+  it("renders the picker (with active partners) for a field mapped to job.referral_partner_id", async () => {
+    formConfigFixture = makeConfigWithReferrer();
+    selectResults = {
+      referral_partners: {
+        data: [
+          {
+            id: "rp-1",
+            company_name: "Acme Plumbing",
+            status: "green",
+            deleted_at: null,
+          },
+        ],
+        error: null,
+      },
+    };
+
+    render(<IntakeForm />);
+
+    // The active partner appears in the picker, proving ReferrerPicker
+    // (not the configured text input) was rendered for the referrer field.
+    expect(await screen.findByText("Acme Plumbing")).toBeDefined();
+  });
+});
+
+describe("IntakeForm — referrer routed to jobs.referral_partner_id, not custom_fields (#302)", () => {
+  it("writes the picked partner id to jobs.referral_partner_id and never to job_custom_fields", async () => {
+    formConfigFixture = makeConfigWithReferrer();
+    selectResults = {
+      referral_partners: {
+        data: [
+          {
+            id: "rp-1",
+            company_name: "Acme Plumbing",
+            status: "green",
+            deleted_at: null,
+          },
+        ],
+        error: null,
+      },
+    };
+
+    render(<IntakeForm />);
+
+    fireEvent.change(await screen.findByPlaceholderText("name-input"), {
+      target: { value: "Jane Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("damage-input"), {
+      target: { value: "Water" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("address-input"), {
+      target: { value: "12 Oak St" },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Acme Plumbing/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => expect(inserts.jobs).toBeDefined());
+    expect(inserts.jobs[0]).toMatchObject({ referral_partner_id: "rp-1" });
+    // The FK lives on jobs; the referrer must NOT be persisted as a generic
+    // key/value pair on job_custom_fields.
+    expect(inserts.job_custom_fields).toBeUndefined();
+  });
+});
+
+describe("IntakeForm — referrer left blank (#302)", () => {
+  it("writes referral_partner_id: null when the picker is not used", async () => {
+    formConfigFixture = makeConfigWithReferrer();
+    selectResults = {
+      referral_partners: {
+        data: [
+          {
+            id: "rp-1",
+            company_name: "Acme Plumbing",
+            status: "green",
+            deleted_at: null,
+          },
+        ],
+        error: null,
+      },
+    };
+
+    render(<IntakeForm />);
+
+    fireEvent.change(await screen.findByPlaceholderText("name-input"), {
+      target: { value: "Jane Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("damage-input"), {
+      target: { value: "Water" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("address-input"), {
+      target: { value: "12 Oak St" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => expect(inserts.jobs).toBeDefined());
+    expect(inserts.jobs[0]).toMatchObject({ referral_partner_id: null });
+  });
+});
+
+describe("IntakeForm — toggle off: referrer field absent (#302)", () => {
+  it("does not render the picker and submits exactly as today when the field is omitted from the config", async () => {
+    // Default `makeConfig()` is the today-shape (no referrer field).
+    render(<IntakeForm />);
+
+    // Picker is not in the DOM.
+    expect(screen.queryByText(/promote and attach/i)).toBeNull();
+
+    fireEvent.change(await screen.findByPlaceholderText("name-input"), {
+      target: { value: "Jane Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("damage-input"), {
+      target: { value: "Water" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("address-input"), {
+      target: { value: "12 Oak St" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => expect(inserts.jobs).toBeDefined());
+    // The FK is absent from the insert payload (today's behavior preserved).
+    expect("referral_partner_id" in inserts.jobs[0]).toBe(false);
   });
 });

@@ -3,7 +3,7 @@
 import { useDraggable } from "@dnd-kit/core";
 import {
   Type, AlignLeft, Hash, Calendar, Phone, Mail, ChevronDown,
-  CircleDot, CheckSquare, MapPin, ToggleRight, DollarSign,
+  CircleDot, CheckSquare, MapPin, ToggleRight, DollarSign, Users,
 } from "lucide-react";
 import { FIELD_PRESETS } from "@/lib/intake-form-presets";
 import type { FormField } from "@/lib/types";
@@ -25,7 +25,7 @@ const FIELD_TYPE_ITEMS: {
 ];
 
 const PRESET_ICONS = {
-  Phone, Mail, MapPin, ToggleRight, DollarSign, Calendar,
+  Phone, Mail, MapPin, ToggleRight, DollarSign, Calendar, Users,
 } as const;
 
 export function Palette({
