@@ -10,7 +10,8 @@
 // new status with one click. No automated transitions of any kind —
 // every state change is a deliberate user action.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Handshake, Trash2 } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/phone";
@@ -513,6 +514,9 @@ export function ReferralPartnerWorksheet({
         )}
       </section>
 
+      {/* ── JOBS SENT (PRD #297, slice C2 / #301) ───────────────────── */}
+      <JobsSentSection partnerId={partner.id} />
+
       {/* ── CALL LOG ─────────────────────────────────────────────────── */}
       <CallLogSection
         partnerId={partner.id}
@@ -910,6 +914,102 @@ function CallLogSection({
                   Follow-up: {formatDate(c.follow_up_at)}
                 </p>
               )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// "Jobs sent" section (PRD #297, slice C2 / issue #301). Thin client-side
+// glue over GET /api/referral-partners/[id]/jobs — the endpoint owns the
+// trashed-job filter and the newest-first ordering (the pure rule in
+// `src/lib/referral-partners/jobs.ts` is the unit-tested specification of
+// both). Rows link out to /jobs/[id]; the empty state mirrors the AC copy.
+interface JobsSentRow {
+  id: string;
+  property_address: string;
+  status: string;
+  created_at: string;
+}
+
+function formatIntakeDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function JobsSentSection({ partnerId }: { partnerId: string }) {
+  const [jobs, setJobs] = useState<JobsSentRow[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const res = await fetch(`/api/referral-partners/${partnerId}/jobs`);
+      if (!alive) return;
+      if (res.ok) {
+        const body = (await res.json()) as { jobs: JobsSentRow[] };
+        setJobs(body.jobs ?? []);
+      } else {
+        setJobs([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [partnerId]);
+
+  const count = jobs?.length ?? 0;
+
+  return (
+    <section
+      data-testid="worksheet-jobs-sent"
+      className="rounded-lg border border-border bg-card px-5 py-4"
+    >
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+          Jobs sent
+          {count > 0 && (
+            <span
+              data-testid="worksheet-jobs-sent-count"
+              className="text-[11px] px-1.5 py-0 rounded-full bg-muted text-muted-foreground font-medium normal-case tracking-normal"
+            >
+              {count}
+            </span>
+          )}
+        </p>
+      </div>
+
+      {jobs === null ? null : jobs.length === 0 ? (
+        <p className="text-sm italic text-muted-foreground">
+          No jobs attributed yet.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {jobs.map((j) => (
+            <li key={j.id} className="first:pt-0 last:pb-0">
+              <Link
+                href={`/jobs/${j.id}`}
+                data-testid={`worksheet-jobs-sent-row-${j.id}`}
+                className="flex items-baseline justify-between gap-3 py-2 hover:bg-accent/40 transition-colors px-2 -mx-2 rounded-md"
+              >
+                <span className="font-medium text-foreground text-sm truncate">
+                  {j.property_address}
+                </span>
+                <span className="flex items-center gap-3 shrink-0">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {j.status}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatIntakeDate(j.created_at)}
+                  </span>
+                </span>
+              </Link>
             </li>
           ))}
         </ul>

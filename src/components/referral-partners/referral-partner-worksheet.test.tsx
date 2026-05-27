@@ -280,7 +280,10 @@ describe("ReferralPartnerWorksheet — editable company info (PRD #249, issue #2
       // PATCH body" for this slice.
       const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
       const phoneCall = calls.find((c) => {
-        const body = JSON.parse((c[1] as RequestInit).body as string);
+        // The Jobs-sent section fires a bodyless GET on mount; skip it.
+        const init = c[1] as RequestInit | undefined;
+        if (!init?.body) return false;
+        const body = JSON.parse(init.body as string);
         return "office_phone" in body;
       });
       expect(phoneCall).toBeDefined();
@@ -292,7 +295,13 @@ describe("ReferralPartnerWorksheet — editable company info (PRD #249, issue #2
     fireEvent.blur(screen.getByLabelText(/^industry$/i));
     // Give any incidental Promises a chance to resolve.
     await Promise.resolve();
-    expect(fetch).not.toHaveBeenCalled();
+    // The Jobs-sent section fires a GET on mount; we only care here that
+    // no PATCH (or other body-bearing call) was triggered.
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const mutationCalls = calls.filter(
+      (c) => (c[1] as RequestInit | undefined)?.body,
+    );
+    expect(mutationCalls).toEqual([]);
   });
 });
 
@@ -632,6 +641,81 @@ describe("ReferralPartnerWorksheet — + Add contact (PRD #249, issue #255)", ()
       /owner contact/i,
     ) as HTMLSelectElement;
     expect(within(ownerSelect).getByText("Pat Smith")).toBeDefined();
+  });
+});
+
+// ── Jobs sent section (PRD #297, slice C2 / issue #301) ───────────────
+describe("ReferralPartnerWorksheet — Jobs sent section", () => {
+  function stubJobsFetch(
+    jobs: Array<{
+      id: string;
+      property_address: string;
+      status: string;
+      created_at: string;
+    }>,
+  ) {
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/jobs") && url.includes("/referral-partners/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ jobs }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }),
+    );
+  }
+
+  it("renders a 'Jobs sent' section with a count badge reflecting the number of attributed jobs", async () => {
+    stubJobsFetch([
+      { id: "j-1", property_address: "111 First St", status: "lead",        created_at: "2026-05-01T00:00:00Z" },
+      { id: "j-2", property_address: "222 Second Ave", status: "in_progress", created_at: "2026-04-01T00:00:00Z" },
+    ]);
+    renderWorksheet();
+
+    const section = await screen.findByTestId("worksheet-jobs-sent");
+    expect(section.textContent).toMatch(/jobs sent/i);
+    // Count badge mirrors the Contracts section pattern — a small number
+    // next to the section title.
+    await waitFor(() => {
+      expect(
+        within(section).getByTestId("worksheet-jobs-sent-count").textContent,
+      ).toBe("2");
+    });
+  });
+
+  it("renders one clickable row per Job linking to /jobs/[id] with address and status", async () => {
+    stubJobsFetch([
+      { id: "j-1", property_address: "111 First St", status: "lead", created_at: "2026-05-01T00:00:00Z" },
+    ]);
+    renderWorksheet();
+
+    const section = await screen.findByTestId("worksheet-jobs-sent");
+    const row = await within(section).findByTestId("worksheet-jobs-sent-row-j-1");
+    expect(row.getAttribute("href")).toBe("/jobs/j-1");
+    expect(row.textContent).toContain("111 First St");
+    expect(row.textContent).toMatch(/lead/i);
+  });
+
+  it("renders the empty-state copy 'No jobs attributed yet.' when the partner has no attributed jobs", async () => {
+    stubJobsFetch([]);
+    renderWorksheet();
+    const section = await screen.findByTestId("worksheet-jobs-sent");
+    await waitFor(() => {
+      expect(section.textContent).toMatch(/no jobs attributed yet\./i);
+    });
+  });
+
+  it("fetches GET /api/referral-partners/[id]/jobs on mount", async () => {
+    stubJobsFetch([]);
+    renderWorksheet();
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/referral-partners/p-1/jobs");
+    });
   });
 });
 
