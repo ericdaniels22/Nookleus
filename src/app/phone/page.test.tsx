@@ -21,6 +21,18 @@ vi.mock("@/lib/supabase-server", () => ({
 vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(),
 }));
+// Slice 4 — PhonePageClient instantiates the browser Supabase client for
+// the realtime subscription. The tests don't exercise realtime; this stub
+// keeps `createClient()` from reading process.env at module-eval time.
+vi.mock("@/lib/supabase", () => ({
+  createClient: () => ({
+    channel: () => ({
+      on: () => ({ subscribe: () => ({ unsubscribe: () => undefined }) }),
+      subscribe: () => ({ unsubscribe: () => undefined }),
+      unsubscribe: () => undefined,
+    }),
+  }),
+}));
 
 import PhonePage from "./page";
 import { createServerSupabaseClient } from "@/lib/supabase-server";

@@ -76,3 +76,96 @@ export function canManage(
   }
   return evaluator(caller, number);
 }
+
+// ---------------------------------------------------------------------------
+// canRead — the read-path matrix from ADR 0003. PRD #304 § Privacy rule:
+//
+//   Job-tagged content is team-visible to anyone with view_phone who can
+//   see the Job, across all numbers (Shared or Personal).
+//   Untagged content on a Shared number is team-visible.
+//   Untagged content on a Personal number is owner-only — including
+//   hidden from admins.
+//
+// Cross-org callers are denied regardless of permission. The matrix lives
+// in `phone-event-access` for the Service-client paths and in mirrored
+// RLS policies (migration-308) for the User-client paths; tests pin both
+// stay in sync.
+// ---------------------------------------------------------------------------
+
+// The caller, with permission grants — needed for the view_phone gate that
+// canManage did not have to consider. Admin role grants view_phone by
+// default (matches PRD § Permission), regardless of an explicit grant
+// list.
+export interface PhoneEventReadCaller extends PhoneEventCaller {
+  grantedPermissions: string[];
+}
+
+// The fields of a `phone_messages` / `phone_calls` row this module needs.
+// `numberKind` and `numberOwnerId` are joined from `phone_numbers`; the
+// caller of this module is responsible for that join (the Service-client
+// route reads both rows; the RLS-policy SQL inlines the join).
+export interface PhoneEventForRead {
+  organizationId: string;
+  numberKind: PhoneNumberKind;
+  numberOwnerId: string | null; // null for Shared
+  jobTag: string | null;        // null when not tagged to a Job
+}
+
+// Job visibility is supplied by the caller. Slice 4 callers use the
+// default "every authenticated user can see every Job in their active
+// org" policy from schema.sql; later slices can refine this (per-user
+// Job ACLs).
+export interface CanReadContext {
+  jobVisibleToCaller: boolean;
+}
+
+type ReadEvaluator = (
+  caller: PhoneEventReadCaller,
+  event: PhoneEventForRead,
+  context: CanReadContext,
+) => boolean;
+
+const evaluateSharedRead: ReadEvaluator = () => {
+  // Untagged Shared is team-visible; tagged Shared is also team-visible
+  // (the Job-tag branch only ever adds access, never removes it).
+  return true;
+};
+
+const evaluatePersonalRead: ReadEvaluator = (caller, event, context) => {
+  // Owner can always read their own Personal-number content.
+  if (event.numberOwnerId === caller.userId) return true;
+  // Non-owners can read only when the event is Job-tagged AND they can
+  // see the Job. Admin role does not bypass this — content-private.
+  if (event.jobTag !== null && context.jobVisibleToCaller) return true;
+  return false;
+};
+
+const READ_EVALUATORS: Record<PhoneNumberKind, ReadEvaluator> = {
+  shared: evaluateSharedRead,
+  personal: evaluatePersonalRead,
+};
+
+/**
+ * Decides whether a caller may read a phone message or call event. The
+ * matrix is the ADR 0003 OR-tree: Shared-team OR Personal-owner OR
+ * (Job-tagged AND Job-visible). Cross-org denied. Lack of view_phone (or
+ * admin role) denied. An unknown number kind throws.
+ */
+export function canRead(
+  caller: PhoneEventReadCaller,
+  event: PhoneEventForRead,
+  context: CanReadContext,
+): boolean {
+  if (caller.organizationId !== event.organizationId) return false;
+  // view_phone gate — admin role carries it implicitly.
+  const hasViewPhone =
+    caller.role === "admin" || caller.grantedPermissions.includes("view_phone");
+  if (!hasViewPhone) return false;
+  const evaluator = READ_EVALUATORS[event.numberKind];
+  if (!evaluator) {
+    throw new Error(
+      `canRead: unknown phone number kind "${event.numberKind}"`,
+    );
+  }
+  return evaluator(caller, event, context);
+}
