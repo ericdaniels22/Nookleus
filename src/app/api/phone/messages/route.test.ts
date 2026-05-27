@@ -42,6 +42,16 @@ vi.mock("@/lib/phone/twilio-client", () => ({
   createTwilioClient: () => createTwilioClientMock(),
 }));
 
+// Slice 6 (#310) — attachments are pre-uploaded via /api/phone/attachments
+// then their storage paths are handed to this route. The route mints a
+// signed URL per path and passes them to Twilio as mediaUrl[]. Tests mock
+// the signing helper at the module boundary so they don't need a real
+// bucket.
+const signedUrlMock = vi.fn();
+vi.mock("@/lib/phone/attachments-storage", () => ({
+  signedUrlForPhoneAttachment: (...args: unknown[]) => signedUrlMock(...args),
+}));
+
 import { POST } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
@@ -174,6 +184,10 @@ beforeEach(() => {
   vi.mocked(getActiveOrganizationId).mockResolvedValue(ORG);
   createTwilioClientMock.mockReturnValue({});
   sendSmsMock.mockResolvedValue({ sid: "SM-out", status: "queued" });
+  signedUrlMock.mockImplementation(
+    async (_client: unknown, path: string) =>
+      `https://signed.example/phone-attachments/${path}`,
+  );
   // #309 ships behind a feature flag pending #305 (A2P 10DLC). Tests
   // exercise the route under the "flag ON" assumption; the flag-OFF
   // behaviour gets its own dedicated test block below.
@@ -487,6 +501,148 @@ describe("POST /api/phone/messages — persistence", () => {
     expect(res.status).toBe(502);
     // No phone_messages row should be written when Twilio failed —
     // an unsent message that looks sent is worse than a clean retry.
+    expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. MMS attachments (slice 6 / #310)
+//
+// Attachments arrive on the route as `attachments: [{ storage_path,
+// media_type, filename? }]` — already in the `phone-attachments` bucket
+// from a prior /api/phone/attachments upload. The route mints a signed
+// URL per path, passes them as Twilio mediaUrl[], and persists the
+// storage paths in `phone_messages.media_urls`.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/messages — MMS attachments", () => {
+  it("passes a signed mediaUrl[] to Twilio and persists media_urls", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "see attached",
+        attachments: [
+          {
+            storage_path: "org-1/aaa-uuid.jpg",
+            media_type: "image/jpeg",
+            filename: "damage.jpg",
+          },
+          {
+            storage_path: "org-1/bbb-uuid.pdf",
+            media_type: "application/pdf",
+            filename: "estimate.pdf",
+          },
+        ],
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    // Each path was signed once.
+    expect(signedUrlMock).toHaveBeenCalledTimes(2);
+    expect(signedUrlMock.mock.calls[0][1]).toBe("org-1/aaa-uuid.jpg");
+    expect(signedUrlMock.mock.calls[1][1]).toBe("org-1/bbb-uuid.pdf");
+
+    // Twilio received the signed URLs as mediaUrl[].
+    expect(sendSmsMock).toHaveBeenCalledOnce();
+    const sendArgs = sendSmsMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(sendArgs.mediaUrl).toEqual([
+      "https://signed.example/phone-attachments/org-1/aaa-uuid.jpg",
+      "https://signed.example/phone-attachments/org-1/bbb-uuid.pdf",
+    ]);
+
+    // Storage paths were persisted on the message row (Twilio's signed
+    // URLs expire — we keep the bucket path, not the URL).
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row).toMatchObject({
+      direction: "out",
+      body: "see attached",
+      media_urls: [
+        {
+          storage_path: "org-1/aaa-uuid.jpg",
+          media_type: "image/jpeg",
+          filename: "damage.jpg",
+        },
+        {
+          storage_path: "org-1/bbb-uuid.pdf",
+          media_type: "application/pdf",
+          filename: "estimate.pdf",
+        },
+      ],
+    });
+  });
+
+  it("accepts an empty body when at least one attachment is present (image-only MMS)", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "",
+        attachments: [
+          { storage_path: "org-1/img.jpg", media_type: "image/jpeg" },
+        ],
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(sendSmsMock).toHaveBeenCalledOnce();
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row).toMatchObject({
+      body: "",
+      media_urls: [{ storage_path: "org-1/img.jpg", media_type: "image/jpeg" }],
+    });
+  });
+
+  it("still rejects a send with no body AND no attachments", async () => {
+    authed("user-1", "crew_lead");
+    const { client } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({ outsideE164: "+15551234567", body: "", attachments: [] }),
+      noParams,
+    );
+
+    expect(res.status).toBe(400);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an attachment whose storage path is outside the caller's organization", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "hi",
+        attachments: [
+          { storage_path: "org-OTHER/secret.jpg", media_type: "image/jpeg" },
+        ],
+      }),
+      noParams,
+    );
+
+    // The route must not sign or send a cross-org attachment.
+    expect(res.status).toBe(403);
+    expect(signedUrlMock).not.toHaveBeenCalled();
+    expect(sendSmsMock).not.toHaveBeenCalled();
     expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
   });
 });

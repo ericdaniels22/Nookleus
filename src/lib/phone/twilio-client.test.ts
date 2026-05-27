@@ -243,4 +243,69 @@ describe("sendSms", () => {
       sendSms(client, { from: "+15125550000", to: "+15551234567", body: "hi" }),
     ).rejects.toThrow(/21610/);
   });
+
+  // Slice 6 (#310) — MMS attachments.
+  it("includes the mediaUrl array in the SDK call when given", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMmms", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "see attached",
+      mediaUrl: [
+        "https://signed/phone-attachments/org-1/a.jpg",
+        "https://signed/phone-attachments/org-1/b.png",
+      ],
+    });
+    const payload = (messageCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      mediaUrl: [
+        "https://signed/phone-attachments/org-1/a.jpg",
+        "https://signed/phone-attachments/org-1/b.png",
+      ],
+    });
+  });
+
+  it("omits mediaUrl from the SDK call when none is provided", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMa", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hi",
+    });
+    const payload = (messageCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("mediaUrl");
+  });
+
+  it("accepts an empty body when mediaUrl is non-empty (image-only MMS)", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMmms", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    const result = await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "",
+      mediaUrl: ["https://signed/phone-attachments/org-1/photo.jpg"],
+    });
+    expect(result).toEqual({ sid: "SMmms", status: "queued" });
+    expect(messageCreateSpy).toHaveBeenCalledOnce();
+  });
+
+  it("still rejects when both body AND mediaUrl are empty", async () => {
+    const client = fakeClient({});
+    await expect(
+      sendSms(client, {
+        from: "+15125550000",
+        to: "+15551234567",
+        body: "",
+        mediaUrl: [],
+      }),
+    ).rejects.toThrow(/body|media/i);
+  });
 });

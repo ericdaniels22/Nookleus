@@ -12,6 +12,10 @@ import {
   type SmartAttachSource,
 } from "@/lib/phone/smart-attach";
 import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
+import {
+  signedUrlForPhoneAttachment,
+  type PhoneStorageClient,
+} from "@/lib/phone/attachments-storage";
 
 // PRD #304 — Nookleus Phone. Slice 5 (#309) — outbound SMS send.
 //
@@ -47,9 +51,39 @@ interface Body {
   // here are 'phone-tab' and 'contact-card'. A `{ kind: 'job', jobId }`
   // shape is accepted so slice 7 is a one-line change.
   sourceContext?: unknown;
+  // Slice 6 (#310) — MMS attachments pre-uploaded via
+  // /api/phone/attachments. Each entry is the stored path + the media
+  // type the upload route validated.
+  attachments?: unknown;
+}
+
+interface PersistedAttachment {
+  storage_path: string;
+  media_type: string;
+  filename?: string;
 }
 
 const E164_RE = /^\+[1-9]\d{6,14}$/;
+
+const SIGNED_MMS_URL_TTL_SECONDS = 600; // 10 minutes — Twilio fetches quickly.
+
+function parseAttachments(input: unknown): PersistedAttachment[] {
+  if (!Array.isArray(input)) return [];
+  const out: PersistedAttachment[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const storage_path = obj.storage_path;
+    const media_type = obj.media_type;
+    if (typeof storage_path !== "string" || typeof media_type !== "string") {
+      continue;
+    }
+    const filename =
+      typeof obj.filename === "string" ? (obj.filename as string) : undefined;
+    out.push({ storage_path, media_type, ...(filename ? { filename } : {}) });
+  }
+  return out;
+}
 
 function parseSourceContext(input: unknown): SmartAttachSource {
   if (input && typeof input === "object" && "kind" in input) {
@@ -85,13 +119,36 @@ export const POST = withRequestContext(
     }
 
     const body = (await request.json().catch(() => null)) as Body | null;
-    if (!body || typeof body.body !== "string" || body.body.length === 0) {
+    if (!body || typeof body.body !== "string") {
       return NextResponse.json(
         { error: "body is required" },
         { status: 400 },
       );
     }
+    const attachments = parseAttachments(body.attachments);
+    if (body.body.length === 0 && attachments.length === 0) {
+      // Slice 6 (#310) — an MMS may have an empty body iff at least one
+      // attachment is present. Reject when both are empty so the send
+      // button gate can rely on the route refusing if the UI is bypassed.
+      return NextResponse.json(
+        { error: "body or attachments required" },
+        { status: 400 },
+      );
+    }
     const messageBody = body.body;
+
+    // Slice 6 (#310) — cross-org safety. The /api/phone/attachments upload
+    // route always writes under `{orgId}/...`, so any path that doesn't
+    // start with the caller's org id is either a forged reference or a
+    // mis-ported one from another org and must be refused before signing.
+    for (const a of attachments) {
+      if (!a.storage_path.startsWith(`${ctx.orgId}/`)) {
+        return NextResponse.json(
+          { error: "Attachment outside caller's organization" },
+          { status: 403 },
+        );
+      }
+    }
 
     const hasConv = typeof body.conversationId === "string";
     const hasOutside = typeof body.outsideE164 === "string";
@@ -252,6 +309,29 @@ export const POST = withRequestContext(
     });
     const jobTag = smartAttach.kind === "auto" ? smartAttach.jobId : null;
 
+    // Slice 6 (#310) — mint a short-lived signed URL per attachment for
+    // Twilio to fetch from. We keep the storage path (not the URL) on
+    // the persisted row, since signed URLs expire — the bucket object
+    // is the durable record.
+    let mediaUrl: string[] | undefined;
+    if (attachments.length > 0) {
+      try {
+        mediaUrl = await Promise.all(
+          attachments.map((a) =>
+            signedUrlForPhoneAttachment(
+              ctx.serviceClient as unknown as PhoneStorageClient,
+              a.storage_path,
+              SIGNED_MMS_URL_TTL_SECONDS,
+            ),
+          ),
+        );
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "attachment sign failed";
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
+    }
+
     // Dispatch via Twilio.
     const statusCallback = process.env.PHONE_STATUS_CALLBACK_URL || undefined;
     let dispatch: { sid: string; status: string };
@@ -261,6 +341,7 @@ export const POST = withRequestContext(
         to: outsideE164,
         body: messageBody,
         statusCallback,
+        ...(mediaUrl ? { mediaUrl } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Twilio error";
@@ -281,7 +362,7 @@ export const POST = withRequestContext(
         from_e164: fromNumber.e164,
         to_e164: outsideE164,
         body: messageBody,
-        media_urls: [],
+        media_urls: attachments,
         twilio_sid: dispatch.sid,
         status: dispatch.status,
         job_tag: jobTag,
