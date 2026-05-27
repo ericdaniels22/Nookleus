@@ -40,3 +40,24 @@ export function phoneMatchesQuery(phone: string | null | undefined, query: strin
   if (queryDigits.length === 0) return false;
   return tenDigits(phone ?? "").includes(queryDigits);
 }
+
+/**
+ * Find the first contact whose stored phone matches the given E.164 input.
+ * The match is digits-equal on the canonical 10-digit form (NOT substring),
+ * so an area code "555" cannot match the local block "555" of an unrelated
+ * number. Returns null when the input is not a valid E.164 or no contact
+ * matches. Used by `route-inbound` to map a Twilio inbound to a Contact.
+ */
+export function findContactByPhone<T extends { phone: string | null | undefined }>(
+  contacts: readonly T[],
+  e164Input: string,
+): T | null {
+  const inputE164 = normalizePhoneToE164(e164Input);
+  if (!inputE164) return null;
+  const inputDigits = tenDigits(inputE164);
+  for (const c of contacts) {
+    if (!c.phone) continue;
+    if (tenDigits(c.phone) === inputDigits) return c;
+  }
+  return null;
+}

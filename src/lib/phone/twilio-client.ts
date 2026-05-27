@@ -16,7 +16,7 @@
 // of the same shape. The helpers themselves never import twilio, so they
 // stay testable without network and without the Node SDK eval-time setup.
 
-import twilio from "twilio";
+import twilio, { validateRequest } from "twilio";
 
 // A narrowed slice of an item returned by `availablePhoneNumbers.list` —
 // the four fields the UI's "pick a number" step actually shows. Twilio
@@ -143,4 +143,27 @@ export function createTwilioClient(): TwilioClientLike {
     );
   }
   return twilio(accountSid, authToken) as unknown as TwilioClientLike;
+}
+
+/**
+ * Verify an inbound webhook came from Twilio. Twilio signs the request
+ * with the account auth token; we recompute the signature over the
+ * (url, params) pair and compare. Returns true on match. The webhook
+ * route should 403 on false.
+ *
+ * Reads `TWILIO_AUTH_TOKEN` from the environment — tests should not
+ * call this; instead they verify the webhook's wiring with the auth
+ * token mocked.
+ */
+export function validateTwilioSignature(
+  url: string,
+  twilioSignatureHeader: string | null,
+  params: Record<string, string>,
+): boolean {
+  if (!twilioSignatureHeader) return false;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    throw new Error("twilio-client: TWILIO_AUTH_TOKEN must be set");
+  }
+  return validateRequest(authToken, twilioSignatureHeader, url, params);
 }
