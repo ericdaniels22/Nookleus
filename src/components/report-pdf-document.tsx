@@ -2,12 +2,15 @@
 
 import {
   Document,
+  Image,
   Page,
+  StyleSheet,
   Text,
   View,
-  Image,
-  StyleSheet,
 } from "@react-pdf/renderer";
+
+import CoverPage from "@/components/report-pdf/cover-page";
+import type { CoverPageData } from "@/lib/cover-page-data";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -25,32 +28,20 @@ interface ReportSection {
   photo_ids: string[];
 }
 
-interface CoverPageConfig {
-  show_logo: boolean;
-  show_company: boolean;
-  show_date: boolean;
-  show_photo_count: boolean;
-}
-
 interface ReportPDFProps {
   title: string;
-  jobNumber: string;
-  propertyAddress: string;
-  claimNumber: string | null;
-  insuranceCompany: string | null;
-  reportDate: string;
+  coverPageData: CoverPageData;
+  coverPhotoUrl: string | null;
+  logoUrl: string | null;
   sections: ReportSection[];
   photos: Record<string, ReportPhoto>;
   photosPerPage: number;
-  coverPage: CoverPageConfig;
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Styles (body only — cover lives in CoverPage) ───────────────────────────
 
 const colors = {
   primary: "#1B2434",
-  accent: "#C41E2A",
-  blue: "#2B5EA7",
   text: "#1A1A1A",
   muted: "#666666",
   light: "#999999",
@@ -68,59 +59,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     color: colors.text,
   },
-  // Cover page
-  coverPage: {
-    fontFamily: "Helvetica",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 60,
-    color: colors.text,
-  },
-  coverCompany: {
-    fontSize: 28,
-    fontFamily: "Helvetica-Bold",
-    color: colors.primary,
-    marginBottom: 6,
-  },
-  coverSubtitle: {
-    fontSize: 12,
-    color: colors.accent,
-    fontFamily: "Helvetica-Bold",
-    letterSpacing: 2,
-    marginBottom: 40,
-  },
-  coverDivider: {
-    width: 80,
-    height: 3,
-    backgroundColor: colors.accent,
-    marginBottom: 40,
-  },
-  coverTitle: {
-    fontSize: 22,
-    fontFamily: "Helvetica-Bold",
-    color: colors.text,
-    textAlign: "center",
-    marginBottom: 30,
-  },
-  coverInfoBlock: {
-    marginBottom: 8,
-    alignItems: "center",
-  },
-  coverLabel: {
-    fontSize: 9,
-    color: colors.light,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  coverValue: {
-    fontSize: 13,
-    color: colors.text,
-    fontFamily: "Helvetica-Bold",
-  },
-  // Section header
   sectionHeader: {
     backgroundColor: colors.primary,
     paddingVertical: 10,
@@ -138,7 +76,6 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
     marginTop: 3,
   },
-  // Photo grids
   photoRow: {
     flexDirection: "row",
     gap: 12,
@@ -180,7 +117,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#E1F5EE",
     color: "#085041",
   },
-  // Footer
   footer: {
     position: "absolute",
     bottom: 24,
@@ -258,18 +194,6 @@ function getRowsPerPage(photosPerPage: number): number {
   }
 }
 
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
 // ─── Components ──────────────────────────────────────────────────────────────
 
 function PageFooter({ title }: { title: string }) {
@@ -328,80 +252,25 @@ function PhotoCard({
 
 export default function ReportPDFDocument({
   title,
-  jobNumber,
-  propertyAddress,
-  claimNumber,
-  insuranceCompany,
-  reportDate,
+  coverPageData,
+  coverPhotoUrl,
+  logoUrl,
   sections,
   photos,
   photosPerPage,
-  coverPage,
 }: ReportPDFProps) {
-  const totalPhotos = sections.reduce(
-    (sum, s) => sum + s.photo_ids.length,
-    0
-  );
   const photoHeight = getPhotoHeight(photosPerPage);
   const gridCols = getGridCols(photosPerPage);
 
   return (
     <Document title={title} author="AAA Disaster Recovery">
-      {/* ═══ COVER PAGE ═══ */}
-      <Page size="LETTER" style={styles.coverPage}>
-        {coverPage.show_company && (
-          <>
-            <Text style={styles.coverCompany}>AAA Disaster Recovery</Text>
-            <Text style={styles.coverSubtitle}>PHOTO REPORT</Text>
-          </>
-        )}
+      <CoverPage
+        data={coverPageData}
+        title={title}
+        coverPhotoUrl={coverPhotoUrl}
+        logoUrl={logoUrl}
+      />
 
-        <View style={styles.coverDivider} />
-
-        <Text style={styles.coverTitle}>{title}</Text>
-
-        <View style={styles.coverInfoBlock}>
-          <Text style={styles.coverLabel}>Job Number</Text>
-          <Text style={styles.coverValue}>{jobNumber}</Text>
-        </View>
-
-        <View style={styles.coverInfoBlock}>
-          <Text style={styles.coverLabel}>Property Address</Text>
-          <Text style={styles.coverValue}>{propertyAddress}</Text>
-        </View>
-
-        {claimNumber && (
-          <View style={styles.coverInfoBlock}>
-            <Text style={styles.coverLabel}>Claim Number</Text>
-            <Text style={styles.coverValue}>{claimNumber}</Text>
-          </View>
-        )}
-
-        {insuranceCompany && (
-          <View style={styles.coverInfoBlock}>
-            <Text style={styles.coverLabel}>Insurance Company</Text>
-            <Text style={styles.coverValue}>{insuranceCompany}</Text>
-          </View>
-        )}
-
-        {coverPage.show_date && (
-          <View style={[styles.coverInfoBlock, { marginTop: 20 }]}>
-            <Text style={styles.coverLabel}>Report Date</Text>
-            <Text style={styles.coverValue}>{formatDate(reportDate)}</Text>
-          </View>
-        )}
-
-        {coverPage.show_photo_count && (
-          <View style={styles.coverInfoBlock}>
-            <Text style={styles.coverLabel}>Total Photos</Text>
-            <Text style={styles.coverValue}>{totalPhotos}</Text>
-          </View>
-        )}
-
-        <PageFooter title={title} />
-      </Page>
-
-      {/* ═══ SECTION PAGES ═══ */}
       {sections.map((section, si) => {
         const sectionPhotos = section.photo_ids
           .map((id) => photos[id])
@@ -409,14 +278,12 @@ export default function ReportPDFDocument({
 
         if (sectionPhotos.length === 0) return null;
 
-        // Chunk photos into rows, then rows into pages
         const rows = chunkArray(sectionPhotos, gridCols);
         const rowsPerPage = getRowsPerPage(photosPerPage);
         const pages = chunkArray(rows, rowsPerPage);
 
         return pages.map((pageRows, pi) => (
           <Page key={`s${si}-p${pi}`} size="LETTER" style={styles.page}>
-            {/* Show section header on first page of each section */}
             {pi === 0 && (
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
@@ -430,7 +297,6 @@ export default function ReportPDFDocument({
               </View>
             )}
 
-            {/* Photo rows */}
             {pageRows.map((row, ri) => (
               <View key={ri} style={styles.photoRow}>
                 {row.map((photo) => (
@@ -440,7 +306,6 @@ export default function ReportPDFDocument({
                     height={photoHeight}
                   />
                 ))}
-                {/* Fill empty cells to maintain layout */}
                 {row.length < gridCols &&
                   Array.from({ length: gridCols - row.length }).map((_, i) => (
                     <View key={`empty-${i}`} style={{ flex: 1 }} />
