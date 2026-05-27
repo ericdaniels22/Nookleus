@@ -3,7 +3,8 @@
 import { pdf } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase";
 import ReportPDFDocument from "@/components/report-pdf-document";
-import { PhotoReport, Photo, Job } from "@/lib/types";
+import { resolveCoverPageData } from "@/lib/cover-page-data";
+import type { CompanySettings } from "@/lib/types";
 
 interface ReportSection {
   title: string;
@@ -11,11 +12,51 @@ interface ReportSection {
   photo_ids: string[];
 }
 
-interface CoverPageConfig {
-  show_logo: boolean;
-  show_company: boolean;
-  show_date: boolean;
-  show_photo_count: boolean;
+interface JoinedContact {
+  full_name: string | null;
+}
+
+interface JoinedCoverPhoto {
+  storage_path: string | null;
+  annotated_path: string | null;
+}
+
+interface JoinedJob {
+  id: string;
+  job_number: string;
+  property_address: string;
+  claim_number: string | null;
+  insurance_company: string | null;
+  cover_photo_id: string | null;
+  contact: JoinedContact | null;
+  cover_photo: JoinedCoverPhoto | null;
+}
+
+const COMPANY_SETTINGS_KEYS = [
+  "company_name",
+  "phone",
+  "email",
+  "logo_path",
+] as const;
+
+async function loadCompanySettings(
+  supabase: ReturnType<typeof createClient>,
+): Promise<CompanySettings> {
+  const { data, error } = await supabase
+    .from("company_settings")
+    .select("key, value")
+    .in("key", COMPANY_SETTINGS_KEYS as unknown as string[]);
+
+  if (error) {
+    // Soft-fail: render with empty settings rather than block PDF generation.
+    return {};
+  }
+
+  const settings: Record<string, string> = {};
+  for (const row of data ?? []) {
+    if (row.value != null) settings[row.key] = row.value;
+  }
+  return settings as CompanySettings;
 }
 
 /**
@@ -26,10 +67,24 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const supabase = createClient();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
-  // 1. Fetch the report with its job
+  // 1. Fetch the report + joined job, contact, and cover photo
   const { data: report, error: reportErr } = await supabase
     .from("photo_reports")
-    .select("*, job:jobs!job_id(id, job_number, property_address, claim_number, insurance_company)")
+    .select(
+      `
+        *,
+        job:jobs!job_id(
+          id,
+          job_number,
+          property_address,
+          claim_number,
+          insurance_company,
+          cover_photo_id,
+          contact:contacts!contact_id(full_name),
+          cover_photo:photos!cover_photo_id(storage_path, annotated_path)
+        )
+      `,
+    )
     .eq("id", reportId)
     .single();
 
@@ -37,42 +92,61 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     throw new Error("Failed to fetch report");
   }
 
-  const job = report.job as Pick<Job, "id" | "job_number" | "property_address" | "claim_number" | "insurance_company">;
+  const job = report.job as JoinedJob;
   const sections = report.sections as ReportSection[];
 
-  // 2. Fetch the template (for cover page config and photos_per_page)
-  let coverPage: CoverPageConfig = {
-    show_logo: true,
-    show_company: true,
-    show_date: true,
-    show_photo_count: true,
-  };
+  // 2. photos_per_page is still template-driven for the body (slice 1: cover
+  //    only). Template's cover_page JSON is no longer read.
   let photosPerPage = 2;
-
   if (report.template_id) {
     const { data: template } = await supabase
       .from("photo_report_templates")
-      .select("cover_page, photos_per_page")
+      .select("photos_per_page")
       .eq("id", report.template_id)
       .single();
 
     if (template) {
-      coverPage = template.cover_page as unknown as CoverPageConfig;
       photosPerPage = template.photos_per_page;
     }
   }
 
-  // 3. Collect all photo IDs from sections
+  // 3. Company settings for cover page + branding
+  const companySettings = await loadCompanySettings(supabase);
+
+  // 4. Resolve cover page model (pure)
+  const coverPageData = resolveCoverPageData(
+    {
+      property_address: job.property_address,
+      insurance_company: job.insurance_company,
+      claim_number: job.claim_number,
+      contact: job.contact
+        ? { full_name: job.contact.full_name ?? "" }
+        : null,
+    },
+    companySettings,
+  );
+
+  // 5. Resolve image URLs (both buckets are public)
+  const logoUrl =
+    coverPageData.logo.kind === "image"
+      ? `${supabaseUrl}/storage/v1/object/public/company-assets/${coverPageData.logo.path}`
+      : null;
+
+  const coverPhotoPath =
+    job.cover_photo?.annotated_path || job.cover_photo?.storage_path || null;
+  const coverPhotoUrl = coverPhotoPath
+    ? `${supabaseUrl}/storage/v1/object/public/photos/${coverPhotoPath}`
+    : null;
+
+  // 6. Collect body photos (body unchanged in slice 1)
   const allPhotoIds = new Set<string>();
   sections.forEach((s) => s.photo_ids.forEach((id) => allPhotoIds.add(id)));
 
-  // 4. Fetch the actual photos
   const { data: photoData } = await supabase
     .from("photos")
     .select("id, storage_path, annotated_path, caption, before_after_role, taken_at")
     .in("id", Array.from(allPhotoIds));
 
-  // Build photo lookup with full URLs
   const photos: Record<
     string,
     {
@@ -95,23 +169,20 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     };
   }
 
-  // 5. Render PDF to blob
+  // 7. Render PDF
   const blob = await pdf(
     <ReportPDFDocument
       title={report.title}
-      jobNumber={job.job_number}
-      propertyAddress={job.property_address}
-      claimNumber={job.claim_number}
-      insuranceCompany={job.insurance_company}
-      reportDate={report.report_date}
+      coverPageData={coverPageData}
+      coverPhotoUrl={coverPhotoUrl}
+      logoUrl={logoUrl}
       sections={sections}
       photos={photos}
       photosPerPage={photosPerPage}
-      coverPage={coverPage}
-    />
+    />,
   ).toBlob();
 
-  // 6. Upload PDF to Supabase Storage
+  // 8. Upload PDF to Supabase Storage
   const pdfPath = `${job.job_number}/${reportId}.pdf`;
   const { error: uploadErr } = await supabase.storage
     .from("reports")
@@ -124,7 +195,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     throw new Error(`Failed to upload PDF: ${uploadErr.message}`);
   }
 
-  // 7. Update report record
+  // 9. Update report record
   const { error: updateErr } = await supabase
     .from("photo_reports")
     .update({

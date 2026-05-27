@@ -1,0 +1,182 @@
+"use client";
+
+import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+
+import type { CoverPageData } from "@/lib/cover-page-data";
+
+const colors = {
+  primary: "#1B2434",
+  accent: "#C41E2A",
+  text: "#1A1A1A",
+  muted: "#666666",
+  light: "#999999",
+  border: "#E5E7EB",
+  bg: "#F9FAFB",
+};
+
+const styles = StyleSheet.create({
+  page: {
+    fontFamily: "Helvetica",
+    fontSize: 10,
+    paddingTop: 48,
+    paddingBottom: 48,
+    paddingHorizontal: 48,
+    color: colors.text,
+  },
+  logoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  logoImage: {
+    height: 48,
+    maxWidth: 200,
+    objectFit: "contain",
+  },
+  logoText: {
+    fontSize: 22,
+    fontFamily: "Helvetica-Bold",
+    color: colors.primary,
+  },
+  title: {
+    fontSize: 26,
+    fontFamily: "Helvetica-Bold",
+    color: colors.text,
+    marginBottom: 18,
+  },
+  coverPhoto: {
+    width: "100%",
+    height: 340,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 4,
+    objectFit: "cover",
+  },
+  coverPhotoPlaceholder: {
+    width: "100%",
+    height: 340,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 4,
+    backgroundColor: colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderText: {
+    fontSize: 10,
+    color: colors.light,
+  },
+  twoColumn: {
+    flexDirection: "row",
+    gap: 24,
+    marginBottom: 18,
+  },
+  column: {
+    flex: 1,
+  },
+  blockLabel: {
+    fontSize: 8,
+    color: colors.light,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  blockValue: {
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+    color: colors.text,
+    marginBottom: 2,
+  },
+  blockLine: {
+    fontSize: 11,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  insuranceBlock: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  insuranceLine: {
+    fontSize: 11,
+    color: colors.text,
+    marginBottom: 2,
+  },
+});
+
+interface CoverPageProps {
+  data: CoverPageData;
+  title: string;
+  coverPhotoUrl: string | null;
+  logoUrl: string | null;
+}
+
+export default function CoverPage({
+  data,
+  title,
+  coverPhotoUrl,
+  logoUrl,
+}: CoverPageProps) {
+  const { logo, customerName, propertyAddress, pointOfContact, insurance } =
+    data;
+
+  return (
+    <Page size="LETTER" style={styles.page}>
+      <View style={styles.logoRow}>
+        {logo.kind === "image" && logoUrl ? (
+          <Image src={logoUrl} style={styles.logoImage} />
+        ) : (
+          <Text style={styles.logoText}>
+            {logo.kind === "text" ? logo.name : ""}
+          </Text>
+        )}
+      </View>
+
+      <Text style={styles.title}>{title}</Text>
+
+      {coverPhotoUrl ? (
+        <Image src={coverPhotoUrl} style={styles.coverPhoto} />
+      ) : (
+        <View style={styles.coverPhotoPlaceholder}>
+          <Text style={styles.placeholderText}>No cover photo selected</Text>
+        </View>
+      )}
+
+      <View style={styles.twoColumn}>
+        <View style={styles.column}>
+          <Text style={styles.blockLabel}>Customer</Text>
+          <Text style={styles.blockValue}>{customerName || "—"}</Text>
+          <Text style={styles.blockLabel}>Property</Text>
+          <Text style={styles.blockLine}>{propertyAddress || "—"}</Text>
+        </View>
+
+        <View style={styles.column}>
+          <Text style={styles.blockLabel}>Point of contact</Text>
+          <Text style={styles.blockValue}>
+            {pointOfContact.companyName || ""}
+          </Text>
+          {pointOfContact.phone !== null && (
+            <Text style={styles.blockLine}>{pointOfContact.phone}</Text>
+          )}
+          {pointOfContact.email !== null && (
+            <Text style={styles.blockLine}>{pointOfContact.email}</Text>
+          )}
+        </View>
+      </View>
+
+      {insurance.visible && (
+        <View style={styles.insuranceBlock}>
+          <Text style={styles.insuranceLine}>
+            Insurance Carrier: {insurance.carrier || "—"}
+          </Text>
+          <Text style={styles.insuranceLine}>
+            Claim Number: {insurance.claimNumber || "—"}
+          </Text>
+        </View>
+      )}
+    </Page>
+  );
+}
