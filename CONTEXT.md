@@ -73,6 +73,32 @@ not active. The dashboard's "Jobs to advance" and "People to respond to"
 sections both filter to Active jobs only.
 _Avoid_: open job, current job, running job, in-progress job (that one is a specific status, not the whole alive set)
 
+**Target**:
+A row on the Referral Partners call list whose Lifecycle status is still
+Uncontacted (grey) or In progress (yellow) — i.e. someone we want to call
+but who hasn't agreed to send us work yet. Same database row as a Referral
+Partner; the name shifts based on Lifecycle status. The "Add Target" button
+on the Referral Partners page creates one of these (always at status grey).
+_Avoid_: lead, prospect, cold contact
+
+**Referral Partner**:
+A row on the Referral Partners call list whose Lifecycle status is Active
+(green) — i.e. a company that has agreed to send us work, whether or not
+they have actually sent a job yet. Same database row as a Target; the name
+shifts the moment the row is flipped to Active. A row at Declined (red) is
+an ex-Partner; the page title "Referral Partners" is used loosely to cover
+all four statuses because the whole list is in service of producing
+Referral Partners.
+_Avoid_: referrer (in code — fine in UI copy), affiliate, source
+
+**Lifecycle status**:
+The four-state status that decides whether a row on the Referral Partners
+call list is a Target or a Referral Partner: Uncontacted (grey), In
+progress (yellow), Active (green), Declined (red). Every transition is a
+deliberate user click — no automated promotions. Active is the only
+status that makes the row a Referral Partner in the strict sense.
+_Avoid_: stage, pipeline status, partner status
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
@@ -80,6 +106,8 @@ _Avoid_: open job, current job, running job, in-progress job (that one is a spec
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
 - An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
 - An **Outgoing email** belongs to one **Organization** and names exactly one **Email account** (the mailbox the document is sent from). There is one Outgoing email per document kind per Organization.
+- A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
+- A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 
 ## Example dialogue
 
