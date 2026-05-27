@@ -88,4 +88,24 @@ export const FIELD_PRESETS: FieldPreset[] = [
       visible: true,
     }),
   },
+  {
+    // Slice D (#302): the built-in `referrer` field. `maps_to` routes the
+    // picked value to `jobs.referral_partner_id` on submit (not to
+    // `job_custom_fields`); `is_default: true` lets the renderer treat it
+    // as a special FK-backed field rather than a free-text question.
+    // Off-by-default per Organization is achieved by not seeding the field
+    // into existing configs — admins opt in by adding it from this palette.
+    key: "referrer",
+    name: "Referred by",
+    icon: "Users",
+    description: "Picker for the Referral Partner who sent us this Job",
+    makeField: () => ({
+      type: "text",
+      label: "Referred by",
+      maps_to: "job.referral_partner_id",
+      required: false,
+      is_default: true,
+      visible: true,
+    }),
+  },
 ];

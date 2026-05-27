@@ -15,6 +15,9 @@ import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "@/lib/p
 import { isValidPastDate } from "@/lib/date-field";
 import { DateField } from "@/components/date-field";
 import InsuranceCompanyPicker from "@/components/insurance-company-picker";
+import ReferrerPicker, {
+  type ReferrerPickerPartner,
+} from "@/components/referral-partners/referrer-picker";
 import type { Contact, FormConfig, FormField } from "@/lib/types";
 
 export default function IntakeForm({ testMode = false }: { testMode?: boolean } = {}) {
@@ -30,6 +33,12 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
   // is mirrored into `values` so the existing required-field check and
   // the insurance_company write keep working unchanged (#195).
   const [insuranceContact, setInsuranceContact] = useState<Contact | null>(null);
+  // Slice D (#302): when the built-in `referrer` field is enabled in the
+  // config, the renderer surfaces it as a `<ReferrerPicker>` and writes the
+  // picked partner's id to `jobs.referral_partner_id` on submit — bypassing
+  // the generic `job_custom_fields` write path.
+  const [referralPartnerId, setReferralPartnerId] = useState<string | null>(null);
+  const [referralPartners, setReferralPartners] = useState<ReferrerPickerPartner[]>([]);
 
   // Load form config
   useEffect(() => {
@@ -51,6 +60,54 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
       .catch(() => {})
       .finally(() => setLoadingConfig(false));
   }, []);
+
+  // Fetch the picker's source-of-truth partner list (Active + yellow Targets,
+  // not trashed) once we know the form has a referrer field. The picker uses
+  // `eligibilityFor()` to slot rows into pickable / promote-then-pick / hidden
+  // groups — passing the unfiltered live list is what lets yellow Targets
+  // appear under the `+ Promote and attach` affordance.
+  const hasReferrerField = !!formConfig?.sections.some((s) =>
+    s.fields.some((f) => f.maps_to === "job.referral_partner_id"),
+  );
+  useEffect(() => {
+    if (!hasReferrerField) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("referral_partners")
+        .select("id, company_name, status, deleted_at")
+        .is("deleted_at", null)
+        .order("company_name", { ascending: true });
+      if (!cancelled && data) {
+        setReferralPartners(data as ReferrerPickerPartner[]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasReferrerField]);
+
+  async function handlePromoteAndPick(partnerId: string) {
+    // Mirrors the Edit Job Info dialog flow (#298): flip the yellow Target
+    // to Active via PATCH so the server-side eligibility check has something
+    // to accept, then attach to the Job. The actual FK write happens at
+    // submit time — here we only flip the status and optimistically reflect
+    // it in local state so the picker re-renders the row as pickable.
+    const res = await fetch(`/api/referral-partners/${partnerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "green" }),
+    });
+    if (!res.ok) {
+      toast.error("Couldn't promote the Target — try again.");
+      return;
+    }
+    setReferralPartners((prev) =>
+      prev.map((p) => (p.id === partnerId ? { ...p, status: "green" } : p)),
+    );
+    setReferralPartnerId(partnerId);
+  }
 
   function setValue(fieldId: string, value: string) {
     setValues((prev) => ({ ...prev, [fieldId]: value }));
@@ -176,24 +233,34 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
       const propertyStories = valueByMapsTo("job.property_stories");
       const damageSource = valueByMapsTo("job.damage_source");
 
+      const jobPayload: Record<string, unknown> = {
+        organization_id: orgId,
+        contact_id: contact.id,
+        damage_type: damageType,
+        damage_source: damageSource || null,
+        property_address: propertyAddress,
+        property_type: valueByMapsTo("job.property_type") || null,
+        property_sqft: propertySqft ? parseInt(propertySqft) : null,
+        property_stories: propertyStories ? parseInt(propertyStories) : null,
+        affected_areas: valueByMapsTo("job.affected_areas") || null,
+        urgency: valueByMapsTo("job.urgency") || "scheduled",
+        insurance_company: valueByMapsTo("job.insurance_company") || null,
+        insurance_contact_id: insuranceContact?.id ?? null,
+        claim_number: valueByMapsTo("job.claim_number") || null,
+        access_notes: valueByMapsTo("job.access_notes") || null,
+      };
+      // Only attach the FK when the referrer field is enabled in this org's
+      // config — preserves today's payload shape (no extra key) for orgs
+      // that haven't opted into the toggle. ADR-0002 eligibility still holds
+      // because the picker only exposes pickable partners and the server-
+      // side check runs whenever the FK is written.
+      if (hasReferrerField) {
+        jobPayload.referral_partner_id = referralPartnerId;
+      }
+
       const { data: job, error: jobErr } = await supabase
         .from("jobs")
-        .insert({
-          organization_id: orgId,
-          contact_id: contact.id,
-          damage_type: damageType,
-          damage_source: damageSource || null,
-          property_address: propertyAddress,
-          property_type: valueByMapsTo("job.property_type") || null,
-          property_sqft: propertySqft ? parseInt(propertySqft) : null,
-          property_stories: propertyStories ? parseInt(propertyStories) : null,
-          affected_areas: valueByMapsTo("job.affected_areas") || null,
-          urgency: valueByMapsTo("job.urgency") || "scheduled",
-          insurance_company: valueByMapsTo("job.insurance_company") || null,
-          insurance_contact_id: insuranceContact?.id ?? null,
-          claim_number: valueByMapsTo("job.claim_number") || null,
-          access_notes: valueByMapsTo("job.access_notes") || null,
-        })
+        .insert(jobPayload)
         .select()
         .single();
 
@@ -252,7 +319,19 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
       router.push(`/jobs/${job.id}`);
     } catch (err) {
       console.error(err);
-      toast.error("Something went wrong. Please try again.");
+      // The eligibility trigger from migration-302 raises an exception whose
+      // message begins with "RP-INELIGIBLE:" when a non-Active / trashed /
+      // cross-Organization Referral Partner is attached. Surface a clear
+      // toast so the office user knows to re-pick rather than retry blind.
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message?: unknown }).message ?? "")
+          : "";
+      if (message.includes("RP-INELIGIBLE")) {
+        toast.error("That Referral Partner can't be attached. Please pick another.");
+      } else {
+        toast.error("Something went wrong. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -299,6 +378,10 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
                     damageTypes={damageTypes}
                     insuranceContact={insuranceContact}
                     onInsuranceChange={(c) => setInsurance(field.id, c)}
+                    referralPartners={referralPartners}
+                    referralPartnerId={referralPartnerId}
+                    onReferralPartnerChange={setReferralPartnerId}
+                    onPromoteAndPickReferralPartner={handlePromoteAndPick}
                   />
                 ))}
             </div>
@@ -335,6 +418,10 @@ function DynamicField({
   damageTypes,
   insuranceContact,
   onInsuranceChange,
+  referralPartners,
+  referralPartnerId,
+  onReferralPartnerChange,
+  onPromoteAndPickReferralPartner,
 }: {
   field: FormField;
   value: string;
@@ -342,6 +429,10 @@ function DynamicField({
   damageTypes: { name: string; display_label: string; bg_color: string; text_color: string }[];
   insuranceContact: Contact | null;
   onInsuranceChange: (c: Contact | null) => void;
+  referralPartners: ReferrerPickerPartner[];
+  referralPartnerId: string | null;
+  onReferralPartnerChange: (id: string | null) => void;
+  onPromoteAndPickReferralPartner: (id: string) => void;
 }) {
   // Get options — from damage_types config or field.options
   let options = field.options || [];
@@ -358,6 +449,12 @@ function DynamicField({
   // its configured plain input — same idea as the damage_types option
   // source above, no new field type, no form-config change (#195).
   const isInsuranceCompany = field.maps_to === "job.insurance_company";
+  // Slice D (#302): the built-in `referrer` field is special — its value is
+  // a Referral Partner id, not free text, and it persists to the FK column
+  // on jobs rather than to `job_custom_fields`. The renderer surfaces the
+  // shared `<ReferrerPicker>` (same component the Edit Job Info dialog uses)
+  // so the eligibility rule from ADR-0002 stays the single source of truth.
+  const isReferrer = field.maps_to === "job.referral_partner_id";
 
   return (
     <div>
@@ -379,7 +476,16 @@ function DynamicField({
         />
       )}
 
-      {!isInsuranceCompany &&
+      {isReferrer && (
+        <ReferrerPicker
+          partners={referralPartners}
+          value={referralPartnerId}
+          onChange={onReferralPartnerChange}
+          onPromoteAndPick={onPromoteAndPickReferralPartner}
+        />
+      )}
+
+      {!isInsuranceCompany && !isReferrer &&
         (field.type === "text" || field.type === "phone" || field.type === "email") && (
         <Input
           type={field.type === "phone" ? "tel" : field.type === "email" ? "email" : "text"}
