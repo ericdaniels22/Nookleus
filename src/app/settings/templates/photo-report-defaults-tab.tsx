@@ -1,41 +1,24 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase";
-import type { PhotoReportTemplate } from "@/lib/types";
 
+// PRD #326 — Photo Report Rework, Slice 6 (#332). The tab used to expose
+// four knobs; it now exposes only photos-per-page (1 / 2 / 4, default 2).
+// The dropped values (default template, preparer name, footer text) live
+// in `company_settings` as key/value rows and are deleted by migration.
 export function PhotoReportDefaultsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [templates, setTemplates] = useState<PhotoReportTemplate[]>([]);
-
-  const [defaultTemplateId, setDefaultTemplateId] = useState("");
-  const [preparerName, setPreparerName] = useState("");
   const [photosPerPage, setPhotosPerPage] = useState("2");
-  const [footerText, setFooterText] = useState("");
 
   const fetchData = useCallback(async () => {
-    const [settingsRes, templatesRes] = await Promise.all([
-      fetch("/api/settings/company"),
-      createClient().from("photo_report_templates").select("*").order("name"),
-    ]);
-
-    if (settingsRes.ok) {
-      const data = await settingsRes.json();
-      setDefaultTemplateId(data.default_report_template || "");
-      setPreparerName(data.report_preparer_name || "");
+    const res = await fetch("/api/settings/company");
+    if (res.ok) {
+      const data = await res.json();
       setPhotosPerPage(data.report_photos_per_page || "2");
-      setFooterText(data.report_footer_text || "");
     }
-
-    if (templatesRes.data) {
-      setTemplates(templatesRes.data as PhotoReportTemplate[]);
-    }
-
     setLoading(false);
   }, []);
 
@@ -49,10 +32,7 @@ export function PhotoReportDefaultsTab() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        default_report_template: defaultTemplateId,
-        report_preparer_name: preparerName,
         report_photos_per_page: photosPerPage,
-        report_footer_text: footerText,
       }),
     });
 
@@ -80,35 +60,7 @@ export function PhotoReportDefaultsTab() {
       <div className="bg-card rounded-xl border border-border p-6 space-y-4">
         <div>
           <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Default Template
-          </label>
-          <select
-            value={defaultTemplateId}
-            onChange={(e) => setDefaultTemplateId(e.target.value)}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"
-          >
-            <option value="">None (start blank)</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Default Preparer Name
-          </label>
-          <Input
-            value={preparerName}
-            onChange={(e) => setPreparerName(e.target.value)}
-            placeholder="Eric Daniels"
-          />
-          <p className="text-[10px] text-muted-foreground mt-1">Auto-fills on new reports</p>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Default Photos Per Page
+            Photos Per Page
           </label>
           <div className="flex gap-2">
             {["1", "2", "4"].map((n) => (
@@ -126,18 +78,6 @@ export function PhotoReportDefaultsTab() {
               </button>
             ))}
           </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Footer Text
-          </label>
-          <Textarea
-            value={footerText}
-            onChange={(e) => setFooterText(e.target.value)}
-            placeholder="Custom footer text shown on all report pages..."
-            rows={2}
-          />
         </div>
       </div>
 
