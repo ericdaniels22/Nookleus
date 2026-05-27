@@ -5,10 +5,18 @@ import { useDashboardData } from "@/lib/dashboard/use-dashboard-data";
 import { getFirstName } from "@/lib/first-name";
 import { StatStrip } from "@/components/dashboard/stat-strip";
 import { NewJobsSection } from "@/components/dashboard/new-jobs-section";
+import { UnreadResponsesSection } from "@/components/dashboard/unread-responses-section";
 
 export default function DashboardPage() {
   const { profile } = useAuth();
-  const { newJobs, newJobsCount, canViewJobs } = useDashboardData();
+  const {
+    newJobs,
+    newJobsCount,
+    unreadResponseThreads,
+    unreadResponsesCount,
+    canViewJobs,
+    canViewEmail,
+  } = useDashboardData();
 
   const firstName = getFirstName(profile?.full_name);
 
@@ -23,10 +31,20 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <StatStrip newJobsCount={newJobsCount} canViewJobs={canViewJobs} />
+      <StatStrip
+        newJobsCount={newJobsCount}
+        canViewJobs={canViewJobs}
+        unreadResponsesCount={unreadResponsesCount}
+        canViewEmail={canViewEmail}
+      />
 
-      {canViewJobs && (
-        <NewJobsSection jobs={newJobs} total={newJobsCount} />
+      {canViewJobs && <NewJobsSection jobs={newJobs} total={newJobsCount} />}
+
+      {canViewEmail && (
+        <UnreadResponsesSection
+          threads={unreadResponseThreads}
+          total={unreadResponsesCount}
+        />
       )}
     </div>
   );
