@@ -11,6 +11,7 @@ import {
 
 import CoverPage from "@/components/report-pdf/cover-page";
 import type { CoverPageData } from "@/lib/cover-page-data";
+import type { DocumentPage } from "@/lib/build-report-document";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,18 +23,12 @@ interface ReportPhoto {
   taken_at: string | null;
 }
 
-interface ReportSection {
-  title: string;
-  description: string;
-  photo_ids: string[];
-}
-
 interface ReportPDFProps {
   title: string;
   coverPageData: CoverPageData;
   coverPhotoUrl: string | null;
   logoUrl: string | null;
-  sections: ReportSection[];
+  pages: DocumentPage[];
   photos: Record<string, ReportPhoto>;
   photosPerPage: number;
 }
@@ -255,57 +250,65 @@ export default function ReportPDFDocument({
   coverPageData,
   coverPhotoUrl,
   logoUrl,
-  sections,
+  pages,
   photos,
   photosPerPage,
 }: ReportPDFProps) {
   const photoHeight = getPhotoHeight(photosPerPage);
   const gridCols = getGridCols(photosPerPage);
 
+  const sectionOrdinals = new Map<string, number>();
+  for (const page of pages) {
+    if (page.kind === "photoPage" && !sectionOrdinals.has(page.sectionTitle)) {
+      sectionOrdinals.set(page.sectionTitle, sectionOrdinals.size + 1);
+    }
+  }
+
+  let prevSectionTitle: string | null = null;
+
   return (
     <Document title={title} author="AAA Disaster Recovery">
-      <CoverPage
-        data={coverPageData}
-        title={title}
-        coverPhotoUrl={coverPhotoUrl}
-        logoUrl={logoUrl}
-      />
+      {pages.map((page, idx) => {
+        if (page.kind === "cover") {
+          return (
+            <CoverPage
+              key={`cover-${idx}`}
+              data={coverPageData}
+              title={title}
+              coverPhotoUrl={coverPhotoUrl}
+              logoUrl={logoUrl}
+            />
+          );
+        }
 
-      {sections.map((section, si) => {
-        const sectionPhotos = section.photo_ids
-          .map((id) => photos[id])
-          .filter(Boolean);
+        const isFirstOfSection = prevSectionTitle !== page.sectionTitle;
+        prevSectionTitle = page.sectionTitle;
+        const ordinal = sectionOrdinals.get(page.sectionTitle) ?? 0;
+        const rows = chunkArray(page.slots, gridCols);
 
-        if (sectionPhotos.length === 0) return null;
-
-        const rows = chunkArray(sectionPhotos, gridCols);
-        const rowsPerPage = getRowsPerPage(photosPerPage);
-        const pages = chunkArray(rows, rowsPerPage);
-
-        return pages.map((pageRows, pi) => (
-          <Page key={`s${si}-p${pi}`} size="LETTER" style={styles.page}>
-            {pi === 0 && (
+        return (
+          <Page key={`p${idx}`} size="LETTER" style={styles.page}>
+            {isFirstOfSection && (
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  {si + 1}. {section.title}
+                  {ordinal}. {page.sectionTitle}
                 </Text>
-                {section.description && (
-                  <Text style={styles.sectionDescription}>
-                    {section.description}
-                  </Text>
-                )}
               </View>
             )}
 
-            {pageRows.map((row, ri) => (
+            {rows.map((row, ri) => (
               <View key={ri} style={styles.photoRow}>
-                {row.map((photo) => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    height={photoHeight}
-                  />
-                ))}
+                {row.map((slot) => {
+                  const photo = photos[slot.photoId];
+                  if (!photo) return null;
+                  return (
+                    <PhotoCard
+                      key={slot.photoId}
+                      photo={photo}
+                      height={photoHeight}
+                    />
+                  );
+                })}
                 {row.length < gridCols &&
                   Array.from({ length: gridCols - row.length }).map((_, i) => (
                     <View key={`empty-${i}`} style={{ flex: 1 }} />
@@ -315,7 +318,7 @@ export default function ReportPDFDocument({
 
             <PageFooter title={title} />
           </Page>
-        ));
+        );
       })}
     </Document>
   );

@@ -3,6 +3,10 @@
 import { pdf } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase";
 import ReportPDFDocument from "@/components/report-pdf-document";
+import {
+  buildReportDocument,
+  type ReportPhotoInput,
+} from "@/lib/build-report-document";
 import { resolveCoverPageData } from "@/lib/cover-page-data";
 import type { CompanySettings } from "@/lib/types";
 
@@ -144,7 +148,9 @@ export async function generateReportPDF(reportId: string): Promise<string> {
 
   const { data: photoData } = await supabase
     .from("photos")
-    .select("id, storage_path, annotated_path, caption, before_after_role, taken_at")
+    .select(
+      "id, storage_path, annotated_path, caption, before_after_role, taken_at, taken_by, width, height",
+    )
     .in("id", Array.from(allPhotoIds));
 
   const photos: Record<
@@ -158,6 +164,8 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     }
   > = {};
 
+  const engineInputPhotos: Record<string, ReportPhotoInput> = {};
+
   for (const p of photoData || []) {
     const path = p.annotated_path || p.storage_path;
     photos[p.id] = {
@@ -167,16 +175,31 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       before_after_role: p.before_after_role,
       taken_at: p.taken_at,
     };
+    engineInputPhotos[p.id] = {
+      id: p.id,
+      caption: p.caption,
+      takenAt: p.taken_at,
+      takenBy: p.taken_by ?? null,
+      width: p.width ?? null,
+      height: p.height ?? null,
+    };
   }
 
-  // 7. Render PDF
+  // 7. Build the document page list from the engine
+  const documentPages = buildReportDocument({
+    sections: sections.map((s) => ({ title: s.title, photoIds: s.photo_ids })),
+    photos: engineInputPhotos,
+    photosPerPage,
+  });
+
+  // 8. Render PDF
   const blob = await pdf(
     <ReportPDFDocument
       title={report.title}
       coverPageData={coverPageData}
       coverPhotoUrl={coverPhotoUrl}
       logoUrl={logoUrl}
-      sections={sections}
+      pages={documentPages}
       photos={photos}
       photosPerPage={photosPerPage}
     />,
