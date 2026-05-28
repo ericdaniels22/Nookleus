@@ -24,6 +24,7 @@ function makeSection(
 ): ReportSectionInput {
   return {
     title: "Section",
+    description: null,
     photoIds: [],
     ...overrides,
   };
@@ -40,6 +41,31 @@ describe("buildReportDocument", () => {
     expect(pages).toEqual([{ kind: "cover" }]);
   });
 
+  it("inserts a sectionDivider page before the first photoPage of a non-empty section, carrying its title and description", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Living Room",
+          description: "Buckled flooring after water loss.",
+          photoIds: ["a"],
+        }),
+      ],
+      photos: { a: makePhoto({ id: "a" }) },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const divider = pages[1];
+    if (divider.kind !== "sectionDivider") throw new Error("expected sectionDivider");
+    expect(divider.title).toBe("Living Room");
+    expect(divider.description).toBe("Buckled flooring after water loss.");
+  });
+
   it("buckets 3 photos in one section into two photoPages (2 + 1) with continuous numbering", () => {
     const pages = buildReportDocument({
       sections: [
@@ -53,16 +79,20 @@ describe("buildReportDocument", () => {
       photosPerPage: 2,
     });
 
-    expect(pages).toHaveLength(3);
-    expect(pages[0]).toEqual({ kind: "cover" });
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "photoPage",
+    ]);
 
-    const firstPhotoPage = pages[1];
+    const firstPhotoPage = pages[2];
     if (firstPhotoPage.kind !== "photoPage") throw new Error("expected photoPage");
     expect(firstPhotoPage.sectionTitle).toBe("Living Room");
     expect(firstPhotoPage.slots.map((s) => s.photoId)).toEqual(["a", "b"]);
     expect(firstPhotoPage.slots.map((s) => s.number)).toEqual([1, 2]);
 
-    const secondPhotoPage = pages[2];
+    const secondPhotoPage = pages[3];
     if (secondPhotoPage.kind !== "photoPage") throw new Error("expected photoPage");
     expect(secondPhotoPage.sectionTitle).toBe("Living Room");
     expect(secondPhotoPage.slots.map((s) => s.photoId)).toEqual(["c"]);
@@ -105,13 +135,23 @@ describe("buildReportDocument", () => {
       "d",
       "e",
     ]);
+
+    // Each section's divider precedes its first photoPage in document order.
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "sectionDivider",
+      "photoPage",
+      "photoPage",
+    ]);
   });
 
-  it("emits no photoPages for an empty section, and continues numbering across the gap", () => {
+  it("emits a sectionDivider for an empty section but no photoPages, and continues numbering across the gap", () => {
     const pages = buildReportDocument({
       sections: [
         makeSection({ title: "Exterior", photoIds: ["a"] }),
-        makeSection({ title: "Empty", photoIds: [] }),
+        makeSection({ title: "Empty", description: "nothing here", photoIds: [] }),
         makeSection({ title: "Interior", photoIds: ["b"] }),
       ],
       photos: {
@@ -121,11 +161,29 @@ describe("buildReportDocument", () => {
       photosPerPage: 2,
     });
 
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "sectionDivider",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const dividers = pages.filter((p) => p.kind === "sectionDivider") as Extract<
+      DocumentPage,
+      { kind: "sectionDivider" }
+    >[];
+    expect(dividers.map((d) => d.title)).toEqual([
+      "Exterior",
+      "Empty",
+      "Interior",
+    ]);
+
     const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
       DocumentPage,
       { kind: "photoPage" }
     >[];
-
     expect(photoPages.map((p) => p.sectionTitle)).toEqual([
       "Exterior",
       "Interior",
@@ -181,7 +239,7 @@ describe("buildReportDocument", () => {
       photosPerPage: 2,
     });
 
-    const photoPage = pages[1];
+    const photoPage = pages[2];
     if (photoPage.kind !== "photoPage") throw new Error("expected photoPage");
 
     expect(photoPage.slots[0]).toMatchObject({

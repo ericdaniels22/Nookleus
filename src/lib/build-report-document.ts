@@ -9,6 +9,7 @@ export interface ReportPhotoInput {
 
 export interface ReportSectionInput {
   title: string;
+  description: string | null;
   photoIds: string[];
 }
 
@@ -23,6 +24,7 @@ export interface PhotoSlot {
 
 export type DocumentPage =
   | { kind: "cover" }
+  | { kind: "sectionDivider"; title: string; description: string | null }
   | { kind: "photoPage"; sectionTitle: string; slots: PhotoSlot[] };
 
 export interface BuildReportDocumentArgs {
@@ -46,6 +48,12 @@ export function buildReportDocument(
   let runningNumber = 1;
 
   for (const section of args.sections) {
+    pages.push({
+      kind: "sectionDivider",
+      title: section.title,
+      description: section.description,
+    });
+
     const sectionPhotos = section.photoIds
       .map((id) => args.photos[id])
       .filter((p): p is ReportPhotoInput => Boolean(p));
