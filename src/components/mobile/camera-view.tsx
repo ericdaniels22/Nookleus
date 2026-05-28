@@ -414,7 +414,10 @@ export default function CameraView({
       id="camera-preview-mount"
       className={cn(
         "fixed inset-0 z-[1000] text-white",
-        stacked ? "flex flex-col" : "block",
+        // Overlay needs bg-black on the outer container so non-4:3 iPads get
+        // black side margins around the centered 4:3 preview rect. Stacked
+        // keeps the original behaviour (controls panel supplies the black).
+        stacked ? "flex flex-col" : "block bg-black",
       )}
       data-testid="camera-root"
     >
@@ -471,9 +474,15 @@ export default function CameraView({
         </>
       ) : (
         <>
-          {/* Overlay: 4:3 preview centered horizontally; chrome floats on top. */}
+          {/* Overlay: 4:3 preview centered horizontally; chrome floats on top.
+              No background on this wrapper — @capacitor-community/camera-preview
+              renders the native camera feed *behind* the WebView at exactly
+              these rect coordinates, so any opaque background here paints a
+              black square over the camera. The outer #camera-preview-mount
+              supplies bg-black for the side margins on non-4:3 iPads. */}
           <div
-            className="absolute bg-black"
+            data-testid="camera-preview-rect"
+            className="absolute"
             style={{
               left: layout.previewRect.x,
               top: layout.previewRect.y,

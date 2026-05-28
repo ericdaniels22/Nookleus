@@ -128,6 +128,24 @@ describe("CameraView overlay branch (iPad landscape)", () => {
     });
   });
 
+  it("preview rect is transparent so the native camera feed shows through the WebView", () => {
+    // Regression guard: the @capacitor-community/camera-preview plugin paints
+    // the camera feed *behind* the WebView at the preview rect. If the
+    // wrapping div has an opaque background, the camera is hidden by a black
+    // square at exactly the rect coordinates.
+    render(
+      <CameraView
+        jobId="job-1"
+        sessionId="sess-1"
+        onDone={() => undefined}
+        onAbort={() => undefined}
+      />,
+    );
+
+    const rect = screen.getByTestId("camera-preview-rect");
+    expect(rect.className).not.toMatch(/\bbg-/);
+  });
+
   it("top-right cluster holds exactly mode-toggle, flip, flash, settings in DOM order", () => {
     render(
       <CameraView
