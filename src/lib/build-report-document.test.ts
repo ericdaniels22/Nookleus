@@ -520,27 +520,121 @@ describe("buildReportDocument", () => {
     expect(pair.before.number).toBe(2);
   });
 
-  it("treats unsupported photosPerPage values (1, 4) as 2 for this slice", () => {
-    const photoIds = ["a", "b", "c"];
-    const photos: Record<string, ReportPhotoInput> = {
-      a: makePhoto({ id: "a" }),
-      b: makePhoto({ id: "b" }),
-      c: makePhoto({ id: "c" }),
-    };
+  it("at photosPerPage=1 emits one photoPage per non-paired photo with one slot each, numbered continuously", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({ title: "Living Room", photoIds: ["a", "b", "c"] }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+      },
+      photosPerPage: 1,
+    });
 
-    for (const ppp of [1, 4]) {
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "photoPage",
+      "photoPage",
+    ]);
+
+    const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
+      DocumentPage,
+      { kind: "photoPage" }
+    >[];
+    expect(photoPages.map((p) => p.slots.length)).toEqual([1, 1, 1]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.photoId))).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  it("at photosPerPage=4 buckets four photos into one photoPage with four slots", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Living Room",
+          photoIds: ["a", "b", "c", "d"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+        d: makePhoto({ id: "d" }),
+      },
+      photosPerPage: 4,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const photoPage = pages[2];
+    if (photoPage.kind !== "photoPage") throw new Error("expected photoPage");
+    expect(photoPage.slots.map((s) => s.photoId)).toEqual(["a", "b", "c", "d"]);
+    expect(photoPage.slots.map((s) => s.number)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("tags each photoPage with the photosPerPage value the engine bucketed at", () => {
+    for (const ppp of [1, 2, 4] as const) {
       const pages = buildReportDocument({
-        sections: [makeSection({ title: "S", photoIds })],
-        photos,
+        sections: [makeSection({ title: "S", photoIds: ["a"] })],
+        photos: { a: makePhoto({ id: "a" }) },
         photosPerPage: ppp,
       });
-
-      const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
+      const photoPage = pages.find((p) => p.kind === "photoPage") as Extract<
         DocumentPage,
         { kind: "photoPage" }
-      >[];
-
-      expect(photoPages.map((p) => p.slots.length)).toEqual([2, 1]);
+      >;
+      expect(photoPage.photosPerPage).toBe(ppp);
     }
+  });
+
+  it("at photosPerPage=4 with a partial final page, the trailing photos render on their own page with fewer slots", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Living Room",
+          photoIds: ["a", "b", "c", "d", "e", "f"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+        d: makePhoto({ id: "d" }),
+        e: makePhoto({ id: "e" }),
+        f: makePhoto({ id: "f" }),
+      },
+      photosPerPage: 4,
+    });
+
+    const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
+      DocumentPage,
+      { kind: "photoPage" }
+    >[];
+
+    expect(photoPages.map((p) => p.slots.length)).toEqual([4, 2]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.photoId))).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "f",
+    ]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
   });
 });
