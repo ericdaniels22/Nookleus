@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Camera,
   Flashlight,
@@ -45,12 +45,16 @@ const FLASH_NEXT: Record<FlashMode, FlashMode> = {
   torch: "off",
 };
 
-// Minimum space reserved for the controls cluster. In stacked layout this is
-// the bottom strip's min height; in split layout it's the right panel's min
-// width. Sized to comfortably fit Queue, Shutter, and Done with breathing
-// room on either side; iPad at 768pt portrait scales the 3:4 preview down so
-// this fits.
+// Minimum space reserved for the controls strip in stacked (portrait) layout.
+// Sized to comfortably fit Queue, Shutter, and Done with breathing room; iPad
+// at 768pt portrait scales the 3:4 preview down so this fits. Not consulted in
+// overlay (landscape) mode — controls float on top of the preview there.
 const CONTROLS_MIN_SIZE = 200;
+
+// Drop-shadow filter applied to bare white icons floating over the preview
+// in overlay mode, so they remain legible against bright scene content.
+const OVERLAY_ICON_SHADOW =
+  "drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)) drop-shadow(0 0 1px rgb(0 0 0 / 0.4))";
 
 function generateUuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -249,7 +253,11 @@ export default function CameraView({
     );
   }
 
-  const topRow = (
+  const stacked = layout.mode === "stacked";
+
+  // Stacked-only top strip: X cancel + four icons. In overlay mode the X
+  // disappears and the four icons move into the floating top-right cluster.
+  const stackedTopRow = (
     <div className="flex items-center justify-between">
       <button
         type="button"
@@ -296,6 +304,59 @@ export default function CameraView({
         aria-label="Camera settings"
       >
         <Settings className="h-5 w-5" />
+      </button>
+    </div>
+  );
+
+  // Overlay top-right cluster: mode → flip → flash → settings. Bare white
+  // icons with a drop-shadow for legibility; no chip backgrounds.
+  const overlayTopCluster = (
+    <div
+      data-testid="camera-top-cluster"
+      className="pointer-events-auto absolute z-[1015] flex items-center gap-3"
+      style={{
+        top: "calc(env(safe-area-inset-top, 0px) + 12px)",
+        right: "calc(env(safe-area-inset-right, 0px) + 16px)",
+        filter: OVERLAY_ICON_SHADOW,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setMode(mode === "tag-after" ? "rapid" : "tag-after")}
+        className="rounded-full p-2 text-white active:bg-white/10"
+        aria-label={`Mode: ${mode === "tag-after" ? "Tag after" : "Rapid"} — tap to switch`}
+      >
+        {mode === "tag-after" ? (
+          <Tag className="h-6 w-6" />
+        ) : (
+          <Gauge className="h-6 w-6" />
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={handleFlip}
+        className="rounded-full p-2 text-white active:bg-white/10"
+        aria-label="Flip camera"
+      >
+        <RotateCw className="h-6 w-6" />
+      </button>
+      <button
+        type="button"
+        onClick={cycleFlash}
+        className="rounded-full p-2 text-white active:bg-white/10"
+        aria-label={`Flash ${flash}`}
+      >
+        {flash === "off" && <ZapOff className="h-6 w-6" />}
+        {flash === "on" && <Zap className="h-6 w-6 text-yellow-300" />}
+        {flash === "torch" && <Flashlight className="h-6 w-6 text-yellow-300" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        className="rounded-full p-2 text-white active:bg-white/10"
+        aria-label="Camera settings"
+      >
+        <Settings className="h-6 w-6" />
       </button>
     </div>
   );
@@ -348,14 +409,12 @@ export default function CameraView({
     </button>
   );
 
-  const stacked = layout.mode === "stacked";
-
   return (
     <div
       id="camera-preview-mount"
       className={cn(
         "fixed inset-0 z-[1000] text-white",
-        stacked ? "flex flex-col" : "flex flex-row",
+        stacked ? "flex flex-col" : "block",
       )}
       data-testid="camera-root"
     >
@@ -394,7 +453,7 @@ export default function CameraView({
             className="flex flex-1 flex-col justify-between bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3"
             data-testid="camera-controls-panel"
           >
-            {topRow}
+            {stackedTopRow}
 
             <div>
               {count > 0 && (
@@ -412,10 +471,12 @@ export default function CameraView({
         </>
       ) : (
         <>
-          {/* Split: preview on the left, controls panel on the right. */}
+          {/* Overlay: 4:3 preview centered horizontally; chrome floats on top. */}
           <div
-            className="relative shrink-0 self-center"
+            className="absolute bg-black"
             style={{
+              left: layout.previewRect.x,
+              top: layout.previewRect.y,
               width: layout.previewRect.width,
               height: layout.previewRect.height,
             }}
@@ -423,36 +484,38 @@ export default function CameraView({
             <div className="absolute inset-0" id="camera-preview-window" />
           </div>
 
-          <div
-            className="flex flex-1 flex-col justify-between bg-black px-4 pb-[max(env(safe-area-inset-bottom),20px)] pr-[max(env(safe-area-inset-right),16px)] pt-3"
-            data-testid="camera-controls-panel"
-          >
-            {topRow}
+          {overlayTopCluster}
 
-            <div className="flex flex-col items-center gap-4">
-              {count > 0 && (
-                <div className="text-lg font-semibold text-white tabular-nums">
-                  {count}
-                </div>
-              )}
-              {queueButton}
-              {shutterButton}
-              {doneButton}
-            </div>
+          <div
+            data-testid="camera-right-rail"
+            className="pointer-events-auto absolute z-[1015] flex flex-col items-center gap-4"
+            style={{
+              top: "50%",
+              right: "calc(env(safe-area-inset-right, 0px) + 16px)",
+              transform: "translateY(-50%)",
+            }}
+          >
+            {doneButton}
+            {count > 0 && (
+              <div
+                data-testid="camera-capture-count"
+                className="text-2xl font-bold text-white tabular-nums"
+                style={{ textShadow: "0 1px 2px rgb(0 0 0 / 0.7)" }}
+              >
+                {count}
+              </div>
+            )}
+            {shutterButton}
+            {queueButton}
           </div>
         </>
       )}
 
-      {showLeaveConfirm && (
+      {showLeaveConfirm && stacked && (
         <div
           data-testid="leave-confirm"
           data-mode={layout.mode}
-          className={cn(
-            "absolute z-[1030] flex items-center justify-center bg-black/70",
-            stacked
-              ? "inset-0 px-6"
-              : "inset-y-0 right-0 w-80 max-w-[60%] px-4",
-          )}
+          className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/70 px-6"
         >
           <div className="w-full max-w-sm rounded-2xl bg-black p-6 text-white">
             <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
@@ -487,7 +550,7 @@ export default function CameraView({
             "absolute z-[1020] bg-black/95 px-5 backdrop-blur",
             stacked
               ? "inset-x-0 bottom-0 rounded-t-2xl pb-[max(env(safe-area-inset-bottom),20px)] pt-5"
-              : "inset-y-0 right-0 w-80 max-w-[60%] rounded-l-2xl py-5 pb-[max(env(safe-area-inset-bottom),20px)]",
+              : "inset-y-0 right-0 w-[40vw] rounded-l-2xl py-5 pb-[max(env(safe-area-inset-bottom),20px)]",
           )}
         >
           <h3 className="mb-3 text-base font-semibold">Camera settings</h3>
@@ -514,7 +577,7 @@ export default function CameraView({
             "absolute z-[1010] bg-black/95 px-5 backdrop-blur",
             stacked
               ? "inset-x-0 bottom-0 rounded-t-2xl pb-[max(env(safe-area-inset-bottom),20px)] pt-5"
-              : "inset-y-0 right-0 w-96 max-w-[60%] rounded-l-2xl py-5 pb-[max(env(safe-area-inset-bottom),20px)]",
+              : "inset-y-0 right-0 w-[40vw] rounded-l-2xl py-5 pb-[max(env(safe-area-inset-bottom),20px)]",
           )}
         >
           <h3 className="mb-3 text-sm font-medium">Tag this photo</h3>

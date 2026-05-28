@@ -1,4 +1,4 @@
-export type CameraLayoutMode = "stacked" | "split";
+export type CameraLayoutMode = "stacked" | "overlay";
 
 export interface PreviewRect {
   x: number;
@@ -15,38 +15,23 @@ export interface CameraLayout {
 export interface ComputeCameraLayoutInput {
   viewportWidth: number;
   viewportHeight: number;
-  controlsMinSize: number;
+  controlsMinSize?: number;
 }
 
 export function computeCameraLayout(
   input: ComputeCameraLayoutInput,
 ): CameraLayout {
-  const { viewportWidth, viewportHeight, controlsMinSize } = input;
+  const { viewportWidth, viewportHeight, controlsMinSize = 0 } = input;
 
   if (viewportWidth >= viewportHeight) {
-    // Split: 4:3 landscape preview on the left, controls panel on the right.
-    const naturalWidth = (viewportHeight * 4) / 3;
-    const maxWidth = viewportWidth - controlsMinSize;
-
-    if (maxWidth > 0) {
-      if (naturalWidth <= maxWidth) {
-        const width = Math.round(naturalWidth);
-        return {
-          mode: "split",
-          previewRect: { x: 0, y: 0, width, height: viewportHeight },
-        };
-      }
-
-      const width = Math.round(maxWidth);
-      const height = Math.round((width * 3) / 4);
-      const y = Math.round((viewportHeight - height) / 2);
-      return {
-        mode: "split",
-        previewRect: { x: 0, y, width, height },
-      };
-    }
-    // Fall through to stacked when the controls cluster cannot fit
-    // alongside the preview — pathological narrow landscape windows.
+    // Overlay: 4:3 preview centered horizontally, full viewport height.
+    // Controls float over the preview pixels; controlsMinSize is not consulted.
+    const width = Math.round((viewportHeight * 4) / 3);
+    const x = Math.round((viewportWidth - width) / 2);
+    return {
+      mode: "overlay",
+      previewRect: { x, y: 0, width, height: viewportHeight },
+    };
   }
 
   // Stacked: 3:4 portrait preview, controls strip below.
