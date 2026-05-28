@@ -109,6 +109,7 @@ export default function ReportPDFDocument({
             sectionTitle={page.sectionTitle}
             customerName={customerName}
             reportDate={reportDate}
+            photosPerPage={page.photosPerPage}
           />
         );
       })}

@@ -27,7 +27,12 @@ export interface PhotoSlot {
 export type DocumentPage =
   | { kind: "cover" }
   | { kind: "sectionDivider"; title: string; description: string | null }
-  | { kind: "photoPage"; sectionTitle: string; slots: PhotoSlot[] }
+  | {
+      kind: "photoPage";
+      sectionTitle: string;
+      slots: PhotoSlot[];
+      photosPerPage: 1 | 2 | 4;
+    }
   | {
       kind: "beforeAfterPair";
       sectionTitle: string;
@@ -63,7 +68,8 @@ export function buildReportDocument(
   args: BuildReportDocumentArgs,
 ): DocumentPage[] {
   const pages: DocumentPage[] = [{ kind: "cover" }];
-  const bucketSize = 2;
+  const bucketSize: 1 | 2 | 4 =
+    args.photosPerPage === 1 || args.photosPerPage === 4 ? args.photosPerPage : 2;
   let runningNumber = 1;
 
   for (const section of args.sections) {
@@ -153,6 +159,7 @@ export function buildReportDocument(
           kind: "photoPage",
           sectionTitle: section.title,
           slots: bucket.map((p) => makeSlot(p, runningNumber++)),
+          photosPerPage: bucketSize,
         });
       }
       singleBuffer = [];
