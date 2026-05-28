@@ -1,18 +1,18 @@
 ---
 build_id: 65b.3
 title: iPad camera landscape overlay redesign
-status: in-progress
+status: shipped
 phase: mobile
 started: 2026-05-28
-shipped: null
+shipped: 2026-05-28
 guide_doc: null
 plan_file: null
-pr: null
+pr: ["#354", "#355", "#356"]
 handoff: null
 related: ["[[build-65b.2]]", "[[build-65c]]"]
 ---
 
-#status/in-progress #area/mobile #build/65b.3
+#status/shipped #area/mobile #build/65b.3
 
 ## Scope
 
@@ -80,13 +80,21 @@ Driven by the parent PRD #344 (issue #345 ships the entire PRD as a single slice
 
 ## Real-device verification
 
-Pending on the Mac/Xcode loop against a physical iPad:
+Passed on iPad against Build 226 on 2026-05-28:
 
-- [ ] Preview fills as expected on whichever iPad model is available.
-- [ ] Right-rail icons remain legible against varied scene brightness.
-- [ ] Home indicator does not collide with the right-rail bottom edge.
-- [ ] Rotating portrait↔landscape mid-session preserves the session count and does not freeze the preview.
-- [ ] If icon-legibility fails, file a follow-up issue for a soft right-edge scrim (do not add one in this slice).
+- [x] Preview fills as expected on the test iPad.
+- [x] Right-rail icons remain legible against varied scene brightness — no scrim follow-up needed.
+- [x] Home indicator does not collide with the right-rail bottom edge.
+- [x] Rotating portrait↔landscape mid-session preserves the session count and does not freeze the preview.
+
+## Camera-visibility hotfixes
+
+Builds 224 and 225 (the initial #354 ship and the first hotfix #355) both rendered the camera as a black overlay on physical iPad. Two opaque-pixel patterns had to be removed:
+
+- **#355** — `bg-black` was on the inner div wrapping `#camera-preview-window`. The native plugin paints the camera *behind* the WebView at the rect coords, so an opaque background on the wrapper paints a black square exactly over the feed. Moved `bg-black` to the outer `#camera-preview-mount`.
+- **#356** — that move was also wrong. `useCameraLifecycle` sets `html` + `body` transparent because the camera renders behind ALL WebView pixels (`toBack: true`), not just at the rect. A `fixed inset-0` outer with `bg-black` is a full-viewport opaque rectangle painting over the entire camera. Real fix: outer stays transparent; non-4:3 iPads get two narrow `bg-black` bezel strips covering only the left/right margins. Edge-to-edge 4:3 viewports skip the bezels.
+
+Test guard added in both hotfixes asserts `camera-root` and `camera-preview-rect` have no `bg-*` class. jsdom can't see whether the native camera surface is occluded, so the tests are necessary-not-sufficient — physical-device verify remains the only true gate for this class of bug.
 
 ## Out of scope
 
