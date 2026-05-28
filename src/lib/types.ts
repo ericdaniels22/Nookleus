@@ -798,11 +798,23 @@ export interface TemplateStructure {
   }>;
 }
 
+/** Snapshot shape per ADR 0004. A template item stores its own name, code, unit,
+ *  description, quantity, and unit_price; `library_item_id` is a soft breadcrumb.
+ *  The legacy `*_override` fields stay on the type for backwards-compat reads of
+ *  un-migrated rows — new code does not write them. */
 export interface TemplateStructureItem {
   library_item_id: string | null;
-  description_override: string | null;
-  quantity_override: number | null;
-  unit_price_override: number | null;
+  // Snapshot fields (new shape — written by all post-#351 code).
+  name?: string | null;
+  description?: string | null;
+  code?: string | null;
+  unit?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  // Legacy override fields (old shape — read-only for backwards compat).
+  description_override?: string | null;
+  quantity_override?: number | null;
+  unit_price_override?: number | null;
   sort_order: number;
 }
 

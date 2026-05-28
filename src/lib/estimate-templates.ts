@@ -86,15 +86,19 @@ export async function getTemplateWithContents(
   return { ...tmpl, sections } as TemplateWithContents;
 }
 
-function synthItemFromTemplate(synthSectionId: string, idx: number, item: TemplateStructureItem) {
+/** Project one stored template item into the builder-shape item the editor renders.
+ *  Reads the new flat snapshot fields (#351). Falls back to the legacy `*_override`
+ *  fields on un-migrated rows so existing templates open without losing data. */
+export function synthItemFromTemplate(synthSectionId: string, idx: number, item: TemplateStructureItem) {
   return {
     id: `synth-item-${synthSectionId}-${idx}`,
     library_item_id: item.library_item_id,
-    description: item.description_override ?? "",
-    code: null,
-    quantity: item.quantity_override ?? 1,
-    unit: null,
-    unit_price: item.unit_price_override ?? 0,
+    name: item.name ?? null,
+    description: item.description ?? item.description_override ?? "",
+    code: item.code ?? null,
+    quantity: item.quantity ?? item.quantity_override ?? 1,
+    unit: item.unit ?? null,
+    unit_price: item.unit_price ?? item.unit_price_override ?? 0,
     sort_order: item.sort_order,
   };
 }
@@ -104,27 +108,25 @@ function synthItemFromTemplate(synthSectionId: string, idx: number, item: Templa
  *  template auto-save collapses to rootPut-only and rootPut writes both metadata
  *  AND structure). */
 export function serializeStructureFromBuilder(state: TemplateWithContents): TemplateStructure {
+  const snapshot = (it: TemplateWithContents["sections"][number]["items"][number]): TemplateStructureItem => ({
+    library_item_id: it.library_item_id,
+    name: it.name ?? null,
+    description: it.description || null,
+    code: it.code ?? null,
+    unit: it.unit ?? null,
+    quantity: it.quantity ?? null,
+    unit_price: it.unit_price ?? null,
+    sort_order: it.sort_order,
+  });
   return {
     sections: state.sections.map((s) => ({
       title: s.title,
       sort_order: s.sort_order,
-      items: s.items.map((it) => ({
-        library_item_id: it.library_item_id,
-        description_override: it.description || null,
-        quantity_override: it.quantity ?? null,
-        unit_price_override: it.unit_price ?? null,
-        sort_order: it.sort_order,
-      })),
+      items: s.items.map(snapshot),
       subsections: s.subsections.map((sub) => ({
         title: sub.title,
         sort_order: sub.sort_order,
-        items: sub.items.map((it) => ({
-          library_item_id: it.library_item_id,
-          description_override: it.description || null,
-          quantity_override: it.quantity ?? null,
-          unit_price_override: it.unit_price ?? null,
-          sort_order: it.sort_order,
-        })),
+        items: sub.items.map(snapshot),
       })),
     })),
   };
