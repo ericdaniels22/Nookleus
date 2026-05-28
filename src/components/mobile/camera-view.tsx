@@ -414,10 +414,12 @@ export default function CameraView({
       id="camera-preview-mount"
       className={cn(
         "fixed inset-0 z-[1000] text-white",
-        // Overlay needs bg-black on the outer container so non-4:3 iPads get
-        // black side margins around the centered 4:3 preview rect. Stacked
-        // keeps the original behaviour (controls panel supplies the black).
-        stacked ? "flex flex-col" : "block bg-black",
+        // No background on this outer container. The native camera lives
+        // BEHIND the WebView (toBack:true) and shows through any transparent
+        // WebView pixel — useCameraLifecycle sets html+body transparent for
+        // this exact reason. An opaque bg here paints over the entire camera.
+        // Non-4:3 iPads get black side margins from the bezel strips below.
+        stacked ? "flex flex-col" : "block",
       )}
       data-testid="camera-root"
     >
@@ -474,12 +476,28 @@ export default function CameraView({
         </>
       ) : (
         <>
-          {/* Overlay: 4:3 preview centered horizontally; chrome floats on top.
-              No background on this wrapper — @capacitor-community/camera-preview
-              renders the native camera feed *behind* the WebView at exactly
-              these rect coordinates, so any opaque background here paints a
-              black square over the camera. The outer #camera-preview-mount
-              supplies bg-black for the side margins on non-4:3 iPads. */}
+          {/* Black bezel strips covering only the side margins outside the
+              centered 4:3 preview rect. Kept narrow & local so the camera
+              area of the WebView stays transparent. Skipped when previewRect
+              is edge-to-edge (4:3 viewports like 12.9" iPad landscape). */}
+          {layout.previewRect.x > 0 && (
+            <>
+              <div
+                data-testid="camera-left-bezel"
+                className="absolute bottom-0 left-0 top-0 bg-black"
+                style={{ width: layout.previewRect.x }}
+              />
+              <div
+                data-testid="camera-right-bezel"
+                className="absolute bottom-0 right-0 top-0 bg-black"
+                style={{ width: layout.previewRect.x }}
+              />
+            </>
+          )}
+
+          {/* Overlay preview rect: must stay transparent — the native camera
+              renders BEHIND the WebView at these coords (toBack:true) and any
+              opaque background here paints a black square over the feed. */}
           <div
             data-testid="camera-preview-rect"
             className="absolute"

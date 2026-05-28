@@ -128,11 +128,12 @@ describe("CameraView overlay branch (iPad landscape)", () => {
     });
   });
 
-  it("preview rect is transparent so the native camera feed shows through the WebView", () => {
+  it("preview rect AND outer container are transparent so the native camera feed shows through the WebView", () => {
     // Regression guard: the @capacitor-community/camera-preview plugin paints
-    // the camera feed *behind* the WebView at the preview rect. If the
-    // wrapping div has an opaque background, the camera is hidden by a black
-    // square at exactly the rect coordinates.
+    // the camera feed *behind* the WebView at the preview rect (toBack:true).
+    // useCameraLifecycle sets html+body transparent so the camera shows
+    // through. Any opaque background on the outer container or the preview
+    // rect wrapper paints over the camera at exactly that region.
     render(
       <CameraView
         jobId="job-1"
@@ -142,8 +143,49 @@ describe("CameraView overlay branch (iPad landscape)", () => {
       />,
     );
 
+    const outer = screen.getByTestId("camera-root");
+    expect(outer.className).not.toMatch(/\bbg-/);
+
     const rect = screen.getByTestId("camera-preview-rect");
     expect(rect.className).not.toMatch(/\bbg-/);
+  });
+
+  it("renders black bezel strips around the centered preview rect (non-4:3 iPads)", () => {
+    // 1180x820 is the common modern iPad landscape size; ~44pt margins remain
+    // on each side of the 4:3 preview rect. Without bezels those areas would
+    // show whatever sits behind the transparent WebView.
+    viewportMock.mockReturnValue({
+      width: 1180,
+      height: 820,
+      orientation: "landscape",
+    });
+
+    render(
+      <CameraView
+        jobId="job-1"
+        sessionId="sess-1"
+        onDone={() => undefined}
+        onAbort={() => undefined}
+      />,
+    );
+
+    expect(screen.getByTestId("camera-left-bezel")).toBeDefined();
+    expect(screen.getByTestId("camera-right-bezel")).toBeDefined();
+  });
+
+  it("skips bezel strips when the preview rect is edge-to-edge (4:3 viewports)", () => {
+    // 1024x768 is exact 4:3 — previewRect.x === 0, no margins to cover.
+    render(
+      <CameraView
+        jobId="job-1"
+        sessionId="sess-1"
+        onDone={() => undefined}
+        onAbort={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByTestId("camera-left-bezel")).toBeNull();
+    expect(screen.queryByTestId("camera-right-bezel")).toBeNull();
   });
 
   it("top-right cluster holds exactly mode-toggle, flip, flash, settings in DOM order", () => {
