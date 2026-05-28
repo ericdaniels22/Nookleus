@@ -2,11 +2,12 @@
 
 import { Document } from "@react-pdf/renderer";
 
+import BeforeAfterPairPage from "@/components/report-pdf/before-after-pair-page";
 import CoverPage from "@/components/report-pdf/cover-page";
 import PhotoPage from "@/components/report-pdf/photo-page";
 import SectionDividerPage from "@/components/report-pdf/section-divider-page";
 import type { CoverPageData } from "@/lib/cover-page-data";
-import type { DocumentPage } from "@/lib/build-report-document";
+import type { DocumentPage, PhotoSlot } from "@/lib/build-report-document";
 
 interface ReportPhoto {
   id: string;
@@ -14,6 +15,23 @@ interface ReportPhoto {
   caption: string | null;
   before_after_role: "before" | "after" | null;
   taken_at: string | null;
+}
+
+function resolveSlot(
+  slot: PhotoSlot,
+  photos: Record<string, ReportPhoto>,
+) {
+  const photo = photos[slot.photoId];
+  if (!photo) return null;
+  return {
+    photoId: slot.photoId,
+    url: photo.url,
+    number: slot.number,
+    caption: slot.caption,
+    takenAt: slot.takenAt,
+    takenBy: slot.takenBy,
+    orientation: slot.orientation,
+  };
 }
 
 interface ReportPDFProps {
@@ -64,20 +82,24 @@ export default function ReportPDFDocument({
           );
         }
 
+        if (page.kind === "beforeAfterPair") {
+          const beforeSlot = resolveSlot(page.before, photos);
+          const afterSlot = resolveSlot(page.after, photos);
+          if (!beforeSlot || !afterSlot) return null;
+          return (
+            <BeforeAfterPairPage
+              key={`bap${idx}`}
+              before={beforeSlot}
+              after={afterSlot}
+              sectionTitle={page.sectionTitle}
+              customerName={customerName}
+              reportDate={reportDate}
+            />
+          );
+        }
+
         const photoSlots = page.slots
-          .map((slot) => {
-            const photo = photos[slot.photoId];
-            if (!photo) return null;
-            return {
-              photoId: slot.photoId,
-              url: photo.url,
-              number: slot.number,
-              caption: slot.caption,
-              takenAt: slot.takenAt,
-              takenBy: slot.takenBy,
-              orientation: slot.orientation,
-            };
-          })
+          .map((slot) => resolveSlot(slot, photos))
           .filter((s): s is NonNullable<typeof s> => s !== null);
 
         return (

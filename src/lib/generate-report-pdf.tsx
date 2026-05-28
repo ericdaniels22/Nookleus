@@ -149,7 +149,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const { data: photoData } = await supabase
     .from("photos")
     .select(
-      "id, storage_path, annotated_path, caption, before_after_role, taken_at, taken_by, width, height",
+      "id, storage_path, annotated_path, caption, before_after_pair_id, before_after_role, taken_at, taken_by, width, height",
     )
     .in("id", Array.from(allPhotoIds));
 
@@ -182,6 +182,8 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       takenBy: p.taken_by ?? null,
       width: p.width ?? null,
       height: p.height ?? null,
+      beforeAfterPairId: p.before_after_pair_id ?? null,
+      beforeAfterRole: p.before_after_role ?? null,
     };
   }
 

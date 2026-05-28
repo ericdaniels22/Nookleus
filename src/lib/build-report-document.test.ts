@@ -15,6 +15,8 @@ function makePhoto(overrides: Partial<ReportPhotoInput> = {}): ReportPhotoInput 
     takenBy: null,
     width: 100,
     height: 200,
+    beforeAfterPairId: null,
+    beforeAfterRole: null,
     ...overrides,
   };
 }
@@ -249,6 +251,273 @@ describe("buildReportDocument", () => {
       takenAt: "2026-05-20T14:32:00Z",
       takenBy: "Eric Daniels",
     });
+  });
+
+  it("emits a beforeAfterPair page when two photos in a section share a before_after_pair_id", () => {
+    const pages = buildReportDocument({
+      sections: [makeSection({ title: "Living Room", photoIds: ["a", "b"] })],
+      photos: {
+        a: makePhoto({
+          id: "a",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+          caption: "Before drying",
+        }),
+        b: makePhoto({
+          id: "b",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+          caption: "After drying",
+        }),
+      },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "beforeAfterPair",
+    ]);
+
+    const pair = pages[2];
+    if (pair.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(pair.sectionTitle).toBe("Living Room");
+    expect(pair.before.photoId).toBe("a");
+    expect(pair.after.photoId).toBe("b");
+    expect(pair.before.number).toBe(1);
+    expect(pair.after.number).toBe(2);
+    expect(pair.before.caption).toBe("Before drying");
+    expect(pair.after.caption).toBe("After drying");
+  });
+
+  it("skips the partner in subsequent traversal so a pair is never double-rendered", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({ title: "Living Room", photoIds: ["a", "b", "c"] }),
+      ],
+      photos: {
+        a: makePhoto({
+          id: "a",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+        }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({
+          id: "c",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+        }),
+      },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "beforeAfterPair",
+      "photoPage",
+    ]);
+
+    const pair = pages[2];
+    if (pair.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(pair.before.photoId).toBe("a");
+    expect(pair.after.photoId).toBe("c");
+    expect(pair.before.number).toBe(1);
+    expect(pair.after.number).toBe(2);
+
+    const single = pages[3];
+    if (single.kind !== "photoPage") throw new Error("expected photoPage");
+    expect(single.slots.map((s) => s.photoId)).toEqual(["b"]);
+    expect(single.slots.map((s) => s.number)).toEqual([3]);
+  });
+
+  it("falls back to regular photoPage rendering when a paired photo's partner is missing from the section", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({ title: "Living Room", photoIds: ["a", "b"] }),
+      ],
+      photos: {
+        // "a" claims a pair id, but its partner is not in the photo set.
+        a: makePhoto({
+          id: "a",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+        }),
+        b: makePhoto({ id: "b" }),
+      },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const photoPage = pages[2];
+    if (photoPage.kind !== "photoPage") throw new Error("expected photoPage");
+    expect(photoPage.slots.map((s) => s.photoId)).toEqual(["a", "b"]);
+    expect(photoPage.slots.map((s) => s.number)).toEqual([1, 2]);
+  });
+
+  it("when more than two photos share a before_after_pair_id, pairs the first two and renders extras as regular photos", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({ title: "Living Room", photoIds: ["a", "b", "c"] }),
+      ],
+      photos: {
+        a: makePhoto({
+          id: "a",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+        }),
+        b: makePhoto({
+          id: "b",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+        }),
+        c: makePhoto({
+          id: "c",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+        }),
+      },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "beforeAfterPair",
+      "photoPage",
+    ]);
+
+    const pair = pages[2];
+    if (pair.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(pair.before.photoId).toBe("a");
+    expect(pair.after.photoId).toBe("b");
+    expect(pair.before.number).toBe(1);
+    expect(pair.after.number).toBe(2);
+
+    const single = pages[3];
+    if (single.kind !== "photoPage") throw new Error("expected photoPage");
+    expect(single.slots.map((s) => s.photoId)).toEqual(["c"]);
+    expect(single.slots.map((s) => s.number)).toEqual([3]);
+  });
+
+  it("emits each pair on its own page regardless of photosPerPage (1, 2, or 4)", () => {
+    for (const ppp of [1, 2, 4]) {
+      const pages = buildReportDocument({
+        sections: [
+          makeSection({ title: "Living Room", photoIds: ["a", "b"] }),
+        ],
+        photos: {
+          a: makePhoto({
+            id: "a",
+            beforeAfterPairId: "pair-1",
+            beforeAfterRole: "before",
+          }),
+          b: makePhoto({
+            id: "b",
+            beforeAfterPairId: "pair-1",
+            beforeAfterRole: "after",
+          }),
+        },
+        photosPerPage: ppp,
+      });
+
+      expect(pages.map((p) => p.kind)).toEqual([
+        "cover",
+        "sectionDivider",
+        "beforeAfterPair",
+      ]);
+    }
+  });
+
+  it("emits a separate beforeAfterPair page for each pair in the same section, with continuous numbering", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Living Room",
+          photoIds: ["a", "b", "c", "d"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({
+          id: "a",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+        }),
+        b: makePhoto({
+          id: "b",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+        }),
+        c: makePhoto({
+          id: "c",
+          beforeAfterPairId: "pair-2",
+          beforeAfterRole: "before",
+        }),
+        d: makePhoto({
+          id: "d",
+          beforeAfterPairId: "pair-2",
+          beforeAfterRole: "after",
+        }),
+      },
+      photosPerPage: 2,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "beforeAfterPair",
+      "beforeAfterPair",
+    ]);
+
+    const first = pages[2];
+    if (first.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(first.before.photoId).toBe("a");
+    expect(first.after.photoId).toBe("b");
+    expect(first.before.number).toBe(1);
+    expect(first.after.number).toBe(2);
+
+    const second = pages[3];
+    if (second.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(second.before.photoId).toBe("c");
+    expect(second.after.photoId).toBe("d");
+    expect(second.before.number).toBe(3);
+    expect(second.after.number).toBe(4);
+  });
+
+  it("assigns the 'before' slot to the photo whose role is 'before' even when 'after' appears first in the section list", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({ title: "Living Room", photoIds: ["after-first", "before-second"] }),
+      ],
+      photos: {
+        "after-first": makePhoto({
+          id: "after-first",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "after",
+        }),
+        "before-second": makePhoto({
+          id: "before-second",
+          beforeAfterPairId: "pair-1",
+          beforeAfterRole: "before",
+        }),
+      },
+      photosPerPage: 2,
+    });
+
+    const pair = pages[2];
+    if (pair.kind !== "beforeAfterPair") throw new Error("expected beforeAfterPair");
+    expect(pair.before.photoId).toBe("before-second");
+    expect(pair.after.photoId).toBe("after-first");
+    // Numbering is in traversal order: after-first encountered first → 1,
+    // partner before-second → 2. The slot/role assignment is independent
+    // of the numbering.
+    expect(pair.after.number).toBe(1);
+    expect(pair.before.number).toBe(2);
   });
 
   it("treats unsupported photosPerPage values (1, 4) as 2 for this slice", () => {
