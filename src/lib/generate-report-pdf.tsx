@@ -199,9 +199,9 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       coverPageData={coverPageData}
       coverPhotoUrl={coverPhotoUrl}
       logoUrl={logoUrl}
+      reportDate={report.report_date}
       pages={documentPages}
       photos={photos}
-      photosPerPage={photosPerPage}
     />,
   ).toBlob();
 
