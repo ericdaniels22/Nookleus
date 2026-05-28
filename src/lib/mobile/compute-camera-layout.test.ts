@@ -29,22 +29,6 @@ describe("computeCameraLayout", () => {
     expect(layout.previewRect.x).toBe(Math.round((768 - 543) / 2));
   });
 
-  it("iPad landscape uses split layout with 4:3 preview on the left", () => {
-    // 1024x768, 300pt controls reserved on the right.
-    // Preview width = 1024-300 = 724. Height = 724 * 3/4 = 543. Centered vertically.
-    const layout = computeCameraLayout({
-      viewportWidth: 1024,
-      viewportHeight: 768,
-      controlsMinSize: 300,
-    });
-
-    expect(layout.mode).toBe("split");
-    expect(layout.previewRect.x).toBe(0);
-    expect(layout.previewRect.width).toBe(724);
-    expect(layout.previewRect.height).toBe(543);
-    expect(layout.previewRect.y).toBe(Math.round((768 - 543) / 2));
-  });
-
   it("iPad portrait at 820x1180 also scales to fit controls", () => {
     const layout = computeCameraLayout({
       viewportWidth: 820,
@@ -57,20 +41,8 @@ describe("computeCameraLayout", () => {
     expect(layout.previewRect.width).toBe(660);
   });
 
-  it("iPad landscape at 1180x820 keeps split layout with shutter region", () => {
-    const layout = computeCameraLayout({
-      viewportWidth: 1180,
-      viewportHeight: 820,
-      controlsMinSize: 300,
-    });
-
-    expect(layout.mode).toBe("split");
-    expect(layout.previewRect.width).toBe(880);
-    expect(layout.previewRect.height).toBe(660);
-  });
-
-  it("split-screen narrow portrait window falls back to stacked", () => {
-    // Half-screen iPad multitasking: ~507x1180 or so. Tall + narrow => stacked.
+  it("split-screen narrow portrait window stays stacked", () => {
+    // Half-screen iPad multitasking: ~500x1180 or so. Tall + narrow => stacked.
     const layout = computeCameraLayout({
       viewportWidth: 500,
       viewportHeight: 1180,
@@ -80,27 +52,47 @@ describe("computeCameraLayout", () => {
     expect(layout.mode).toBe("stacked");
   });
 
-  it("square viewport (width === height) chooses split per >= rule", () => {
+  it("iPad landscape at 1024x768 (4:3) uses overlay with edge-to-edge preview", () => {
+    // width = round(768 * 4/3) = 1024. x = round((1024 - 1024)/2) = 0.
+    const layout = computeCameraLayout({
+      viewportWidth: 1024,
+      viewportHeight: 768,
+      controlsMinSize: 300,
+    });
+
+    expect(layout.mode).toBe("overlay");
+    expect(layout.previewRect).toEqual({
+      x: 0,
+      y: 0,
+      width: 1024,
+      height: 768,
+    });
+  });
+
+  it("iPad landscape at 1180x820 (non-4:3) centers the overlay preview horizontally", () => {
+    // width = round(820 * 4/3) = 1093. x = round((1180 - 1093)/2) = 44.
+    const layout = computeCameraLayout({
+      viewportWidth: 1180,
+      viewportHeight: 820,
+      controlsMinSize: 300,
+    });
+
+    expect(layout.mode).toBe("overlay");
+    expect(layout.previewRect).toEqual({
+      x: 44,
+      y: 0,
+      width: 1093,
+      height: 820,
+    });
+  });
+
+  it("square viewport (width === height) chooses overlay per >= rule", () => {
     const layout = computeCameraLayout({
       viewportWidth: 800,
       viewportHeight: 800,
       controlsMinSize: 300,
     });
 
-    expect(layout.mode).toBe("split");
-  });
-
-  it("landscape with residual width less than controlsMinSize falls back to stacked", () => {
-    // Pathological landscape where the controls cluster cannot fit:
-    // viewportWidth (250) is less than controlsMinSize (300), so we
-    // cannot carve out the controls strip without producing a degenerate
-    // preview. Per spec: fall back to stacked.
-    const layout = computeCameraLayout({
-      viewportWidth: 250,
-      viewportHeight: 200,
-      controlsMinSize: 300,
-    });
-
-    expect(layout.mode).toBe("stacked");
+    expect(layout.mode).toBe("overlay");
   });
 });

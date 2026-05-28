@@ -83,6 +83,7 @@ Driven by Vanessa's request after the 65c smoke tests: "I want the UI to look mo
 
 ## Future builds filed during grill
 
+- **iPad landscape camera redesign** — **closed by [[build-65b.3]]** (2026-05-28). Replaced the original split (preview-left / controls-right) layout with an overlay layout: 4:3 preview centered horizontally, controls float on top, X cancel dropped in favour of Done as the sole exit. Zoom selector / photo library / SCAN-WALKTHROUGH-PHOTO mode wheel remain deferred per the items below.
 - **LiDAR mode** (Scan/Measure) using ARKit + RoomPlan — native Swift Capacitor plugin work. **Sizing:** 1-2 weeks for point-to-point distance measurement; 3-4 weeks for full room scanning. LiDAR-only iPhone Pro models (12 Pro+). Adds a 3rd mode to the toggle (Tag/Rapid/LiDAR) when ready.
 - **Tag-after flow redesign** — bottom-sheet vs full-screen preview, tag picker UX, caption affordance, gesture handling. Separate grilling session.
 - **Additional capture modes** (Video, Scan, Walkthrough) — only when underlying features exist. Don't ship empty buttons.
