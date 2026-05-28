@@ -187,7 +187,11 @@ export async function generateReportPDF(reportId: string): Promise<string> {
 
   // 7. Build the document page list from the engine
   const documentPages = buildReportDocument({
-    sections: sections.map((s) => ({ title: s.title, photoIds: s.photo_ids })),
+    sections: sections.map((s) => ({
+      title: s.title,
+      description: s.description ?? null,
+      photoIds: s.photo_ids,
+    })),
     photos: engineInputPhotos,
     photosPerPage,
   });

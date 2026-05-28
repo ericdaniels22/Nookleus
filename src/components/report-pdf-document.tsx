@@ -4,6 +4,7 @@ import { Document } from "@react-pdf/renderer";
 
 import CoverPage from "@/components/report-pdf/cover-page";
 import PhotoPage from "@/components/report-pdf/photo-page";
+import SectionDividerPage from "@/components/report-pdf/section-divider-page";
 import type { CoverPageData } from "@/lib/cover-page-data";
 import type { DocumentPage } from "@/lib/build-report-document";
 
@@ -47,6 +48,18 @@ export default function ReportPDFDocument({
               title={title}
               coverPhotoUrl={coverPhotoUrl}
               logoUrl={logoUrl}
+            />
+          );
+        }
+
+        if (page.kind === "sectionDivider") {
+          return (
+            <SectionDividerPage
+              key={`d${idx}`}
+              title={page.title}
+              description={page.description}
+              customerName={customerName}
+              reportDate={reportDate}
             />
           );
         }
