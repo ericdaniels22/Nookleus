@@ -68,3 +68,9 @@ Issues #352 and #353 have since completed the transition:
   survives purely as a soft breadcrumb copied straight from the structure. The
   NOT-NULL insert floors (`'[unknown item]'`, qty 1, price 0) remain, since the
   line-item columns still require non-null values.
+
+> **Deployment order is load-bearing.** #352 must be fully run on every
+> environment *before* #353 ships. After #353 there is no apply-time fallback: a
+> template that was never backfilled (override-only or library-only items with no
+> flat fields) silently degrades those values to the NOT-NULL defaults when
+> applied, with no automatic recovery. Confirm #352 completed everywhere first.

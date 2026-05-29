@@ -36,7 +36,7 @@ export interface LineItemRowProps {
   readOnly?: boolean;
   mode?: BuilderMode;
   /**
-   * Task 36: optional DOM id for scroll-to-item helpers (broken-refs banner).
+   * Optional DOM id for scroll-to-item helpers.
    * Format: `line-item-s${sIdx}-i${iIdx}` or `line-item-s${sIdx}-i${iIdx}-sub${subIdx}`.
    * Constructed by parents (section-card / subsection-card) which know the indices.
    */
