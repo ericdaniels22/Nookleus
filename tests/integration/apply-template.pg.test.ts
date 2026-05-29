@@ -94,7 +94,15 @@ beforeAll(async () => {
 afterAll(async () => {
   if (client) await client.end().catch(() => {});
   if (pgServer) await pgServer.stop().catch(() => {});
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  // On Windows the cluster can still hold file handles when cleanup runs; a
+  // failed rmSync must never fail an otherwise-green suite.
+  if (dataDir) {
+    try {
+      rmSync(dataDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort temp-dir cleanup */
+    }
+  }
 });
 
 /** Insert a fresh draft (empty) estimate under `orgId`; returns its id. */
