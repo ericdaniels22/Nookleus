@@ -684,15 +684,6 @@ export interface EstimateWithContents extends Estimate {
   }>;
 }
 
-// TemplateItem kept for back-compat (superseded by TemplateStructureItem in 67b).
-export interface TemplateItem {
-  library_item_id: string;
-  description_override: string | null;
-  quantity_override: number | null;
-  unit_price_override: number | null;
-  sort_order: number;
-}
-
 export interface EstimateTemplate {
   id: string;
   organization_id: string;
@@ -802,21 +793,17 @@ export interface TemplateStructure {
 
 /** Snapshot shape per ADR 0004. A template item stores its own name, code, unit,
  *  description, quantity, and unit_price; `library_item_id` is a soft breadcrumb.
- *  The legacy `*_override` fields stay on the type for backwards-compat reads of
- *  un-migrated rows — new code does not write them. */
+ *  This is the only shape: the #352 backfill rewrote every legacy row into it and
+ *  #353 dropped the transitional override fallback. */
 export interface TemplateStructureItem {
   library_item_id: string | null;
-  // Snapshot fields (new shape — written by all post-#351 code).
+  // Snapshot fields — written and read by all code.
   name?: string | null;
   description?: string | null;
   code?: string | null;
   unit?: string | null;
   quantity?: number | null;
   unit_price?: number | null;
-  // Legacy override fields (old shape — read-only for backwards compat).
-  description_override?: string | null;
-  quantity_override?: number | null;
-  unit_price_override?: number | null;
   sort_order: number;
 }
 

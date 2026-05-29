@@ -24,12 +24,6 @@ export interface TemplateBannerProps {
   onApplied: (result: {
     section_count: number;
     line_item_count: number;
-    broken_refs: Array<{
-      section_idx: number;
-      item_idx: number;
-      library_item_id: string | null;
-      placeholder: boolean;
-    }>;
   }) => void;
 }
 

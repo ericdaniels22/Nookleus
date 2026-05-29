@@ -49,7 +49,6 @@ export const POST = withRequestContext(
       return NextResponse.json({
         section_count: result.section_count,
         line_item_count: result.line_item_count,
-        broken_refs: result.broken_refs,
       });
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/estimates/[id]/apply-template");

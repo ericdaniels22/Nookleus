@@ -87,18 +87,18 @@ export async function getTemplateWithContents(
 }
 
 /** Project one stored template item into the builder-shape item the editor renders.
- *  Reads the new flat snapshot fields (#351). Falls back to the legacy `*_override`
- *  fields on un-migrated rows so existing templates open without losing data. */
+ *  Reads the flat snapshot fields directly — every row carries them since the #352
+ *  backfill, so there is no longer a legacy override fallback (#353). */
 export function synthItemFromTemplate(synthSectionId: string, idx: number, item: TemplateStructureItem) {
   return {
     id: `synth-item-${synthSectionId}-${idx}`,
     library_item_id: item.library_item_id,
     name: item.name ?? null,
-    description: item.description ?? item.description_override ?? "",
+    description: item.description ?? "",
     code: item.code ?? null,
-    quantity: item.quantity ?? item.quantity_override ?? 1,
+    quantity: item.quantity ?? 1,
     unit: item.unit ?? null,
-    unit_price: item.unit_price ?? item.unit_price_override ?? 0,
+    unit_price: item.unit_price ?? 0,
     sort_order: item.sort_order,
   };
 }
@@ -198,7 +198,7 @@ export async function hardDeleteTemplate(supabase: SupabaseClient, id: string): 
   if (error) throw error;
 }
 
-/** Wraps apply_template_to_estimate RPC. Returns the broken-refs report. */
+/** Wraps apply_template_to_estimate RPC. */
 export async function applyTemplate(
   supabase: SupabaseClient,
   estimateId: string,
@@ -207,14 +207,6 @@ export async function applyTemplate(
   ok: true;
   section_count: number;
   line_item_count: number;
-  broken_refs: Array<{
-    section_idx: number;
-    item_idx: number;
-    library_item_id: string | null;
-    placeholder: boolean;
-    in_subsection?: boolean;
-    subsection_idx?: number;
-  }>;
 } | {
   ok: false;
   code: "estimate_not_found" | "estimate_not_draft" | "estimate_not_empty" | "template_not_found_or_inactive" | "internal";
@@ -233,5 +225,5 @@ export async function applyTemplate(
     return { ok: false, code: "internal", message: m };
   }
   // RPC returns a jsonb object directly
-  return { ok: true, ...(data as { section_count: number; line_item_count: number; broken_refs: Array<unknown> }) } as never;
+  return { ok: true, ...(data as { section_count: number; line_item_count: number }) } as never;
 }

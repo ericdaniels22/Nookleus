@@ -1,17 +1,20 @@
 // Integration coverage for `apply_template_to_estimate` — the PL/pgSQL RPC
-// redefined by #351 (docs/adr/0004-template-line-items-snapshot.md).
+// first defined by #351 and then simplified by #353
+// (docs/adr/0004-template-line-items-snapshot.md).
 //
-// Gap this fills. The unit suite (src/lib/estimate-templates.test.ts) covers
-// the TS serialize/synth round-trip (AC #1/#2/#5), but the apply RPC — the
-// COALESCE(flat, _override, library) ladder that actually builds the estimate
-// — had no automated test. AC #3 (apply a fresh snapshot template) and AC #4
-// (apply a legacy *_override template via the fallback) live here.
+// As of #353 the RPC reads only the flat snapshot fields: no item_library
+// lookup, no `*_override` fallback, and no broken_refs in the return value.
+// This suite loads migration-351 then migration-353 (the body swap that drops
+// the dual shape) so it exercises the current production function. The legacy
+// cases below assert the post-#353 contract — an un-backfilled item that only
+// carried overrides / a library pointer now degrades to the NOT-NULL defaults,
+// which is exactly why the #352 backfill is a hard prerequisite for #353.
 //
 // Harness. The repo's blessed integration harness (tests/integration/
 // global-setup.ts) boots Supabase via `supabase start`, which needs Docker +
 // hardware virtualization — unavailable on this machine. Since the thing under
 // test is a database function, we instead boot a throwaway embedded-postgres
-// cluster, load a focused schema + the LIVE migration-351 SQL verbatim (no
+// cluster, load a focused schema + the LIVE migration SQL verbatim (no
 // copy-paste drift), and drive it through a raw `pg` client at the SQL layer.
 // Nothing here touches the network, Docker, or the local PG service. Run with
 // `npm run test:pg`.
@@ -33,6 +36,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const SCHEMA_SQL = readFileSync(join(process.cwd(), "tests", "integration", "apply-template-schema.sql"), "utf8");
 const MIGRATION_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-351-template-line-items-snapshot.sql"),
+  "utf8",
+);
+const CLEANUP_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-353-drop-template-dual-shape.sql"),
   "utf8",
 );
 
@@ -88,7 +95,8 @@ beforeAll(async () => {
     "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; END $$;",
   );
   await client.query(SCHEMA_SQL); // tables first (the function's %ROWTYPE needs them)
-  await client.query(MIGRATION_SQL); // then the live function + its grant
+  await client.query(MIGRATION_SQL); // #351: the original dual-shape function
+  await client.query(CLEANUP_SQL); // #353: body swap to the flat-only function
 }, 120_000);
 
 afterAll(async () => {
@@ -117,7 +125,6 @@ async function seedDraftEstimate(orgId: string): Promise<string> {
 interface ApplyResult {
   section_count: number;
   line_item_count: number;
-  broken_refs: unknown[];
 }
 
 interface LineItemRow {
@@ -131,7 +138,7 @@ interface LineItemRow {
   total: string;
 }
 
-describe("apply_template_to_estimate (snapshot shape, #351)", () => {
+describe("apply_template_to_estimate (snapshot shape, #351 → #353)", () => {
   // ── AC #3 (tracer): a freshly-authored snapshot template applies its own
   //    flat name/code/unit/description/qty/price straight onto the estimate. ──
   it("copies a snapshot item's flat fields onto the new line item", async () => {
@@ -172,7 +179,6 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     expect(resultRows[0].result).toMatchObject({
       section_count: 1,
       line_item_count: 1,
-      broken_refs: [],
     });
 
     const { rows: items } = await client.query<LineItemRow>(
@@ -192,13 +198,15 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     expect(Number(item.total)).toBe(251); // 2 × 125.50
   });
 
-  // ── AC #4: a pre-#351 template carries no flat fields — only a
-  //    library_item_id plus *_override values. name/code/unit must resolve
-  //    from the library; description/qty/price from the overrides. ──────────
-  it("resolves library name/code/unit + override desc/qty/price for a legacy item", async () => {
+  // ── Post-#353: an un-backfilled legacy item (only a library_item_id plus
+  //    `*_override` values, no flat fields) no longer resolves from the library
+  //    or the overrides — it degrades to the NOT-NULL defaults. This is the
+  //    behaviour change #353 introduces, and why #352 must run first. ─────────
+  it("ignores library + override values for an un-backfilled legacy item", async () => {
     const orgId = randomUUID();
     const estimateId = await seedDraftEstimate(orgId);
 
+    // A matching, active library row exists — but #353 never reads it.
     const { rows: libRows } = await client.query<{ id: string }>(
       `INSERT INTO item_library
          (organization_id, name, description, code, default_unit, default_quantity, unit_price)
@@ -217,7 +225,7 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
           items: [
             {
               library_item_id: libId,
-              // legacy shape: no name/code/unit/description/quantity/unit_price
+              // legacy shape: no flat fields, only overrides — both ignored now.
               description_override: "Legacy patch note",
               quantity_override: 7,
               unit_price_override: 4.5,
@@ -236,11 +244,7 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
       "SELECT apply_template_to_estimate($1, $2) AS result",
       [estimateId, tmplRows[0].id],
     );
-    expect(resultRows[0].result).toMatchObject({
-      section_count: 1,
-      line_item_count: 1,
-      broken_refs: [],
-    });
+    expect(resultRows[0].result).toMatchObject({ section_count: 1, line_item_count: 1 });
 
     const { rows: items } = await client.query<LineItemRow>(
       "SELECT * FROM estimate_line_items WHERE estimate_id = $1",
@@ -249,21 +253,22 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     expect(items).toHaveLength(1);
 
     const item = items[0];
-    // name/code/unit fall back to the library (the legacy item carried none)…
-    expect(item.name).toBe("Drywall Repair");
-    expect(item.code).toBe("DRY-10");
-    expect(item.unit).toBe("sqft");
-    // …description/quantity/unit_price come from the *_override fields.
-    expect(item.description).toBe("Legacy patch note");
-    expect(Number(item.quantity)).toBe(7);
-    expect(Number(item.unit_price)).toBe(4.5);
-    expect(Number(item.total)).toBe(31.5); // 7 × 4.50
-    expect(item.library_item_id).toBe(libId); // breadcrumb preserved
+    // No library read → name/code/unit are null (the snapshot carried none).
+    expect(item.name).toBeNull();
+    expect(item.code).toBeNull();
+    expect(item.unit).toBeNull();
+    // No override read → description/quantity/unit_price hit the NOT-NULL floors.
+    expect(item.description).toBe("[unknown item]");
+    expect(Number(item.quantity)).toBe(1);
+    expect(Number(item.unit_price)).toBe(0);
+    expect(Number(item.total)).toBe(0);
+    expect(item.library_item_id).toBe(libId); // breadcrumb still preserved
   });
 
-  // ── Precedence: when an item carries flat fields AND legacy overrides AND
-  //    points at a library row, the flat snapshot wins every field. ─────────
-  it("prefers flat snapshot fields over both *_override and library values", async () => {
+  // ── Stray legacy fields don't leak: an item with flat fields plus leftover
+  //    `*_override` values and a library pointer resolves purely from the flat
+  //    snapshot — the overrides and the library row are ignored. ─────────────
+  it("reads only the flat snapshot fields, ignoring stray override + library values", async () => {
     const orgId = randomUUID();
     const estimateId = await seedDraftEstimate(orgId);
 
@@ -379,7 +384,7 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
       [estimateId, tmplRows[0].id],
     );
     // Parent section + subsection both count toward section_count.
-    expect(resultRows[0].result).toMatchObject({ section_count: 2, line_item_count: 2, broken_refs: [] });
+    expect(resultRows[0].result).toMatchObject({ section_count: 2, line_item_count: 2 });
 
     const { rows: sections } = await client.query<{ id: string; title: string; parent_section_id: string | null }>(
       "SELECT id, title, parent_section_id FROM estimate_sections WHERE estimate_id = $1",
@@ -402,10 +407,11 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     expect(subItem.section_id).toBe(child.id);
   });
 
-  // ── Broken ref: a library_item_id with no resolvable row and no snapshot/
-  //    override data still inserts a line item ([unknown item], breadcrumb
-  //    kept) and reports a broken_ref with placeholder: true. ────────────────
-  it("reports a placeholder broken_ref for a dangling library_item_id", async () => {
+  // ── Post-#353: a dangling library_item_id (no resolvable row) is no longer a
+  //    "broken ref" — with no library lookup, apply just inserts the snapshot
+  //    ([unknown item] + defaults) and keeps the breadcrumb. The return value
+  //    carries no broken_refs at all. ────────────────────────────────────────
+  it("inserts a default line item for a dangling library_item_id and reports no broken_refs", async () => {
     const orgId = randomUUID();
     const estimateId = await seedDraftEstimate(orgId);
 
@@ -435,13 +441,7 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     );
     const result = resultRows[0].result;
     expect(result).toMatchObject({ section_count: 1, line_item_count: 1 });
-    expect(result.broken_refs).toHaveLength(1);
-    expect(result.broken_refs[0]).toMatchObject({
-      section_idx: 0,
-      item_idx: 0,
-      library_item_id: danglingLibId,
-      placeholder: true,
-    });
+    expect(result).not.toHaveProperty("broken_refs");
 
     const { rows: items } = await client.query<LineItemRow>(
       "SELECT * FROM estimate_line_items WHERE estimate_id = $1",
@@ -449,7 +449,7 @@ describe("apply_template_to_estimate (snapshot shape, #351)", () => {
     );
     expect(items).toHaveLength(1);
     const item = items[0];
-    expect(item.description).toBe("[unknown item]"); // final COALESCE fallback
+    expect(item.description).toBe("[unknown item]"); // NOT-NULL floor
     expect(item.name).toBeNull();
     expect(item.code).toBeNull();
     expect(item.unit).toBeNull();

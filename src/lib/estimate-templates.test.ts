@@ -64,28 +64,6 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
     });
   });
 
-  it("does NOT write legacy *_override fields", () => {
-    const state = makeBuilderState([
-      {
-        id: "li-1",
-        library_item_id: "lib-abc",
-        name: "X",
-        description: "d",
-        code: null,
-        quantity: 1,
-        unit: null,
-        unit_price: 0,
-        sort_order: 0,
-      },
-    ]);
-
-    const item = serializeStructureFromBuilder(state).sections[0].items![0];
-
-    expect(item).not.toHaveProperty("description_override");
-    expect(item).not.toHaveProperty("quantity_override");
-    expect(item).not.toHaveProperty("unit_price_override");
-  });
-
   it("writes flat snapshot fields for a custom item (null library_item_id)", () => {
     const state = makeBuilderState([
       {
@@ -160,7 +138,7 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
   });
 });
 
-describe("synthItemFromTemplate (snapshot read + legacy fallback, #351)", () => {
+describe("synthItemFromTemplate (snapshot read, #351/#353)", () => {
   it("reads flat snapshot fields when present (new shape)", () => {
     const stored: TemplateStructureItem = {
       library_item_id: "lib-abc",
@@ -187,56 +165,23 @@ describe("synthItemFromTemplate (snapshot read + legacy fallback, #351)", () => 
     });
   });
 
-  it("falls back to *_override fields on un-migrated rows (old shape)", () => {
-    const legacy: TemplateStructureItem = {
+  it("falls back to blanks/defaults when the snapshot fields are absent", () => {
+    // A bare item (only a breadcrumb + sort order). With no library lookup and
+    // no override fallback (#353), the projection surfaces null name/code/unit
+    // and the builder-friendly empty/1/0 floors for description/qty/price.
+    const bare: TemplateStructureItem = {
       library_item_id: "lib-abc",
-      description_override: "Legacy description",
-      quantity_override: 7,
-      unit_price_override: 42,
       sort_order: 0,
     };
 
-    const out = synthItemFromTemplate("sec-1", 0, legacy);
+    const out = synthItemFromTemplate("sec-1", 0, bare);
 
-    expect(out).toMatchObject({
-      library_item_id: "lib-abc",
-      description: "Legacy description",
-      quantity: 7,
-      unit_price: 42,
-    });
-    // name/code/unit on the legacy shape are unknown at the template layer
-    // (they used to be resolved from the library at apply-time); the projection
-    // surfaces null so the builder can render them blank rather than guess.
     expect(out.name).toBeNull();
     expect(out.code).toBeNull();
     expect(out.unit).toBeNull();
-  });
-
-  it("prefers flat fields over override fields when both are present", () => {
-    const mixed: TemplateStructureItem = {
-      library_item_id: null,
-      name: "Flat name",
-      description: "Flat desc",
-      code: "FLAT",
-      unit: "ea",
-      quantity: 3,
-      unit_price: 9,
-      // Legacy values that must be ignored.
-      description_override: "OLD desc",
-      quantity_override: 99,
-      unit_price_override: 99,
-      sort_order: 0,
-    };
-
-    const out = synthItemFromTemplate("sec-1", 0, mixed);
-
-    expect(out).toMatchObject({
-      name: "Flat name",
-      description: "Flat desc",
-      code: "FLAT",
-      unit: "ea",
-      quantity: 3,
-      unit_price: 9,
-    });
+    expect(out.description).toBe("");
+    expect(out.quantity).toBe(1);
+    expect(out.unit_price).toBe(0);
+    expect(out.library_item_id).toBe("lib-abc");
   });
 });

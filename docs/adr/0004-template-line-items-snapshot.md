@@ -51,3 +51,26 @@ We picked snapshot semantics over live-from-library because:
   name in an existing template, they delete the row and re-add it.
 - The Custom tab in `AddItemDialog` (template mode) becomes fully
   functional rather than silently lossy.
+
+## Update (#353 — dual-shape removed)
+
+Issues #352 and #353 have since completed the transition:
+
+- **#352** backfilled every existing template's `structure` into the flat
+  snapshot shape, so no row relies on `*_override` or library resolution any
+  more.
+- **#353** dropped the transitional code. `TemplateStructureItem` no longer
+  carries the `*_override` fields; `synthItemFromTemplate` reads the flat fields
+  only; and `apply_template_to_estimate` (migration-353) no longer reads
+  `item_library` at apply time. With no library lookup, apply can no longer
+  produce a broken reference, so the `broken_refs` return value — and the
+  post-apply banner that consumed it — were removed entirely. `library_item_id`
+  survives purely as a soft breadcrumb copied straight from the structure. The
+  NOT-NULL insert floors (`'[unknown item]'`, qty 1, price 0) remain, since the
+  line-item columns still require non-null values.
+
+> **Deployment order is load-bearing.** #352 must be fully run on every
+> environment *before* #353 ships. After #353 there is no apply-time fallback: a
+> template that was never backfilled (override-only or library-only items with no
+> flat fields) silently degrades those values to the NOT-NULL defaults when
+> applied, with no automatic recovery. Confirm #352 completed everywhere first.

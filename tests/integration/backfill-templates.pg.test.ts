@@ -9,10 +9,11 @@
 // the rest. The acceptance criteria of #352 map to the `it()` blocks below.
 //
 // Harness. Same embedded-postgres approach as apply-template.pg.test.ts: boot a
-// throwaway cluster, load the focused schema + the LIVE migration-351 (so the
-// AC#5 end-to-end apply runs the real RPC) + the LIVE migration-352 (the thing
-// under test), and drive it through a raw `pg` client. Nothing here touches
-// Docker or the network. Run with `npm run test:pg`.
+// throwaway cluster, load the focused schema + the LIVE migration-351 then
+// migration-353 (so the AC#5 end-to-end apply runs the real production RPC) +
+// the LIVE migration-352 (the thing under test), and drive it through a raw
+// `pg` client. Nothing here touches Docker or the network. Run with
+// `npm run test:pg`.
 //
 // node-postgres parses jsonb columns into JS objects and JSON numbers into JS
 // numbers, so structure assertions read fields directly; numeric *columns*
@@ -36,6 +37,10 @@ const APPLY_RPC_SQL = readFileSync(
 );
 const BACKFILL_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-352-backfill-templates-from-library.sql"),
+  "utf8",
+);
+const CLEANUP_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-353-drop-template-dual-shape.sql"),
   "utf8",
 );
 
@@ -94,7 +99,8 @@ beforeAll(async () => {
     "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; END $$;",
   );
   await client.query(SCHEMA_SQL); // tables first
-  await client.query(APPLY_RPC_SQL); // the live apply RPC (needed for AC#5)
+  await client.query(APPLY_RPC_SQL); // #351 apply RPC
+  await client.query(CLEANUP_SQL); // #353 body swap → the real production apply RPC (AC#5)
 }, 120_000);
 
 afterAll(async () => {
@@ -492,13 +498,15 @@ describe("migration-352 backfill (snapshot shape, #352)", () => {
     // What the builder will now show for that item (read straight from JSONB).
     const snap = (await getStructure(templateId)).sections[0].items![0];
 
-    // Apply the backfilled template onto a fresh draft estimate.
+    // Apply the backfilled template onto a fresh draft estimate, through the
+    // real production RPC (migration-351 → migration-353).
     const estimateId = await seedDraftEstimate(orgId);
     const { rows: resultRows } = await client.query<{ result: ApplyResult }>(
       "SELECT apply_template_to_estimate($1, $2) AS result",
       [estimateId, templateId],
     );
-    expect(resultRows[0].result).toMatchObject({ section_count: 1, line_item_count: 1, broken_refs: [] });
+    expect(resultRows[0].result).toMatchObject({ section_count: 1, line_item_count: 1 });
+    expect(resultRows[0].result).not.toHaveProperty("broken_refs"); // dropped in #353
 
     const { rows: items } = await client.query<LineItemRow>(
       "SELECT * FROM estimate_line_items WHERE estimate_id = $1",
@@ -739,7 +747,6 @@ describe("migration-352 backfill (snapshot shape, #352)", () => {
 interface ApplyResult {
   section_count: number;
   line_item_count: number;
-  broken_refs: unknown[];
 }
 interface LineItemRow {
   library_item_id: string | null;
