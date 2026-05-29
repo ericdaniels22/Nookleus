@@ -26,14 +26,12 @@ import {
   Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  buildInitialSections,
+  type ReportSection,
+} from "@/lib/build-initial-sections";
 import { toast } from "sonner";
 import Link from "next/link";
-
-interface ReportSection {
-  title: string;
-  description: string;
-  photo_ids: string[];
-}
 
 type Step = 1 | 2 | 3;
 
@@ -61,10 +59,9 @@ function NewReportPageInner() {
   const [step, setStep] = useState<Step>(1);
   const [selectedJobId, setSelectedJobId] = useState<string>(jobIdParam ?? "");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [reportTitle, setReportTitle] = useState("");
+  const [reportTitle, setReportTitle] = useState("Photo Report");
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
   const [sections, setSections] = useState<ReportSection[]>([]);
-  const [photosPerPage, setPhotosPerPage] = useState(2);
   const [saving, setSaving] = useState(false);
 
   // Filters for photo selection
@@ -133,39 +130,28 @@ function NewReportPageInner() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  // When template changes, populate sections
+  // Choosing a preset pre-fills the section editor from it. A preset only seeds
+  // section titles/descriptions — it no longer drives the report title or
+  // photos-per-page (photos-per-page is a global setting now; see #361).
   function applyTemplate(templateId: string) {
+    // Re-clicking the already-selected preset is a no-op — it would otherwise
+    // wipe any edits the user made to the seeded sections.
+    if (templateId === selectedTemplateId) return;
+    // Picking a preset replaces the current sections wholesale. When the user
+    // already has sections (hand-added or seeded from another preset), confirm
+    // before discarding that work.
+    if (
+      sections.length > 0 &&
+      !window.confirm(
+        "Replace the current sections with this preset? Sections you added or edited will be lost.",
+      )
+    ) {
+      return;
+    }
     setSelectedTemplateId(templateId);
     const tmpl = templates.find((t) => t.id === templateId);
-    if (tmpl) {
-      const tmplSections = tmpl.sections as { title: string; description: string }[];
-      setSections(
-        tmplSections.map((s) => ({
-          title: s.title,
-          description: s.description || "",
-          photo_ids: [],
-        }))
-      );
-      setPhotosPerPage(tmpl.photos_per_page);
-
-      // Auto-generate title
-      const job = jobs.find((j) => j.id === selectedJobId);
-      if (job) {
-        setReportTitle(`${tmpl.name} — ${job.job_number}`);
-      }
-    }
+    setSections(buildInitialSections(tmpl));
   }
-
-  // When job changes and template already selected, update title
-  useEffect(() => {
-    if (selectedJobId && selectedTemplateId) {
-      const tmpl = templates.find((t) => t.id === selectedTemplateId);
-      const job = jobs.find((j) => j.id === selectedJobId);
-      if (tmpl && job) {
-        setReportTitle(`${tmpl.name} — ${job.job_number}`);
-      }
-    }
-  }, [selectedJobId, selectedTemplateId, templates, jobs]);
 
   // Photo filtering
   const filteredPhotos = photos.filter((p) => {
@@ -227,6 +213,26 @@ function NewReportPageInner() {
     });
   }
 
+  // Manual section editing — add, rename, edit description, remove. These let a
+  // report be built entirely by hand, with no preset selected.
+  function addSection() {
+    setSections((prev) => [...prev, { title: "", description: "", photo_ids: [] }]);
+  }
+
+  function updateSectionField(
+    index: number,
+    field: "title" | "description",
+    value: string,
+  ) {
+    setSections((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)),
+    );
+  }
+
+  function removeSection(index: number) {
+    setSections((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function autoAssign() {
     // Distribute selected photos evenly across sections
     const ids = Array.from(selectedPhotoIds);
@@ -286,9 +292,11 @@ function NewReportPageInner() {
     return `${supabaseUrl}/storage/v1/object/public/photos/${storagePath}`;
   }
 
-  // Step validation
+  // Step validation. A preset is no longer required to advance — a report needs
+  // a job and at least one section (preset-seeded or added by hand). The
+  // "at least one section" rule is also re-checked at save time.
   function canProceedToStep2() {
-    return selectedJobId && selectedTemplateId;
+    return Boolean(selectedJobId) && sections.length > 0;
   }
 
   function canProceedToStep3() {
@@ -386,20 +394,30 @@ function NewReportPageInner() {
             )}
           </div>
 
-          {/* Template selection */}
+          {/* Section preset selection — optional. Pre-fills section
+              titles/descriptions only; sections can also be built by hand. */}
           <div className="bg-card rounded-xl border border-border p-5">
-            <label className="block text-sm font-semibold text-foreground mb-2">
-              Choose Template
+            <label className="block text-sm font-semibold text-foreground mb-1">
+              Section Preset{" "}
+              <span className="font-normal text-muted-foreground/60">
+                (optional)
+              </span>
             </label>
+            <p className="text-xs text-muted-foreground/60 mb-3">
+              Pre-fill sections from a saved preset, or build them by hand below.
+            </p>
             {templates.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-sm text-muted-foreground/60">No templates available.</p>
-                <Link
-                  href="/reports/templates"
-                  className="text-sm text-primary hover:underline mt-1 inline-block"
-                >
-                  Create a template first
-                </Link>
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground/60">
+                  No presets yet — add sections by hand below, or{" "}
+                  <Link
+                    href="/reports/templates"
+                    className="text-primary hover:underline"
+                  >
+                    create a preset
+                  </Link>
+                  .
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -419,8 +437,7 @@ function NewReportPageInner() {
                     </p>
                     <p className="text-xs text-muted-foreground/60 mt-0.5 capitalize">
                       {tmpl.audience} &middot;{" "}
-                      {(tmpl.sections as unknown[]).length} sections &middot;{" "}
-                      {tmpl.photos_per_page}/page
+                      {(tmpl.sections as unknown[]).length} sections
                     </p>
                   </button>
                 ))}
@@ -428,19 +445,83 @@ function NewReportPageInner() {
             )}
           </div>
 
-          {/* Report title */}
-          {selectedTemplateId && (
-            <div className="bg-card rounded-xl border border-border p-5">
-              <label className="block text-sm font-semibold text-foreground mb-2">
-                Report Title
+          {/* Manual section editor — add / rename / edit description / remove.
+              Works whether sections were seeded from a preset or started empty. */}
+          <div className="bg-card rounded-xl border border-border p-5">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-foreground">
+                Sections
               </label>
-              <Input
-                value={reportTitle}
-                onChange={(e) => setReportTitle(e.target.value)}
-                placeholder="Enter report title..."
-              />
+              <span className="text-xs text-muted-foreground/60">
+                {sections.length} section{sections.length !== 1 ? "s" : ""}
+              </span>
             </div>
-          )}
+            {sections.length === 0 ? (
+              <p className="text-xs text-muted-foreground/60 mb-3">
+                No sections yet. Add one below — or pick a preset above — to start
+                building your report.
+              </p>
+            ) : (
+              <div className="space-y-3 mb-3">
+                {sections.map((section, si) => (
+                  <div
+                    key={si}
+                    className="rounded-lg border border-border p-3 space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground/60 w-5 shrink-0">
+                        {si + 1}.
+                      </span>
+                      <Input
+                        value={section.title}
+                        onChange={(e) =>
+                          updateSectionField(si, "title", e.target.value)
+                        }
+                        placeholder="Section title"
+                        className="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeSection(si)}
+                        aria-label="Remove section"
+                        className="text-muted-foreground/60 hover:text-red-600 transition-colors p-1.5"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <Input
+                      value={section.description}
+                      onChange={(e) =>
+                        updateSectionField(si, "description", e.target.value)
+                      }
+                      placeholder="Description (optional)"
+                      className="ml-7"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={addSection}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+            >
+              <Plus size={14} />
+              Add section
+            </button>
+          </div>
+
+          {/* Report title — always available, defaults to "Photo Report" */}
+          <div className="bg-card rounded-xl border border-border p-5">
+            <label className="block text-sm font-semibold text-foreground mb-2">
+              Report Title
+            </label>
+            <Input
+              value={reportTitle}
+              onChange={(e) => setReportTitle(e.target.value)}
+              placeholder="Enter report title..."
+            />
+          </div>
 
           {/* Next button */}
           <div className="flex justify-end">
