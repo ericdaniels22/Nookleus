@@ -21,7 +21,7 @@ export default function DashboardPage() {
   const firstName = getFirstName(profile?.full_name);
 
   return (
-    <div className="max-w-6xl animate-fade-slide-up">
+    <div className="max-w-3xl animate-fade-slide-up">
       <div className="mb-8">
         <h1 className="text-3xl font-extrabold text-foreground">
           <span className="gradient-text">Dashboard</span>
@@ -38,14 +38,16 @@ export default function DashboardPage() {
         canViewEmail={canViewEmail}
       />
 
-      {canViewJobs && <NewJobsSection jobs={newJobs} total={newJobsCount} />}
+      <div className="space-y-6">
+        {canViewJobs && <NewJobsSection jobs={newJobs} total={newJobsCount} />}
 
-      {canViewEmail && (
-        <UnreadResponsesSection
-          threads={unreadResponseThreads}
-          total={unreadResponsesCount}
-        />
-      )}
+        {canViewEmail && (
+          <UnreadResponsesSection
+            threads={unreadResponseThreads}
+            total={unreadResponsesCount}
+          />
+        )}
+      </div>
     </div>
   );
 }
