@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { AlertOctagon, Plus } from "lucide-react";
 import { toast } from "sonner";
 import TemplateBanner from "@/components/template-applicator/template-banner";
-import BrokenRefsBanner from "@/components/template-applicator/broken-refs-banner";
 import type {
   AdjustmentType,
   BuilderEntity,
@@ -174,16 +173,6 @@ interface BuilderState {
   entity: BuilderEntity;
 }
 
-// Task 36: kept inline (not exported from lib/types) per plan note.
-interface BrokenRef {
-  section_idx: number;
-  item_idx: number;
-  library_item_id: string | null;
-  placeholder: boolean;
-  in_subsection?: boolean;
-  subsection_idx?: number;
-}
-
 export interface EstimateBuilderProps {
   entity: BuilderEntity;
   job?: (Job & { contact: Contact | null }) | null;
@@ -213,8 +202,6 @@ export function EstimateBuilder({
     setState({ entity });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.data.id, (entity.data as { updated_at?: string }).updated_at]);
-  // Task 36: broken-refs banner state — set by template-applicator after apply.
-  const [brokenRefs, setBrokenRefs] = useState<BrokenRef[] | null>(null);
 
   // ── Task 33.5: auto-save config branches on entity.kind ───────────────────
   const autoSaveConfig =
@@ -1649,7 +1636,7 @@ export function EstimateBuilder({
 
   if (state.entity.kind === "invoice") {
     // ── Invoice-mode JSX (Task 43) ─────────────────────────────────────────
-    // Mirrors estimate-mode shape but strips: TemplateBanner, BrokenRefsBanner,
+    // Mirrors estimate-mode shape but strips: TemplateBanner,
     // ConvertConfirmModal, Convert button (HeaderBar handles per-kind action
     // buttons — Mark as Sent / Mark as Paid / Send Payment Request / Void).
     const invoiceEntity = state.entity; // narrowed
@@ -1850,7 +1837,7 @@ export function EstimateBuilder({
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: MetadataBar (replaced by
     // TemplateMetaBar), CustomerBlock, TotalsPanel, TemplateBanner,
-    // BrokenRefsBanner, voided banner, Convert modal.
+    // voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
     const tmplSections = template.sections;
@@ -2078,23 +2065,8 @@ export function EstimateBuilder({
           <TemplateBanner
             estimateId={estimate.id}
             jobDamageType={job?.damage_type ?? null}
-            onApplied={(result) => {
-              setBrokenRefs(result.broken_refs);
+            onApplied={() => {
               router.refresh();
-            }}
-          />
-        )}
-
-        {/* ── Task 36: Broken-refs banner (post-apply warns) ───────────────── */}
-        {brokenRefs && brokenRefs.length > 0 && (
-          <BrokenRefsBanner
-            estimateId={estimate.id}
-            brokenRefs={brokenRefs}
-            onScrollToItem={(sIdx, subIdx, iIdx) => {
-              const target = document.getElementById(
-                `line-item-s${sIdx}-i${iIdx}${subIdx !== undefined ? `-sub${subIdx}` : ""}`,
-              );
-              target?.scrollIntoView({ behavior: "smooth", block: "center" });
             }}
           />
         )}
