@@ -22,7 +22,10 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["tests/integration/**/*.test.ts"],
-    exclude: ["node_modules", ".next", "out", "ios"],
+    // `*.pg.test.ts` files run against embedded-postgres (no Docker) via
+    // vitest.pg.config.ts / `npm run test:pg`; keep them out of this Dockerized
+    // Supabase suite so they aren't double-run against a stack they don't use.
+    exclude: ["node_modules", ".next", "out", "ios", "tests/integration/**/*.pg.test.ts"],
     globalSetup: ["tests/integration/global-setup.ts"],
     // Booting supabase + applying schema + seeding fixture can run long
     // on a cold Docker boot; give the suite room without holding the
