@@ -8,6 +8,7 @@ import {
   type ReportPhotoInput,
 } from "@/lib/build-report-document";
 import { resolveCoverPageData } from "@/lib/cover-page-data";
+import { resolvePhotosPerPage } from "@/lib/resolve-photos-per-page";
 import type { CompanySettings } from "@/lib/types";
 
 interface ReportSection {
@@ -41,6 +42,7 @@ const COMPANY_SETTINGS_KEYS = [
   "phone",
   "email",
   "logo_path",
+  "report_photos_per_page",
 ] as const;
 
 async function loadCompanySettings(
@@ -99,23 +101,13 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const job = report.job as JoinedJob;
   const sections = report.sections as ReportSection[];
 
-  // 2. photos_per_page is still template-driven for the body (slice 1: cover
-  //    only). Template's cover_page JSON is no longer read.
-  let photosPerPage = 2;
-  if (report.template_id) {
-    const { data: template } = await supabase
-      .from("photo_report_templates")
-      .select("photos_per_page")
-      .eq("id", report.template_id)
-      .single();
-
-    if (template) {
-      photosPerPage = template.photos_per_page;
-    }
-  }
-
-  // 3. Company settings for cover page + branding
+  // 2. Company settings for cover page + branding + body layout
   const companySettings = await loadCompanySettings(supabase);
+
+  // 3. Photos-per-page is company-wide (ADR 0003, amended): resolved from
+  //    Company Settings, not the report's template. A report's template_id is
+  //    preset provenance only and no longer influences layout.
+  const photosPerPage = resolvePhotosPerPage(companySettings);
 
   // 4. Resolve cover page model (pure)
   const coverPageData = resolveCoverPageData(

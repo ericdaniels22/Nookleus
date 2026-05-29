@@ -506,6 +506,8 @@ export interface CompanySettings {
   email?: string;
   website?: string;
   license_number?: string;
+  /** Company-wide photos-per-page for generated photo reports ("1" | "2" | "4"). */
+  report_photos_per_page?: string;
 }
 
 export type VendorType =

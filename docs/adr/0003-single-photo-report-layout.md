@@ -24,3 +24,26 @@ and footer code for no current need.
   not toggling it back on.
 - Existing PDFs in the `reports` bucket are not regenerated — they keep the
   old layout as a historical record.
+
+## Amended (May 2026, #361 — slice 1 of #360)
+
+The original rework left `report_photos_per_page` as "the only remaining knob"
+but never wired it through: the generator silently read the **per-template**
+`photo_report_templates.photos_per_page` column for the body layout, so the
+Settings → Report Defaults control did nothing. This is now corrected.
+
+- **Photos-per-page is global**, sourced from
+  `company_settings.report_photos_per_page` (a key/value row, stored as the
+  string `"1" | "2" | "4"`, default `"2"`). The new pure module
+  `resolvePhotosPerPage()` (`src/lib/resolve-photos-per-page.ts`) is the single
+  place that parses and validates that string into a `1 | 2 | 4`, falling back
+  to `2` for missing/empty/invalid values.
+- The per-template **`photo_report_templates.photos_per_page` column is now dead
+  at render time**, exactly like `cover_page` JSON already is. The generator no
+  longer reads it.
+- A report's **`template_id` is preset provenance only** — it no longer
+  influences rendering. Reports created under the old template-bound flow
+  generate correctly under the global value.
+- The `photo_report_templates` table and its `photos_per_page` column are not
+  dropped (still dead data, a separate migration). No schema change or migration
+  accompanies this amendment.
