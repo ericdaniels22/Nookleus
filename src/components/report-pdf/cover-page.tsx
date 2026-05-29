@@ -135,7 +135,7 @@ export default function CoverPage({
         )}
       </View>
 
-      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.title}>{title.trim() ? title : "Photo Report"}</Text>
 
       {coverPhotoUrl ? (
         <Image src={coverPhotoUrl} style={styles.coverPhoto} />
