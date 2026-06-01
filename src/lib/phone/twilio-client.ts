@@ -18,6 +18,8 @@
 
 import twilio, { validateRequest } from "twilio";
 
+import { createFakeTwilioClient } from "./fake-twilio-client";
+
 // A narrowed slice of an item returned by `availablePhoneNumbers.list` —
 // the four fields the UI's "pick a number" step actually shows. Twilio
 // returns many more, but the wider list is irrelevant downstream and
@@ -206,6 +208,22 @@ export async function sendSms(
  * touches the Twilio SDK at runtime; everything else is pure shape.
  */
 export function createTwilioClient(): TwilioClientLike {
+  // PRD #368, slice 15a (#370) — Phone demo / dev mode. When the
+  // server-side `NOOKLEUS_PHONE_DEMO_MODE` flag is set, the whole Phone
+  // surface runs against an in-process fake provider so demos and
+  // ongoing slice 6–13 development can proceed while #305 (A2P 10DLC
+  // carrier registration) is in carrier review. The production-side
+  // throw is the fail-safe — a fake must never silently swallow a real
+  // customer's SMS.
+  if (process.env.NOOKLEUS_PHONE_DEMO_MODE === "true") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "twilio-client: NOOKLEUS_PHONE_DEMO_MODE must NOT be set in production " +
+          "(the fake provider would silently swallow real outbound SMS)",
+      );
+    }
+    return createFakeTwilioClient();
+  }
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!accountSid || !authToken) {

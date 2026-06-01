@@ -10,8 +10,9 @@
 // (mocked Twilio client)" — the route tests sit one layer up; this file
 // covers the helpers the routes call.
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
+  createTwilioClient,
   listAvailableLocalNumbers,
   provisionNumber,
   releaseNumber,
@@ -307,5 +308,61 @@ describe("sendSms", () => {
         mediaUrl: [],
       }),
     ).rejects.toThrow(/body|media/i);
+  });
+});
+
+// PRD #368, slice 15a (#370) — Phone demo / dev mode. The factory grows
+// one guarded branch: in demo mode it returns the fake provider so the
+// whole Phone surface can run with no carrier and no Twilio credentials,
+// EXCEPT in production where the guard throws so the fake can never
+// silently swallow a real customer's SMS.
+describe("createTwilioClient — NOOKLEUS_PHONE_DEMO_MODE guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns a TwilioClientLike fake without requiring Twilio credentials when demo mode is on and NODE_ENV is not production", async () => {
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "true");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+
+    const client = createTwilioClient();
+
+    // Smoke-test the structural contract on the returned client — if it
+    // is a real Twilio SDK instance these would still pass, but the no-
+    // credentials assertion above ensures we are NOT down the real path.
+    expect(typeof client.messages.create).toBe("function");
+    const sent = await client.messages.create({
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "fake-mode smoke test",
+    });
+    expect(sent.sid).toMatch(/^SM/);
+    expect(sent.status).toBe("queued");
+  });
+
+  it("THROWS when demo mode is on AND NODE_ENV is production (production fail-safe)", () => {
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "true");
+    vi.stubEnv("NODE_ENV", "production");
+    // Even with real credentials set, the guard must throw — the fake
+    // would otherwise silently swallow a real customer's SMS.
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACfakeforafailsafetest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "fakeforafailsafetest");
+
+    expect(() => createTwilioClient()).toThrow(
+      /NOOKLEUS_PHONE_DEMO_MODE.*production/,
+    );
+  });
+
+  it("falls through to the existing credential check when demo mode is unset (zero behavioral change to the production path)", () => {
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+
+    expect(() => createTwilioClient()).toThrow(
+      /TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set/,
+    );
   });
 });
