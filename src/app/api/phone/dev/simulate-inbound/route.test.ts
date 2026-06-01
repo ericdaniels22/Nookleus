@@ -42,6 +42,11 @@ interface BuilderTables {
 }
 
 function makeServiceClient(tables: BuilderTables) {
+  // `mutationLog` records every write in call order, so tests can assert
+  // ordering invariants like "the STOP opt-out upsert lands BEFORE the
+  // inbound phone_messages insert" — the TCPA gate must close before the
+  // row that records it.
+  const mutationLog: { kind: "insert" | "upsert" | "update"; table: string }[] = [];
   const inserts: { table: string; row: Row }[] = [];
   const upserts: { table: string; row: Row; onConflict: string | undefined }[] = [];
   const updates: { table: string; patch: Row; filters: Row }[] = [];
@@ -68,11 +73,13 @@ function makeServiceClient(tables: BuilderTables) {
     b.insert = (row: Row) => {
       pendingInsert = row;
       inserts.push({ table, row });
+      mutationLog.push({ kind: "insert", table });
       return b;
     };
     b.upsert = (row: Row, opts?: { onConflict?: string }) => {
       pendingInsert = row;
       upserts.push({ table, row, onConflict: opts?.onConflict });
+      mutationLog.push({ kind: "upsert", table });
       return b;
     };
     b.update = (patch: Row) => {
@@ -91,6 +98,7 @@ function makeServiceClient(tables: BuilderTables) {
     b.then = (resolve: (v: unknown) => unknown) => {
       if (pendingUpdate) {
         updates.push({ table, patch: pendingUpdate, filters: { ...ctx.filters } });
+        mutationLog.push({ kind: "update", table });
         return resolve({ data: null, error: null });
       }
       return resolve({ data: rows, error: null });
@@ -103,6 +111,7 @@ function makeServiceClient(tables: BuilderTables) {
     inserts,
     upserts,
     updates,
+    mutationLog,
   };
 }
 
@@ -326,8 +335,15 @@ describe("POST /api/phone/dev/simulate-inbound — happy path with demo mode on"
     expect(inserts).toHaveLength(0);
   });
 
-  it("writes a phone_opt_outs row on STOP body (same path as real webhook)", async () => {
-    const { client, upserts, inserts } = makeServiceClient({
+  it("writes a phone_opt_outs row on STOP body BEFORE the message is persisted (same path as real webhook)", async () => {
+    // #373 (15d) STOP-records-opt-out AC: "A simulated inbound with body
+    // STOP upserts an org-scoped phone_opt_outs row (by organization_id,
+    // outside_e164) BEFORE the message is persisted, same as the webhook,
+    // and still records the STOP message." Ordering matters — the TCPA
+    // gate must be live at the moment the message row lands, so a
+    // half-failed insert cannot leave the opt-out unrecorded while the
+    // STOP is on the books.
+    const { client, upserts, inserts, mutationLog } = makeServiceClient({
       phone_numbers: [SHARED_NUM],
       contacts: [{ id: "c-1", organization_id: "org-1", phone: "+15551234567" }],
       jobs: [],
@@ -352,10 +368,22 @@ describe("POST /api/phone/dev/simulate-inbound — happy path with demo mode on"
       organization_id: "org-1",
       outside_e164: "+15551234567",
     });
+    expect(oo?.onConflict).toContain("organization_id");
+    expect(oo?.onConflict).toContain("outside_e164");
     // The STOP message itself is still persisted (the audit trail).
     const msg = inserts.find((i) => i.table === "phone_messages");
     expect(msg?.row).toMatchObject({ direction: "in", body: "STOP" });
     expect(sendSmsMock).not.toHaveBeenCalled();
+    // Ordering — opt-out upsert lands before the message insert.
+    const optOutIdx = mutationLog.findIndex(
+      (m) => m.kind === "upsert" && m.table === "phone_opt_outs",
+    );
+    const messageIdx = mutationLog.findIndex(
+      (m) => m.kind === "insert" && m.table === "phone_messages",
+    );
+    expect(optOutIdx).toBeGreaterThanOrEqual(0);
+    expect(messageIdx).toBeGreaterThanOrEqual(0);
+    expect(optOutIdx).toBeLessThan(messageIdx);
   });
 });
 
