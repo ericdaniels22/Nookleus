@@ -10,8 +10,9 @@
 // (mocked Twilio client)" — the route tests sit one layer up; this file
 // covers the helpers the routes call.
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  createTwilioClient,
   listAvailableLocalNumbers,
   provisionNumber,
   releaseNumber,
@@ -307,5 +308,69 @@ describe("sendSms", () => {
         mediaUrl: [],
       }),
     ).rejects.toThrow(/body|media/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 15 (#368) — Phone demo / dev mode. The factory grows a single guard
+// at the top: when `NOOKLEUS_PHONE_DEMO_MODE === 'true'` it returns the
+// in-process fake provider instead of constructing the real Twilio SDK, so
+// the rest of the Phone feature can be exercised end-to-end with no carrier
+// and no Twilio credentials. The fail-safe is non-negotiable: in production
+// the flag throws rather than returning a fake — a fake provider must
+// never silently swallow a real customer's SMS.
+// ---------------------------------------------------------------------------
+
+describe("createTwilioClient — Phone demo mode guard (#368)", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns a TwilioClientLike fake when NOOKLEUS_PHONE_DEMO_MODE is 'true', without TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN", async () => {
+    // No Twilio credentials set: demo mode skips the credential check
+    // entirely (the fake never touches the SDK).
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "true");
+    vi.stubEnv("NODE_ENV", "development");
+
+    const client = createTwilioClient();
+
+    // Smoke-check the shape: a fake provider that satisfies the
+    // interface, exercised through the same helpers the routes use.
+    const sendResult = await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hello demo",
+    });
+    expect(sendResult.sid).toMatch(/^SM/);
+    expect(sendResult.status).toBe("queued");
+
+    const provisioned = await provisionNumber(client, "+15125550100");
+    expect(provisioned.sid).toMatch(/^PN/);
+    expect(provisioned.phoneNumber).toBe("+15125550100");
+
+    await expect(releaseNumber(client, provisioned.sid)).resolves.toBeUndefined();
+  });
+
+  it("throws when NOOKLEUS_PHONE_DEMO_MODE is 'true' under NODE_ENV=production (production fail-safe)", () => {
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC-real");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "auth-real");
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "true");
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(() => createTwilioClient()).toThrow(/demo|production/i);
+  });
+
+  it("still requires TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN when demo mode is OFF (existing behavior unchanged)", () => {
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "");
+    vi.stubEnv("NOOKLEUS_PHONE_DEMO_MODE", "");
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(() => createTwilioClient()).toThrow(/TWILIO_ACCOUNT_SID|TWILIO_AUTH_TOKEN/);
   });
 });
