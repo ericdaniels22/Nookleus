@@ -66,6 +66,55 @@ of thing. The settings UI groups these together because they share a shape
 being sent.
 _Avoid_: send config, mail rule, payment email / invoice email / contract email (use "Outgoing email for X")
 
+**Phone number**:
+A telephony endpoint (a single phone number provisioned through Nookleus's
+telephony backbone — Twilio, see [ADR 0006](docs/adr/0006-twilio-as-telephony-backbone.md)) that Nookleus uses to send and receive
+texts and voice calls on behalf of an Organization. Belongs to exactly one
+Organization. Comes in two kinds — a Shared phone number or a Personal
+phone number, parallel in shape to Email account / Shared email account /
+Personal email account but with a different content-privacy rule (see
+Conversation and [ADR 0005](docs/adr/0005-shared-and-personal-phone-numbers.md)).
+_Avoid_: line, extension, DID
+
+**Shared phone number**:
+A Phone number the whole Organization works from — e.g. the main `(555)
+555-COMPANY` line a Google/Yelp ad points to. Every member with phone
+access can text/call from it and read its incoming messages; only admins
+change its settings or release it.
+_Avoid_: company line, main line, marketing number
+
+**Personal phone number**:
+A Phone number owned by exactly one User. Used for one-on-one
+relationship texting/calling with a customer so the customer can reach a
+specific Crew Lead rather than the company switchboard. Content visibility
+is rule-bound (see Conversation) — not blanket-private like a Personal
+email account, because Job-related content stays team-visible. An admin
+can see the number exists and release it for offboarding, but cannot read
+its untagged content.
+_Avoid_: work cell, personal line, user number
+
+**Conversation**:
+The per-Contact threaded history of texts and voice calls between a
+Nookleus user (or the company on its Shared line) and one outside phone
+number. Threading is by Contact, iMessage-style — the same Contact across
+multiple Jobs and over months stays one thread. Each individual message
+or call inside a Conversation may carry a Job tag. The Phone-tab surface
+shows Conversations; the Job-card surface shows the slice of Conversation
+content tagged to that Job. Content visibility is governed by Job tag,
+not by number kind — see [ADR 0005](docs/adr/0005-shared-and-personal-phone-numbers.md).
+_Avoid_: chat, thread (in code — fine in UI copy), message log
+
+**Job tag**:
+The link from a single text/call event to a Job. Set automatically when
+the event has no ambiguity (outbound started from a Job page; inbound
+from a Contact with exactly one Active job) and prompted-for otherwise.
+Untagged events live only in the Phone tab; tagged events also surface on
+the Job's card. Visibility follows the tag: a Job-tagged event on a
+Personal phone number is team-visible (because Job content is company
+business), whereas an untagged event on the same Personal number is
+owner-only — see [ADR 0005](docs/adr/0005-shared-and-personal-phone-numbers.md).
+_Avoid_: job link, attribution, assignment
+
 **Active job**:
 A job that is still alive — its status is neither `completed` nor `cancelled`,
 and it has not been trashed (`deleted_at IS NULL`). A cancelled job is dead,
@@ -106,6 +155,9 @@ _Avoid_: stage, pipeline status, partner status
 - A **Request Context** always carries a **User client**; it carries a **Service client** only when the route opts in.
 - An **Email account** belongs to one **Organization**; a **Personal email account** is additionally owned by one **User**, a **Shared email account** by none.
 - An **Outgoing email** belongs to one **Organization** and names exactly one **Email account** (the mailbox the document is sent from). There is one Outgoing email per document kind per Organization.
+- A **Phone number** belongs to one **Organization**; a **Personal phone number** is additionally owned by one **User**, a **Shared phone number** by none.
+- A **Conversation** is identified by the pair (one of the Organization's Phone numbers, one outside phone number) and groups its events on the Contact whose phone number matches the outside number.
+- A **Job tag** ties one text or call event to exactly zero or one **Job**. A single Conversation may contain events with several different Job tags (or none).
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 
