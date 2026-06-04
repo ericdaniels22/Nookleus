@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
+import { originalPhotoUrl } from "@/lib/jobs/photo-url";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -414,7 +415,7 @@ export default function PhotoAnnotator({
 
     try {
       // Load the ORIGINAL image (not annotated) to avoid double-rendering
-      const photoUrl = `${supabaseUrl}/storage/v1/object/public/photos/${currentPhoto.storage_path}`;
+      const photoUrl = originalPhotoUrl(currentPhoto, supabaseUrl);
 
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = document.createElement("img");

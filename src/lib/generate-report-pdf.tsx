@@ -9,6 +9,7 @@ import {
 } from "@/lib/build-report-document";
 import { resolveCoverPageData } from "@/lib/cover-page-data";
 import { resolvePhotosPerPage } from "@/lib/resolve-photos-per-page";
+import { photoUrl, reportCoverPhotoUrl } from "@/lib/jobs/photo-url";
 import type { CompanySettings } from "@/lib/types";
 
 interface ReportSection {
@@ -128,11 +129,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       ? `${supabaseUrl}/storage/v1/object/public/company-assets/${coverPageData.logo.path}`
       : null;
 
-  const coverPhotoPath =
-    job.cover_photo?.annotated_path || job.cover_photo?.storage_path || null;
-  const coverPhotoUrl = coverPhotoPath
-    ? `${supabaseUrl}/storage/v1/object/public/photos/${coverPhotoPath}`
-    : null;
+  const coverPhotoUrl = reportCoverPhotoUrl(job.cover_photo, supabaseUrl);
 
   // 6. Collect body photos (body unchanged in slice 1)
   const allPhotoIds = new Set<string>();
@@ -159,10 +156,13 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const engineInputPhotos: Record<string, ReportPhotoInput> = {};
 
   for (const p of photoData || []) {
-    const path = p.annotated_path || p.storage_path;
     photos[p.id] = {
       id: p.id,
-      url: `${supabaseUrl}/storage/v1/object/public/photos/${path}`,
+      url: photoUrl(
+        { annotated_path: p.annotated_path, storage_path: p.storage_path },
+        supabaseUrl,
+        "full",
+      ),
       caption: p.caption,
       before_after_role: p.before_after_role,
       taken_at: p.taken_at,
