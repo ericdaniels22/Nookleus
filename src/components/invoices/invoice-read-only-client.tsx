@@ -8,6 +8,7 @@ import { PaymentRequestModal } from "@/components/payments/payment-request-modal
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
+import { InvoiceItemsTable } from "@/components/invoices/invoice-items-table";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import type { InvoiceWithContents } from "@/lib/types";
 
@@ -108,46 +109,7 @@ export default function InvoiceReadOnlyClient({
           <div key={s.id} className="rounded-lg border border-border p-4">
             <h3 className="font-semibold">{s.title}</h3>
             <div className="overflow-x-auto">
-            <table className="w-full mt-2 text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th>Description</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Unit Price</th>
-                  <th className="text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {s.items.map((it) => (
-                  <tr key={it.id}>
-                    <td>{it.description}</td>
-                    <td>{it.quantity}</td>
-                    <td>{it.unit ?? ""}</td>
-                    <td>${it.unit_price.toFixed(2)}</td>
-                    <td className="text-right">${it.amount.toFixed(2)}</td>
-                  </tr>
-                ))}
-                {s.subsections.map((sub) => (
-                  <tr key={sub.id}>
-                    <td colSpan={5}>
-                      <strong>{sub.title}</strong>
-                    </td>
-                  </tr>
-                ))}
-                {s.subsections.flatMap((sub) =>
-                  sub.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="pl-4">{it.description}</td>
-                      <td>{it.quantity}</td>
-                      <td>{it.unit ?? ""}</td>
-                      <td>${it.unit_price.toFixed(2)}</td>
-                      <td className="text-right">${it.amount.toFixed(2)}</td>
-                    </tr>
-                  )),
-                )}
-              </tbody>
-            </table>
+              <InvoiceItemsTable section={s} />
             </div>
           </div>
         ))}

@@ -60,7 +60,9 @@ export const styles = StyleSheet.create({
   tdUnit: { width: 50, paddingHorizontal: 6, textAlign: "left" },
   tdPrice: { width: 70, paddingHorizontal: 6, textAlign: "right" },
   tdTotal: { width: 80, paddingHorizontal: 6, textAlign: "right" },
-  tdNotes: { flex: 1, paddingHorizontal: 6, fontSize: 8, color: "#6b7280" },
+  // #382: the line-item note renders as an italic sub-line inside the
+  // description cell (never a column).
+  tdNoteSub: { fontSize: 8, fontStyle: "italic", color: "#6b7280", marginTop: 1 },
   sectionSubtotal: {
     flexDirection: "row",
     justifyContent: "flex-end",

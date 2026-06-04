@@ -41,6 +41,7 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
         library_item_id: "lib-abc",
         name: "Asbestos Testing",
         description: "Lab analysis of sample",
+        note: null,
         code: "ABT-01",
         quantity: 2,
         unit: "ea",
@@ -71,6 +72,7 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
         library_item_id: null,
         name: "Custom one-off",
         description: "Hand-written line",
+        note: null,
         code: "CUST-1",
         quantity: 3,
         unit: "hr",
@@ -90,6 +92,26 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
       quantity: 3,
       unit_price: 75,
     });
+  });
+
+  it("writes the note snapshot field (#382)", () => {
+    const state = makeBuilderState([
+      {
+        id: "li-1",
+        library_item_id: null,
+        name: "Antimicrobial",
+        description: "Apply to affected framing",
+        note: "Use low-VOC product per homeowner request",
+        code: null,
+        quantity: 1,
+        unit: null,
+        unit_price: 10,
+        sort_order: 0,
+      },
+    ]);
+
+    const item = serializeStructureFromBuilder(state).sections[0].items![0];
+    expect(item.note).toBe("Use low-VOC product per homeowner request");
   });
 
   it("also writes the snapshot fields for subsection items", () => {
@@ -113,6 +135,7 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
                   library_item_id: null,
                   name: "Sub Custom",
                   description: "Sub desc",
+                  note: null,
                   code: "SUB-1",
                   quantity: 5,
                   unit: "sqft",
@@ -163,6 +186,26 @@ describe("synthItemFromTemplate (snapshot read, #351/#353)", () => {
       unit_price: 125.5,
       sort_order: 0,
     });
+  });
+
+  it("reads the note snapshot field when present (#382)", () => {
+    const stored: TemplateStructureItem = {
+      library_item_id: null,
+      name: "Antimicrobial",
+      description: "Apply to affected framing",
+      note: "Use low-VOC product per homeowner request",
+      sort_order: 0,
+    };
+
+    const out = synthItemFromTemplate("sec-1", 0, stored);
+    expect(out.note).toBe("Use low-VOC product per homeowner request");
+  });
+
+  it("surfaces a null note when the snapshot omits it (#382)", () => {
+    const bare: TemplateStructureItem = { library_item_id: "lib-abc", sort_order: 0 };
+
+    const out = synthItemFromTemplate("sec-1", 0, bare);
+    expect(out.note).toBeNull();
   });
 
   it("falls back to blanks/defaults when the snapshot fields are absent", () => {

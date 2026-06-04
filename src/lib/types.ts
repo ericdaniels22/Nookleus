@@ -647,6 +647,7 @@ export interface EstimateLineItem {
   library_item_id: string | null;
   name: string | null;
   description: string;
+  note: string | null;
   code: string | null;
   quantity: number;
   unit: string | null;
@@ -716,7 +717,7 @@ export interface PdfPreset {
   show_closing_statement: boolean;
   show_category_subtotals: boolean;
   show_code_column: boolean;
-  show_notes_column: boolean;
+  show_item_notes: boolean;
   is_default: boolean;
   created_by: string | null;
   created_at: string;
@@ -729,7 +730,7 @@ export type PdfPresetCreatePayload = Pick<
   | "name" | "document_type" | "document_title"
   | "show_markup" | "show_discount" | "show_tax"
   | "show_opening_statement" | "show_closing_statement"
-  | "show_category_subtotals" | "show_code_column" | "show_notes_column"
+  | "show_category_subtotals" | "show_code_column" | "show_item_notes"
   | "is_default"
 >;
 
@@ -761,6 +762,7 @@ export interface InvoiceLineItem {
   library_item_id: string | null;
   name: string | null;
   description: string;
+  note: string | null;
   code: string | null;
   quantity: number;
   unit: string | null;
@@ -800,6 +802,7 @@ export interface TemplateStructureItem {
   // Snapshot fields — written and read by all code.
   name?: string | null;
   description?: string | null;
+  note?: string | null;
   code?: string | null;
   unit?: string | null;
   quantity?: number | null;
@@ -825,6 +828,7 @@ export interface TemplateWithContents extends EstimateTemplate {
       library_item_id: string | null;
       name: string | null;
       description: string;
+      note: string | null;
       code: string | null;
       quantity: number;
       unit: string | null;
@@ -840,6 +844,7 @@ export interface TemplateWithContents extends EstimateTemplate {
         library_item_id: string | null;
         name: string | null;
         description: string;
+        note: string | null;
         code: string | null;
         quantity: number;
         unit: string | null;

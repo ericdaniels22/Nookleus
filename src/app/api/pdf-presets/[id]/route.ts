@@ -20,7 +20,7 @@ const BOOL_FIELDS: BoolKeys[] = [
   "show_closing_statement",
   "show_category_subtotals",
   "show_code_column",
-  "show_notes_column",
+  "show_item_notes",
   "is_default",
 ];
 

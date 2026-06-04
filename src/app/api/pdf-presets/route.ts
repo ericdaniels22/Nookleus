@@ -83,7 +83,7 @@ export const POST = withRequestContext(
       show_closing_statement: asBool(body.show_closing_statement, true),
       show_category_subtotals: asBool(body.show_category_subtotals, false),
       show_code_column: asBool(body.show_code_column, true),
-      show_notes_column: asBool(body.show_notes_column, false),
+      show_item_notes: asBool(body.show_item_notes, true),
       is_default: asBool(body.is_default, false),
     };
 

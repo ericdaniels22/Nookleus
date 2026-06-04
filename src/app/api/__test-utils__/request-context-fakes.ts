@@ -13,6 +13,16 @@
 
 type Row = Record<string, unknown>;
 
+// A recorded mutation. Route tests assert the payload a handler wrote (e.g. that
+// a `note` field reached `.insert()` / `.update()`), which the no-op builder
+// would otherwise swallow. Recording is a side-effect only — return values are
+// unchanged, so existing tests are unaffected.
+export type Mutation = {
+  table: string;
+  op: "insert" | "update" | "upsert" | "delete";
+  payload?: unknown;
+};
+
 type Awaitable = {
   maybeSingle<T = Row>(): Promise<{ data: T | null; error: null }>;
   single<T = Row>(): Promise<{ data: T | null; error: null }>;
@@ -39,15 +49,19 @@ export interface QueryBuilder extends Awaitable {
   limit(...args: unknown[]): QueryBuilder;
 }
 
-function queryBuilder(rows: Row[]): QueryBuilder {
+function queryBuilder(rows: Row[], table?: string, mutations?: Mutation[]): QueryBuilder {
   let filtered = [...rows];
   const passthrough = () => builder;
+  const record = (op: Mutation["op"], payload?: unknown) => {
+    if (mutations && table) mutations.push({ table, op, payload });
+    return builder;
+  };
   const builder: QueryBuilder = {
     select: passthrough,
-    insert: passthrough,
-    update: passthrough,
-    delete: passthrough,
-    upsert: passthrough,
+    insert: (payload) => record("insert", payload),
+    update: (payload) => record("update", payload),
+    delete: () => record("delete"),
+    upsert: (payload) => record("upsert", payload),
     eq(col, val) {
       filtered = filtered.filter((r) => r[col] === val);
       return builder;
@@ -106,6 +120,7 @@ export function fakeUserClient(opts: {
   tables?: Record<string, Row[]>;
 }) {
   const tables = opts.tables ?? {};
+  const mutations: Mutation[] = [];
   return {
     auth: {
       async getUser() {
@@ -113,9 +128,11 @@ export function fakeUserClient(opts: {
       },
     },
     from(table: string) {
-      return queryBuilder(tables[table] ?? []);
+      return queryBuilder(tables[table] ?? [], table, mutations);
     },
     storage: fakeStorage(),
+    // Recorded insert/update/upsert/delete payloads, in call order.
+    __mutations: mutations,
   };
 }
 
@@ -156,10 +173,12 @@ export function fakeServiceClient(opts: {
   tables?: Record<string, Row[]>;
 } = {}) {
   const tables = opts.tables ?? {};
+  const mutations: Mutation[] = [];
   return {
     from(table: string) {
-      return queryBuilder(tables[table] ?? []);
+      return queryBuilder(tables[table] ?? [], table, mutations);
     },
     storage: fakeStorage(),
+    __mutations: mutations,
   };
 }

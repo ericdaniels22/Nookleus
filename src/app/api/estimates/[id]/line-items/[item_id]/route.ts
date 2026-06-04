@@ -11,6 +11,7 @@ interface RouteCtx { params: Promise<{ id: string; item_id: string }> }
 interface UpdatePayload {
   name?: string | null;
   description?: string;
+  note?: string | null;
   code?: string | null;
   quantity?: number;
   unit?: string | null;
@@ -78,6 +79,19 @@ export const PUT = withRequestContext(
         return NextResponse.json({ error: "description too long (max 2000)" }, { status: 400 });
       }
       update.description = body.description.trim();
+    }
+    if (body.note !== undefined) {
+      if (body.note === null) {
+        update.note = null;
+      } else if (typeof body.note !== "string") {
+        return NextResponse.json({ error: "note must be a string or null" }, { status: 400 });
+      } else {
+        const trimmed = body.note.trim();
+        if (trimmed.length > 2000) {
+          return NextResponse.json({ error: "note too long (max 2000)" }, { status: 400 });
+        }
+        update.note = trimmed.length > 0 ? trimmed : null;
+      }
     }
     if (body.code !== undefined) update.code = body.code;
     if (body.unit !== undefined) update.unit = body.unit;

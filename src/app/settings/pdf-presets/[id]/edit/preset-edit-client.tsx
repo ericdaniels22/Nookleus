@@ -22,7 +22,7 @@ const TOGGLES: { key: keyof PdfPreset; label: string; help?: string }[] = [
   { key: "show_closing_statement", label: "Show closing statement" },
   { key: "show_category_subtotals", label: "Show per-section subtotals", help: "Adds a subtotal row at the end of each section" },
   { key: "show_code_column", label: "Show Code column" },
-  { key: "show_notes_column", label: "Show Notes column", help: "Currently always empty — placeholder for future per-line-item notes" },
+  { key: "show_item_notes", label: "Show item notes", help: "Renders each line item's note as an italic sub-line under the item" },
 ];
 
 export default function PresetEditClient({ initial }: Props) {
@@ -52,7 +52,7 @@ export default function PresetEditClient({ initial }: Props) {
         show_closing_statement: preset.show_closing_statement,
         show_category_subtotals: preset.show_category_subtotals,
         show_code_column: preset.show_code_column,
-        show_notes_column: preset.show_notes_column,
+        show_item_notes: preset.show_item_notes,
       }),
     });
     setSaving(false);
