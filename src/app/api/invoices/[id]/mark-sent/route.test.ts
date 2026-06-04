@@ -19,6 +19,7 @@ import {
   fakeServiceClient,
   memberTables,
 } from "../../../__test-utils__/request-context-fakes";
+import { isOfficialInvoiceStatus } from "@/lib/invoice-status";
 
 const routeCtx = { params: Promise.resolve({ id: "inv-1" }) };
 
@@ -82,5 +83,33 @@ describe("POST /api/invoices/[id]/mark-sent (converted to withRequestContext)", 
     );
     const res = await POST(markSentRequest(), routeCtx);
     expect(res.status).toBe(404);
+  });
+
+  // #383 — marking a draft sent is the manual trigger that makes an invoice
+  // official. The route flips draft → sent and stamps sent_at; "sent" is a
+  // status the official-invoice rule counts as a real bill.
+  it("flips a draft to sent (official) and stamps sent_at", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({ userId: "user-1", role: "admin", grants: [] }),
+      }) as never,
+    );
+    const service = fakeServiceClient({
+      tables: { invoices: [{ id: "inv-1", status: "draft", deleted_at: null }] },
+    });
+    vi.mocked(createServiceClient).mockReturnValue(service as never);
+
+    const res = await POST(markSentRequest(), routeCtx);
+    expect(res.status).toBe(200);
+
+    const update = service.__mutations.find(
+      (m) => m.table === "invoices" && m.op === "update",
+    );
+    expect(update).toBeDefined();
+    const payload = update!.payload as { status: string; sent_at: string };
+    expect(payload.status).toBe("sent");
+    expect(isOfficialInvoiceStatus(payload.status)).toBe(true);
+    expect(typeof payload.sent_at).toBe("string");
   });
 });

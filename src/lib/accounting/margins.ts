@@ -11,6 +11,7 @@
 // mid-job numbers are misleading (expenses landed but collections haven't).
 
 import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { OFFICIAL_INVOICE_STATUSES } from "@/lib/invoice-status";
 export { marginPctBand, type MarginBand } from "./margin-bands";
 
 export type JobMargin = {
@@ -39,16 +40,17 @@ export async function calculateJobMargin(jobId: string): Promise<JobMargin> {
 
   const [jobRes, invoicesRes, paymentsRes, expensesRes] = await Promise.all([
     supabase.from("jobs").select("id, job_number, status, estimated_crew_labor_cost").eq("id", jobId).maybeSingle(),
-    supabase.from("invoices").select("total_amount").eq("job_id", jobId).is("deleted_at", null),
+    supabase.from("invoices").select("total_amount").eq("job_id", jobId).is("deleted_at", null)
+      .in("status", [...OFFICIAL_INVOICE_STATUSES]),
     supabase.from("payments").select("amount").eq("job_id", jobId).eq("status", "received"),
     supabase.from("expenses").select("amount").eq("job_id", jobId),
   ]);
 
   if (!jobRes.data) throw new Error(`Job ${jobId} not found`);
 
-  const invoiced = sum(invoicesRes.data, (r: any) => Number(r.total_amount));
-  const collected = sum(paymentsRes.data, (r: any) => Number(r.amount));
-  const expenses = sum(expensesRes.data, (r: any) => Number(r.amount));
+  const invoiced = sum(invoicesRes.data, (r: { total_amount: number | string | null }) => Number(r.total_amount));
+  const collected = sum(paymentsRes.data, (r: { amount: number | string | null }) => Number(r.amount));
+  const expenses = sum(expensesRes.data, (r: { amount: number | string | null }) => Number(r.amount));
   const crew_labor = Number(jobRes.data.estimated_crew_labor_cost ?? 0);
   const gross_margin = collected - expenses - crew_labor;
   const margin_pct = collected > 0 ? (gross_margin / collected) * 100 : null;
@@ -82,14 +84,18 @@ export async function aggregateMargins(
 ): Promise<JobMargin[]> {
   const supabase = await createServerSupabaseClient();
 
-  // Activity-based scoping: a job is in scope if it has an invoice, payment,
-  // or expense in the range. When startISO/endISO are null (All time), skip filtering.
+  // Activity-based scoping: a job is in scope if it has an official invoice
+  // (sent/partial/paid — see OFFICIAL_INVOICE_STATUSES), payment, or expense in
+  // the range. Drafts/voided are not real bills, so a job whose only activity is
+  // a draft invoice is out of scope and contributes nothing to Invoiced.
+  // When startISO/endISO are null (All time), skip range filtering.
   // We do this as a single round-trip by fetching all 4 tables in parallel and
   // joining in JS. This keeps the SQL simple and sidesteps needing new RPCs.
 
   const [jobsRes, invoicesRes, paymentsRes, expensesRes] = await Promise.all([
     supabase.from("jobs").select("id, job_number, status, estimated_crew_labor_cost, damage_type, property_address"),
-    supabase.from("invoices").select("job_id, total_amount, issued_date").is("deleted_at", null),
+    supabase.from("invoices").select("job_id, total_amount, issued_date").is("deleted_at", null)
+      .in("status", [...OFFICIAL_INVOICE_STATUSES]),
     supabase.from("payments").select("job_id, amount, received_date, status"),
     supabase.from("expenses").select("job_id, amount, expense_date"),
   ]);
