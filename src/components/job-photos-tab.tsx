@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { Photo, PhotoTag } from "@/lib/types";
+import { photoUrl } from "@/lib/jobs/photo-url";
 import { format } from "date-fns";
 import { Loader2, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -510,7 +511,7 @@ export default function JobPhotosTab({
                         }}
                       >
                         <img
-                          src={`${supabaseUrl}/storage/v1/object/public/photos/${photo.annotated_path || photo.storage_path}`}
+                          src={photoUrl(photo, supabaseUrl, "grid")}
                           alt={photo.caption || "Photo"}
                           className="w-full h-full object-cover"
                           loading="lazy"
