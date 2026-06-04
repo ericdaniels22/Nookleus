@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { generateReportPDF } from "@/lib/generate-report-pdf";
+import TiptapEditor from "@/components/tiptap-editor";
 import {
   initBuilderState,
   photoReportBuilderReducer,
@@ -190,19 +191,19 @@ export default function PhotoReportBuilder({
                 placeholder="Section heading"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              <textarea
-                aria-label="Section write-up"
-                value={section.description}
-                onChange={(e) =>
+              {/* Rich-text write-up (issue #403): the same TipTap editor used on
+                  Estimates / Invoices / contracts. Its HTML is stored in the
+                  Section's `description` and auto-saved like every other edit. */}
+              <TiptapEditor
+                content={section.description}
+                onChange={(html) =>
                   dispatch({
                     type: "setSectionWriteup",
                     index,
-                    writeup: e.target.value,
+                    writeup: html,
                   })
                 }
-                placeholder="Write-up"
-                rows={4}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="Write-up — what you found, what you did…"
               />
               <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
                 {section.photo_ids.map((photoId) => {

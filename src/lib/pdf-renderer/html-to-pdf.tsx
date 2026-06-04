@@ -17,20 +17,23 @@ function runsHaveContent(runs: Run[]): boolean {
 }
 
 // Tokenize a fragment of HTML into plain runs. Naive parser sufficient for the
-// editor's output; not a general HTML parser.
+// editor's output; not a general HTML parser. Any tag is consumed: <strong>/<b>
+// and <em>/<i> toggle styling, and every other tag — notably the <p> TipTap
+// wraps list-item content in (`<li><p>…</p></li>`), plus <br>/<span> — is simply
+// dropped so no angle-bracket remnants leak into the rendered text.
 function tokenize(html: string): Run[] {
   const runs: Run[] = [];
-  const re = /<\/?(strong|b|em|i)>|([^<]+)/gi;
+  const re = /<(\/?)([a-z][a-z0-9]*)\b[^>]*>|([^<]+)/gi;
   let bold = false;
   let italic = false;
   for (const m of html.matchAll(re)) {
-    const tag = m[1];
-    const text = m[2];
+    const tag = m[2]?.toLowerCase();
+    const text = m[3];
     if (tag) {
-      const isClose = m[0].startsWith("</");
-      const t = tag.toLowerCase();
-      if (t === "strong" || t === "b") bold = !isClose;
-      else if (t === "em" || t === "i") italic = !isClose;
+      const isClose = m[1] === "/";
+      if (tag === "strong" || tag === "b") bold = !isClose;
+      else if (tag === "em" || tag === "i") italic = !isClose;
+      // Any other tag is a no-op formatting boundary.
     } else if (text) {
       const decoded = text
         .replace(/&nbsp;/g, " ")
@@ -80,6 +83,9 @@ export function htmlToPdfNodes(html: string | null | undefined): JSX.Element[] {
       const liRe = /<li>([\s\S]*?)<\/li>/gi;
       for (const liM of inner.matchAll(liRe)) {
         const runs = tokenize(liM[1]);
+        // Skip empty / whitespace-only items (e.g. TipTap's <li><p></p></li>),
+        // the same guard paragraphs use, so a blank item is not a stray bullet.
+        if (!runsHaveContent(runs)) continue;
         const bullet = tag === "ul" ? "• " : `${li + 1}. `;
         items.push(
           <View key={`l-${i}-${li}`} style={{ flexDirection: "row", marginBottom: 2 }}>
@@ -89,7 +95,9 @@ export function htmlToPdfNodes(html: string | null | undefined): JSX.Element[] {
         );
         li += 1;
       }
-      out.push(<View key={`list-${i}`}>{items}</View>);
+      // A genuinely empty (or all-blank) list contributes nothing, so an empty
+      // write-up stays empty and the intro page renders heading-only.
+      if (items.length > 0) out.push(<View key={`list-${i}`}>{items}</View>);
     } else if (stray) {
       const runs = tokenize(stray);
       if (runsHaveContent(runs)) {

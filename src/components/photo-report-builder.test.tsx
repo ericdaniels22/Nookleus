@@ -49,6 +49,30 @@ vi.mock("@/lib/generate-report-pdf", () => ({
   generateReportPDF: vi.fn(async () => "job-1/report-1.pdf"),
 }));
 
+// The section write-up uses the shared TipTap editor (issue #403). It is heavy,
+// contenteditable-driven, and tested elsewhere; here we stub it with a textarea
+// that mirrors its real contract — seeded once from `content`, emitting HTML via
+// `onChange` — so we can assert the builder loads and persists the write-up HTML.
+vi.mock("@/components/tiptap-editor", () => ({
+  default: ({
+    content,
+    onChange,
+    placeholder,
+  }: {
+    content: string;
+    onChange: (html: string) => void;
+    placeholder?: string;
+  }) => (
+    <textarea
+      data-testid="tiptap-stub"
+      aria-label="Section write-up"
+      placeholder={placeholder}
+      defaultValue={content}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
+
 import PhotoReportBuilder from "./photo-report-builder";
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
@@ -172,5 +196,42 @@ describe("PhotoReportBuilder auto-save", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("loads the section write-up into the rich-text editor and auto-saves edits as HTML", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          {
+            title: "Findings",
+            description: "<p>Existing finding</p>",
+            photo_ids: ["p1"],
+          },
+        ],
+      }),
+    );
+
+    // The existing write-up is handed to the TipTap editor for editing.
+    const editor = screen.getByTestId("tiptap-stub") as HTMLTextAreaElement;
+    expect(editor.value).toBe("<p>Existing finding</p>");
+
+    // Editing emits HTML; the debounced auto-save persists it into the section's
+    // `description` with no explicit Save, exactly like the title field.
+    act(() => {
+      fireEvent.change(editor, {
+        target: { value: "<p>Existing finding</p><ul><li>New item</li></ul>" },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: { description: string }[];
+    };
+    expect(payload.sections[0].description).toBe(
+      "<p>Existing finding</p><ul><li>New item</li></ul>",
+    );
   });
 });
