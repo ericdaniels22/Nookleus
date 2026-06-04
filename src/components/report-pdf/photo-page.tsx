@@ -32,6 +32,10 @@ const ONE_PHOTO_WIDTH = 405;
 const FOUR_TILE_WIDTH = 240;
 const FOUR_PHOTO_HEIGHT = 245;
 
+// Corner radius shared by every photo frame (1/2/4-per-page) so the rounding
+// stays consistent and is tuned in one place.
+export const PHOTO_CORNER_RADIUS = 12;
+
 const styles = StyleSheet.create({
   page: {
     fontFamily: "Helvetica",
@@ -54,7 +58,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     position: "relative",
     overflow: "hidden",
   },
@@ -76,7 +80,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     position: "relative",
     overflow: "hidden",
   },
@@ -101,7 +105,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     position: "relative",
     overflow: "hidden",
   },
