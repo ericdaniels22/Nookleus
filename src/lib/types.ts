@@ -215,6 +215,8 @@ export interface PhotoReport {
   job_id: string;
   template_id: string | null;
   title: string;
+  /** Per-Job report number ("Report #1, #2, ..."). Null until assigned (#400). */
+  report_number: number | null;
   report_date: string;
   sections: unknown[];
   pdf_path: string | null;
@@ -222,6 +224,8 @@ export interface PhotoReport {
   created_by: string;
   created_at: string;
   updated_at: string;
+  /** Soft-delete timestamp for the recoverable trash (#402). Null = not deleted. */
+  deleted_at: string | null;
 }
 
 export interface EmailAddress {

@@ -97,6 +97,7 @@ CREATE TABLE photo_reports (
   job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   template_id uuid REFERENCES photo_report_templates(id),
   title text NOT NULL,
+  report_number integer,                       -- per-Job number ("Report #1, #2, ..."); assigned in #400
   report_date date NOT NULL DEFAULT CURRENT_DATE,
   sections jsonb NOT NULL DEFAULT '[]',
   pdf_path text,
@@ -104,7 +105,8 @@ CREATE TABLE photo_reports (
     CHECK (status IN ('draft', 'generated')),
   created_by text NOT NULL DEFAULT 'Eric',
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz                       -- soft-delete for the recoverable trash (#402); NULL = not deleted
 );
 
 -- ============================================
