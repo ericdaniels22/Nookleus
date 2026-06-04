@@ -35,6 +35,31 @@ export function getStatusBadgeClasses(kind: EntityKind, status: string): string 
   return ESTIMATE_STATUS_BADGE_CLASSES[status as EstimateStatus] ?? "bg-zinc-100 text-zinc-700";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Row tint (#384) — extends the status helpers with the Overview row tint.
+// Colour is reserved for the moments that need attention: a converted invoice
+// still in draft is yellow ("ready for review"), a sent invoice is blue, and
+// estimate rows plus every other invoice state are left untinted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type RowTint = "yellow" | "blue" | "none";
+
+export function rowTint(kind: EntityKind, status: string): RowTint {
+  if (kind === "invoice") {
+    if (status === "draft") return "yellow";
+    if (status === "sent") return "blue";
+  }
+  return "none";
+}
+
+// Presentational map from semantic tint → row background class. Reuses the
+// existing badge palette (amber / blue); "none" leaves the row untinted.
+export const ROW_TINT_CLASSES: Record<RowTint, string> = {
+  yellow: "bg-amber-50",
+  blue: "bg-blue-50",
+  none: "",
+};
+
 // Polymorphic label — title-cases the status string.
 export function formatStatusLabel(kindOrStatus: EntityKind | string, status?: string): string {
   // Two-arg form: ("estimate" | "invoice", status)

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Ban, CreditCard, Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { Ban, CreditCard, Eye, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,12 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/format";
-import { STATUS_BADGE_CLASSES, formatStatusLabel, getStatusBadgeClasses } from "@/lib/estimate-status";
+import {
+  ROW_TINT_CLASSES,
+  formatStatusLabel,
+  getStatusBadgeClasses,
+} from "@/lib/estimate-status";
+import { buildBillingRows } from "@/lib/billing-rows";
 import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
 import { VoidConfirmDialog } from "@/components/void-confirm-dialog";
@@ -33,7 +38,15 @@ function capitalize(s: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EstimatesInvoicesSection
+// EstimatesInvoicesSection (#384)
+//
+// The Job's Overview tab is one list of estimates. When an estimate is
+// converted, its row flips to represent the invoice — that same row becomes
+// where you view and edit the invoice — while the original estimate is kept as
+// a frozen, view-only record reachable via a link on the flipped row. The
+// derived shape of every row (plain estimate vs flipped invoice, the status
+// shown, the tint, which document view/edit target, the frozen link) comes from
+// the pure `buildBillingRows` transform; this component only renders it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface EstimatesInvoicesSectionProps {
@@ -95,10 +108,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         return;
       }
       const data = (await res.json()) as { rows: Invoice[] };
-      const sorted = (data.rows ?? []).slice().sort((a, b) =>
-        a.invoice_number.localeCompare(b.invoice_number)
-      );
-      setInvoices(sorted);
+      setInvoices(data.rows ?? []);
       setInvoicesError(null);
     } catch {
       setInvoicesError("Failed to load invoices");
@@ -276,15 +286,19 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   const canView = !authLoading && hasPermission("view_estimates");
   const canEdit = !authLoading && hasPermission("edit_estimates");
   const canCreate = !authLoading && hasPermission("create_estimates");
-  const canCreateInvoices = !authLoading && hasPermission("create_invoices");
   const canEditInvoices = !authLoading && hasPermission("edit_invoices");
   const canViewInvoices = !authLoading && hasPermission("view_invoices");
   const canManageEstimates = !authLoading && hasPermission("manage_estimates");
   const canManageInvoices = !authLoading && hasPermission("manage_invoices");
 
+  const loading = estimates === null || invoices === null;
+  const loadError = error ?? invoicesError;
+  // One ordered list: estimates, with converted rows flipped to their invoice.
+  const rows = estimates && invoices ? buildBillingRows(estimates, invoices) : [];
+  const hasTrashed = trashedEstimates.length > 0 || trashedInvoices.length > 0;
+
   return (
     <div className="space-y-6 mb-6">
-      {/* ── Estimates card ─────────────────────────────────────────────────── */}
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
@@ -312,123 +326,183 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         </div>
 
         {/* Loading state */}
-        {estimates === null && !error && (
+        {loading && !loadError && (
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
 
         {/* Error state */}
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
+        {loadError && <p className="text-sm text-destructive">{loadError}</p>}
 
         {/* Empty state */}
-        {estimates !== null && !error && estimates.length === 0 && (!showTrashed || trashedEstimates.length === 0) && (
+        {!loading && !loadError && rows.length === 0 && (!showTrashed || !hasTrashed) && (
           <p className="text-sm text-muted-foreground">
             No estimates yet — create one to get started.
           </p>
         )}
 
         {/* Table */}
-        {estimates !== null && !error && (estimates.length > 0 || (showTrashed && trashedEstimates.length > 0)) && (
+        {!loading && !loadError && (rows.length > 0 || (showTrashed && hasTrashed)) && (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-24">#</TableHead>
+                <TableHead className="w-32">#</TableHead>
                 <TableHead>Title</TableHead>
                 <TableHead className="w-32 text-right">Total</TableHead>
                 <TableHead className="w-28">Status</TableHead>
-                <TableHead className="w-36">Actions</TableHead>
+                <TableHead className="w-44">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {estimates.map((est) => (
-                <TableRow key={est.id}>
-                  {/* Estimate number — monospace */}
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {est.estimate_number}
-                      </span>
-                      {est.converted_to_invoice_id && (
-                        <Link
-                          href={`/invoices/${est.converted_to_invoice_id}`}
-                          className="text-xs text-blue-600 hover:underline"
-                          title="View linked invoice"
-                        >
-                          → INV
-                        </Link>
-                      )}
-                    </div>
-                  </TableCell>
+              {rows.map((row) => {
+                const est = row.estimate;
+                const inv = row.invoice;
+                const isInvoice = row.kind === "invoice";
+                // The flipped/orphan row shows the invoice; a plain row the estimate.
+                const number = isInvoice ? inv!.invoice_number : est!.estimate_number;
+                const title = isInvoice ? inv!.title : est!.title;
+                const total = isInvoice ? inv!.total_amount : est!.total;
 
-                  {/* Title */}
-                  <TableCell className="max-w-xs truncate">
-                    {est.title}
-                  </TableCell>
-
-                  {/* Total */}
-                  <TableCell className="text-right tabular-nums">
-                    {formatCurrency(est.total)}
-                  </TableCell>
-
-                  {/* Status badge */}
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASSES[est.status]}`}
-                    >
-                      {formatStatusLabel(est.status)}
-                    </span>
-                  </TableCell>
-
-                  {/* Actions */}
-                  <TableCell>
-                    {authLoading ? (
-                      <span className="text-xs text-muted-foreground">Loading…</span>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        {canView && (
-                          <Link href={`/estimates/${est.id}`}>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 gap-1 text-xs"
-                              title="View estimate"
-                            >
-                              <Eye size={12} />
-                              View
-                            </Button>
-                          </Link>
-                        )}
-                        {canEdit && est.status !== "voided" && est.status !== "converted" && (
-                          <Link href={`/estimates/${est.id}/edit`}>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 gap-1 text-xs"
-                              title="Edit estimate"
-                            >
-                              <Pencil size={12} />
-                              Edit
-                            </Button>
-                          </Link>
-                        )}
-                        {canManageEstimates && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            title="Move estimate to trash"
-                            aria-label="Move estimate to trash"
-                            onClick={() => setTrashTarget({ kind: "estimate", row: est })}
+                return (
+                  <TableRow key={row.id} className={ROW_TINT_CLASSES[row.tint]}>
+                    {/* Number — monospace, with the frozen-estimate link on flips */}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {number}
+                        </span>
+                        {row.frozenEstimateId && (
+                          <Link
+                            href={`/estimates/${row.frozenEstimateId}`}
+                            className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:underline"
+                            title="View the original estimate (frozen)"
                           >
-                            <Trash2 size={14} />
-                          </Button>
+                            <FileText size={11} />
+                            Estimate
+                          </Link>
                         )}
                       </div>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+
+                    {/* Title */}
+                    <TableCell className="max-w-xs truncate">{title}</TableCell>
+
+                    {/* Total */}
+                    <TableCell className="text-right tabular-nums">
+                      {formatCurrency(total)}
+                    </TableCell>
+
+                    {/* Status badge */}
+                    <TableCell>
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses(row.kind, row.statusShown)}`}
+                      >
+                        {formatStatusLabel(row.statusShown)}
+                      </span>
+                    </TableCell>
+
+                    {/* Actions — targeting the row's document (estimate or invoice) */}
+                    <TableCell>
+                      {authLoading ? (
+                        <span className="text-xs text-muted-foreground">Loading…</span>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          {/* View */}
+                          {((isInvoice && canViewInvoices) || (!isInvoice && canView)) && (
+                            <Link href={`/${row.document.kind}s/${row.document.id}`}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 gap-1 text-xs"
+                                title={`View ${row.kind}`}
+                              >
+                                <Eye size={12} />
+                                View
+                              </Button>
+                            </Link>
+                          )}
+
+                          {/* Edit — gated by the row's edit guard (locked once paid/voided) */}
+                          {row.canEdit &&
+                            ((isInvoice && canEditInvoices) || (!isInvoice && canEdit)) && (
+                              <Link href={`/${row.document.kind}s/${row.document.id}/edit`}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 gap-1 text-xs"
+                                  title={`Edit ${row.kind}`}
+                                >
+                                  <Pencil size={12} />
+                                  Edit
+                                </Button>
+                              </Link>
+                            )}
+
+                          {/* Invoice-only: payment request */}
+                          {isInvoice &&
+                            canEditInvoices &&
+                            (inv!.status === "sent" || inv!.status === "partial") && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                title="Send payment request"
+                                aria-label="Send payment request"
+                                onClick={() => setPaymentRequestTarget(inv!)}
+                              >
+                                <CreditCard size={14} />
+                              </Button>
+                            )}
+
+                          {/* Invoice-only: void */}
+                          {isInvoice &&
+                            canManageInvoices &&
+                            inv!.status !== "voided" &&
+                            inv!.status !== "paid" && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                title="Void invoice"
+                                aria-label="Void invoice"
+                                disabled={isVoiding}
+                                onClick={() => setVoidTarget(inv!)}
+                              >
+                                <Ban size={14} />
+                              </Button>
+                            )}
+
+                          {/* Trash — the active document (invoice on a flip, else estimate) */}
+                          {isInvoice
+                            ? canManageInvoices && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  title="Move invoice to trash"
+                                  aria-label="Move invoice to trash"
+                                  onClick={() => setTrashTarget({ kind: "invoice", row: inv! })}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              )
+                            : canManageEstimates && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  title="Move estimate to trash"
+                                  aria-label="Move estimate to trash"
+                                  onClick={() => setTrashTarget({ kind: "estimate", row: est! })}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              )}
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
 
               {/* Trashed estimate rows */}
               {showTrashed && trashedEstimates.map((est) => (
@@ -464,168 +538,6 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
                         Delete now
                       </button>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-
-      {/* ── Invoices card ───────────────────────────────────────────────────── */}
-      <div className="bg-card rounded-xl border border-border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-foreground">Invoices</h3>
-          {authLoading ? null : canCreateInvoices ? (
-            <Link href={`/jobs/${jobId}/invoices/new`}>
-              <Button size="sm" variant="outline" className="gap-1.5">
-                <Plus size={14} />
-                New Invoice
-              </Button>
-            </Link>
-          ) : null}
-        </div>
-
-        {/* Loading state */}
-        {invoices === null && !invoicesError && (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        )}
-
-        {/* Error state */}
-        {invoicesError && (
-          <p className="text-sm text-destructive">{invoicesError}</p>
-        )}
-
-        {/* Empty state */}
-        {invoices !== null && !invoicesError && invoices.length === 0 && (!showTrashed || trashedInvoices.length === 0) && (
-          <p className="text-sm text-muted-foreground">
-            No invoices yet — create one to get started.
-          </p>
-        )}
-
-        {/* Table */}
-        {invoices !== null && !invoicesError && (invoices.length > 0 || (showTrashed && trashedInvoices.length > 0)) && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-32">#</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead className="w-32 text-right">Total</TableHead>
-                <TableHead className="w-28">Status</TableHead>
-                <TableHead className="w-36">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoices.map((inv) => (
-                <TableRow key={inv.id}>
-                  {/* Invoice number — monospace, with optional source-estimate link */}
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {inv.invoice_number}
-                      </span>
-                      {inv.converted_from_estimate_id && (
-                        <Link
-                          href={`/estimates/${inv.converted_from_estimate_id}`}
-                          className="text-xs text-blue-600 hover:underline"
-                          title="View source estimate"
-                        >
-                          ← EST
-                        </Link>
-                      )}
-                    </div>
-                  </TableCell>
-
-                  {/* Title */}
-                  <TableCell className="max-w-xs truncate">
-                    {inv.title}
-                  </TableCell>
-
-                  {/* Total */}
-                  <TableCell className="text-right tabular-nums">
-                    {formatCurrency(inv.total_amount)}
-                  </TableCell>
-
-                  {/* Status badge */}
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses("invoice", inv.status)}`}
-                    >
-                      {formatStatusLabel(inv.status)}
-                    </span>
-                  </TableCell>
-
-                  {/* Actions */}
-                  <TableCell>
-                    {authLoading ? (
-                      <span className="text-xs text-muted-foreground">Loading…</span>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        {canViewInvoices && (
-                          <Link href={`/invoices/${inv.id}`}>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 gap-1 text-xs"
-                              title="View invoice"
-                            >
-                              <Eye size={12} />
-                              View
-                            </Button>
-                          </Link>
-                        )}
-                        {canEditInvoices && inv.status !== "voided" && inv.status !== "paid" && (
-                          <Link href={`/invoices/${inv.id}/edit`}>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 gap-1 text-xs"
-                              title="Edit invoice"
-                            >
-                              <Pencil size={12} />
-                              Edit
-                            </Button>
-                          </Link>
-                        )}
-                        {canEditInvoices && (inv.status === "sent" || inv.status === "partial") && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0"
-                            title="Send payment request"
-                            aria-label="Send payment request"
-                            onClick={() => setPaymentRequestTarget(inv)}
-                          >
-                            <CreditCard size={14} />
-                          </Button>
-                        )}
-                        {canManageInvoices && inv.status !== "voided" && inv.status !== "paid" && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            title="Void invoice"
-                            aria-label="Void invoice"
-                            disabled={isVoiding}
-                            onClick={() => setVoidTarget(inv)}
-                          >
-                            <Ban size={14} />
-                          </Button>
-                        )}
-                        {canManageInvoices && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            title="Move invoice to trash"
-                            aria-label="Move invoice to trash"
-                            onClick={() => setTrashTarget({ kind: "invoice", row: inv })}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        )}
-                      </div>
-                    )}
                   </TableCell>
                 </TableRow>
               ))}
