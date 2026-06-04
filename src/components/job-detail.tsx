@@ -7,6 +7,7 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
+import { partitionPhotoReportsByTrash } from "@/lib/photo-report-trash";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import { OFFICIAL_INVOICE_STATUSES } from "@/lib/invoice-status";
 import FinancialsTab from "@/components/job-detail/financials-tab";
@@ -56,6 +57,7 @@ import {
   Copy,
   Trash2,
   RotateCcw,
+  ChevronDown,
 } from "lucide-react";
 import { canDeleteJobs } from "@/lib/jobs/auth";
 import {
@@ -144,6 +146,15 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     [photos, supabaseUrl],
   );
 
+  // Split the Job's reports into the active list (always shown in the Overview)
+  // and the recoverable trash (behind a disclosure). The predicate is the
+  // single source of truth for "active vs trashed" (#402).
+  const { active: activeReports, trashed: trashedReports } = useMemo(
+    () => partitionPhotoReportsByTrash(reports),
+    [reports],
+  );
+  const [trashOpen, setTrashOpen] = useState(false);
+
   const fetchData = useCallback(async () => {
     const supabase = createClient();
 
@@ -180,11 +191,13 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .select("id", { count: "exact", head: true })
         .eq("job_id", jobId),
       supabase.from("photo_tags").select("*").order("name"),
+      // Fetch every report for the Job — active and trashed — and split them
+      // with the trash predicate below. The Overview's active list and its
+      // trash disclosure are two views of this one fetch (#402).
       supabase
         .from("photo_reports")
         .select("*")
         .eq("job_id", jobId)
-        .is("deleted_at", null)
         .order("created_at", { ascending: false }),
       supabase
         .from("emails")
@@ -299,6 +312,30 @@ export default function JobDetail({ jobId }: { jobId: string }) {
       return;
     }
     toast.success("Job restored.");
+    fetchData();
+  }
+
+  async function trashReport(reportId: string) {
+    const res = await fetch(`/api/jobs/${jobId}/reports/${reportId}/delete`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      toast.error("Couldn't move report to trash.");
+      return;
+    }
+    toast.success("Report moved to trash.");
+    fetchData();
+  }
+
+  async function restoreReport(reportId: string) {
+    const res = await fetch(`/api/jobs/${jobId}/reports/${reportId}/restore`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      toast.error("Couldn't restore report.");
+      return;
+    }
+    toast.success("Report restored.");
     fetchData();
   }
 
@@ -812,67 +849,89 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         onChanged={fetchData}
       />
 
-      {/* Reports */}
-      {reports.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-5 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold text-foreground">
-              <FileText size={16} className="inline mr-2 -mt-0.5" />
-              Reports ({reports.length})
-            </h3>
-            <span className="text-xs text-muted-foreground">
-              Start a new report from the Photos tab
-            </span>
-          </div>
+      {/* Reports — always shown (even with none) so a Job's first report can be
+          started and found here, beside the other documents (#402). */}
+      <div className="bg-card rounded-xl border border-border p-5 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-foreground">
+            <FileText size={16} className="inline mr-2 -mt-0.5" />
+            Reports ({activeReports.length})
+          </h3>
+          <span className="text-xs text-muted-foreground">
+            Start a new report from the Photos tab
+          </span>
+        </div>
+        {activeReports.length === 0 ? (
+          <p className="text-sm text-muted-foreground/60 py-2">
+            No reports yet. Select photos in the Photos tab and choose
+            &ldquo;Create report&rdquo; to start one.
+          </p>
+        ) : (
           <div className="space-y-2">
-            {reports.map((report) => (
-              <Link
-                key={report.id}
-                href={`/jobs/${jobId}/reports/${report.id}`}
-                className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border hover:bg-accent/50 transition-all"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={cn(
-                      "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
-                      report.status === "generated"
-                        ? "bg-primary/10"
-                        : "bg-vibrant-purple/10"
-                    )}
-                  >
-                    <FileText
-                      size={14}
-                      className={
-                        report.status === "generated"
-                          ? "text-primary"
-                          : "text-vibrant-purple"
-                      }
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {report.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground/60">
-                      {format(new Date(report.report_date), "MMM d, yyyy")}
-                    </p>
-                  </div>
-                </div>
-                <Badge
-                  className={cn(
-                    "text-[10px] px-1.5 py-0 rounded capitalize flex-shrink-0",
-                    report.status === "generated"
-                      ? "bg-[#E1F5EE] text-[#085041]"
-                      : "bg-[#F3F0FF] text-[#5B4DB5]"
-                  )}
+            {activeReports.map((report) => (
+              <div key={report.id} className="flex items-center gap-2">
+                <Link
+                  href={`/jobs/${jobId}/reports/${report.id}`}
+                  className="flex-1 min-w-0 flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border hover:bg-accent/50 transition-all"
                 >
-                  {report.status}
-                </Badge>
-              </Link>
+                  <ReportRowContent report={report} />
+                </Link>
+                {hasPermission("edit_jobs") && (
+                  <button
+                    type="button"
+                    onClick={() => trashReport(report.id)}
+                    aria-label="Move report to trash"
+                    title="Move to trash"
+                    className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Recoverable trash — restore a report deleted by mistake (#402). */}
+        {trashedReports.length > 0 && (
+          <div className="mt-4 border-t border-border/50 pt-3">
+            <button
+              type="button"
+              onClick={() => setTrashOpen((v) => !v)}
+              aria-expanded={trashOpen}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Trash2 size={12} />
+              Trash ({trashedReports.length})
+              <ChevronDown
+                size={12}
+                className={cn("transition-transform", trashOpen && "rotate-180")}
+              />
+            </button>
+            {trashOpen && (
+              <div className="space-y-2 mt-3">
+                {trashedReports.map((report) => (
+                  <div key={report.id} className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0 flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/30 opacity-70">
+                      <ReportRowContent report={report} />
+                    </div>
+                    {hasPermission("edit_jobs") && (
+                      <button
+                        type="button"
+                        onClick={() => restoreReport(report.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent shrink-0"
+                      >
+                        <RotateCcw size={14} />
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Emails */}
       <div className="bg-card rounded-xl border border-border p-5 mb-6">
@@ -1047,6 +1106,53 @@ function InfoRow({
         <p className="text-foreground">{value}</p>
       </div>
     </div>
+  );
+}
+
+// The icon + title + date and the status badge of one report row, shared by
+// the active list (wrapped in a Link to the builder) and the trash disclosure
+// (wrapped in a plain, non-clickable div) — #402.
+function ReportRowContent({ report }: { report: PhotoReport }) {
+  return (
+    <>
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className={cn(
+            "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
+            report.status === "generated"
+              ? "bg-primary/10"
+              : "bg-vibrant-purple/10"
+          )}
+        >
+          <FileText
+            size={14}
+            className={
+              report.status === "generated"
+                ? "text-primary"
+                : "text-vibrant-purple"
+            }
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">
+            {report.title}
+          </p>
+          <p className="text-xs text-muted-foreground/60">
+            {format(new Date(report.report_date), "MMM d, yyyy")}
+          </p>
+        </div>
+      </div>
+      <Badge
+        className={cn(
+          "text-[10px] px-1.5 py-0 rounded capitalize flex-shrink-0",
+          report.status === "generated"
+            ? "bg-[#E1F5EE] text-[#085041]"
+            : "bg-[#F3F0FF] text-[#5B4DB5]"
+        )}
+      >
+        {report.status}
+      </Badge>
+    </>
   );
 }
 
