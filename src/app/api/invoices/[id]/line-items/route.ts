@@ -12,6 +12,7 @@ interface PostBody {
   name?: string | null;
   // Custom:
   description?: string;
+  note?: string | null;
   quantity?: number;
   unit?: string | null;
   unit_price?: number;
@@ -45,6 +46,19 @@ export const POST = withRequestContext(
 
       if (!orgId) return NextResponse.json({ error: "no active org" }, { status: 400 });
 
+      // Note — user-supplied free text, independent of library vs custom.
+      let note: string | null = null;
+      if (body.note !== undefined && body.note !== null) {
+        if (typeof body.note !== "string") {
+          return NextResponse.json({ error: "note must be a string" }, { status: 400 });
+        }
+        const trimmedNote = body.note.trim();
+        if (trimmedNote.length > 2000) {
+          return NextResponse.json({ error: "note too long (max 2000)" }, { status: 400 });
+        }
+        note = trimmedNote.length > 0 ? trimmedNote : null;
+      }
+
       let lineRow: Record<string, unknown>;
 
       if (body.library_item_id) {
@@ -75,6 +89,7 @@ export const POST = withRequestContext(
           library_item_id: body.library_item_id,
           name: lib.name,
           description: lib.description,
+          note,
           code: lib.code,
           quantity: qty,
           unit: lib.default_unit,
@@ -112,6 +127,7 @@ export const POST = withRequestContext(
           library_item_id: null,
           name: customName,
           description: body.description,
+          note,
           code: body.code ?? null,
           quantity: qty,
           unit: body.unit ?? null,

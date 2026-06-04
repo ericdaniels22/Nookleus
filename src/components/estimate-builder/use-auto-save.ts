@@ -46,6 +46,7 @@ export interface UseAutoSaveResult {
 
 const LINE_ITEM_FIELDS = [
   "description",
+  "note",
   "code",
   "quantity",
   "unit",
@@ -75,7 +76,7 @@ interface EntityWithSections {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function pickLineItemFields(item: { id: string } & Record<string, unknown>): LineItemSubset {
+export function pickLineItemFields(item: { id: string } & Record<string, unknown>): LineItemSubset {
   const result = {} as LineItemSubset;
   for (const k of LINE_ITEM_FIELDS) {
     result[k] = item[k];

@@ -42,6 +42,11 @@ const CLEANUP_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-353-drop-template-dual-shape.sql"),
   "utf8",
 );
+// #382: the note-aware body swap. Loaded last so apply copies the snapshot note.
+const NOTE_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-382b-copy-line-item-note.sql"),
+  "utf8",
+);
 
 /** Grab a free ephemeral port so the cluster never collides with the local
  *  PostgreSQL 17/18 services already listening on 5432. */
@@ -97,6 +102,7 @@ beforeAll(async () => {
   await client.query(SCHEMA_SQL); // tables first (the function's %ROWTYPE needs them)
   await client.query(MIGRATION_SQL); // #351: the original dual-shape function
   await client.query(CLEANUP_SQL); // #353: body swap to the flat-only function
+  await client.query(NOTE_SQL); // #382: note-aware body swap (copies snapshot note)
 }, 120_000);
 
 afterAll(async () => {
@@ -131,6 +137,7 @@ interface LineItemRow {
   library_item_id: string | null;
   name: string | null;
   description: string;
+  note: string | null;
   code: string | null;
   unit: string | null;
   quantity: string; // numeric -> string from pg
@@ -196,6 +203,52 @@ describe("apply_template_to_estimate (snapshot shape, #351 → #353)", () => {
     expect(Number(item.quantity)).toBe(2);
     expect(Number(item.unit_price)).toBe(125.5);
     expect(Number(item.total)).toBe(251); // 2 × 125.50
+  });
+
+  // ── #382: a snapshot item's `note` survives the save-template → apply-template
+  //    round trip onto the new estimate line item. ──────────────────────────────
+  it("copies a snapshot item's note onto the new line item (#382)", async () => {
+    const orgId = randomUUID();
+    const estimateId = await seedDraftEstimate(orgId);
+
+    const structure = {
+      sections: [
+        {
+          title: "Mitigation",
+          sort_order: 0,
+          subsections: [],
+          items: [
+            {
+              library_item_id: null,
+              name: "Antimicrobial",
+              description: "Apply to affected framing",
+              note: "Use low-VOC product per homeowner request",
+              code: "MIT-09",
+              unit: "sqft",
+              quantity: 100,
+              unit_price: 0.75,
+              sort_order: 0,
+            },
+          ],
+        },
+      ],
+    };
+    const { rows: tmplRows } = await client.query<{ id: string }>(
+      "INSERT INTO estimate_templates (organization_id, name, structure) VALUES ($1, $2, $3) RETURNING id",
+      [orgId, "Mitigation Pack", JSON.stringify(structure)],
+    );
+
+    await client.query("SELECT apply_template_to_estimate($1, $2) AS result", [
+      estimateId,
+      tmplRows[0].id,
+    ]);
+
+    const { rows: items } = await client.query<LineItemRow>(
+      "SELECT * FROM estimate_line_items WHERE estimate_id = $1",
+      [estimateId],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].note).toBe("Use low-VOC product per homeowner request");
   });
 
   // ── Post-#353: an un-backfilled legacy item (only a library_item_id plus

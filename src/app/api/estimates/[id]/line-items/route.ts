@@ -13,6 +13,7 @@ interface CreatePayload {
   library_item_id?: string | null;
   name?: string | null;
   description?: string;
+  note?: string | null;
   code?: string | null;
   quantity: number;
   unit?: string | null;
@@ -132,6 +133,20 @@ export const POST = withRequestContext(
       unit_price = body.unit_price;
     }
 
+    // Note — user-supplied free text, independent of library vs custom. Mirrors
+    // name handling: trim, empty → null, cap length.
+    let note: string | null = null;
+    if (body.note !== undefined && body.note !== null) {
+      if (typeof body.note !== "string") {
+        return NextResponse.json({ error: "note must be a string" }, { status: 400 });
+      }
+      const trimmedNote = body.note.trim();
+      if (trimmedNote.length > 2000) {
+        return NextResponse.json({ error: "note too long (max 2000)" }, { status: 400 });
+      }
+      note = trimmedNote.length > 0 ? trimmedNote : null;
+    }
+
     // Compute sort_order if not supplied
     let sort_order = body.sort_order;
     if (sort_order === undefined) {
@@ -156,6 +171,7 @@ export const POST = withRequestContext(
         library_item_id: body.library_item_id ?? null,
         name,
         description,
+        note,
         code,
         quantity: body.quantity,
         unit,

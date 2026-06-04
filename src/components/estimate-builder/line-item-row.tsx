@@ -79,6 +79,7 @@ export function LineItemRow({
   // Strings for controlled inputs; numbers parsed on blur.
   const [name, setName] = useState(item.name ?? "");
   const [description, setDescription] = useState(item.description);
+  const [note, setNote] = useState(item.note ?? "");
   const [code, setCode] = useState(item.code ?? "");
   const [quantity, setQuantity] = useState(String(item.quantity));
   const [unit, setUnit] = useState(item.unit ?? "");
@@ -88,11 +89,12 @@ export function LineItemRow({
   useEffect(() => {
     setName(item.name ?? "");
     setDescription(item.description);
+    setNote(item.note ?? "");
     setCode(item.code ?? "");
     setQuantity(String(item.quantity));
     setUnit(item.unit ?? "");
     setUnitPrice(String(item.unit_price));
-  }, [item.name, item.description, item.code, item.quantity, item.unit, item.unit_price]);
+  }, [item.name, item.description, item.note, item.code, item.quantity, item.unit, item.unit_price]);
 
   // ── Live total (uses local editing values) ────────────────────────────────
   const localQty = Number(quantity);
@@ -121,6 +123,15 @@ export function LineItemRow({
     }
     if (trimmed !== item.description) {
       onChange({ description: trimmed });
+    }
+  }
+
+  function commitNote() {
+    // Empty / whitespace-only → null (nullable, optional sub-line).
+    const trimmed = note.trim();
+    const next: string | null = trimmed.length > 0 ? trimmed : null;
+    if (next !== (item.note ?? null)) {
+      onChange({ note: next });
     }
   }
 
@@ -224,6 +235,24 @@ export function LineItemRow({
           placeholder="Description"
           className={cn(
             "w-full bg-transparent border-0 outline-none ring-0 text-sm text-muted-foreground placeholder:text-muted-foreground/50",
+            "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
+            "disabled:cursor-default disabled:opacity-60"
+          )}
+        />
+        {/* Optional note — italic sub-line tucked under the item (#382). */}
+        <input
+          type="text"
+          value={note}
+          maxLength={2000}
+          disabled={readOnly}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={commitNote}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          placeholder="Note (optional)"
+          className={cn(
+            "w-full bg-transparent border-0 outline-none ring-0 text-xs italic text-muted-foreground placeholder:text-muted-foreground/50",
             "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
             "disabled:cursor-default disabled:opacity-60"
           )}

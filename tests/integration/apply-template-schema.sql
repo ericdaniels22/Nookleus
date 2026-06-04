@@ -95,6 +95,7 @@ CREATE TABLE estimate_line_items (
   library_item_id uuid,
   name text,
   description text NOT NULL,
+  note text,
   code text,
   quantity numeric(10,2) NOT NULL DEFAULT 1,
   unit text,

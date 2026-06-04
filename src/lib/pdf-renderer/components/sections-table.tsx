@@ -64,12 +64,14 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
         <View style={styles.tdDesc}>
           {itemName && <Text style={styles.tdName}>{itemName}</Text>}
           <Text>{item.description}</Text>
+          {preset.show_item_notes && item.note && (
+            <Text style={styles.tdNoteSub}>{item.note}</Text>
+          )}
         </View>
         <Text style={styles.tdQty}>{Number(item.quantity)}</Text>
         <Text style={styles.tdUnit}>{item.unit ?? ""}</Text>
         <Text style={styles.tdPrice}>{fmt(Number(item.unit_price))}</Text>
         <Text style={styles.tdTotal}>{fmt(total)}</Text>
-        {preset.show_notes_column && <Text style={styles.tdNotes}>{/* always empty for v1 */}</Text>}
       </View>
     );
   }
@@ -108,7 +110,6 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
         <Text style={styles.tdUnit}>Unit</Text>
         <Text style={styles.tdPrice}>Unit Cost</Text>
         <Text style={styles.tdTotal}>Total</Text>
-        {preset.show_notes_column && <Text style={styles.tdNotes}>Notes</Text>}
       </View>
       {tops.map((s, i) => renderSection(s, 0, `t-${i}`))}
     </View>

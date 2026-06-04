@@ -8,6 +8,7 @@ import { recalculateInvoiceTotals } from "@/lib/invoices";
 interface PutBody {
   name?: string | null;
   description?: string;
+  note?: string | null;
   code?: string | null;
   quantity?: number;
   unit?: string | null;
@@ -64,6 +65,19 @@ export const PUT = withRequestContext(
         }
       }
       if (body.description !== undefined) patch.description = body.description;
+      if (body.note !== undefined) {
+        if (body.note === null) {
+          patch.note = null;
+        } else if (typeof body.note !== "string") {
+          return NextResponse.json({ error: "note must be a string or null" }, { status: 400 });
+        } else {
+          const trimmed = body.note.trim();
+          if (trimmed.length > 2000) {
+            return NextResponse.json({ error: "note too long (max 2000)" }, { status: 400 });
+          }
+          patch.note = trimmed.length > 0 ? trimmed : null;
+        }
+      }
       if (body.code !== undefined) patch.code = body.code;
       if (body.quantity !== undefined) {
         const q = Number(body.quantity);
