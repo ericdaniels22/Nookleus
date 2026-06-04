@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import PhotoPage, { type PhotoPageSlot } from "./photo-page";
+import PhotoPage, {
+  PHOTO_CORNER_RADIUS,
+  type PhotoPageSlot,
+} from "./photo-page";
 import { collectText, expandTree, findAll } from "./test-helpers";
 
 function makeSlot(overrides: Partial<PhotoPageSlot> = {}): PhotoPageSlot {
@@ -26,6 +29,55 @@ function flattenStyle(style: unknown): Record<string, unknown> {
   if (style && typeof style === "object") return style as Record<string, unknown>;
   return {};
 }
+
+describe("PhotoPage (photo corner radius)", () => {
+  // Every photo frame is a clipping VIEW (overflow:'hidden') that directly
+  // wraps the photo IMAGE. There is exactly one such frame per photo, in all
+  // three layouts.
+  function photoFrames(tree: ReturnType<typeof expandTree>) {
+    return findAll(tree, (n) => {
+      if (n.type !== "VIEW") return false;
+      const s = flattenStyle(n.props.style);
+      if (s.overflow !== "hidden") return false;
+      const children = Array.isArray(n.props.children)
+        ? n.props.children
+        : [n.props.children];
+      return children.some(
+        (c) => c && typeof c === "object" && !Array.isArray(c) && c.type === "IMAGE",
+      );
+    });
+  }
+
+  it("is more pronounced than the previous radius of 4", () => {
+    expect(PHOTO_CORNER_RADIUS).toBeGreaterThan(4);
+  });
+
+  it.each([1, 2, 4] as const)(
+    "applies the shared radius to every photo frame at photosPerPage=%i",
+    (photosPerPage) => {
+      const slots = Array.from({ length: photosPerPage }, (_, i) =>
+        makeSlot({ photoId: `p${i + 1}`, number: i + 1 }),
+      );
+      const tree = expandTree(
+        <PhotoPage
+          slots={slots}
+          sectionTitle="Living Room"
+          customerName="Jane Doe"
+          reportDate="2026-05-19"
+          photosPerPage={photosPerPage}
+        />,
+      );
+
+      const frames = photoFrames(tree);
+      expect(frames.length).toBe(photosPerPage);
+      for (const frame of frames) {
+        expect(flattenStyle(frame.props.style).borderRadius).toBe(
+          PHOTO_CORNER_RADIUS,
+        );
+      }
+    },
+  );
+});
 
 describe("PhotoPage (2-per-page)", () => {
   it("renders the caption (bold) when a slot has one, and omits caption text when null", () => {
