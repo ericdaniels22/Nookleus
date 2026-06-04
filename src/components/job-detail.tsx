@@ -184,6 +184,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .from("photo_reports")
         .select("*")
         .eq("job_id", jobId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false }),
       supabase
         .from("emails")
@@ -819,19 +820,15 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               <FileText size={16} className="inline mr-2 -mt-0.5" />
               Reports ({reports.length})
             </h3>
-            <Link
-              href={`/reports/new?jobId=${jobId}`}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 border border-gray-200 bg-white text-primary hover:bg-[#E8F0FE] transition-colors gap-1.5"
-            >
-              <FileText size={14} />
-              New Report
-            </Link>
+            <span className="text-xs text-muted-foreground">
+              Start a new report from the Photos tab
+            </span>
           </div>
           <div className="space-y-2">
             {reports.map((report) => (
               <Link
                 key={report.id}
-                href={`/reports/${report.id}`}
+                href={`/jobs/${jobId}/reports/${report.id}`}
                 className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border hover:bg-accent/50 transition-all"
               >
                 <div className="flex items-center gap-3 min-w-0">

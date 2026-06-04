@@ -15,6 +15,8 @@ const PUBLIC_ROUTES = ["/sign", "/pay"];
 const INTERNAL_FULLSCREEN_PATTERNS: RegExp[] = [
   /^\/contracts\/[^/]+\/sign-in-person(\/|$)/,
   /^\/jobs\/[^/]+\/capture(\/|$)/,
+  // The in-Job Photo Report builder (#400) is full-screen, like capture.
+  /^\/jobs\/[^/]+\/reports\/[^/]+(\/|$)/,
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

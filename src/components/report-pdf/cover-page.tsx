@@ -3,6 +3,7 @@
 import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import type { CoverPageData } from "@/lib/cover-page-data";
+import { formatPreparedBy } from "@/lib/report-prepared-by";
 
 const colors = {
   primary: "#1B2434",
@@ -42,6 +43,11 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontFamily: "Helvetica-Bold",
     color: colors.text,
+    marginBottom: 6,
+  },
+  preparedBy: {
+    fontSize: 10,
+    color: colors.muted,
     marginBottom: 18,
   },
   coverPhoto: {
@@ -112,6 +118,8 @@ interface CoverPageProps {
   title: string;
   coverPhotoUrl: string | null;
   logoUrl: string | null;
+  /** The report's creator name; renders the "Prepared by {name}" line (#400). */
+  preparedBy?: string | null;
 }
 
 export default function CoverPage({
@@ -119,9 +127,11 @@ export default function CoverPage({
   title,
   coverPhotoUrl,
   logoUrl,
+  preparedBy,
 }: CoverPageProps) {
   const { logo, customerName, propertyAddress, pointOfContact, insurance } =
     data;
+  const preparedByLine = formatPreparedBy(preparedBy);
 
   return (
     <Page size="LETTER" style={styles.page}>
@@ -136,6 +146,10 @@ export default function CoverPage({
       </View>
 
       <Text style={styles.title}>{title.trim() ? title : "Photo Report"}</Text>
+
+      {preparedByLine && (
+        <Text style={styles.preparedBy}>{preparedByLine}</Text>
+      )}
 
       {coverPhotoUrl ? (
         <Image src={coverPhotoUrl} style={styles.coverPhoto} />

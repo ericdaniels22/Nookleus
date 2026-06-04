@@ -212,6 +212,8 @@ export interface PhotoReportTemplate {
 
 export interface PhotoReport {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS (#400). */
+  organization_id: string;
   job_id: string;
   template_id: string | null;
   title: string;

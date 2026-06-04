@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Photo, PhotoTag } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
@@ -42,6 +43,7 @@ export default function JobPhotosTab({
   onCoverPhotoChanged,
   onSelectPhoto,
 }: JobPhotosTabProps) {
+  const router = useRouter();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -63,6 +65,7 @@ export default function JobPhotosTab({
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [creatingReport, setCreatingReport] = useState(false);
 
   // Cover photo: id of the photo whose "Set as cover" write is in flight
   const [settingCover, setSettingCover] = useState<string | null>(null);
@@ -253,6 +256,32 @@ export default function JobPhotosTab({
     setSelectedIds(new Set());
   };
 
+  // Create a Photo Report from the selected photos (#400). Server-side so the
+  // report is numbered per Job and stamped with the real preparer; on success
+  // we open the full-screen, Job-scoped builder seeded with these photos.
+  const handleCreateReport = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setCreatingReport(true);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoIds: ids }),
+      });
+      if (!res.ok) {
+        toast.error("Failed to create report.");
+        setCreatingReport(false);
+        return;
+      }
+      const { report } = (await res.json()) as { report: { id: string } };
+      router.push(`/jobs/${jobId}/reports/${report.id}`);
+    } catch {
+      toast.error("Failed to create report.");
+      setCreatingReport(false);
+    }
+  };
+
   // Promote a photo to be the job's cover. Writes jobs.cover_photo_id
   // directly, mirroring the single-field job updates in job-detail.tsx.
   const handleSetCover = async (photoId: string) => {
@@ -402,6 +431,13 @@ export default function JobPhotosTab({
               </div>
             )}
           </div>
+          <button
+            className="px-3 py-1 border border-white/30 rounded-md hover:bg-white/15 transition-colors text-xs"
+            onClick={handleCreateReport}
+            disabled={creatingReport}
+          >
+            {creatingReport ? "Creating..." : "Create report"}
+          </button>
           <button
             className="px-3 py-1 border border-white/30 rounded-md hover:bg-white/15 transition-colors text-xs"
             onClick={handleBulkDownload}
