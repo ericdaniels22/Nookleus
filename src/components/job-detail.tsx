@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
+import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import FinancialsTab from "@/components/job-detail/financials-tab";
 import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
@@ -70,6 +71,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import JobPhotosTab from "@/components/job-photos-tab";
+import PhotoPreloader from "@/components/photo-preloader";
 import { useAuth } from "@/lib/auth-context";
 
 const propertyTypeLabels: Record<string, string> = {
@@ -78,6 +80,13 @@ const propertyTypeLabels: Record<string, string> = {
   commercial: "Commercial",
   condo: "Condo",
 };
+
+// Background preload (#395): when a Job opens we warm the newest Photo
+// previews so the Photos tab paints instantly when tapped, instead of starting
+// to load on tap. We prefetch only the rows the page already loaded (the
+// `.limit(12)` newest photos fetched below) — about a screenful — and no more,
+// so opening a Job and never tapping Photos costs little background data.
+const SCREENFUL_PRELOAD = 12;
 
 export default function JobDetail({ jobId }: { jobId: string }) {
   const { hasPermission, profile } = useAuth();
@@ -125,6 +134,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   };
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+
+  // The grid-preview URLs to warm on Job open — the newest rows already in
+  // state, capped at a screenful. Reuses the grid's exact photoUrl(…, "grid")
+  // so the prefetch and the eventual <img> share a cache key.
+  const preloadUrls = useMemo(
+    () => pickPreloadUrls(photos, supabaseUrl, SCREENFUL_PRELOAD),
+    [photos, supabaseUrl],
+  );
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -959,6 +976,11 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           onSelectPhoto={(photo) => setSelectedPhoto(photo)}
         />
       )}
+
+      {/* Background-preload the newest Photo previews on Job open (#395) so the
+          Photos tab opens warm. Always mounted (not gated on the active tab),
+          renders nothing, and prefetches at low priority. */}
+      <PhotoPreloader urls={preloadUrls} />
 
       {/* Photo modals — always rendered regardless of tab */}
       <PhotoUploadModal
