@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { Photo, PhotoTag } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
+import { photoLoadPriority } from "@/lib/jobs/photo-load-priority";
 import { format } from "date-fns";
 import { Loader2, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +23,14 @@ interface JobPhotosTabProps {
 }
 
 const PAGE_SIZE = 50;
+
+// Top-first loading (#394): eagerly load a generous first-row batch of the
+// newest date group so the top of the grid paints immediately; the rest stay
+// lazy. The grid uses CSS auto-fill, so the real column count flexes with
+// width — 8 covers a full row on desktop for both view sizes, and is only a
+// few rows on mobile (still just the top of the screen). Over-covering is
+// harmless: eager loading is a hint, and the win is not lazy-loading the top.
+const EAGER_FIRST_ROW = 8;
 
 export default function JobPhotosTab({
   jobId,
@@ -464,7 +473,7 @@ export default function JobPhotosTab({
         </div>
       ) : (
         <div>
-          {groupedPhotos.map((group) => (
+          {groupedPhotos.map((group, groupIndex) => (
             <div key={group.date} className="mb-6">
               {/* Date header */}
               <div className="flex items-center gap-2.5 mb-3">
@@ -485,9 +494,16 @@ export default function JobPhotosTab({
                     : "repeat(auto-fill, minmax(160px, 1fr))",
                 }}
               >
-                {group.photos.map((photo) => {
+                {group.photos.map((photo, index) => {
                   const isSelected = selectedIds.has(photo.id);
                   const isCover = photo.id === coverPhotoId;
+                  // Only the newest group (groupIndex 0) has a visible top row;
+                  // every other group passes 0 columns, so all its images stay
+                  // lazy.
+                  const imgPriority = photoLoadPriority(
+                    index,
+                    groupIndex === 0 ? EAGER_FIRST_ROW : 0,
+                  );
                   return (
                     <div key={photo.id} className="cursor-pointer">
                       <div
@@ -514,7 +530,8 @@ export default function JobPhotosTab({
                           src={photoUrl(photo, supabaseUrl, "grid")}
                           alt={photo.caption || "Photo"}
                           className="w-full h-full object-cover"
-                          loading="lazy"
+                          loading={imgPriority.loading}
+                          fetchPriority={imgPriority.fetchPriority}
                         />
                         {/* User avatar */}
                         <div className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-full bg-[#2B5EA7] border-2 border-white flex items-center justify-center">
