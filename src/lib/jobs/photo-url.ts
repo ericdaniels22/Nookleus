@@ -50,3 +50,48 @@ export function photoUrl(
   }
   return `${supabaseUrl}${PHOTOS_OBJECT_PREFIX}${path}`;
 }
+
+/**
+ * Resolve the full-resolution **original** image URL for a Photo, ignoring any
+ * saved annotation.
+ *
+ * The annotator must re-open the un-annotated original so new strokes aren't
+ * painted on top of an already-annotated render (double-rendering). Unlike the
+ * "full" variant of {@link photoUrl} — which shows the annotated copy when one
+ * exists — this always points at the stored original.
+ */
+export function originalPhotoUrl(
+  source: PhotoUrlSource,
+  supabaseUrl: string,
+): string {
+  return photoUrl(
+    { annotated_path: null, storage_path: source.storage_path },
+    supabaseUrl,
+    "full",
+  );
+}
+
+// A cover photo may not be set, and its paths arrive nullable from the report
+// query — narrower than PhotoUrlSource.
+export interface CoverPhotoSource {
+  annotated_path: string | null;
+  storage_path: string | null;
+}
+
+/**
+ * Resolve the full-resolution URL for a report's cover Photo, or `null` when
+ * the job has no usable cover.
+ *
+ * Like the "full" variant of {@link photoUrl}, it prefers the annotated copy
+ * when present; but a job may have no cover photo at all (or only empty paths),
+ * in which case the PDF must render its cover page without a photo rather than
+ * point at a broken URL.
+ */
+export function reportCoverPhotoUrl(
+  cover: CoverPhotoSource | null,
+  supabaseUrl: string,
+): string | null {
+  const path = cover?.annotated_path || cover?.storage_path;
+  if (!path) return null;
+  return photoUrl({ annotated_path: null, storage_path: path }, supabaseUrl, "full");
+}

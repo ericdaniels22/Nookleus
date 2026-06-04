@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
+import { photoUrl } from "@/lib/jobs/photo-url";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import FinancialsTab from "@/components/job-detail/financials-tab";
 import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
@@ -975,9 +976,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         photo={selectedPhoto}
         allTags={tags}
         photoUrl={
-          selectedPhoto
-            ? `${supabaseUrl}/storage/v1/object/public/photos/${selectedPhoto.annotated_path || selectedPhoto.storage_path}`
-            : ""
+          selectedPhoto ? photoUrl(selectedPhoto, supabaseUrl, "full") : ""
         }
         onUpdated={() => {
           setSelectedPhoto(null);

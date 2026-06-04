@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { photoUrl } from "./photo-url";
+import { photoUrl, originalPhotoUrl, reportCoverPhotoUrl } from "./photo-url";
 
 const SUPABASE_URL = "https://proj.supabase.co";
 
@@ -69,6 +69,50 @@ describe("photoUrl — full variant", () => {
     );
     expect(url).toBe(
       "https://proj.supabase.co/storage/v1/object/public/photos/originals/abc.jpg",
+    );
+  });
+});
+
+describe("originalPhotoUrl — the annotator always edits the un-annotated original", () => {
+  it("returns the full-resolution original, ignoring any saved annotation", () => {
+    // The annotator must re-open the ORIGINAL so it doesn't paint new strokes
+    // on top of an already-annotated render. Even with a saved annotation, and
+    // even with resize enabled, it gets the original object URL.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = originalPhotoUrl(
+      { annotated_path: "annotated/abc.jpg", storage_path: "originals/abc.jpg" },
+      SUPABASE_URL,
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/originals/abc.jpg",
+    );
+  });
+});
+
+describe("reportCoverPhotoUrl — the PDF cover photo", () => {
+  it("returns null when the job has no cover photo", () => {
+    expect(reportCoverPhotoUrl(null, SUPABASE_URL)).toBeNull();
+  });
+
+  it("uses the annotated copy at full resolution when the cover is annotated", () => {
+    // Resize on must not shrink the cover: reports stay print-quality.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = reportCoverPhotoUrl(
+      { annotated_path: "annotated/cover.jpg", storage_path: "originals/cover.jpg" },
+      SUPABASE_URL,
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/annotated/cover.jpg",
+    );
+  });
+
+  it("falls back to the stored original when the cover has no annotation", () => {
+    const url = reportCoverPhotoUrl(
+      { annotated_path: null, storage_path: "originals/cover.jpg" },
+      SUPABASE_URL,
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/originals/cover.jpg",
     );
   });
 });
