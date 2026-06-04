@@ -1,5 +1,7 @@
 # Single hardcoded photo report layout
 
+**Status:** Superseded in part by [ADR 0009](0009-photo-reports-are-an-in-job-narrative-document.md) (issue #390) — the "one minimal layout / every report serves the same audience" rationale is reversed for section content (Sections regain a one-page rich-text narrative). The global photos-per-page knob from the amendment below is retained.
+
 Photo reports previously supported per-template cover pages and configurable
 layouts via the `photo_report_templates` table. With the May 2026 rework
 (see issue #326), photo reports converge on **one** hardcoded layout — fixed
