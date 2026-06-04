@@ -129,6 +129,31 @@ Files tab holds documents/attachments, which are a separate feature. When
 someone refers loosely to "the job's file" of pictures, they mean Photos.
 _Avoid_: image, attachment, media; "file" (that's the separate documents feature)
 
+**Photo Report**:
+A document an Organization generates from a Job's Photos — Sections of
+write-up plus the photos that evidence them — and exports as a PDF to hand
+an adjuster or property owner. Belongs to exactly one Job. Created and
+edited only from inside the Job: a report is started from the Job's Photos
+tab (select photos → Create report) and its existing reports are listed and
+reopened from the Job's Overview tab. There is no standalone reports area.
+_Avoid_: report (ambiguous — there is also the accounting/profitability report), photo log, gallery
+
+**Section** (of a Photo Report):
+One unit of a Photo Report: a heading, a one-page rich-text write-up
+(paragraphs and bullet/numbered lists), and the Photos that illustrate it.
+Renders as an intro page (heading + write-up, capped to one page) followed
+by the photo pages. Distinct from an **Estimate** Section, which is a group
+of priced line items — the two share only the word and no code.
+_Avoid_: chapter, page, group
+
+**Photo Report template**:
+A saved, reusable set of Sections (headings plus optional boilerplate
+write-up text) that an Organization starts a new Photo Report from, so
+common report structures aren't retyped; the result stays fully editable.
+Belongs to one Organization. Distinct from an **Estimate** template, a
+separate feature (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)).
+_Avoid_: preset (in code — "preset" is older UI copy), report template (unqualified), layout
+
 **Estimate**:
 A priced proposal for a Job — line items grouped into sections, with markup,
 discount, and tax — that an Organization sends a customer for approval. The
@@ -181,6 +206,8 @@ _Avoid_: stage, pipeline status, partner status
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
+- A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …).
+- A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
 
 ## Example dialogue
 
@@ -191,3 +218,5 @@ _Avoid_: stage, pipeline status, partner status
 
 - "auth gate" was used for four near-identical route helpers (`requirePermission`, `requireAdmin`, `requireViewAccounting`, and an inline `requireLogExpenses`) — resolved: these collapse into the one **Request Context** wrapper.
 - "active" was being used for two unrelated concepts in `src/lib/accounting/margins.ts`: (a) a job with financial activity in a reporting period, and (b) a non-completed job (the user-facing filter pill on the Job Profitability page, which also folds cancelled jobs in with active ones). Neither matches the canonical **Active job** definition above. The dashboard rebuild adopts the canonical meaning; the accounting page is left as-is for now but is a cleanup candidate.
+- "section" is used for two unrelated concepts: an **Estimate** Section (a group of priced line items) and a **Photo Report** Section (a heading + one-page write-up + photos). Resolved: both keep the word but are always qualified by their document ("Estimate section" vs "Photo Report section"); they share no table, type, or component.
+- "template" is likewise overloaded: an **Estimate** template (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)) and a **Photo Report** template. Resolved: always qualify by document. Note the older Photo-Report builder UI also called these "presets" — the canonical term is **Photo Report template**; "preset" is an alias to retire.
