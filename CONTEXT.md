@@ -122,6 +122,19 @@ not active. The dashboard's "Jobs to advance" and "People to respond to"
 sections both filter to Active jobs only.
 _Avoid_: open job, current job, running job, in-progress job (that one is a specific status, not the whole alive set)
 
+**Estimate**:
+A priced proposal for a Job — line items grouped into sections, with markup,
+discount, and tax — that an Organization sends a customer for approval. The
+primary billing document, and the only thing an Invoice can be made from.
+_Avoid_: quote, proposal, bid (quote/bid fine in UI copy)
+
+**Invoice**:
+A request for payment for a Job, created only by converting an Estimate —
+never authored on its own. Unlike an Estimate it carries a due date, a payment
+state, and QuickBooks sync; a deposit or staged payment is a partial payment on
+the single Invoice, never a second Invoice.
+_Avoid_: bill (fine in UI copy), receipt
+
 **Target**:
 A row on the Referral Partners call list whose Lifecycle status is still
 Uncontacted (grey) or In progress (yellow) — i.e. someone we want to call
@@ -160,6 +173,7 @@ _Avoid_: stage, pipeline status, partner status
 - A **Job tag** ties one text or call event to exactly zero or one **Job**. A single Conversation may contain events with several different Job tags (or none).
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
+- A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
 
 ## Example dialogue
 
