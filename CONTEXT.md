@@ -122,6 +122,13 @@ not active. The dashboard's "Jobs to advance" and "People to respond to"
 sections both filter to Active jobs only.
 _Avoid_: open job, current job, running job, in-progress job (that one is a specific status, not the whole alive set)
 
+**Photo**:
+A single image — or short video — captured on a Job and shown in the Job's
+Photos tab. Belongs to exactly one Job. Distinct from a **File**: the Job's
+Files tab holds documents/attachments, which are a separate feature. When
+someone refers loosely to "the job's file" of pictures, they mean Photos.
+_Avoid_: image, attachment, media; "file" (that's the separate documents feature)
+
 **Estimate**:
 A priced proposal for a Job — line items grouped into sections, with markup,
 discount, and tax — that an Organization sends a customer for approval. The
