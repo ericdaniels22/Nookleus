@@ -4,7 +4,7 @@
 // the SQL delete, since the related rows hold the paths.
 //
 // Buckets touched (matches src/lib/storage/paths.ts):
-//   photos       — photos.{storage_path,annotated_path,thumbnail_path}
+//   photos       — photos.{storage_path,annotated_path}
 //   job-files    — job_files.storage_path
 //   reports      — photo_reports.pdf_path
 //   contracts    — contracts.signed_pdf_path
@@ -37,7 +37,7 @@ export async function purgeJobStorage(
     await Promise.all([
       authedClient
         .from("photos")
-        .select("storage_path, annotated_path, thumbnail_path")
+        .select("storage_path, annotated_path")
         .eq("job_id", jobId),
       authedClient
         .from("job_files")
@@ -58,7 +58,7 @@ export async function purgeJobStorage(
     ]);
 
   const photoPaths = (photosRes.data ?? []).flatMap((p) =>
-    [p.storage_path, p.annotated_path, p.thumbnail_path].filter(
+    [p.storage_path, p.annotated_path].filter(
       (v): v is string => typeof v === "string" && v.length > 0,
     ),
   );

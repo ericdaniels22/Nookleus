@@ -11,7 +11,6 @@ CREATE TABLE photos (
   job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   storage_path text NOT NULL,
   annotated_path text,
-  thumbnail_path text,
   caption text,
   taken_at timestamptz,
   taken_by text NOT NULL DEFAULT 'Eric',

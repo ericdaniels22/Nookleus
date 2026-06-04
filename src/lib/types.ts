@@ -157,7 +157,6 @@ export interface Photo {
   job_id: string;
   storage_path: string;
   annotated_path: string | null;
-  thumbnail_path: string | null;
   caption: string | null;
   taken_at: string | null;
   taken_by: string;

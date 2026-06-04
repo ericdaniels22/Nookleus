@@ -16,7 +16,6 @@ function photo(overrides: Partial<Photo> = {}): Photo {
     job_id: "job-1",
     storage_path: "job-1/original.jpg",
     annotated_path: null,
-    thumbnail_path: "job-1/thumb.jpg",
     caption: null,
     taken_at: null,
     taken_by: "user-1",
