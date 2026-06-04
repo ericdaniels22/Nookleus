@@ -4,7 +4,6 @@ import {
   Briefcase,
   Users,
   Camera,
-  FileText,
   Mail,
   Phone,
   Settings,
@@ -51,7 +50,9 @@ export const navItems: NavItem[] = [
   { href: "/intake",    label: "New Intake", icon: ClipboardPlus },
   { href: "/jobs",      label: "Jobs",       icon: Briefcase },
   { href: "/photos",    label: "Photos",     icon: Camera },
-  { href: "/reports",   label: "Reports",    icon: FileText },
+  // Photo Reports are reached only through their Job now (#400 / ADR 0009): the
+  // standalone /reports area was removed. Created from a Job's Photos tab,
+  // listed/reopened from the Job's Overview tab.
   { href: "/contacts",  label: "Contacts",   icon: Users },
   // Phone sits between Contacts and Email (PRD #304 / #306). Gated on
   // view_phone — defaults Admin=ON, Crew Lead=ON, Crew Member=OFF.

@@ -42,6 +42,8 @@ interface ReportPDFProps {
   reportDate: string;
   pages: DocumentPage[];
   photos: Record<string, ReportPhoto>;
+  /** The report's creator name, for the cover's "Prepared by {name}" line. */
+  preparedBy?: string | null;
 }
 
 export default function ReportPDFDocument({
@@ -52,6 +54,7 @@ export default function ReportPDFDocument({
   reportDate,
   pages,
   photos,
+  preparedBy,
 }: ReportPDFProps) {
   const customerName = coverPageData.customerName;
 
@@ -66,6 +69,7 @@ export default function ReportPDFDocument({
               title={title}
               coverPhotoUrl={coverPhotoUrl}
               logoUrl={logoUrl}
+              preparedBy={preparedBy}
             />
           );
         }

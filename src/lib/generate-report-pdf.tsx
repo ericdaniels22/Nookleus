@@ -200,6 +200,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       reportDate={report.report_date}
       pages={documentPages}
       photos={photos}
+      preparedBy={report.created_by}
     />,
   ).toBlob();
 
