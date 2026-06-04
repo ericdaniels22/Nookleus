@@ -7,6 +7,7 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
+import { OFFICIAL_INVOICE_STATUSES } from "@/lib/invoice-status";
 import FinancialsTab from "@/components/job-detail/financials-tab";
 import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
 import { Badge } from "@/components/ui/badge";
@@ -147,9 +148,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .order("created_at", { ascending: false }),
       supabase
         .from("invoices")
-        .select("id, total_amount")
+        .select("id, invoice_number, title, total_amount, status")
         .eq("job_id", jobId)
-        .is("deleted_at", null),
+        .is("deleted_at", null)
+        .in("status", [...OFFICIAL_INVOICE_STATUSES]),
       supabase
         .from("photos")
         .select("*")
@@ -486,6 +488,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         const collected = payments
           .filter((p) => p.status === "received")
           .reduce((sum, p) => sum + Number(p.amount), 0);
+        // `invoices` is fetched official-only (sent/partial/paid), so this is
+        // the official Invoiced total — drafts/voided are never summed.
         const invoiced = invoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0);
         const crewLabor = job.estimated_crew_labor_cost ?? 0;
         const gross_margin = collected - expensesTotal - crewLabor;
@@ -494,6 +498,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           <FinancialsTab
             jobId={jobId}
             payments={payments}
+            invoices={invoices}
             summary={{
               invoiced,
               collected,

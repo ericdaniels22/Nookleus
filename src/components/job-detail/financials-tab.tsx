@@ -3,10 +3,12 @@
 import type { Payment } from "@/lib/types";
 import BillingSection from "@/components/billing/billing-section";
 import ExpensesSection from "@/components/expenses/expenses-section";
+import { FinancialsInvoiceList, type FinancialsInvoice } from "./financials-invoice-list";
 
 type Props = {
   jobId: string;
   payments: Payment[];
+  invoices: FinancialsInvoice[];
   summary: {
     invoiced: number;
     collected: number;
@@ -35,6 +37,7 @@ function fmtCurrency(n: number): string {
 export default function FinancialsTab({
   jobId,
   payments,
+  invoices,
   summary,
   onPaymentRecorded,
   onExpenseLogged,
@@ -60,6 +63,8 @@ export default function FinancialsTab({
           }
         />
       </div>
+
+      <FinancialsInvoiceList invoices={invoices} />
 
       <BillingSection
         jobId={jobId}
