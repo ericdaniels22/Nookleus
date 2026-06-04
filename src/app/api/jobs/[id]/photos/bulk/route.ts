@@ -17,7 +17,7 @@ export const DELETE = withRequestContext(
 
     const { data: photos, error: fetchError } = await supabase
       .from("photos")
-      .select("id, storage_path, annotated_path, thumbnail_path")
+      .select("id, storage_path, annotated_path")
       .eq("job_id", jobId)
       .in("id", photoIds);
 
@@ -33,7 +33,6 @@ export const DELETE = withRequestContext(
     for (const photo of photos) {
       storagePaths.push(photo.storage_path);
       if (photo.annotated_path) storagePaths.push(photo.annotated_path);
-      if (photo.thumbnail_path) storagePaths.push(photo.thumbnail_path);
       const ext = photo.storage_path.split(".").pop();
       const basePath = photo.storage_path.replace(`.${ext}`, "");
       storagePaths.push(`${basePath}-original.${ext}`);

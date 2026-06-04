@@ -3,27 +3,10 @@ import { resolveCoverPhotoUrl } from "./cover-photo";
 
 const SUPABASE_URL = "https://proj.supabase.co";
 
-describe("resolveCoverPhotoUrl — cover with thumbnail", () => {
-  it("returns the thumbnail URL when the cover photo has a thumbnail", () => {
+describe("resolveCoverPhotoUrl — cover with annotation", () => {
+  it("prefers the annotated image over the original", () => {
     const url = resolveCoverPhotoUrl(
       {
-        thumbnail_path: "thumbs/abc.jpg",
-        annotated_path: "annotated/abc.jpg",
-        storage_path: "originals/abc.jpg",
-      },
-      SUPABASE_URL,
-    );
-    expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/object/public/photos/thumbs/abc.jpg",
-    );
-  });
-});
-
-describe("resolveCoverPhotoUrl — cover without thumbnail", () => {
-  it("falls back to the annotated image when there is no thumbnail", () => {
-    const url = resolveCoverPhotoUrl(
-      {
-        thumbnail_path: null,
         annotated_path: "annotated/abc.jpg",
         storage_path: "originals/abc.jpg",
       },
@@ -33,11 +16,12 @@ describe("resolveCoverPhotoUrl — cover without thumbnail", () => {
       "https://proj.supabase.co/storage/v1/object/public/photos/annotated/abc.jpg",
     );
   });
+});
 
-  it("falls back to the original image when there is no thumbnail or annotation", () => {
+describe("resolveCoverPhotoUrl — cover without annotation", () => {
+  it("falls back to the original image when there is no annotation", () => {
     const url = resolveCoverPhotoUrl(
       {
-        thumbnail_path: null,
         annotated_path: null,
         storage_path: "originals/abc.jpg",
       },
