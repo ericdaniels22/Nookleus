@@ -43,6 +43,17 @@ export interface PdfRenderResult {
   filename: string;
 }
 
+/**
+ * Output of the render-only helpers: the PDF bytes plus the identifiers the
+ * upload path needs to build its Storage key and download filename.
+ * `documentNumber` is the estimate_number / invoice_number.
+ */
+export interface RenderedPdf {
+  buffer: Buffer;
+  documentNumber: string;
+  jobNumber: string;
+}
+
 export interface RenderEstimatePdfArgs {
   supabase: SupabaseClient;
   estimateId: string;
@@ -113,9 +124,16 @@ async function loadRecipient(
   return { recipient, jobNumber: job?.job_number ?? "JOB-UNKNOWN" };
 }
 
-export async function renderAndUploadEstimatePdf(
+/**
+ * Render-only core: load the estimate + its contents, resolve the preset,
+ * and produce the PDF buffer — WITHOUT touching Storage. The inline-preview
+ * route (#385) uses this directly so a View stays a pure read; the
+ * upload variant below layers Storage persistence on top. Returns the
+ * document/job numbers the upload path needs for its Storage key + filename.
+ */
+export async function renderEstimatePdfBuffer(
   args: RenderEstimatePdfArgs,
-): Promise<PdfRenderResult> {
+): Promise<RenderedPdf> {
   const { supabase, estimateId, presetId, orgId } = args;
 
   const { data: doc } = await supabase
@@ -156,7 +174,17 @@ export async function renderAndUploadEstimatePdf(
     jobNumber,
   });
 
-  const path = estimatePdfPath(orgId, jobNumber, doc.estimate_number);
+  return { buffer, documentNumber: doc.estimate_number, jobNumber };
+}
+
+export async function renderAndUploadEstimatePdf(
+  args: RenderEstimatePdfArgs,
+): Promise<PdfRenderResult> {
+  const { orgId } = args;
+  const { buffer, documentNumber, jobNumber } = await renderEstimatePdfBuffer(args);
+
+  const service = createServiceClient();
+  const path = estimatePdfPath(orgId, jobNumber, documentNumber);
   const { error: upErr } = await service.storage
     .from("pdfs")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
@@ -173,13 +201,19 @@ export async function renderAndUploadEstimatePdf(
     buffer,
     storage_path: path,
     download_url: signed.signedUrl,
-    filename: `${doc.estimate_number}.pdf`,
+    filename: `${documentNumber}.pdf`,
   };
 }
 
-export async function renderAndUploadInvoicePdf(
+/**
+ * Render-only core for invoices — the invoice twin of
+ * renderEstimatePdfBuffer. Loads the invoice + contents, resolves the preset,
+ * and produces the PDF buffer without touching Storage, for the inline
+ * preview route (#385).
+ */
+export async function renderInvoicePdfBuffer(
   args: RenderInvoicePdfArgs,
-): Promise<PdfRenderResult> {
+): Promise<RenderedPdf> {
   const { supabase, invoiceId, presetId, orgId } = args;
 
   const { data: doc } = await supabase
@@ -220,7 +254,17 @@ export async function renderAndUploadInvoicePdf(
     jobNumber,
   });
 
-  const path = invoicePdfPath(orgId, jobNumber, doc.invoice_number);
+  return { buffer, documentNumber: doc.invoice_number, jobNumber };
+}
+
+export async function renderAndUploadInvoicePdf(
+  args: RenderInvoicePdfArgs,
+): Promise<PdfRenderResult> {
+  const { orgId } = args;
+  const { buffer, documentNumber, jobNumber } = await renderInvoicePdfBuffer(args);
+
+  const service = createServiceClient();
+  const path = invoicePdfPath(orgId, jobNumber, documentNumber);
   const { error: upErr } = await service.storage
     .from("pdfs")
     .upload(path, buffer, { contentType: "application/pdf", upsert: true });
@@ -237,6 +281,6 @@ export async function renderAndUploadInvoicePdf(
     buffer,
     storage_path: path,
     download_url: signed.signedUrl,
-    filename: `${doc.invoice_number}.pdf`,
+    filename: `${documentNumber}.pdf`,
   };
 }

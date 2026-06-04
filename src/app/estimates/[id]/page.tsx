@@ -4,18 +4,11 @@ import { AlertCircle, ArrowLeft, FileText, Pencil } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
-import { formatCurrency } from "@/lib/format";
-import { formatPhoneNumber } from "@/lib/phone";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
-import { JOB_WITH_HOMEOWNER_EMBED } from "@/lib/embeds/jobs-contacts";
-import { ItemsTable } from "./estimate-items-table";
-import type {
-  Contact,
-  Job,
-} from "@/lib/types";
+import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local ErrorPage helper — mirrors the pattern in /estimates/[id]/edit/page.tsx
@@ -47,7 +40,8 @@ function ErrorPage({ title, message, backHref, backLabel }: ErrorPageProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page
+// Page — #385: View shows the real customer-facing PDF inline. Line-item
+// editing lives in the builder (the Edit link), never here.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function EstimateViewPage({
@@ -73,32 +67,12 @@ export default async function EstimateViewPage({
     );
   }
 
-  // 2. Fetch estimate with its sections + line items.
+  // 2. Fetch the estimate for the header chrome (number, status, title, the
+  //    parent-job back-link). The document body itself is the rendered PDF.
   const estimate = await getEstimateWithContents(id, supabase);
   if (!estimate) notFound();
 
-  // 3. Fetch parent job with contact joined.
-  //    Destructure error separately (Task 19 lesson).
-  const { data: job, error: jobErr } = await supabase
-    .from("jobs")
-    .select(JOB_WITH_HOMEOWNER_EMBED)
-    .eq("id", estimate.job_id)
-    .maybeSingle<Job & { contact: Contact | null }>();
-
-  if (jobErr) {
-    return (
-      <ErrorPage
-        title="Could not load job"
-        message={jobErr.message}
-        backHref="/jobs"
-        backLabel="Back to jobs"
-      />
-    );
-  }
-
-  if (!job) notFound();
-
-  // 4. Check edit permission for the conditional Edit button (server-side).
+  // 3. Check edit permission for the conditional Edit button (server-side).
   const editAuth = await requirePagePermission(supabase, {
     permission: "edit_estimates",
   });
@@ -107,9 +81,6 @@ export default async function EstimateViewPage({
   // ── Derived display values ─────────────────────────────────────────────────
   const isVoided = estimate.status === "voided";
   const statusLabel = formatStatusLabel(estimate.status);
-
-  const contact = job.contact;
-  const contactName = contact ? contact.full_name.trim() : null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -195,199 +166,11 @@ export default async function EstimateViewPage({
         )}
       </div>
 
-      {/* ── CUSTOMER BLOCK ──────────────────────────────────────────────────── */}
-      {contact && (
-        <div className="rounded-lg border border-border bg-card px-5 py-4 space-y-0.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
-            Customer
-          </p>
-          {contactName && (
-            <p className="font-semibold text-foreground">{contactName}</p>
-          )}
-          {contact.company && (
-            <p className="text-sm text-muted-foreground">{contact.company}</p>
-          )}
-          {job.property_address && (
-            <p className="text-sm text-muted-foreground">
-              {job.property_address}
-            </p>
-          )}
-          {contact.email && (
-            <p className="text-sm text-muted-foreground">{contact.email}</p>
-          )}
-          {contact.phone && (
-            <p className="text-sm text-muted-foreground">{formatPhoneNumber(contact.phone)}</p>
-          )}
-        </div>
-      )}
-
-      {/* ── METADATA ROW ────────────────────────────────────────────────────── */}
-      {(estimate.issued_date || estimate.valid_until) && (
-        <div className="flex gap-6 flex-wrap text-sm">
-          {estimate.issued_date && (
-            <div>
-              <span className="text-muted-foreground">Issued: </span>
-              <span className="font-medium text-foreground">
-                {new Date(estimate.issued_date).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </span>
-            </div>
-          )}
-          {estimate.valid_until && (
-            <div>
-              <span className="text-muted-foreground">Valid until: </span>
-              <span className="font-medium text-foreground">
-                {new Date(estimate.valid_until).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── OPENING STATEMENT ───────────────────────────────────────────────── */}
-      {estimate.opening_statement && estimate.opening_statement.trim() && (
-        <div className="rounded-lg border border-border bg-card px-5 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
-            Opening Statement
-          </p>
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: estimate.opening_statement }}
-          />
-        </div>
-      )}
-
-      {/* ── SECTIONS LIST ───────────────────────────────────────────────────── */}
-      {estimate.sections.length === 0 ? (
-        <p className="italic text-muted-foreground text-sm">
-          No line items on this estimate.
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {estimate.sections.map((sec) => (
-            <section
-              key={sec.id}
-              className="rounded-lg border border-border bg-card px-5 py-4 space-y-3"
-            >
-              <h3 className="text-base font-semibold text-foreground">
-                {sec.title}
-              </h3>
-
-              {/* Direct items on the section */}
-              {sec.items.length > 0 && <ItemsTable items={sec.items} />}
-
-              {/* Nested subsections */}
-              {sec.subsections.map((sub) => (
-                <div key={sub.id} className="ml-4 space-y-2">
-                  <h4 className="text-sm font-medium text-muted-foreground">
-                    {sub.title}
-                  </h4>
-                  {sub.items.length > 0 && <ItemsTable items={sub.items} />}
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-      )}
-
-      {/* ── CLOSING STATEMENT ───────────────────────────────────────────────── */}
-      {estimate.closing_statement && estimate.closing_statement.trim() && (
-        <div className="rounded-lg border border-border bg-card px-5 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
-            Closing Statement
-          </p>
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: estimate.closing_statement }}
-          />
-        </div>
-      )}
-
-      {/* ── TOTALS STACK ────────────────────────────────────────────────────── */}
-      <div className="flex justify-end">
-        <div className="w-full max-w-sm rounded-lg border border-border bg-card px-5 py-4 space-y-2 text-sm">
-          {/* Subtotal */}
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span className="tabular-nums">{formatCurrency(estimate.subtotal)}</span>
-          </div>
-
-          {/* Markup row — only when markup_type !== "none" */}
-          {estimate.markup_type !== "none" && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Markup (
-                {estimate.markup_type === "percent"
-                  ? `${estimate.markup_value}%`
-                  : formatCurrency(estimate.markup_value)}
-                )
-              </span>
-              <span className="tabular-nums">
-                {formatCurrency(estimate.markup_amount)}
-              </span>
-            </div>
-          )}
-
-          {/* Discount row — only when discount_type !== "none" */}
-          {estimate.discount_type !== "none" && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Discount (
-                {estimate.discount_type === "percent"
-                  ? `${estimate.discount_value}%`
-                  : formatCurrency(estimate.discount_value)}
-                )
-              </span>
-              <span className="tabular-nums text-destructive">
-                −{formatCurrency(estimate.discount_amount)}
-              </span>
-            </div>
-          )}
-
-          {/* Adjusted subtotal — show when there's a markup or discount */}
-          {(estimate.markup_type !== "none" ||
-            estimate.discount_type !== "none") && (
-            <div className="flex justify-between border-t border-border pt-2">
-              <span className="text-muted-foreground">Adjusted subtotal</span>
-              <span className="tabular-nums">
-                {formatCurrency(estimate.adjusted_subtotal)}
-              </span>
-            </div>
-          )}
-
-          {/* Tax row */}
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">
-              Tax ({estimate.tax_rate}%)
-            </span>
-            <span className="tabular-nums">
-              {formatCurrency(estimate.tax_amount)}
-            </span>
-          </div>
-
-          {/* Total */}
-          <div className="flex justify-between border-t border-border pt-2">
-            <span className="font-semibold text-foreground text-base">Total</span>
-            <span className="tabular-nums font-bold text-base text-foreground">
-              {formatCurrency(estimate.total)}
-            </span>
-          </div>
-
-          {/* Negative total warning */}
-          {estimate.total < 0 && (
-            <p className="text-xs text-muted-foreground italic">
-              Note: total is negative — check markup and discount values.
-            </p>
-          )}
-        </div>
-      </div>
+      {/* ── INLINE PDF (the real customer-facing document) ──────────────────── */}
+      <PdfPreviewFrame
+        src={`/api/estimates/${id}/preview`}
+        title={`Estimate ${estimate.estimate_number}`}
+      />
     </div>
   );
 }

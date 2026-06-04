@@ -8,7 +8,7 @@ import { PaymentRequestModal } from "@/components/payments/payment-request-modal
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
-import { InvoiceItemsTable } from "@/components/invoices/invoice-items-table";
+import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import type { InvoiceWithContents } from "@/lib/types";
 
@@ -97,61 +97,15 @@ export default function InvoiceReadOnlyClient({
 
       <h2 className="text-xl">{invoice.title}</h2>
 
-      {invoice.opening_statement && (
-        <div
-          className="prose prose-sm mt-4"
-          dangerouslySetInnerHTML={{ __html: invoice.opening_statement }}
+      {/* ── INLINE PDF (the real customer-facing document) ──────────────────── */}
+      {/* #385: View shows the real PDF, not an HTML re-render. Line-item
+          editing lives in the builder (the Edit link), never here. */}
+      <div className="mt-4">
+        <PdfPreviewFrame
+          src={`/api/invoices/${invoice.id}/preview`}
+          title={`Invoice ${invoice.invoice_number}`}
         />
-      )}
-
-      <div className="mt-6 space-y-4">
-        {invoice.sections.map((s) => (
-          <div key={s.id} className="rounded-lg border border-border p-4">
-            <h3 className="font-semibold">{s.title}</h3>
-            <div className="overflow-x-auto">
-              <InvoiceItemsTable section={s} />
-            </div>
-          </div>
-        ))}
       </div>
-
-      <div className="mt-6 ml-auto w-80 space-y-1 text-sm">
-        <div className="flex justify-between">
-          <span>Subtotal</span>
-          <span>${invoice.subtotal.toFixed(2)}</span>
-        </div>
-        {invoice.markup_amount > 0 && (
-          <div className="flex justify-between">
-            <span>Markup</span>
-            <span>${invoice.markup_amount.toFixed(2)}</span>
-          </div>
-        )}
-        {invoice.discount_amount > 0 && (
-          <div className="flex justify-between">
-            <span>Discount</span>
-            <span>−${invoice.discount_amount.toFixed(2)}</span>
-          </div>
-        )}
-        <div className="flex justify-between font-semibold">
-          <span>Adjusted</span>
-          <span>${invoice.adjusted_subtotal.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Tax ({invoice.tax_rate}%)</span>
-          <span>${invoice.tax_amount.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between text-lg font-bold border-t pt-1">
-          <span>Total</span>
-          <span>${invoice.total_amount.toFixed(2)}</span>
-        </div>
-      </div>
-
-      {invoice.closing_statement && (
-        <div
-          className="prose prose-sm mt-4"
-          dangerouslySetInnerHTML={{ __html: invoice.closing_statement }}
-        />
-      )}
 
       <RecordPaymentModal
         invoiceId={invoice.id}
