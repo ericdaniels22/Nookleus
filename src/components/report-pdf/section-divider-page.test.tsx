@@ -103,4 +103,142 @@ describe("SectionDividerPage", () => {
     expect(text).toContain("Living Room");
     expect(text).toContain("2 / 5");
   });
+
+  // ── The write-up is rich text (issue #403) ─────────────────────────────────
+  // The Section write-up is now HTML authored in the TipTap editor, stored in
+  // `description`. The intro page renders it through the shared HTML→PDF
+  // mapping, so a bullet list becomes real bullet rows rather than the literal
+  // `<ul>…</ul>` source string.
+  it("renders a bullet-list write-up as bullet rows, not raw HTML", () => {
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Findings"
+        description="<ul><li>Buckled flooring</li><li>Standing water</li></ul>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={2}
+        totalPages={9}
+      />,
+    );
+
+    const text = collectText(tree);
+    // Bullet glyph + item text, emitted by htmlToPdfNodes.
+    expect(text).toContain("• Buckled flooring");
+    expect(text).toContain("• Standing water");
+    // The raw list tags must not leak into the rendered text.
+    expect(text).not.toContain("<ul>");
+    expect(text).not.toContain("<li>");
+  });
+
+  it("renders a numbered-list write-up with 1./2. markers", () => {
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Work performed"
+        description="<ol><li>Extracted standing water</li><li>Set air movers</li></ol>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={3}
+        totalPages={9}
+      />,
+    );
+
+    const text = collectText(tree);
+    expect(text).toContain("1. Extracted standing water");
+    expect(text).toContain("2. Set air movers");
+    expect(text).not.toContain("<ol>");
+  });
+
+  it("renders bold and italic runs from the write-up as styled text", () => {
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Findings"
+        description="<p>Severe <strong>structural</strong> and <em>cosmetic</em> damage.</p>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={2}
+        totalPages={9}
+      />,
+    );
+
+    expect(collectText(tree)).toContain("Severe structural and cosmetic damage.");
+
+    const boldRun = findAll(
+      tree,
+      (n) => n.type === "TEXT" && n.props.children === "structural",
+    )
+      .map((n) => flattenStyle(n.props.style))
+      .find((s) => s.fontWeight === "bold");
+    expect(boldRun).toBeDefined();
+
+    const italicRun = findAll(
+      tree,
+      (n) => n.type === "TEXT" && n.props.children === "cosmetic",
+    )
+      .map((n) => flattenStyle(n.props.style))
+      .find((s) => s.fontStyle === "italic");
+    expect(italicRun).toBeDefined();
+  });
+
+  it("renders heading-only (no block) for a TipTap-empty write-up", () => {
+    // TipTap serialises a blank editor as `<p></p>`; a stray space saves as
+    // `<p> </p>`. Neither must produce a write-up block on the intro page.
+    for (const description of ["<p></p>", "<p>   </p>"]) {
+      const tree = expandTree(
+        <SectionDividerPage
+          title="Just photos"
+          description={description}
+          customerName="Jane Doe"
+          reportDate="2026-05-19"
+          pageNumber={2}
+          totalPages={9}
+        />,
+      );
+
+      const text = collectText(tree);
+      expect(text).toContain("Just photos");
+      expect(text).not.toContain("<p>");
+      // No bullet or list markers where an empty write-up would have rendered.
+      expect(text).not.toContain("•");
+    }
+  });
+
+  it("renders a heading-in-write-up as clean text, never the raw <h2> source", () => {
+    // The bare-StarterKit editor lets a user produce a heading (e.g. "## ").
+    // The intro page must show its text, not leak `h2>` or the literal tag.
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Findings"
+        description="<h2>Demo Findings</h2><p>Water intrusion along the north wall.</p>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={2}
+        totalPages={9}
+      />,
+    );
+
+    const text = collectText(tree);
+    expect(text).toContain("Demo Findings");
+    expect(text).toContain("Water intrusion along the north wall.");
+    expect(text).not.toContain("h2>");
+    expect(text).not.toContain("<h2");
+  });
+
+  it("renders heading-only when the write-up is an emptied list (no stray bullet block)", () => {
+    // A user who starts a bullet then clears it can leave an empty list behind;
+    // that is still an empty write-up — heading only, no blank bullet.
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Just photos"
+        description="<ul><li><p></p></li></ul>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={2}
+        totalPages={9}
+      />,
+    );
+
+    const text = collectText(tree);
+    expect(text).toContain("Just photos");
+    expect(text).not.toContain("•");
+  });
 });

@@ -637,4 +637,51 @@ describe("buildReportDocument", () => {
       1, 2, 3, 4, 5, 6,
     ]);
   });
+
+  it("plans cover → per-Section intro → photo pages, forwarding each Section's rich-text write-up to its intro page", () => {
+    // Issue #403: the section divider is the Section's intro page (heading +
+    // write-up). The planner keeps its interface — it forwards the write-up
+    // HTML verbatim on the divider and the renderer maps it to PDF primitives.
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Findings",
+          description: "<p>What we found.</p><ul><li>Buckled flooring</li></ul>",
+          photoIds: ["a", "b"],
+        }),
+        makeSection({
+          title: "Work performed",
+          description: "<p>What we did.</p>",
+          photoIds: ["c"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+      },
+      photosPerPage: 2,
+    });
+
+    // Each Section's intro page sits immediately before that Section's photos.
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const intros = pages.filter((p) => p.kind === "sectionDivider") as Extract<
+      DocumentPage,
+      { kind: "sectionDivider" }
+    >[];
+    expect(intros.map((d) => d.title)).toEqual(["Findings", "Work performed"]);
+    // Write-up HTML is passed through untouched (the renderer, not the planner,
+    // turns it into paragraphs / bullet rows).
+    expect(intros[0].description).toBe(
+      "<p>What we found.</p><ul><li>Buckled flooring</li></ul>",
+    );
+    expect(intros[1].description).toBe("<p>What we did.</p>");
+  });
 });

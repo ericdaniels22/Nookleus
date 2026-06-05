@@ -36,4 +36,17 @@ describe("normalizeSectionWriteup", () => {
     const html = "<p>Significant <strong>water</strong> damage</p>";
     expect(normalizeSectionWriteup(html)).toBe(html);
   });
+
+  it("treats a heading-only write-up as rich text, not plain (no wholesale escaping)", () => {
+    // The bare-StarterKit editor can emit a heading with no wrapping <p> (e.g.
+    // typing "## Findings"). It must reach the renderer as HTML, not be escaped
+    // and shown to the customer as literal `<h2>…</h2>` source.
+    const html = "<h2>Findings</h2>";
+    expect(normalizeSectionWriteup(html)).toBe(html);
+  });
+
+  it("treats a code-block-only write-up as rich text, not plain", () => {
+    const html = "<pre><code>const x = 1;</code></pre>";
+    expect(normalizeSectionWriteup(html)).toBe(html);
+  });
 });
