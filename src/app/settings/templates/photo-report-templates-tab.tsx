@@ -26,6 +26,12 @@ export function PhotoReportTemplatesTab() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] =
     useState<PhotoReportTemplate | null>(null);
+  // Bumped on every open so the builder re-mounts and its form reseeds from
+  // `editingTemplate` — the builder's useState initializers run once per mount,
+  // so a persistently-mounted builder would otherwise keep the previous (or
+  // empty) template's data (issue #440). Keying the always-mounted builder this
+  // way preserves the dialog's open/close animation and focus restoration.
+  const [builderSession, setBuilderSession] = useState(0);
   const [seeding, setSeeding] = useState(false);
 
   const fetchTemplates = useCallback(async () => {
@@ -66,11 +72,13 @@ export function PhotoReportTemplatesTab() {
   function handleEdit(template: PhotoReportTemplate) {
     setEditingTemplate(template);
     setBuilderOpen(true);
+    setBuilderSession((n) => n + 1);
   }
 
   function handleCreate() {
     setEditingTemplate(null);
     setBuilderOpen(true);
+    setBuilderSession((n) => n + 1);
   }
 
   async function handleSeedDefaults() {
@@ -229,6 +237,7 @@ export function PhotoReportTemplatesTab() {
       )}
 
       <ReportTemplateBuilder
+        key={builderSession}
         open={builderOpen}
         onOpenChange={(open) => {
           setBuilderOpen(open);
