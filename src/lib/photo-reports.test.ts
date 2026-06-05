@@ -18,11 +18,17 @@ import { createPhotoReportDraft } from "./photo-reports";
 //     subset of requested ids that "belong" to the Job. By default every
 //     requested id is owned; pass `ownedPhotoIds` to simulate cross-Job/unknown
 //     ids being filtered out.
+//   - photo_report_templates: the select chain ends in `.maybeSingle()`, which
+//     resolves to `opts.template` (or null when the id resolves to nothing —
+//     e.g. a deleted template or another Organization's id dropped by RLS).
 // `inserted` exposes the captured insert payload so a test can assert exactly
 // what was written.
 function fakeSupabase(
   existing: Array<{ report_number: number | null }>,
-  opts: { ownedPhotoIds?: string[] } = {},
+  opts: {
+    ownedPhotoIds?: string[];
+    template?: Record<string, unknown> | null;
+  } = {},
 ) {
   let inserted: Record<string, unknown> | null = null;
   const client = {
@@ -42,6 +48,11 @@ function fakeSupabase(
       };
       builder.single = async () => ({
         data: { id: "report-1", ...inserted },
+        error: null,
+      });
+      builder.maybeSingle = async () => ({
+        data:
+          table === "photo_report_templates" ? (opts.template ?? null) : null,
         error: null,
       });
       builder.then = (resolve: (r: unknown) => void) => {
@@ -147,5 +158,106 @@ describe("createPhotoReportDraft", () => {
     });
 
     expect(supabase.inserted).toMatchObject({ title: "Roof damage — initial" });
+  });
+
+  it("seeds Sections from a template (heading + boilerplate) and appends a Photos section for the selection", async () => {
+    const supabase = fakeSupabase([], {
+      template: {
+        id: "tmpl-1",
+        sections: [
+          { title: "Findings", description: "<p>Findings boilerplate</p>" },
+          { title: "Work Performed", description: "<p>Work boilerplate</p>" },
+        ],
+      },
+    });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1", "p2"],
+      templateId: "tmpl-1",
+    });
+
+    // template_id is recorded as provenance only; the Sections come from the
+    // template's boilerplate (with no photos), and the selected photos land in a
+    // separate, appended Photos section the user can redistribute.
+    expect(supabase.inserted?.template_id).toBe("tmpl-1");
+    expect(supabase.inserted?.sections).toEqual([
+      {
+        title: "Findings",
+        description: "<p>Findings boilerplate</p>",
+        photo_ids: [],
+      },
+      {
+        title: "Work Performed",
+        description: "<p>Work boilerplate</p>",
+        photo_ids: [],
+      },
+      { title: "Photos", description: "", photo_ids: ["p1", "p2"] },
+    ]);
+  });
+
+  it("still numbers per Job and stamps the preparer when starting from a template", async () => {
+    const supabase = fakeSupabase([{ report_number: 4 }], {
+      template: {
+        id: "tmpl-1",
+        sections: [{ title: "Findings", description: "<p>x</p>" }],
+      },
+    });
+
+    const report = await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+      templateId: "tmpl-1",
+    });
+
+    expect(supabase.inserted).toMatchObject({
+      report_number: 5,
+      created_by: "Eric Daniels",
+      template_id: "tmpl-1",
+    });
+    expect(report.report_number).toBe(5);
+  });
+
+  it("omits the appended Photos section when no photos are selected", async () => {
+    const supabase = fakeSupabase([], {
+      template: {
+        id: "tmpl-1",
+        sections: [{ title: "Findings", description: "<p>x</p>" }],
+      },
+    });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: [],
+      templateId: "tmpl-1",
+    });
+
+    expect(supabase.inserted?.sections).toEqual([
+      { title: "Findings", description: "<p>x</p>", photo_ids: [] },
+    ]);
+  });
+
+  it("falls back to a blank Photos section when the template id resolves to nothing", async () => {
+    // template not found — deleted, or another Organization's id dropped by RLS.
+    const supabase = fakeSupabase([], { template: null });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+      templateId: "ghost",
+    });
+
+    expect(supabase.inserted?.template_id).toBeNull();
+    expect(supabase.inserted?.sections).toEqual([
+      { title: "Photos", description: "", photo_ids: ["p1"] },
+    ]);
   });
 });
