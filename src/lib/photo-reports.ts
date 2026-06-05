@@ -13,9 +13,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { PhotoReport } from "@/lib/types";
+import type { PhotoReport, PhotoReportTemplate } from "@/lib/types";
 import { nextReportNumber } from "./next-report-number";
 import { buildDefaultReportSections } from "./photo-report-builder";
+import { buildInitialSections } from "./build-initial-sections";
 
 export interface CreatePhotoReportDraftInput {
   organizationId: string;
@@ -26,6 +27,14 @@ export interface CreatePhotoReportDraftInput {
   photoIds: string[];
   /** Optional title; defaults to "Photo Report #N". */
   title?: string;
+  /**
+   * Optional Photo Report template to start from (#405). When set and the row
+   * resolves (it is fetched under the caller's RLS, so a foreign or deleted id
+   * simply resolves to nothing and is ignored), the report's Sections are seeded
+   * from the template's boilerplate and `template_id` is recorded as provenance
+   * only — it never binds rendering (ADR 0003 amendment, retained by ADR 0009).
+   */
+  templateId?: string | null;
 }
 
 export async function createPhotoReportDraft(
@@ -59,15 +68,32 @@ export async function createPhotoReportDraft(
   // report's sections JSONB. Mirrors the photos/bulk routes' job-scoped check.
   const photoIds = await ownedJobPhotoIds(supabase, input.jobId, input.photoIds);
 
+  // Resolve the optional template (#405). Fetched under the caller's RLS, so a
+  // foreign or deleted id resolves to nothing and the report falls back to the
+  // blank, single-Photos-section start. `template_id` is provenance only.
+  const template = await fetchTemplate(supabase, input.templateId);
+
+  const sections = template
+    ? // Start from the template's boilerplate Sections (heading + write-up, no
+      // photos), then append the user's selection as a separate Photos section
+      // they can redistribute in the builder. With nothing selected there is no
+      // Photos section to append.
+      [
+        ...buildInitialSections(template),
+        ...(photoIds.length > 0 ? buildDefaultReportSections(photoIds) : []),
+      ]
+    : buildDefaultReportSections(photoIds);
+
   const { data: report, error } = await supabase
     .from("photo_reports")
     .insert({
       organization_id: input.organizationId,
       job_id: input.jobId,
+      template_id: template?.id ?? null,
       title,
       report_number: reportNumber,
       created_by: input.preparerName,
-      sections: buildDefaultReportSections(photoIds),
+      sections,
       status: "draft",
     })
     .select("*")
@@ -76,6 +102,27 @@ export async function createPhotoReportDraft(
   if (!report) throw new Error("Photo report insert returned no row");
 
   return report;
+}
+
+/**
+ * Resolve an optional Photo Report template id to its row, or null. Runs under
+ * the caller's Supabase client, so RLS scopes the lookup to the caller's Active
+ * Organization — a foreign id (another Organization's, or a deleted one) simply
+ * resolves to null and the caller treats it as "start blank". Returns null
+ * without a round-trip when no id was given.
+ */
+async function fetchTemplate(
+  supabase: SupabaseClient,
+  templateId: string | null | undefined,
+): Promise<PhotoReportTemplate | null> {
+  if (!templateId) return null;
+  const { data, error } = await supabase
+    .from("photo_report_templates")
+    .select("*")
+    .eq("id", templateId)
+    .maybeSingle<PhotoReportTemplate>();
+  if (error) throw new Error(error.message);
+  return data ?? null;
 }
 
 /**

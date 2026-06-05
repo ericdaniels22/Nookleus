@@ -5,6 +5,8 @@ import { apiDbError } from "@/lib/api-errors";
 
 interface CreateReportPayload {
   photoIds?: string[];
+  /** Optional Photo Report template to start from (#405). */
+  templateId?: string;
 }
 
 // POST /api/jobs/[id]/reports — create a draft Photo Report from the Job's
@@ -35,6 +37,8 @@ export const POST = withRequestContext(
 
     const body = (await request.json()) as CreateReportPayload;
     const photoIds = Array.isArray(body.photoIds) ? body.photoIds : [];
+    const templateId =
+      typeof body.templateId === "string" ? body.templateId : null;
 
     try {
       const report = await createPhotoReportDraft(ctx.supabase, {
@@ -42,6 +46,7 @@ export const POST = withRequestContext(
         jobId,
         preparerName: profile.full_name,
         photoIds,
+        templateId,
       });
       return NextResponse.json({ report }, { status: 201 });
     } catch (err) {
