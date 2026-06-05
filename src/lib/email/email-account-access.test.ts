@@ -224,24 +224,35 @@ describe("canCreateEmailAccount", () => {
 
   describe("belt-and-suspenders send_email re-check", () => {
     // The route wrapper already gates send_email. The function re-checks
-    // defensively — if a future caller wires the function in without the
-    // wrapper, the answer must still be no.
-    it("admin without send_email creating Shared: denied", () => {
+    // defensively — if a future caller wires it in without the wrapper, a
+    // non-admin with no send_email grant must still be denied. Admins are
+    // exempt: like the read-side evaluator and every other permission gate
+    // in the app, the admin role passes without holding the explicit grant.
+    it("admin without send_email creating Shared: allowed (admin bypass)", () => {
       expect(
         canCreateEmailAccount(
           caller({ role: "admin", grantedPermissions: [] }),
           shared(),
         ),
-      ).toBe(false);
+      ).toBe(true);
     });
 
-    it("admin without send_email creating Personal-as-self: denied", () => {
+    it("admin without send_email creating Personal-as-self: allowed (admin bypass)", () => {
       expect(
         canCreateEmailAccount(
           caller({ role: "admin", grantedPermissions: [] }),
           personal(ALICE),
         ),
-      ).toBe(false);
+      ).toBe(true);
+    });
+
+    it("admin without send_email creating Personal-on-behalf-of-another: allowed (admin bypass)", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "admin", grantedPermissions: [] }),
+          personal(BOB),
+        ),
+      ).toBe(true);
     });
 
     it("non-admin without send_email creating Personal-as-self: denied", () => {
@@ -249,6 +260,15 @@ describe("canCreateEmailAccount", () => {
         canCreateEmailAccount(
           caller({ role: "crew_lead", grantedPermissions: [] }),
           personal(ALICE),
+        ),
+      ).toBe(false);
+    });
+
+    it("non-admin without send_email creating Shared: denied (guard holds for the admin-only kind)", () => {
+      expect(
+        canCreateEmailAccount(
+          caller({ role: "crew_lead", grantedPermissions: [] }),
+          shared(),
         ),
       ).toBe(false);
     });
