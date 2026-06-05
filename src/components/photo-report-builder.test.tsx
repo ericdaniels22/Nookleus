@@ -101,6 +101,7 @@ vi.mock("@dnd-kit/core", async () => {
 
 import React from "react";
 import PhotoReportBuilder from "./photo-report-builder";
+import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   return {
@@ -446,5 +447,250 @@ describe("PhotoReportBuilder section + photo management", () => {
         el?.tagName === "P" && (el.textContent ?? "").startsWith("1 photo"),
     );
     expect(label).toBeTruthy();
+  });
+});
+
+describe("PhotoReportBuilder write-up fit counter", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+  });
+
+  it("shows a live write-up character counter per section", () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          { title: "Findings", description: "<p>Hello</p>", photo_ids: [] },
+        ],
+      }),
+    );
+
+    const counter = screen.getByTestId("writeup-counter-0");
+    // "Hello" is 5 visible characters, measured against the one-page limit.
+    // Assert against the delimiter so the "5" can't be satisfied by the "5" in
+    // "1500" (a tautology if we only checked toContain("5")).
+    expect(counter.textContent).toContain(`5 / ${WRITEUP_CHARACTER_LIMIT}`);
+  });
+
+  it("updates the counter live as the write-up is edited", () => {
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    expect(screen.getByTestId("writeup-counter-0").textContent).toContain(
+      `0 / ${WRITEUP_CHARACTER_LIMIT}`,
+    );
+
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: { value: "<p>abcd</p>" },
+      });
+    });
+
+    expect(screen.getByTestId("writeup-counter-0").textContent).toContain(
+      `4 / ${WRITEUP_CHARACTER_LIMIT}`,
+    );
+  });
+
+  it("gives each section its own independent counter", () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          { title: "A", description: "<p>Hello</p>", photo_ids: [] },
+          { title: "B", description: "<p>Hi</p>", photo_ids: [] },
+        ],
+      }),
+    );
+
+    expect(screen.getByTestId("writeup-counter-0").textContent).toContain(
+      `5 / ${WRITEUP_CHARACTER_LIMIT}`,
+    );
+    expect(screen.getByTestId("writeup-counter-1").textContent).toContain(
+      `2 / ${WRITEUP_CHARACTER_LIMIT}`,
+    );
+  });
+
+  it("flags a write-up that is over the one-page limit, with the overflow amount", () => {
+    const tooLong = `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 50)}</p>`;
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: tooLong, photo_ids: [] }],
+      }),
+    );
+
+    const counter = screen.getByTestId("writeup-counter-0");
+    // Pin the magnitude, not just the presence of the word "over".
+    expect(counter.textContent).toContain("50 over");
+  });
+});
+
+describe("PhotoReportBuilder save-time guard", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    vi.useFakeTimers();
+  });
+
+  it("does not persist a write-up that is over the one-page limit", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: {
+          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+        },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/can't save/i)).toBeTruthy();
+  });
+
+  it("resumes saving once an over-limit write-up is trimmed back under", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+    const editor = screen.getByTestId("tiptap-stub");
+
+    // Over the limit → blocked, nothing written.
+    act(() => {
+      fireEvent.change(editor, {
+        target: {
+          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+        },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    // Trimmed back under → the next debounce persists it.
+    act(() => {
+      fireEvent.change(editor, { target: { value: "<p>short</p>" } });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: { description: string }[];
+    };
+    expect(payload.sections[0].description).toBe("<p>short</p>");
+    expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("blocks the whole save when any one section is over the limit", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          { title: "A", description: "<p>fine</p>", photo_ids: [] },
+          {
+            title: "B",
+            description: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+            photo_ids: [],
+          },
+        ],
+      }),
+    );
+
+    // Edit an unrelated field (the title) to make the report dirty without
+    // touching the overflowing section: the save is still held back.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Renamed report" },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/can't save/i)).toBeTruthy();
+  });
+
+  it("persists a write-up that is exactly at the limit", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    const atLimit = `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT)}</p>`;
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: { value: atLimit },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: { description: string }[];
+    };
+    expect(payload.sections[0].description).toBe(atLimit);
+    expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("keeps the blocked status when a stale in-flight save resolves after an over-limit edit", async () => {
+    h.manual = true;
+    renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    // A valid edit goes in flight and is held open ("Saving…").
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Valid title" },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    expect(h.resolvers).toHaveLength(1);
+    expect(screen.getByText(/saving/i)).toBeTruthy();
+
+    // Before it resolves, the write-up goes over the limit → next debounce blocks
+    // and writes nothing new.
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: {
+          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+        },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByText(/can't save/i)).toBeTruthy();
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+
+    // The stale valid save now resolves. It must NOT flip the badge to "Saved" —
+    // the over-limit content was never persisted.
+    await act(async () => {
+      h.resolvers[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByText("Saved")).toBeNull();
+    expect(screen.getByText(/can't save/i)).toBeTruthy();
   });
 });
