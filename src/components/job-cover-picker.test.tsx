@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import type { Photo } from "@/lib/types";
@@ -72,6 +72,8 @@ beforeEach(() => {
   photosResult = { data: [], error: null };
   coverUpdate = null;
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("JobCoverPicker — photo list (#164)", () => {
   it("renders a choosable option for each of the job's photos", async () => {
@@ -161,6 +163,38 @@ describe("JobCoverPicker — current cover marker (#164)", () => {
 
     expect(await screen.findByRole("button", { name: "Kitchen" })).toBeDefined();
     expect(screen.queryByText("Current cover")).toBeNull();
+  });
+});
+
+describe("JobCoverPicker — resized previews (#420)", () => {
+  it("requests the grid-variant preview for each cover option when resize is enabled", async () => {
+    // Acceptance #1 at the display boundary: the picker grid squares are
+    // small previews, so with image transformation on each option's <img>
+    // src is the resized render URL rather than the multi-MB original.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    photosResult = {
+      data: [
+        makePhoto({ id: "p-1", caption: "Kitchen", storage_path: "job-1/kitchen.jpg" }),
+      ],
+      error: null,
+    };
+
+    render(
+      <JobCoverPicker
+        jobId="job-1"
+        currentCoverPhotoId={null}
+        supabaseUrl="https://proj.supabase.co"
+        onClose={() => {}}
+        onCoverChosen={() => {}}
+      />,
+    );
+
+    const option = await screen.findByRole("button", { name: "Kitchen" });
+    const img = option.querySelector("img");
+    expect(img?.getAttribute("src")).toContain(
+      "/storage/v1/render/image/public/photos/",
+    );
+    expect(img?.getAttribute("src")).toContain("width=400");
   });
 });
 

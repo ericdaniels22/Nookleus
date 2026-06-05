@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import type { Job, Photo } from "@/lib/types";
@@ -59,6 +59,8 @@ vi.mock("@/lib/supabase", () => {
 });
 
 import JobComfortableRow from "./job-comfortable-row";
+
+afterEach(() => vi.unstubAllEnvs());
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
   return {
@@ -236,5 +238,29 @@ describe("JobComfortableRow — cover updates in place (#164)", () => {
       ).toBeDefined(),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("JobComfortableRow — resized cover preview (#420)", () => {
+  it("requests the grid-variant preview for the cover thumbnail when resize is enabled", () => {
+    // Acceptance #1 at the display boundary: the Comfortable row's small
+    // cover thumbnail must not pull a multi-MB original. With image
+    // transformation on, its <img> src is the resized render URL.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    render(
+      <JobComfortableRow
+        job={makeJob({
+          cover_photo: makePhoto({ storage_path: "job-1/cover.jpg" }),
+        })}
+      />,
+    );
+
+    const cover = screen
+      .getByRole("button", { name: "Change cover photo" })
+      .querySelector("img");
+    expect(cover?.getAttribute("src")).toContain(
+      "/storage/v1/render/image/public/photos/",
+    );
+    expect(cover?.getAttribute("src")).toContain("width=400");
   });
 });
