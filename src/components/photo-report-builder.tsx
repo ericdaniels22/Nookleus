@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import {
   DndContext,
@@ -39,6 +39,7 @@ import {
   photoReportBuilderReducer,
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
+import { measureWriteupFit } from "@/lib/section-writeup-fit";
 import type { ReportSection } from "@/lib/build-initial-sections";
 import type { Photo, PhotoReport } from "@/lib/types";
 
@@ -46,7 +47,7 @@ import type { Photo, PhotoReport } from "@/lib/types";
 // estimate builder's auto-save debounce).
 const DEBOUNCE_MS = 2000;
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
+type SaveStatus = "idle" | "saving" | "saved" | "error" | "blocked";
 
 interface PhotoReportBuilderProps {
   jobId: string;
@@ -74,6 +75,12 @@ export default function PhotoReportBuilder({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [generating, setGenerating] = useState(false);
 
+  // The latest edit revision, mirrored into a ref so the async save tail can
+  // tell whether a newer edit landed while it was in flight (its own captured
+  // `state` is stale by then). Without this, a slow valid save resolving after a
+  // newer over-limit edit would flip the badge from "blocked" back to "Saved".
+  const revisionRef = useRef(state.revision);
+
   const photosById = new Map(photos.map((p) => [p.id, p]));
 
   // Auto-save: a debounced write whenever the builder is dirty. The closure
@@ -83,9 +90,21 @@ export default function PhotoReportBuilder({
   // revision and reschedules its own save; `markSaved` then declines to clear
   // dirty for the older revision, so the newer edit is never lost.
   useEffect(() => {
+    revisionRef.current = state.revision;
     if (!state.dirty) return;
     const savedRevision = state.revision;
+    // Save-time guard (issue #404): a write-up that overflows its one-page
+    // intro must not be persisted. The whole report write is held back while any
+    // Section is over the limit — the same measureWriteupFit the live counter
+    // uses — so the report stays dirty and saves itself once trimmed back under.
+    const overLimit = state.sections.some(
+      (s) => !measureWriteupFit(s.description).fits,
+    );
     const timer = setTimeout(async () => {
+      if (overLimit) {
+        setSaveStatus("blocked");
+        return;
+      }
       setSaveStatus("saving");
       const supabase = createClient();
       const { error } = await supabase
@@ -101,7 +120,12 @@ export default function PhotoReportBuilder({
         return;
       }
       dispatch({ type: "markSaved", revision: savedRevision });
-      setSaveStatus("saved");
+      // Only claim "Saved" if no newer edit landed while this write was in
+      // flight. If one did, its own effect run owns the status (e.g. it may have
+      // set "blocked"), so we must not overwrite it with a stale success.
+      if (savedRevision === revisionRef.current) {
+        setSaveStatus("saved");
+      }
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [
@@ -157,10 +181,17 @@ export default function PhotoReportBuilder({
           Back to job
         </Link>
         <div className="flex-1" />
-        <span className="text-xs text-muted-foreground min-w-[64px] text-right">
+        <span
+          className={`text-xs text-right ${
+            saveStatus === "blocked" || saveStatus === "error"
+              ? "text-destructive"
+              : "text-muted-foreground"
+          }`}
+        >
           {saveStatus === "saving" && "Saving…"}
           {saveStatus === "saved" && "Saved"}
           {saveStatus === "error" && "Save failed"}
+          {saveStatus === "blocked" && "Can't save — write-up too long"}
         </span>
         <button
           type="button"
@@ -330,6 +361,10 @@ function SortableSection({
     photosById.has(id),
   ).length;
 
+  // The write-up is capped to one PDF intro page (ADR 0009). measureWriteupFit
+  // is the single source of truth shared with the save-time guard.
+  const fit = measureWriteupFit(section.description);
+
   return (
     <section
       ref={setNodeRef}
@@ -384,6 +419,17 @@ function SortableSection({
         }
         placeholder="Write-up — what you found, what you did…"
       />
+
+      {/* Live one-page fit counter (issue #404), driven by measureWriteupFit. */}
+      <p
+        data-testid={`writeup-counter-${index}`}
+        className={`text-xs ${
+          fit.fits ? "text-muted-foreground" : "font-medium text-destructive"
+        }`}
+      >
+        {fit.used} / {fit.limit} characters
+        {!fit.fits && ` · ${-fit.remaining} over the limit`}
+      </p>
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {section.photo_ids.map((photoId) => {
