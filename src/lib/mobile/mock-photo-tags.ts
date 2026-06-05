@@ -13,6 +13,7 @@ export const MOCK_PHOTO_TAGS: PhotoTag[] = [
     color: "#dc2626",
     created_by: "mock",
     created_at: "2026-04-29T00:00:00.000Z",
+    organization_id: "mock-org",
   },
   {
     id: "mock-tag-during",
@@ -20,6 +21,7 @@ export const MOCK_PHOTO_TAGS: PhotoTag[] = [
     color: "#f59e0b",
     created_by: "mock",
     created_at: "2026-04-29T00:00:00.000Z",
+    organization_id: "mock-org",
   },
   {
     id: "mock-tag-after",
@@ -27,6 +29,7 @@ export const MOCK_PHOTO_TAGS: PhotoTag[] = [
     color: "#16a34a",
     created_by: "mock",
     created_at: "2026-04-29T00:00:00.000Z",
+    organization_id: "mock-org",
   },
   {
     id: "mock-tag-damage",
@@ -34,6 +37,7 @@ export const MOCK_PHOTO_TAGS: PhotoTag[] = [
     color: "#7c3aed",
     created_by: "mock",
     created_at: "2026-04-29T00:00:00.000Z",
+    organization_id: "mock-org",
   },
   {
     id: "mock-tag-equipment",
@@ -41,5 +45,6 @@ export const MOCK_PHOTO_TAGS: PhotoTag[] = [
     color: "#0284c7",
     created_by: "mock",
     created_at: "2026-04-29T00:00:00.000Z",
+    organization_id: "mock-org",
   },
 ];

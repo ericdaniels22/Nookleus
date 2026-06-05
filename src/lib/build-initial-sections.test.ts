@@ -15,6 +15,7 @@ function makePreset(
 ): PhotoReportTemplate {
   return {
     id: "preset-1",
+    organization_id: "org-1",
     name: "Insurance Adjuster Report",
     audience: "adjuster",
     sections,
