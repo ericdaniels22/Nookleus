@@ -1,9 +1,9 @@
-// Issue #400 — Photo Report Rework, Slice 2a.
+// Issue #401 — Photo Report Rework, Slice 2b (extends #400, Slice 2a).
 //
 // Tests for the pure "builder brain": turning a photo selection into the one
-// default Section a new report starts with, and the reducer that holds the
-// report while it is being edited (tracking what changed so auto-save knows
-// when to fire).
+// default Section a new report starts with, the reducer that holds the report
+// while it is being edited (tracking what changed so auto-save knows when to
+// fire), and the slice-2b Section-management + photo-assignment operations.
 
 import { describe, expect, it } from "vitest";
 
@@ -129,6 +129,163 @@ describe("photoReportBuilderReducer", () => {
       revision: second.revision,
     });
     expect(afterCurrentSave.dirty).toBe(false);
+  });
+
+  it("adds a new empty section to the end and marks the report dirty", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, { type: "addSection" });
+    expect(next.sections).toHaveLength(before.sections.length + 1);
+    const added = next.sections[next.sections.length - 1];
+    expect(added.title).toBe("New section");
+    expect(added.description).toBe("");
+    expect(added.photo_ids).toEqual([]);
+    // The sections that were already there are untouched.
+    expect(next.sections[0]).toEqual(before.sections[0]);
+    expect(next.dirty).toBe(true);
+  });
+
+  it("removes the section at the given index, dropping its photos from the report, and marks dirty", () => {
+    // A two-section report: [ Photos(p1,p2), New section() ].
+    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    const next = photoReportBuilderReducer(before, {
+      type: "removeSection",
+      index: 0,
+    });
+    expect(next.sections).toHaveLength(1);
+    expect(next.sections[0].title).toBe("New section");
+    // The removed section's photos are gone from the report entirely.
+    expect(next.sections.flatMap((s) => s.photo_ids)).not.toContain("p1");
+    expect(next.dirty).toBe(true);
+  });
+
+  it("ignores a remove for a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "removeSection",
+      index: 5,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("reorders a section to a new position and marks dirty", () => {
+    const before = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { title: "A", description: "", photo_ids: [] },
+        { title: "B", description: "", photo_ids: [] },
+        { title: "C", description: "", photo_ids: [] },
+      ],
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderSection",
+      from: 0,
+      to: 2,
+    });
+    expect(next.sections.map((s) => s.title)).toEqual(["B", "C", "A"]);
+    expect(next.dirty).toBe(true);
+  });
+
+  it("ignores a reorder with an out-of-range index", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderSection",
+      from: 0,
+      to: 9,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("treats reordering a section onto itself as a no-op", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderSection",
+      from: 0,
+      to: 0,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("assigns a photo into a section, appending it and marking dirty", () => {
+    // [ Photos(p1,p2), New section() ].
+    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    // Add a photo that is not yet anywhere in the report (add-to-report).
+    const next = photoReportBuilderReducer(before, {
+      type: "assignPhotoToSection",
+      photoId: "p9",
+      sectionIndex: 1,
+    });
+    expect(next.sections[1].photo_ids).toEqual(["p9"]);
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2"]);
+    expect(next.dirty).toBe(true);
+  });
+
+  it("moving a photo to another section removes it from the section it was in", () => {
+    // [ Photos(p1,p2), New section() ]; move p1 into section 1.
+    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    const next = photoReportBuilderReducer(before, {
+      type: "assignPhotoToSection",
+      photoId: "p1",
+      sectionIndex: 1,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p2"]);
+    expect(next.sections[1].photo_ids).toEqual(["p1"]);
+  });
+
+  it("treats assigning a photo to the section it already occupies as a no-op", () => {
+    // loaded(): [ Photos(p1,p2) ]. p1 is already (only) in section 0, so
+    // re-assigning it there must change nothing — no reorder, no dirty, and the
+    // exact same state object back (mirrors removePhotoFromReport's no-op).
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "assignPhotoToSection",
+      photoId: "p1",
+      sectionIndex: 0,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("ignores assigning a photo to a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "assignPhotoToSection",
+      photoId: "p1",
+      sectionIndex: 9,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("removes a photo from the report, taking it out of its section and marking dirty", () => {
+    const before = loaded(); // [ Photos(p1,p2) ]
+    const next = photoReportBuilderReducer(before, {
+      type: "removePhotoFromReport",
+      photoId: "p1",
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p2"]);
+    expect(next.dirty).toBe(true);
+  });
+
+  it("ignores removing a photo that is not in the report", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "removePhotoFromReport",
+      photoId: "not-in-report",
+    });
+    expect(next).toBe(before);
+  });
+
+  it("bumps the revision on a section edit so an in-flight save cannot strand it", () => {
+    const before = loaded();
+    expect(
+      photoReportBuilderReducer(before, { type: "addSection" }).revision,
+    ).toBeGreaterThan(before.revision);
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "assignPhotoToSection",
+        photoId: "p9",
+        sectionIndex: 0,
+      }).revision,
+    ).toBeGreaterThan(before.revision);
   });
 
   it("does not mutate the state it was handed", () => {

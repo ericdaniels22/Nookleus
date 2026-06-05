@@ -154,6 +154,8 @@ export interface Payment {
 
 export interface Photo {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   job_id: string;
   storage_path: string;
   annotated_path: string | null;
@@ -167,6 +169,10 @@ export interface Photo {
   before_after_pair_id: string | null;
   before_after_role: "before" | "after" | null;
   created_at: string;
+  /** Capture origin, e.g. "web" | "mobile" (free text in the DB; no CHECK). */
+  uploaded_from: string;
+  /** Mobile offline-capture idempotency key; null for web uploads. */
+  client_capture_id: string | null;
   // Joined fields
   job?: Job;
   tags?: PhotoTag[];
@@ -174,6 +180,8 @@ export interface Photo {
 
 export interface PhotoTag {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   name: string;
   color: string;
   created_by: string;
@@ -182,6 +190,8 @@ export interface PhotoTag {
 
 export interface PhotoTagAssignment {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   photo_id: string;
   tag_id: string;
   created_at: string;
@@ -190,6 +200,8 @@ export interface PhotoTagAssignment {
 
 export interface PhotoAnnotation {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   photo_id: string;
   annotation_data: Record<string, unknown>;
   created_by: string;
@@ -199,6 +211,8 @@ export interface PhotoAnnotation {
 
 export interface PhotoReportTemplate {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   name: string;
   audience: "adjuster" | "customer" | "internal" | "general";
   sections: unknown[];

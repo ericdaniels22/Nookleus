@@ -22,7 +22,7 @@ export function usePhotoTags(): UsePhotoTagsResult {
         const supabase = createClient();
         const { data, error: fetchError } = await supabase
           .from("photo_tags")
-          .select("id, name, color, created_by, created_at")
+          .select("id, name, color, created_by, created_at, organization_id")
           .order("name");
         if (cancelled) return;
         if (fetchError) {

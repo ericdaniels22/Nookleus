@@ -2,7 +2,32 @@
 
 import { useEffect, useReducer, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, FileDown, Loader2 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  ArrowLeft,
+  FileDown,
+  GripVertical,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase";
@@ -13,6 +38,7 @@ import {
   initBuilderState,
   photoReportBuilderReducer,
 } from "@/lib/photo-report-builder";
+import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
 import type { ReportSection } from "@/lib/build-initial-sections";
 import type { Photo, PhotoReport } from "@/lib/types";
 
@@ -25,7 +51,7 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 interface PhotoReportBuilderProps {
   jobId: string;
   report: PhotoReport;
-  /** Photos referenced by the report's sections, for thumbnails. */
+  /** All of the Job's photos, so any can be added to the report (#401). */
   photos: Photo[];
   supabaseUrl: string;
 }
@@ -86,6 +112,21 @@ export default function PhotoReportBuilder({
     state.revision,
     report.id,
   ]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const action = resolvePhotoReportDragEnd(event);
+    if (action) dispatch(action);
+  }
+
+  // Photos already placed in a Section vs. the rest of the Job's photos, which
+  // sit in the "not in the report" tray and can be dragged into any Section.
+  const assignedIds = new Set(state.sections.flatMap((s) => s.photo_ids));
+  const availablePhotos = photos.filter((p) => !assignedIds.has(p.id));
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -163,74 +204,326 @@ export default function PhotoReportBuilder({
                 type="date"
                 aria-label="Report date"
                 value={state.reportDate}
-                onChange={(e) =>
-                  dispatch({ type: "setReportDate", reportDate: e.target.value })
-                }
+                onChange={(e) => {
+                  // Native date inputs can be cleared to "". report_date is a
+                  // NOT NULL column, so never persist an empty date — ignore the
+                  // change and keep the last valid one.
+                  if (e.target.value) {
+                    dispatch({
+                      type: "setReportDate",
+                      reportDate: e.target.value,
+                    });
+                  }
+                }}
                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </label>
           </div>
 
-          {/* Sections */}
-          {state.sections.map((section, index) => (
-            <section
-              key={index}
-              className="rounded-xl border border-border bg-card p-4 space-y-3"
+          {/*
+            Slice-2b drag wiring. Two known low-severity follow-ups, left for a
+            later slice (no data impact here, controlled inputs keep displayed
+            values correct):
+              - Sections are addressed by array index (React key + sortable id),
+                because ReportSection has no stable id. A stable per-section id
+                would smooth dnd reorder animations and keep input focus/caret
+                pinned to a section across a reorder; it also touches the
+                persisted sections shape, so it is deferred.
+              - closestCenter targets the nearest section *center*; on very tall
+                section cards a photo dropped near an edge can land in the
+                neighbouring section. A pointer-based strategy would be more
+                precise.
+          */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            {/* Sections */}
+            <SortableContext
+              items={state.sections.map((_, i) => `section-${i}`)}
+              strategy={verticalListSortingStrategy}
             >
-              <input
-                type="text"
-                aria-label="Section heading"
-                value={section.title}
-                onChange={(e) =>
-                  dispatch({
-                    type: "setSectionHeading",
-                    index,
-                    heading: e.target.value,
-                  })
-                }
-                placeholder="Section heading"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              {/* Rich-text write-up (issue #403): the same TipTap editor used on
-                  Estimates / Invoices / contracts. Its HTML is stored in the
-                  Section's `description` and auto-saved like every other edit. */}
-              <TiptapEditor
-                content={section.description}
-                onChange={(html) =>
-                  dispatch({
-                    type: "setSectionWriteup",
-                    index,
-                    writeup: html,
-                  })
-                }
-                placeholder="Write-up — what you found, what you did…"
-              />
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-                {section.photo_ids.map((photoId) => {
-                  const photo = photosById.get(photoId);
-                  if (!photo) return null;
-                  return (
-                    <div
-                      key={photoId}
-                      className="aspect-square overflow-hidden rounded-lg"
-                    >
-                      <img
-                        src={photoUrl(photo, supabaseUrl, "grid")}
-                        alt={photo.caption || "Photo"}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                  );
-                })}
+              <div className="space-y-4">
+                {state.sections.map((section, index) => (
+                  <SortableSection
+                    key={index}
+                    index={index}
+                    section={section}
+                    photosById={photosById}
+                    supabaseUrl={supabaseUrl}
+                    dispatch={dispatch}
+                  />
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {section.photo_ids.length} photo
-                {section.photo_ids.length === 1 ? "" : "s"}
-              </p>
-            </section>
-          ))}
+            </SortableContext>
+
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "addSection" })}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+            >
+              <Plus size={15} />
+              Add section
+            </button>
+
+            {/* Photos not yet in the report — drag into a Section to add. */}
+            <PhotoTray photos={availablePhotos} supabaseUrl={supabaseUrl} />
+          </DndContext>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SortableSection — a draggable/reorderable Section that is also the drop target
+// for photos dragged into it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SortableSection({
+  index,
+  section,
+  photosById,
+  supabaseUrl,
+  dispatch,
+}: {
+  index: number;
+  section: ReportSection;
+  photosById: Map<string, Photo>;
+  supabaseUrl: string;
+  dispatch: React.Dispatch<
+    Parameters<typeof photoReportBuilderReducer>[1]
+  >;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `section-${index}`, data: { type: "section", index } });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  function handleRemove() {
+    if (
+      section.photo_ids.length > 0 &&
+      !window.confirm(
+        "Delete this section? Its photos will be removed from the report (they stay on the job).",
+      )
+    ) {
+      return;
+    }
+    dispatch({ type: "removeSection", index });
+  }
+
+  // Count only photos that still resolve to a real Photo: an id can dangle if
+  // the photo was deleted from the Job after being added to the report, and the
+  // grid skips those — so the label must not count them.
+  const visibleCount = section.photo_ids.filter((id) =>
+    photosById.has(id),
+  ).length;
+
+  return (
+    <section
+      ref={setNodeRef}
+      style={style}
+      className="rounded-xl border border-border bg-card p-4 space-y-3"
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Drag to reorder section"
+          className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={16} />
+        </button>
+        <input
+          type="text"
+          aria-label="Section heading"
+          value={section.title}
+          onChange={(e) =>
+            dispatch({
+              type: "setSectionHeading",
+              index,
+              heading: e.target.value,
+            })
+          }
+          placeholder="Section heading"
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+        <button
+          type="button"
+          aria-label="Remove section"
+          onClick={handleRemove}
+          className="text-muted-foreground hover:text-destructive transition-colors"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+
+      {/* Rich-text write-up (issue #403): the same TipTap editor used on
+          Estimates / Invoices / contracts. Its HTML is stored in the Section's
+          `description` and auto-saved like every other edit. */}
+      <TiptapEditor
+        content={section.description}
+        onChange={(html) =>
+          dispatch({
+            type: "setSectionWriteup",
+            index,
+            writeup: html,
+          })
+        }
+        placeholder="Write-up — what you found, what you did…"
+      />
+
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+        {section.photo_ids.map((photoId) => {
+          const photo = photosById.get(photoId);
+          if (!photo) return null;
+          return (
+            <DraggablePhoto
+              key={photoId}
+              photo={photo}
+              sectionIndex={index}
+              supabaseUrl={supabaseUrl}
+              dispatch={dispatch}
+            />
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {visibleCount} photo{visibleCount === 1 ? "" : "s"} — drag photos here to
+        add them
+      </p>
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DraggablePhoto — a photo inside a Section: drag it to another Section, or
+// remove it from the report.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DraggablePhoto({
+  photo,
+  sectionIndex,
+  supabaseUrl,
+  dispatch,
+}: {
+  photo: Photo;
+  sectionIndex: number;
+  supabaseUrl: string;
+  dispatch: React.Dispatch<
+    Parameters<typeof photoReportBuilderReducer>[1]
+  >;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: photo.id,
+      data: { type: "photo", photoId: photo.id, sectionIndex },
+    });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group relative aspect-square overflow-hidden rounded-lg"
+    >
+      <img
+        src={photoUrl(photo, supabaseUrl, "grid")}
+        alt={photo.caption || "Photo"}
+        className="h-full w-full cursor-grab touch-none object-cover"
+        {...attributes}
+        {...listeners}
+      />
+      <button
+        type="button"
+        aria-label="Remove photo from report"
+        onClick={() =>
+          dispatch({ type: "removePhotoFromReport", photoId: photo.id })
+        }
+        className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PhotoTray — the Job's photos that are not yet in the report; drag one into a
+// Section to add it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PhotoTray({
+  photos,
+  supabaseUrl,
+}: {
+  photos: Photo[];
+  supabaseUrl: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
+      <h2 className="mb-2 text-xs font-medium text-muted-foreground">
+        Photos not in the report
+      </h2>
+      {photos.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Every photo on this job is already in the report.
+        </p>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
+          {photos.map((photo) => (
+            <TrayPhoto key={photo.id} photo={photo} supabaseUrl={supabaseUrl} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrayPhoto({
+  photo,
+  supabaseUrl,
+}: {
+  photo: Photo;
+  supabaseUrl: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: photo.id, data: { type: "photo", photoId: photo.id } });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="aspect-square overflow-hidden rounded-lg"
+    >
+      <img
+        src={photoUrl(photo, supabaseUrl, "grid")}
+        alt={photo.caption || "Photo"}
+        className="h-full w-full cursor-grab touch-none object-cover"
+        {...attributes}
+        {...listeners}
+      />
     </div>
   );
 }
