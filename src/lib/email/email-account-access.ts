@@ -156,8 +156,12 @@ export function canCreateEmailAccount(
   // Belt-and-suspenders: the email-area route wrapper gates send_email at
   // the door, but a future caller (CLI, server action, script) might wire
   // this function in without that wrapper. Re-check here so the answer is
-  // safe regardless of how we're called.
-  if (!caller.grantedPermissions.includes("send_email")) {
+  // safe regardless of how we're called. Admins are exempt — same as the
+  // read-side `evaluateSharedAccess` and the app-wide invariant that an
+  // admin passes a permission rule without holding the key; the guard
+  // still protects unwrapped non-admin callers.
+  const isAdmin = caller.role === "admin";
+  if (!isAdmin && !caller.grantedPermissions.includes("send_email")) {
     return false;
   }
   const evaluator = CREATE_EVALUATORS[proposed.kind];
