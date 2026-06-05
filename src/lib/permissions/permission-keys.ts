@@ -45,7 +45,8 @@ export const PERMISSION_CATALOG = [
   { key: "manage_estimates", label: "Manage Estimates", group: "Estimates" },
 
   { key: "view_invoices", label: "View Invoices", group: "Invoices" },
-  { key: "create_invoices", label: "Create Invoices", group: "Invoices" },
+  // create_invoices retired in #386: invoices now only come into existence by
+  // converting an approved estimate (convert_estimates), never authored directly.
   { key: "edit_invoices", label: "Edit Invoices", group: "Invoices" },
   { key: "manage_invoices", label: "Manage Invoices", group: "Invoices" },
 

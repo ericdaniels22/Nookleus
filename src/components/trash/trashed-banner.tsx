@@ -59,7 +59,9 @@ export function TrashedBanner({ documentKind, documentId, documentNumber, delete
     if (documentKind === "estimate") {
       router.push(jobId ? `/jobs/${jobId}` : "/jobs");
     } else {
-      router.push("/invoices");
+      // The standalone /invoices list was retired in #386; cross-job invoice
+      // context now lives on the accounting dashboard (AR aging).
+      router.push("/accounting");
     }
   }
 

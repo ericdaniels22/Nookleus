@@ -54,7 +54,9 @@ export default function InvoiceReadOnlyClient({
 
       <div className="flex items-center gap-3 mb-4">
         <Link
-          href={invoice.job ? `/jobs/${invoice.job.id}` : "/invoices"}
+          // Job-less invoices fall back to the accounting dashboard (AR aging);
+          // the standalone /invoices list was retired in #386.
+          href={invoice.job ? `/jobs/${invoice.job.id}` : "/accounting"}
           className="text-sm text-muted-foreground flex items-center gap-1"
         >
           <ArrowLeft size={14} /> Back
