@@ -1,11 +1,18 @@
-// Issue #362 — Photo Report Rework, Slice 2.
+// Issue #405 — Photo Report Rework: Photo Report templates upgraded + moved to
+// Settings.
 //
-// A photo report is built from an ordered list of sections. Those sections can
-// either be seeded from a "section preset" (a `photo_report_templates` row) or
-// added by hand. `buildInitialSections` is the single, pure place that turns an
-// optional preset into the report's starting sections — so the "start from
-// preset vs start blank" decision lives in one unit-testable spot instead of
-// being re-derived inside component state.
+// A Photo Report is built from an ordered list of Sections. Those Sections can
+// either be seeded from a Photo Report template (a `photo_report_templates`
+// row) or added by hand. `buildInitialSections` is the single, pure place that
+// turns an optional template into the report's starting Sections — so the
+// "start from a template vs start blank" decision lives in one unit-testable
+// spot instead of being re-derived inside component state.
+//
+// A template's Sections carry a heading (`title`) AND boilerplate write-up text
+// (`description`, the same one-page rich-text HTML a report Section holds — see
+// CONTEXT.md and ADR 0009). Both are copied verbatim; the new Sections start
+// with no photos. Reconciling the user's selected photos with these Sections is
+// the create step's job (see `createPhotoReportDraft`), keeping this helper pure.
 
 import type { PhotoReportTemplate } from "@/lib/types";
 
@@ -16,14 +23,14 @@ export interface ReportSection {
 }
 
 export function buildInitialSections(
-  preset?: PhotoReportTemplate | null,
+  template?: PhotoReportTemplate | null,
 ): ReportSection[] {
-  if (!preset) return [];
-  const presetSections = (preset.sections ?? []) as {
+  if (!template) return [];
+  const templateSections = (template.sections ?? []) as {
     title?: string;
     description?: string;
   }[];
-  return presetSections.map((section) => ({
+  return templateSections.map((section) => ({
     title: section.title ?? "",
     description: section.description ?? "",
     photo_ids: [],
