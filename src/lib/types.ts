@@ -1,5 +1,7 @@
 export interface Contact {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   /** Canonical customer name — the sole name column on `contacts` (PRD #109). */
   full_name: string;
   phone: string | null;
@@ -28,6 +30,8 @@ export interface Contact {
 
 export interface Job {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   job_number: string;
   contact_id: string;
   status: string;
@@ -89,6 +93,8 @@ export interface JobAdjuster {
 
 export interface JobActivity {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   job_id: string;
   activity_type: "note" | "photo" | "milestone" | "insurance" | "equipment" | "expense";
   title: string;
@@ -139,6 +145,8 @@ export interface Invoice {
 
 export interface Payment {
   id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
+  organization_id: string;
   job_id: string;
   invoice_id: string | null;
   source: "insurance" | "homeowner" | "other";
