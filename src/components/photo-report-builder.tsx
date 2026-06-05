@@ -49,6 +49,13 @@ const DEBOUNCE_MS = 2000;
 
 type SaveStatus = "idle" | "saving" | "saved" | "error" | "blocked";
 
+// A report can't be persisted while any Section's write-up overflows its
+// one-page intro (issue #404). Both save paths gate on this one rule — the
+// debounced auto-save and the unmount flush (#443) — so it lives in one place.
+function hasOverLimitSection(sections: ReportSection[]): boolean {
+  return sections.some((s) => !measureWriteupFit(s.description).fits);
+}
+
 interface PhotoReportBuilderProps {
   jobId: string;
   report: PhotoReport;
@@ -93,13 +100,10 @@ export default function PhotoReportBuilder({
     revisionRef.current = state.revision;
     if (!state.dirty) return;
     const savedRevision = state.revision;
-    // Save-time guard (issue #404): a write-up that overflows its one-page
-    // intro must not be persisted. The whole report write is held back while any
-    // Section is over the limit — the same measureWriteupFit the live counter
-    // uses — so the report stays dirty and saves itself once trimmed back under.
-    const overLimit = state.sections.some(
-      (s) => !measureWriteupFit(s.description).fits,
-    );
+    // Save-time guard (issue #404): the whole report write is held back while
+    // any Section is over the limit, so the report stays dirty and saves itself
+    // once trimmed back under.
+    const overLimit = hasOverLimitSection(state.sections);
     const timer = setTimeout(async () => {
       if (overLimit) {
         setSaveStatus("blocked");
@@ -136,6 +140,32 @@ export default function PhotoReportBuilder({
     state.revision,
     report.id,
   ]);
+
+  // Flush a pending edit when the builder unmounts (issue #443). The auto-save
+  // above only persists on a 2s debounce and its cleanup merely clears the
+  // timer, so navigating away (e.g. tapping "Back to job", easy on a tablet)
+  // within that window would otherwise silently drop the last edit. We mirror
+  // the latest savable snapshot into a ref and write it on unmount, reusing the
+  // same update path. The ref is rewritten every render so the cleanup reads the
+  // freshest snapshot, not the stale closure captured at mount.
+  const flushOnUnmountRef = useRef<() => void>(() => {});
+  flushOnUnmountRef.current = () => {
+    if (!state.dirty) return;
+    // Honour the same save-time over-limit guard (#404) as the debounced save:
+    // a flush must never sneak an over-limit write-up past it on unmount.
+    if (hasOverLimitSection(state.sections)) return;
+    const supabase = createClient();
+    void supabase
+      .from("photo_reports")
+      .update({
+        title: state.title,
+        report_date: state.reportDate,
+        sections: state.sections,
+      })
+      .eq("id", report.id);
+  };
+  // Empty deps: the cleanup runs only on unmount.
+  useEffect(() => () => flushOnUnmountRef.current(), []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
