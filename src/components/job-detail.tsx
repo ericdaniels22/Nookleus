@@ -10,6 +10,7 @@ import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
 import { partitionPhotoReportsByTrash } from "@/lib/photo-report-trash";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import { OFFICIAL_INVOICE_STATUSES } from "@/lib/invoice-status";
+import { parseDateOnly } from "@/lib/date-field";
 import FinancialsTab from "@/components/job-detail/financials-tab";
 import { EstimatesInvoicesSection } from "@/components/job-detail/estimates-invoices-section";
 import { Badge } from "@/components/ui/badge";
@@ -760,7 +761,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {[
-                    job.date_of_loss ? `DOL: ${format(new Date(job.date_of_loss), "MMM d, yyyy")}` : null,
+                    job.date_of_loss ? `DOL: ${format(parseDateOnly(job.date_of_loss), "MMM d, yyyy")}` : null,
                     job.deductible != null ? `Deductible: $${Number(job.deductible).toLocaleString()}` : null,
                   ].filter(Boolean).join(" \u00b7 ")}
                 </p>
@@ -1138,7 +1139,7 @@ function ReportRowContent({ report }: { report: PhotoReport }) {
             {report.title}
           </p>
           <p className="text-xs text-muted-foreground/60">
-            {format(new Date(report.report_date), "MMM d, yyyy")}
+            {format(parseDateOnly(report.report_date), "MMM d, yyyy")}
           </p>
         </div>
       </div>

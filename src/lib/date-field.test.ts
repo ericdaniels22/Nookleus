@@ -1,6 +1,24 @@
+import { format } from "date-fns";
 import { describe, expect, it } from "vitest";
 
-import { isValidPastDate, maskDateInput, parseMaskedDate } from "./date-field";
+import {
+  isValidPastDate,
+  maskDateInput,
+  parseDateOnly,
+  parseMaskedDate,
+} from "./date-field";
+
+/** Run `fn` with `process.env.TZ` pinned, then restore it. Node reads TZ per
+ *  Date operation, so this lets one test assert behavior in a specific zone. */
+function withTimeZone<T>(tz: string, fn: () => T): T {
+  const previous = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    return fn();
+  } finally {
+    process.env.TZ = previous;
+  }
+}
 
 describe("maskDateInput", () => {
   it("formats eight digits into MM/DD/YYYY", () => {
@@ -47,6 +65,44 @@ describe("parseMaskedDate", () => {
   it("returns null for a non-existent calendar date", () => {
     expect(parseMaskedDate("02/30/2024")).toBeNull();
     expect(parseMaskedDate("13/01/2024")).toBeNull();
+  });
+});
+
+describe("parseDateOnly", () => {
+  // Regression for issue #444: `new Date("2026-06-05")` parses as UTC midnight,
+  // which date-fns then renders as the previous day in negative-UTC (US) zones.
+  it("renders the literal calendar day in US/Eastern", () => {
+    withTimeZone("America/New_York", () => {
+      expect(format(parseDateOnly("2026-06-05"), "MMM d, yyyy")).toBe(
+        "Jun 5, 2026",
+      );
+    });
+  });
+
+  it("renders the literal calendar day in US/Pacific", () => {
+    withTimeZone("America/Los_Angeles", () => {
+      expect(format(parseDateOnly("2026-06-05"), "MMM d, yyyy")).toBe(
+        "Jun 5, 2026",
+      );
+    });
+  });
+
+  it("pins the parts to the local calendar day regardless of zone", () => {
+    withTimeZone("America/Los_Angeles", () => {
+      const date = parseDateOnly("2026-06-05");
+      expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([
+        2026, 5, 5,
+      ]);
+    });
+  });
+
+  it("keeps the local calendar day when a time component is present", () => {
+    withTimeZone("America/Los_Angeles", () => {
+      const date = parseDateOnly("2026-06-05T23:30:00");
+      expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([
+        2026, 5, 5,
+      ]);
+    });
   });
 });
 

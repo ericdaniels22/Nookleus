@@ -3,6 +3,8 @@
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
 import { format } from "date-fns";
 
+import { parseDateOnly } from "@/lib/date-field";
+
 const colors = {
   text: "#1A1A1A",
   muted: "#666666",
@@ -47,12 +49,9 @@ interface PageHeaderProps {
 }
 
 function formatReportDate(reportDate: string): string {
-  // report_date is a Postgres `date` (YYYY-MM-DD). Parse as a local
-  // calendar date so it does not shift across timezones.
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(reportDate);
-  const d = m
-    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-    : new Date(reportDate);
+  // report_date is a Postgres `date` (YYYY-MM-DD); parse it as a local calendar
+  // date so it does not shift across timezones (issue #444).
+  const d = parseDateOnly(reportDate);
   if (Number.isNaN(d.getTime())) return reportDate;
   return format(d, "MMM d, yyyy");
 }
