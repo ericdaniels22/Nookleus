@@ -1,11 +1,13 @@
 // GET /api/invoices — list with filters (jobId, status, search, limit, offset).
-// POST /api/invoices — create empty draft on a job; redirects via the page.
+//
+// Direct invoice creation was retired in #386: an invoice now only comes into
+// existence by converting an approved estimate (POST /api/estimates/[id]/convert).
+// There is intentionally no POST handler here.
 
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { apiDbError } from "@/lib/api-errors";
 import { escapeOrFilterValue } from "@/lib/postgrest";
-import { createInvoice } from "@/lib/invoices";
 
 export const GET = withRequestContext(
   { permission: "view_invoices" },
@@ -41,34 +43,6 @@ export const GET = withRequestContext(
       return NextResponse.json({ rows: data ?? [], total: count ?? 0 });
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "GET /api/invoices list");
-    }
-  },
-);
-
-interface PostBody {
-  jobId: string;
-  title?: string;
-}
-
-export const POST = withRequestContext(
-  { permission: "create_invoices" },
-  async (request, { supabase, orgId }) => {
-    const body = (await request.json().catch(() => null)) as PostBody | null;
-    if (!body || typeof body.jobId !== "string") {
-      return NextResponse.json({ error: "jobId required" }, { status: 400 });
-    }
-
-    try {
-      if (!orgId) {
-        return NextResponse.json({ error: "no active org" }, { status: 400 });
-      }
-      const inv = await createInvoice(supabase, orgId, {
-        jobId: body.jobId,
-        title: typeof body.title === "string" ? body.title : "Invoice",
-      });
-      return NextResponse.json(inv);
-    } catch (e: unknown) {
-      return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/invoices create");
     }
   },
 );

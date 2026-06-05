@@ -7,7 +7,8 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(),
 }));
 
-import { GET, POST } from "./route";
+import * as invoicesRoute from "./route";
+import { GET } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { fakeUserClient, memberTables } from "../__test-utils__/request-context-fakes";
@@ -44,47 +45,15 @@ describe("GET /api/invoices (converted to withRequestContext)", () => {
   });
 });
 
-describe("POST /api/invoices (converted to withRequestContext)", () => {
-  function postRequest(body: unknown) {
-    return new Request("http://test/api/invoices", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-  }
-
-  it("returns 401 when unauthenticated", async () => {
-    useUser({ user: null });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(401);
+describe("direct invoice creation is retired (#386)", () => {
+  it("no longer exposes a POST handler — convert is the sole creation path", () => {
+    // The direct-create endpoint behind the removed "new invoice" page is gone;
+    // an invoice now only comes into existence via estimate conversion.
+    expect(Object.keys(invoicesRoute)).not.toContain("POST");
   });
 
-  it("returns 403 when a non-admin lacks create_invoices", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "member", grants: [] }),
-    });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(403);
-  });
-
-  it("reaches the handler when the caller holds create_invoices", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "member", grants: ["create_invoices"] }),
-    });
-    // Missing jobId — the handler's own validation returns 400, which only
-    // happens once the gate has passed.
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "jobId required" });
-  });
-
-  it("an admin passes the gate without holding the key", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "admin", grants: [] }),
-    });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
+  it("still exposes GET for the per-job invoice list", () => {
+    expect(Object.keys(invoicesRoute)).toContain("GET");
+    expect(typeof invoicesRoute.GET).toBe("function");
   });
 });
