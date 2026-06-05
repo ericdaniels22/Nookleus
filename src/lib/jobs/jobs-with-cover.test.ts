@@ -26,6 +26,9 @@ function photo(overrides: Partial<Photo> = {}): Photo {
     before_after_pair_id: null,
     before_after_role: null,
     created_at: "2026-05-20T00:00:00Z",
+    organization_id: "org-1",
+    uploaded_from: "web",
+    client_capture_id: null,
     ...overrides,
   };
 }
