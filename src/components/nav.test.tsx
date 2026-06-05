@@ -108,3 +108,37 @@ describe("Sidebar — Phone item visibility (PRD #304 / #306)", () => {
     expect(emailIdx).toBeGreaterThan(phoneIdx);
   });
 });
+
+// Issue #406 / ADR 0009 — the standalone global Reports area (the /reports
+// list, the /reports/new wizard, /reports/[id], and /reports/templates) was
+// removed; Photo Reports are reached only through their Job now. The removal
+// itself shipped incrementally with #400 and #405; these tests are the
+// regression guard that pins it at the Sidebar render level so the item — and
+// any link into the old global area — cannot silently come back.
+//
+// Admin is used deliberately: an admin sees every gated nav item, so a
+// re-added Reports entry could not hide behind a role/permission gate.
+describe("Sidebar — no standalone global Reports area (#406 / ADR 0009)", () => {
+  it("renders no link into the removed global /reports area", () => {
+    setAuth({ role: "admin", grants: {} });
+    render(<Sidebar />);
+    const hrefs = Array.from(document.querySelectorAll("a[href]")).map(
+      (a) => a.getAttribute("href") ?? "",
+    );
+    // A standalone "/reports" or "/reports/<anything>" href is the removed
+    // global area. In-Job reports live under /jobs/<id>/reports/... and
+    // Settings links never start with "/reports", so this anchored match
+    // flags only a genuine regression, not the retained in-Job flow.
+    const globalReportsLinks = hrefs.filter((h) => /^\/reports(\/|$)/.test(h));
+    expect(globalReportsLinks).toEqual([]);
+  });
+
+  it("shows no Reports nav item label", () => {
+    setAuth({ role: "admin", grants: {} });
+    render(<Sidebar />);
+    // The Sidebar renders both the mobile bar and the desktop aside, so a
+    // re-added item could appear more than once — assert zero occurrences.
+    expect(screen.queryAllByText("Reports")).toHaveLength(0);
+    expect(screen.queryAllByText("Report Templates")).toHaveLength(0);
+  });
+});
