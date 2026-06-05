@@ -202,6 +202,27 @@ describe("SectionDividerPage", () => {
     }
   });
 
+  it("renders a heading-in-write-up as clean text, never the raw <h2> source", () => {
+    // The bare-StarterKit editor lets a user produce a heading (e.g. "## ").
+    // The intro page must show its text, not leak `h2>` or the literal tag.
+    const tree = expandTree(
+      <SectionDividerPage
+        title="Findings"
+        description="<h2>Demo Findings</h2><p>Water intrusion along the north wall.</p>"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+        pageNumber={2}
+        totalPages={9}
+      />,
+    );
+
+    const text = collectText(tree);
+    expect(text).toContain("Demo Findings");
+    expect(text).toContain("Water intrusion along the north wall.");
+    expect(text).not.toContain("h2>");
+    expect(text).not.toContain("<h2");
+  });
+
   it("renders heading-only when the write-up is an emptied list (no stray bullet block)", () => {
     // A user who starts a bullet then clears it can leave an empty list behind;
     // that is still an empty write-up — heading only, no blank bullet.

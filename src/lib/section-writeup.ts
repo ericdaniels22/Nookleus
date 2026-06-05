@@ -14,18 +14,21 @@
  * read-tolerance foundation the narrative slices build on.
  */
 
-// A value is treated as already-rich-text when it contains any tag from the
-// subset `htmlToPdfNodes` understands. Anything else is a legacy plain-text
-// line that gets escaped and wrapped as a single paragraph. The `\b` keeps
-// stray prose like "a < b" from looking like a tag.
-const RICH_TEXT_TAG = /<\/?(p|ul|ol|li|strong|b|em|i|br)\b[^>]*>/i;
+// A value is treated as already-rich-text when it contains ANY HTML tag — not
+// just the subset we render richly. The editor is bare StarterKit, so a write-up
+// can be made entirely of tags we fold to plain text downstream (a heading, a
+// code block); those must still reach `htmlToPdfNodes` as HTML rather than be
+// escaped and shown to the customer as literal `<h2>…</h2>` source. Anything with
+// no tag is a legacy plain-text line that gets escaped and wrapped as a single
+// paragraph. The `[a-z]` after `<` keeps stray prose like "a < b" from matching.
+const HTML_TAG = /<\/?[a-z][a-z0-9]*\b[^>]*>/i;
 
 export function normalizeSectionWriteup(
   description: string | null | undefined,
 ): string {
   const trimmed = description?.trim();
   if (!trimmed) return "";
-  if (RICH_TEXT_TAG.test(trimmed)) return trimmed;
+  if (HTML_TAG.test(trimmed)) return trimmed;
   const escaped = trimmed
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

@@ -143,4 +143,71 @@ describe("htmlToPdfNodes", () => {
       "1. One2. Two",
     );
   });
+
+  // ── The editor is bare StarterKit, so it emits more than the original subset.
+  // Anything we don't render richly must degrade to clean text — never leak a
+  // tag-name fragment (e.g. "h2>") or collapse content silently. (Issue #403.)
+
+  it("turns a hard break (<br>) into a line break, not a run-together line", () => {
+    // Shift+Enter is a common authoring action; the two lines must stay split.
+    expect(text("<p>Line one<br>Line two</p>")).toBe("Line one\nLine two");
+    expect(text("<p>Line one<br/>Line two</p>")).toBe("Line one\nLine two");
+    expect(text("<p>Line one<br />Line two</p>")).toBe("Line one\nLine two");
+  });
+
+  it("renders headings as plain paragraphs, never leaking the tag name", () => {
+    expect(text("<h2>Demo Findings</h2>")).toBe("Demo Findings");
+    expect(text("<h1>Title</h1><p>Body</p>")).toBe("TitleBody");
+    expect(paragraphCount("<h1>Title</h1><p>Body</p>")).toBe(2);
+    // The tag-name fragment that used to leak must be gone.
+    expect(text("<h2>Demo Findings</h2>")).not.toContain("h2>");
+  });
+
+  it("renders a blockquote's text without leaking the wrapper tags", () => {
+    const out = text("<blockquote><p>Quote text</p></blockquote>");
+    expect(out).toBe("Quote text");
+    expect(out).not.toContain("blockquote>");
+  });
+
+  it("renders a code block's text without leaking <pre>/<code> fragments", () => {
+    const out = text("<pre><code>const x = 1;</code></pre>");
+    expect(out).toBe("const x = 1;");
+    expect(out).not.toContain("pre>");
+    expect(out).not.toContain("code>");
+  });
+
+  it("keeps inline <code> text, dropping only the styling tags", () => {
+    expect(text("<p>Run <code>npm test</code> now</p>")).toBe("Run npm test now");
+  });
+
+  it("strips horizontal rules without leaving a stray hr> line", () => {
+    const out = text("<p>Above</p><hr><p>Below</p>");
+    expect(out).toBe("AboveBelow");
+    expect(out).not.toContain("hr>");
+    expect(paragraphCount("<p>Above</p><hr><p>Below</p>")).toBe(2);
+  });
+
+  it("renders nested lists in document order, indented, with no dropped siblings or leaked tags", () => {
+    const nested =
+      "<ul><li><p>Parent</p><ul><li><p>Child A</p></li><li><p>Child B</p></li></ul></li><li><p>Sibling</p></li></ul>";
+    const out = text(nested);
+    // Every item survives, in order — including the sibling that the old
+    // non-greedy regex dropped.
+    expect(out).toBe("• Parent• Child A• Child B• Sibling");
+    // No structural tag fragments leak.
+    for (const leak of ["li>", "ul>", "/li", "/ul"]) {
+      expect(out).not.toContain(leak);
+    }
+    // Four real bullet rows (each a flex row with a bullet + text).
+    const rows = findAll(
+      expandTree(htmlToPdfNodes(nested)),
+      (n) => n.type === "VIEW" && flattenStyle(n.props.style).flexDirection === "row",
+    );
+    expect(rows).toHaveLength(4);
+    // Children are indented further than their parent.
+    const indents = rows.map((r) => Number(flattenStyle(r.props.style).marginLeft) || 0);
+    expect(indents[1]).toBeGreaterThan(indents[0]);
+    expect(indents[2]).toBeGreaterThan(indents[0]);
+    expect(indents[3]).toBe(indents[0]);
+  });
 });
