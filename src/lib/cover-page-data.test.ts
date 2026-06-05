@@ -6,6 +6,7 @@ import type { CompanySettings, Contact, Job } from "./types";
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
     id: "job-1",
+    organization_id: "org-1",
     job_number: "J-0001",
     contact_id: "c-1",
     status: "active",
@@ -41,6 +42,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 function makeContact(overrides: Partial<Contact> = {}): Contact {
   return {
     id: "c-1",
+    organization_id: "org-1",
     full_name: "Jane Customer",
     phone: null,
     email: null,

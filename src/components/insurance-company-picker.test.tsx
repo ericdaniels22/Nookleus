@@ -49,6 +49,7 @@ import InsuranceCompanyPicker from "./insurance-company-picker";
 function makeContact(overrides: Partial<Contact> = {}): Contact {
   return {
     id: "c-1",
+    organization_id: "org-1",
     full_name: "State Farm",
     phone: null,
     email: "claims@statefarm.com",

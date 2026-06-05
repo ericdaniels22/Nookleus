@@ -88,6 +88,7 @@ function makePhoto(overrides: Partial<Photo> = {}): Photo {
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
     id: "job-1",
+    organization_id: "org-1",
     job_number: "JOB-1001",
     contact_id: "c-1",
     status: "in_progress",
@@ -119,6 +120,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     updated_at: "2026-05-01T00:00:00Z",
     contact: {
       id: "c-1",
+      organization_id: "org-1",
       full_name: "Jane Homeowner",
       phone: null,
       email: null,
