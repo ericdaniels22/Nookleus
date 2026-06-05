@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Photo, PhotoTag } from "@/lib/types";
+import { Photo, PhotoTag, PhotoReportTemplate } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { photoLoadPriority } from "@/lib/jobs/photo-load-priority";
 import { format } from "date-fns";
@@ -66,6 +66,14 @@ export default function JobPhotosTab({
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [creatingReport, setCreatingReport] = useState(false);
+  // Create-report template picker (#405): the "Create report" action opens a
+  // small menu (Blank + the Organization's Photo Report templates). Templates
+  // are loaded lazily the first time the menu opens.
+  const [reportMenuOpen, setReportMenuOpen] = useState(false);
+  const [reportTemplates, setReportTemplates] = useState<PhotoReportTemplate[]>(
+    [],
+  );
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
 
   // Cover photo: id of the photo whose "Set as cover" write is in flight
   const [settingCover, setSettingCover] = useState<string | null>(null);
@@ -256,18 +264,38 @@ export default function JobPhotosTab({
     setSelectedIds(new Set());
   };
 
-  // Create a Photo Report from the selected photos (#400). Server-side so the
-  // report is numbered per Job and stamped with the real preparer; on success
-  // we open the full-screen, Job-scoped builder seeded with these photos.
-  const handleCreateReport = async () => {
+  // Lazily load the Organization's Photo Report templates for the create-report
+  // picker (#405). RLS scopes the read to the active Organization. Loaded once,
+  // the first time the menu opens.
+  const loadReportTemplates = useCallback(async () => {
+    if (templatesLoaded) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("photo_report_templates")
+      .select("id, name")
+      .order("name", { ascending: true });
+    setReportTemplates((data as PhotoReportTemplate[]) ?? []);
+    setTemplatesLoaded(true);
+  }, [templatesLoaded]);
+
+  // Create a Photo Report from the selected photos (#400, #405). Server-side so
+  // the report is numbered per Job and stamped with the real preparer; an
+  // optional template seeds its boilerplate Sections (the selected photos are
+  // appended as a Photos section). On success we open the full-screen, Job-scoped
+  // builder.
+  const handleCreateReport = async (templateId: string | null = null) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    setReportMenuOpen(false);
     setCreatingReport(true);
     try {
       const res = await fetch(`/api/jobs/${jobId}/reports`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photoIds: ids }),
+        body: JSON.stringify({
+          photoIds: ids,
+          ...(templateId ? { templateId } : {}),
+        }),
       });
       if (!res.ok) {
         toast.error("Failed to create report.");
@@ -431,13 +459,47 @@ export default function JobPhotosTab({
               </div>
             )}
           </div>
-          <button
-            className="px-3 py-1 border border-white/30 rounded-md hover:bg-white/15 transition-colors text-xs"
-            onClick={handleCreateReport}
-            disabled={creatingReport}
-          >
-            {creatingReport ? "Creating..." : "Create report"}
-          </button>
+          <div className="relative">
+            <button
+              className="px-3 py-1 border border-white/30 rounded-md hover:bg-white/15 transition-colors text-xs"
+              onClick={() => {
+                const next = !reportMenuOpen;
+                setReportMenuOpen(next);
+                if (next) loadReportTemplates();
+              }}
+              disabled={creatingReport}
+            >
+              {creatingReport ? "Creating..." : "Create report"}
+            </button>
+            {reportMenuOpen && (
+              <div className="absolute top-full left-0 mt-2 bg-card border border-border rounded-lg shadow-lg p-2 min-w-[220px] z-50 text-foreground">
+                <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">
+                  Start from…
+                </p>
+                <button
+                  onClick={() => handleCreateReport(null)}
+                  className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
+                >
+                  Blank report
+                </button>
+                {reportTemplates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => handleCreateReport(t.id)}
+                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+                {templatesLoaded && reportTemplates.length === 0 && (
+                  <p className="text-xs text-muted-foreground/60 px-2 py-1.5">
+                    No templates yet — add them in Settings → Photo Report
+                    Templates.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
           <button
             className="px-3 py-1 border border-white/30 rounded-md hover:bg-white/15 transition-colors text-xs"
             onClick={handleBulkDownload}
