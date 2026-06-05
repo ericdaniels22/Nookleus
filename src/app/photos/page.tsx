@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
+import { photoUrl } from "@/lib/jobs/photo-url";
 import { Photo, PhotoTag, Job } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -55,10 +56,6 @@ export default function PhotosPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  function getPublicUrl(storagePath: string) {
-    return `${supabaseUrl}/storage/v1/object/public/photos/${storagePath}`;
-  }
 
   const filtered = photos.filter((p) => {
     if (selectedJob && p.job_id !== selectedJob) return false;
@@ -220,7 +217,7 @@ export default function PhotosPage() {
             >
               <div className="aspect-square bg-muted relative overflow-hidden">
                 <img
-                  src={getPublicUrl(photo.annotated_path || photo.storage_path)}
+                  src={photoUrl(photo, supabaseUrl, "grid")}
                   alt={photo.caption || "Job photo"}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />
