@@ -1,4 +1,4 @@
-// Issue #400 — Photo Report Rework, Slice 2a.
+// Issue #401 — Photo Report Rework, Slice 2b (extends #400, Slice 2a).
 //
 // The pure "builder brain" for the in-Job Photo Report builder. It has no React
 // in it on purpose: the component wraps `photoReportBuilderReducer` in
@@ -7,15 +7,21 @@
 // (dispatch an action, assert the next state) and reusable on the server (the
 // create route uses `buildDefaultReportSections` to seed the draft row).
 //
-// Slice 2a holds a single default Section containing all the selected photos and
-// supports editing the report title/date and that section's heading + plain
-// write-up. Full multi-Section management and photo assignment are slice 2b, so
-// the action set is deliberately small and meant to grow.
+// Slice 2a seeded a report with a single default Section and supported editing
+// the report title/date and a Section's heading + plain write-up. Slice 2b grows
+// the action set to full Section management (add / remove / reorder) and photo
+// assignment (assign a photo to a Section, which also covers adding it to the
+// report and moving it between Sections; remove a photo from the report) — see
+// `photo-report-drag.ts` for the dnd-kit drag-end → action mapping. Photos live
+// only inside Sections (no holding pool); a photo lives in at most one Section.
 
 import type { ReportSection } from "./build-initial-sections";
 
 /** Heading the lone starter Section gets until the user renames it. */
 const DEFAULT_SECTION_TITLE = "Photos";
+
+/** Heading a freshly added (empty) Section gets until the user renames it. */
+const NEW_SECTION_TITLE = "New section";
 
 /**
  * Turn a photo selection into the one default Section a new report starts with
@@ -60,6 +66,11 @@ export type PhotoReportBuilderAction =
   | { type: "setReportDate"; reportDate: string }
   | { type: "setSectionHeading"; index: number; heading: string }
   | { type: "setSectionWriteup"; index: number; writeup: string }
+  | { type: "addSection" }
+  | { type: "removeSection"; index: number }
+  | { type: "reorderSection"; from: number; to: number }
+  | { type: "assignPhotoToSection"; photoId: string; sectionIndex: number }
+  | { type: "removePhotoFromReport"; photoId: string }
   | { type: "markSaved"; revision: number };
 
 /**
@@ -128,6 +139,100 @@ export function photoReportBuilderReducer(
         dirty: true,
         revision: state.revision + 1,
       };
+    case "addSection":
+      return {
+        ...state,
+        sections: [
+          ...state.sections,
+          { title: NEW_SECTION_TITLE, description: "", photo_ids: [] },
+        ],
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "removeSection":
+      // Removing a Section drops it and the photos it held from the report
+      // (photos live only inside Sections — there is no holding pool). The
+      // photos still exist on the Job, so they can be re-added later.
+      if (!isSectionIndex(state, action.index)) return state;
+      return {
+        ...state,
+        sections: state.sections.filter((_, i) => i !== action.index),
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "reorderSection": {
+      // Move a Section from one position to another, matching dnd-kit's
+      // arrayMove: the dragged Section lands at the target index and the others
+      // shift to fill the gap.
+      const { from, to } = action;
+      if (!isSectionIndex(state, from) || !isSectionIndex(state, to)) {
+        return state;
+      }
+      if (from === to) return state;
+      const sections = [...state.sections];
+      const [moved] = sections.splice(from, 1);
+      sections.splice(to, 0, moved);
+      return {
+        ...state,
+        sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
+    case "assignPhotoToSection": {
+      // Place a photo into exactly one Section. This single action covers
+      // adding a photo to the report (it was nowhere yet) and moving it between
+      // Sections (it gets removed from wherever it was first), keeping the
+      // invariant that a photo lives in at most one Section.
+      if (!isSectionIndex(state, action.sectionIndex)) return state;
+      // No-op when the photo already lives only in the target Section: there is
+      // nothing to add or move, so leave state untouched (preserve referential
+      // identity, don't dirty, don't reorder within the Section).
+      const alreadyInTarget =
+        state.sections[action.sectionIndex].photo_ids.includes(action.photoId);
+      const inAnotherSection = state.sections.some(
+        (section, i) =>
+          i !== action.sectionIndex &&
+          section.photo_ids.includes(action.photoId),
+      );
+      if (alreadyInTarget && !inAnotherSection) return state;
+      const sections = state.sections.map((section, i) => {
+        const without = section.photo_ids.filter((id) => id !== action.photoId);
+        if (i === action.sectionIndex) {
+          return { ...section, photo_ids: [...without, action.photoId] };
+        }
+        if (without.length === section.photo_ids.length) return section;
+        return { ...section, photo_ids: without };
+      });
+      return {
+        ...state,
+        sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
+    case "removePhotoFromReport": {
+      // Take a photo out of whatever Section holds it (there is at most one).
+      // Since photos live only inside Sections, this is the same as removing it
+      // from the report. A no-op (photo not present) leaves state untouched so
+      // it does not needlessly mark the report dirty.
+      let removed = false;
+      const sections = state.sections.map((section) => {
+        if (!section.photo_ids.includes(action.photoId)) return section;
+        removed = true;
+        return {
+          ...section,
+          photo_ids: section.photo_ids.filter((id) => id !== action.photoId),
+        };
+      });
+      if (!removed) return state;
+      return {
+        ...state,
+        sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
     case "markSaved":
       // Only clear dirty if the write that just landed was for the *current*
       // revision. If an edit happened while the save was in flight, the state

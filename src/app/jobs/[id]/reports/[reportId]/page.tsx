@@ -5,7 +5,6 @@ import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import PhotoReportBuilder from "@/components/photo-report-builder";
-import type { ReportSection } from "@/lib/build-initial-sections";
 import type { Photo, PhotoReport } from "@/lib/types";
 
 // The full-screen, Job-scoped Photo Report builder route (#400). Rendered
@@ -54,19 +53,16 @@ export default async function PhotoReportBuilderPage({
     notFound();
   }
 
-  const photoIds = (report.sections as ReportSection[]).flatMap(
-    (section) => section.photo_ids,
-  );
-
-  let photos: Photo[] = [];
-  if (photoIds.length > 0) {
-    const { data } = await supabase
-      .from("photos")
-      .select("*")
-      .in("id", photoIds)
-      .returns<Photo[]>();
-    photos = data ?? [];
-  }
+  // Load every photo on the Job (not just the ones already in the report) so
+  // the builder can add photos beyond the original selection (#401). Mirrors
+  // the Job Photos tab's ordering.
+  const { data: photoData } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false })
+    .returns<Photo[]>();
+  const photos: Photo[] = photoData ?? [];
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
