@@ -13,7 +13,7 @@
 // `src/components/referral-partners/referral-partner-worksheet.test.tsx`;
 // this file only verifies the page wires that component up correctly.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/supabase-server", () => ({
@@ -48,6 +48,24 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
+  // When the page renders the Worksheet, its Jobs-sent section fires a GET to
+  // /api/referral-partners/[id]/jobs on mount. jsdom has no document base URL,
+  // so an unstubbed relative fetch throws ERR_INVALID_URL and surfaces as an
+  // unhandled rejection that fails the file. These page tests don't assert on
+  // that call — the Worksheet's own fetch behaviour is pinned in
+  // referral-partner-worksheet.test.tsx — so stub fetch to a benign no-op.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ jobs: [] }),
+    })),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function useUser(opts: Parameters<typeof fakeUserClient>[0]) {

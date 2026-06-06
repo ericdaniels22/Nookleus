@@ -252,9 +252,11 @@ describe("EstimateBuilder template drag-end", () => {
   it("reorders a Line item within its own container (regression for existing reorder)", () => {
     // Use an entity with two items in the same container so we can swap them.
     const entity = makeTemplateEntity();
-    const s1 = entity.data.kind === undefined ? null : null;
-    void s1;
-    const template = (entity as { data: TemplateWithContents }).data;
+    // Narrow the builder union to its template variant via the discriminant
+    // (`kind` lives on the entity, not on `data`) so we can reach into
+    // `sections` without an `as` cast.
+    if (entity.kind !== "template") throw new Error("expected a template entity");
+    const template = entity.data;
     template.sections[0].items.push({
       id: "B",
       library_item_id: null,

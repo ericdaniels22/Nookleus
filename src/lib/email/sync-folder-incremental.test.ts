@@ -243,7 +243,10 @@ describe("syncFolderIncremental", () => {
         throw new Error("Mailbox unavailable");
       }),
       mailboxClose: vi.fn(async () => undefined),
-      fetch: vi.fn(),
+      // Typed so the mock matches ImapClientLike["fetch"] — a bare vi.fn()
+      // infers Mock<Procedure | Constructable>, which isn't callable as the
+      // fetch signature. It's never invoked here (mailboxOpen throws first).
+      fetch: vi.fn<ImapClientLike["fetch"]>(),
     };
 
     const result = await syncFolderIncremental({
