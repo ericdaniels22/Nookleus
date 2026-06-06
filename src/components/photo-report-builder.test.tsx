@@ -100,8 +100,12 @@ vi.mock("@dnd-kit/core", async () => {
 });
 
 import React from "react";
+import { toast } from "sonner";
 import PhotoReportBuilder from "./photo-report-builder";
+import { generateReportPDF } from "@/lib/generate-report-pdf";
 import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
+
+const mockGenerate = vi.mocked(generateReportPDF);
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   return {
@@ -692,5 +696,112 @@ describe("PhotoReportBuilder save-time guard", () => {
     });
     expect(screen.queryByText("Saved")).toBeNull();
     expect(screen.getByText(/can't save/i)).toBeTruthy();
+  });
+});
+
+// Issue #442 — on iPad / iOS WebView the post-`await` window.open is blocked, so
+// the generated PDF was a dead-end that still showed a success toast. The fix is
+// a persistent "Open PDF" anchor the user taps (a real user gesture), bound to
+// the report's pdf_path. These drive the generate flow through the DOM. No fake
+// timers here: generation is promise-based, not debounce/timer-based.
+describe("PhotoReportBuilder generate + retrieve PDF", () => {
+  beforeEach(() => {
+    // Generation is promise-based, and findByRole polls on real timers. Earlier
+    // describes enable fake timers without restoring them, so reset to real
+    // timers here or findByRole would stall.
+    vi.useRealTimers();
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    // Reset the generator to a clean default so per-call overrides
+    // (mockResolvedValueOnce / mockRejectedValueOnce) can't leak between tests.
+    mockGenerate.mockReset();
+    mockGenerate.mockResolvedValue("job-1/report-1.pdf");
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+  });
+
+  it("shows a tappable Open-PDF link after generating, bound to the report PDF path", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+
+    const link = await screen.findByRole("link", { name: /open pdf/i });
+    expect(link.getAttribute("href")).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  it("delivers the PDF via the link, not a programmatic popup (the iPad/WebView regression)", async () => {
+    // The original bug: window.open ran after `await`, so iOS had already
+    // consumed the tap's user-gesture allowance and silently blocked the popup.
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+
+    // Retrieval works — the persistent link is there ...
+    await screen.findByRole("link", { name: /open pdf/i });
+    // ... and it does not depend on a blockable post-await window.open.
+    expect(openSpy).not.toHaveBeenCalled();
+
+    openSpy.mockRestore();
+  });
+
+  it("updates the link to the latest PDF when regenerated", async () => {
+    mockGenerate
+      .mockResolvedValueOnce("job-1/report-1.pdf")
+      .mockResolvedValueOnce("job-1/report-1-v2.pdf");
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+    const first = await screen.findByRole("link", { name: /open pdf/i });
+    expect(first.getAttribute("href")).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+    const second = await screen.findByRole("link", { name: /open pdf/i });
+    expect(second.getAttribute("href")).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1-v2.pdf",
+    );
+  });
+
+  it("shows no link and reports an error when generation fails", async () => {
+    mockGenerate.mockRejectedValueOnce(new Error("boom"));
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+
+    // No false success: no retrieval affordance, an error is surfaced, and the
+    // success toast never fires.
+    expect(screen.queryByRole("link", { name: /open pdf/i })).toBeNull();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it("shows the Open-PDF link on load for an already-generated report", () => {
+    // A report generated in a previous session persists its pdf_path; the user
+    // can retrieve that PDF without regenerating (the removed global /reports
+    // detail page used to provide this Download anchor).
+    renderBuilder(
+      makeReport({ pdf_path: "job-1/report-1.pdf", status: "generated" }),
+    );
+
+    const link = screen.getByRole("link", { name: /open pdf/i });
+    expect(link.getAttribute("href")).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+    );
   });
 });
