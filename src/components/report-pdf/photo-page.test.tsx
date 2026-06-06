@@ -4,7 +4,13 @@ import PhotoPage, {
   PHOTO_CORNER_RADIUS,
   type PhotoPageSlot,
 } from "./photo-page";
-import { collectText, expandTree, findAll } from "./test-helpers";
+import {
+  collectText,
+  expandTree,
+  findAll,
+  flattenStyle,
+  photoFrames,
+} from "./test-helpers";
 
 function makeSlot(overrides: Partial<PhotoPageSlot> = {}): PhotoPageSlot {
   return {
@@ -19,35 +25,7 @@ function makeSlot(overrides: Partial<PhotoPageSlot> = {}): PhotoPageSlot {
   };
 }
 
-function flattenStyle(style: unknown): Record<string, unknown> {
-  if (Array.isArray(style)) {
-    return style.reduce<Record<string, unknown>>(
-      (acc, s) => ({ ...acc, ...flattenStyle(s) }),
-      {},
-    );
-  }
-  if (style && typeof style === "object") return style as Record<string, unknown>;
-  return {};
-}
-
 describe("PhotoPage (photo corner radius)", () => {
-  // Every photo frame is a clipping VIEW (overflow:'hidden') that directly
-  // wraps the photo IMAGE. There is exactly one such frame per photo, in all
-  // three layouts.
-  function photoFrames(tree: ReturnType<typeof expandTree>) {
-    return findAll(tree, (n) => {
-      if (n.type !== "VIEW") return false;
-      const s = flattenStyle(n.props.style);
-      if (s.overflow !== "hidden") return false;
-      const children = Array.isArray(n.props.children)
-        ? n.props.children
-        : [n.props.children];
-      return children.some(
-        (c) => c && typeof c === "object" && !Array.isArray(c) && c.type === "IMAGE",
-      );
-    });
-  }
-
   it("is more pronounced than the previous radius of 4", () => {
     expect(PHOTO_CORNER_RADIUS).toBeGreaterThan(4);
   });

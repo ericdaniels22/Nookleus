@@ -122,4 +122,28 @@ describe("POST /api/jobs/[id]/reports/[reportId]/delete", () => {
 
     expect(res.status).toBe(404);
   });
+
+  it("returns 404 (a no-op) for an active report that belongs to a different Job", async () => {
+    // The report exists and is active, but it lives under job-2. job-1's delete
+    // route must not reach it: `.eq("job_id", jobId)` scopes the write to the
+    // report's own Job, so a caller cannot trash another Job's report by id
+    // alone. Drop that filter and the row leaks through — 200 instead of 404 —
+    // which an empty-table 404 test cannot catch (it 404s either way).
+    const client = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "member",
+        grants: ["edit_jobs"],
+        extraTables: {
+          photo_reports: [{ id: "r-1", job_id: "job-2", deleted_at: null }],
+        },
+      }),
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(new Request("http://test"), paramsFor("job-1", "r-1"));
+
+    expect(res.status).toBe(404);
+  });
 });

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import BeforeAfterPairPage from "./before-after-pair-page";
-import type { PhotoPageSlot } from "./photo-page";
-import { collectText, expandTree, findAll } from "./test-helpers";
+import { PHOTO_CORNER_RADIUS, type PhotoPageSlot } from "./photo-page";
+import {
+  collectText,
+  expandTree,
+  findAll,
+  flattenStyle,
+  photoFrames,
+} from "./test-helpers";
 
 function makeSlot(overrides: Partial<PhotoPageSlot> = {}): PhotoPageSlot {
   return {
@@ -118,5 +124,28 @@ describe("BeforeAfterPairPage", () => {
     expect(text).toContain("Fully dried");
     expect(text).toContain("May 19, 2026, 11:03 AM");
     expect(text).toContain("May 21, 2026, 10:00 AM");
+  });
+
+  it("applies the shared corner radius to both the before and after photo frames", () => {
+    const tree = expandTree(
+      <BeforeAfterPairPage
+        before={makeSlot({ photoId: "before", number: 7 })}
+        after={makeSlot({ photoId: "after", number: 8 })}
+        sectionTitle="Living Room"
+        customerName="Jane Doe"
+        reportDate="2026-05-19"
+      />,
+    );
+
+    // One clipping frame per photo — before and after — each rounded with the
+    // single shared constant, so the pair page can never drift from the radius
+    // the rest of the report uses.
+    const frames = photoFrames(tree);
+    expect(frames).toHaveLength(2);
+    for (const frame of frames) {
+      expect(flattenStyle(frame.props.style).borderRadius).toBe(
+        PHOTO_CORNER_RADIUS,
+      );
+    }
   });
 });
