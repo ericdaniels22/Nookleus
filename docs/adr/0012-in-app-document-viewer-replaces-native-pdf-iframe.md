@@ -1,7 +1,34 @@
 # The in-app document viewer replaces the native PDF iframe on Estimate and Invoice Views
 
-**Status:** Accepted — amends the #385 inline-PDF-View decision (rendering mechanism only). The #463 Chrome/Edge reliability go/no-go returned **GO** on 2026-06-06 (see the spike `README.md`); the slice chain #464–#466 is unblocked.
+**Status:** Accepted — amends the #385 inline-PDF-View decision (rendering mechanism only). The #463 Chrome/Edge reliability go/no-go returned **GO** on 2026-06-06; the slice chain #464–#466 is unblocked.
 **Date:** 2026-06-05 (accepted 2026-06-06)
+
+## Reliability gate result (#463)
+
+The throwaway spike (formerly `src/app/dev/viewer-spike/`, deleted after this run per the
+note below) was driven against **real prod data** via a local `npm run dev`, using the
+chrome-devtools / edge-devtools MCP to render the live Estimate `WTR-2026-0024-EST-8`
+(4 pages) and Invoice `JOB-2026-0025-INV-1` (1 page) `/preview` PDFs in both browsers.
+
+| Browser    | Estimate   | Invoice   | Range ON also OK? | Console |
+| ---------- | ---------- | --------- | ----------------- | ------- |
+| Chrome 148 | ✅ 4 pages  | ✅ 1 page  | ✅ (default)       | clean   |
+| Edge 149   | ✅ 4 pages  | ✅ 1 page  | ✅ (default)       | clean   |
+
+Both rendered in continuous fit-to-width scroll with **no "Loading PDF…" hang**, with the
+recommended `disableStream + disableRange` on *and* with default Range/stream negotiation
+on. pdf.js worker loaded `200`; `/preview` returned `200 application/pdf`,
+`transfer-encoding: chunked`, **no `Accept-Ranges`** (criterion 7 — confirms the no-Range
+condition the mitigation targets). Caveat: test PDFs were small (≤4 pages, ≤80 KB), so the
+default-Range pass is not a stress test of the no-`Accept-Ranges` large-PDF stall; the
+production viewer ships `disableStream:true, disableRange:true` (constraint 1 below)
+regardless, sidestepping Range negotiation. Evidence gathered by Claude Code; decision
+ratified by Eric Daniels, 2026-06-06.
+
+> Incidental finding during the run: `node_modules/@react-pdf/renderer` was an empty
+> directory (siblings intact), making `/preview` fail to compile with
+> `Can't resolve '@react-pdf/renderer'` — likely the source of the known-red `@react-pdf`
+> `tsc` errors. Repaired locally with `npm install @react-pdf/renderer@4.3.3`.
 
 ## Context
 
