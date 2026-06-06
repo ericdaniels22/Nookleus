@@ -155,6 +155,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   );
   const [trashOpen, setTrashOpen] = useState(false);
 
+  // Collapse the trash disclosure once it empties (the last trashed report was
+  // restored), so it doesn't silently re-expand the next time a report is
+  // trashed — its whole block unmounts when empty, which would otherwise leave
+  // `trashOpen` stuck open (#447 #11).
+  useEffect(() => {
+    if (trashedReports.length === 0) setTrashOpen(false);
+  }, [trashedReports.length]);
+
   const fetchData = useCallback(async () => {
     const supabase = createClient();
 
