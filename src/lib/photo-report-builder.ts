@@ -61,7 +61,6 @@ export interface LoadedPhotoReport {
 }
 
 export type PhotoReportBuilderAction =
-  | { type: "init"; report: LoadedPhotoReport }
   | { type: "setTitle"; title: string }
   | { type: "setReportDate"; reportDate: string }
   | { type: "setSectionHeading"; index: number; heading: string }
@@ -101,8 +100,6 @@ export function photoReportBuilderReducer(
   action: PhotoReportBuilderAction,
 ): PhotoReportBuilderState {
   switch (action.type) {
-    case "init":
-      return initBuilderState(action.report);
     case "setTitle":
       return {
         ...state,
