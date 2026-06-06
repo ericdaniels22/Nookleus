@@ -24,13 +24,17 @@ function loaded() {
 describe("buildDefaultReportSections", () => {
   it("puts every selected photo into a single default section, in order", () => {
     expect(buildDefaultReportSections(["p1", "p2", "p3"])).toEqual([
-      { title: "Photos", description: "", photo_ids: ["p1", "p2", "p3"] },
+      expect.objectContaining({
+        title: "Photos",
+        description: "",
+        photo_ids: ["p1", "p2", "p3"],
+      }),
     ]);
   });
 
   it("still returns one (empty) section when nothing was selected", () => {
     expect(buildDefaultReportSections([])).toEqual([
-      { title: "Photos", description: "", photo_ids: [] },
+      expect.objectContaining({ title: "Photos", description: "", photo_ids: [] }),
     ]);
   });
 
@@ -39,6 +43,18 @@ describe("buildDefaultReportSections", () => {
     const sections = buildDefaultReportSections(selection);
     sections[0].photo_ids.push("p2");
     expect(selection).toEqual(["p1"]);
+  });
+
+  it("stamps the default section with an id from the injected id factory", () => {
+    expect(buildDefaultReportSections(["p1"], () => "sec-1")).toEqual([
+      { id: "sec-1", title: "Photos", description: "", photo_ids: ["p1"] },
+    ]);
+  });
+
+  it("gives the default section a non-empty id by default", () => {
+    const [section] = buildDefaultReportSections([]);
+    expect(typeof section.id).toBe("string");
+    expect(section.id.length).toBeGreaterThan(0);
   });
 });
 
@@ -133,7 +149,10 @@ describe("photoReportBuilderReducer", () => {
 
   it("adds a new empty section to the end and marks the report dirty", () => {
     const before = loaded();
-    const next = photoReportBuilderReducer(before, { type: "addSection" });
+    const next = photoReportBuilderReducer(before, {
+      type: "addSection",
+      id: "new-sec",
+    });
     expect(next.sections).toHaveLength(before.sections.length + 1);
     const added = next.sections[next.sections.length - 1];
     expect(added.title).toBe("New section");
@@ -144,9 +163,21 @@ describe("photoReportBuilderReducer", () => {
     expect(next.dirty).toBe(true);
   });
 
+  it("gives the added section the stable id carried by the action", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "addSection",
+      id: "added-1",
+    });
+    expect(next.sections[next.sections.length - 1].id).toBe("added-1");
+  });
+
   it("removes the section at the given index, dropping its photos from the report, and marks dirty", () => {
     // A two-section report: [ Photos(p1,p2), New section() ].
-    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    const before = photoReportBuilderReducer(loaded(), {
+      type: "addSection",
+      id: "s2",
+    });
     const next = photoReportBuilderReducer(before, {
       type: "removeSection",
       index: 0,
@@ -208,7 +239,10 @@ describe("photoReportBuilderReducer", () => {
 
   it("assigns a photo into a section, appending it and marking dirty", () => {
     // [ Photos(p1,p2), New section() ].
-    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    const before = photoReportBuilderReducer(loaded(), {
+      type: "addSection",
+      id: "s2",
+    });
     // Add a photo that is not yet anywhere in the report (add-to-report).
     const next = photoReportBuilderReducer(before, {
       type: "assignPhotoToSection",
@@ -222,7 +256,10 @@ describe("photoReportBuilderReducer", () => {
 
   it("moving a photo to another section removes it from the section it was in", () => {
     // [ Photos(p1,p2), New section() ]; move p1 into section 1.
-    const before = photoReportBuilderReducer(loaded(), { type: "addSection" });
+    const before = photoReportBuilderReducer(loaded(), {
+      type: "addSection",
+      id: "s2",
+    });
     const next = photoReportBuilderReducer(before, {
       type: "assignPhotoToSection",
       photoId: "p1",
@@ -277,7 +314,8 @@ describe("photoReportBuilderReducer", () => {
   it("bumps the revision on a section edit so an in-flight save cannot strand it", () => {
     const before = loaded();
     expect(
-      photoReportBuilderReducer(before, { type: "addSection" }).revision,
+      photoReportBuilderReducer(before, { type: "addSection", id: "s2" })
+        .revision,
     ).toBeGreaterThan(before.revision);
     expect(
       photoReportBuilderReducer(before, {
@@ -309,5 +347,69 @@ describe("photoReportBuilderReducer", () => {
       heading: "Nowhere",
     });
     expect(next).toBe(before);
+  });
+});
+
+describe("initBuilderState section ids (#467)", () => {
+  it("backfills a stable id onto a loaded section that has none (legacy report)", () => {
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      // A report saved before #467: its section has no id.
+      sections: [{ title: "Photos", description: "", photo_ids: [] }],
+    });
+    expect(typeof state.sections[0].id).toBe("string");
+    expect(state.sections[0].id.length).toBeGreaterThan(0);
+  });
+
+  it("keeps a loaded section's existing id", () => {
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { id: "kept", title: "Photos", description: "", photo_ids: [] },
+      ],
+    });
+    expect(state.sections[0].id).toBe("kept");
+  });
+
+  it("gives distinct ids to multiple legacy sections so they reorder cleanly", () => {
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { title: "A", description: "", photo_ids: [] },
+        { title: "B", description: "", photo_ids: [] },
+      ],
+    });
+    const ids = state.sections.map((s) => s.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("keeps each backfilled id with its section across a reorder of a legacy report (AC3)", () => {
+    // The full legacy path end to end: a pre-#467 report (no ids) loads, gets
+    // distinct ids backfilled, then is reordered. Each section must carry its own
+    // backfilled id to the new position — that stable identity riding with the
+    // section is exactly what keeps React/dnd keys (and thus the caret) pinned.
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { title: "A", description: "", photo_ids: [] },
+        { title: "B", description: "", photo_ids: [] },
+      ],
+    });
+    const [idA, idB] = state.sections.map((s) => s.id);
+    expect(idA).not.toBe(idB);
+
+    const next = photoReportBuilderReducer(state, {
+      type: "reorderSection",
+      from: 0,
+      to: 1,
+    });
+
+    expect(next.sections.map((s) => s.title)).toEqual(["B", "A"]);
+    // The id rides with the section, not the slot: B's id is now first, A's last.
+    expect(next.sections.map((s) => s.id)).toEqual([idB, idA]);
   });
 });

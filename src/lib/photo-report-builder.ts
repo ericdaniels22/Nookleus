@@ -15,7 +15,12 @@
 // `photo-report-drag.ts` for the dnd-kit drag-end → action mapping. Photos live
 // only inside Sections (no holding pool); a photo lives in at most one Section.
 
-import type { ReportSection } from "./build-initial-sections";
+import {
+  ensureSectionIds,
+  newSectionId,
+  type ReportSection,
+  type StoredReportSection,
+} from "./build-initial-sections";
 
 /** Heading the lone starter Section gets until the user renames it. */
 const DEFAULT_SECTION_TITLE = "Photos";
@@ -28,9 +33,17 @@ const NEW_SECTION_TITLE = "New section";
  * ("init from selection"). Always returns exactly one Section so the builder
  * has an invariant section to edit, even if the selection was empty.
  */
-export function buildDefaultReportSections(photoIds: string[]): ReportSection[] {
+export function buildDefaultReportSections(
+  photoIds: string[],
+  makeId: () => string = newSectionId,
+): ReportSection[] {
   return [
-    { title: DEFAULT_SECTION_TITLE, description: "", photo_ids: [...photoIds] },
+    {
+      id: makeId(),
+      title: DEFAULT_SECTION_TITLE,
+      description: "",
+      photo_ids: [...photoIds],
+    },
   ];
 }
 
@@ -57,7 +70,13 @@ export interface PhotoReportBuilderState {
 export interface LoadedPhotoReport {
   title: string;
   report_date: string;
-  sections: ReportSection[];
+  /**
+   * Sections as they come off disk: a report saved before #467 has Sections
+   * without an `id`, so the loaded shape allows a missing id. `initBuilderState`
+   * backfills any missing id (see `ensureSectionIds`) so the in-memory state is
+   * always fully identified.
+   */
+  sections: StoredReportSection[];
 }
 
 export type PhotoReportBuilderAction =
@@ -65,7 +84,7 @@ export type PhotoReportBuilderAction =
   | { type: "setReportDate"; reportDate: string }
   | { type: "setSectionHeading"; index: number; heading: string }
   | { type: "setSectionWriteup"; index: number; writeup: string }
-  | { type: "addSection" }
+  | { type: "addSection"; id: string }
   | { type: "removeSection"; index: number }
   | { type: "reorderSection"; from: number; to: number }
   | { type: "assignPhotoToSection"; photoId: string; sectionIndex: number }
@@ -82,7 +101,7 @@ export function initBuilderState(
   return {
     title: report.title,
     reportDate: report.report_date,
-    sections: report.sections,
+    sections: ensureSectionIds(report.sections),
     dirty: false,
     revision: 0,
   };
@@ -141,7 +160,12 @@ export function photoReportBuilderReducer(
         ...state,
         sections: [
           ...state.sections,
-          { title: NEW_SECTION_TITLE, description: "", photo_ids: [] },
+          {
+            id: action.id,
+            title: NEW_SECTION_TITLE,
+            description: "",
+            photo_ids: [],
+          },
         ],
         dirty: true,
         revision: state.revision + 1,
