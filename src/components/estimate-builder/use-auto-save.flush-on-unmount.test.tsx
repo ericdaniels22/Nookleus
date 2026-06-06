@@ -96,6 +96,15 @@ function keepalivePuts(mock: ReturnType<typeof vi.fn>): unknown[][] {
   );
 }
 
+// jsdom's document.visibilityState is a read-only getter; override it so a
+// visibilitychange event can simulate the page being backgrounded/hidden.
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+}
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -114,6 +123,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  setVisibility("visible"); // reset so a hidden value can't leak to the next test
 });
 
 describe("useAutoSave flush-on-unmount (#461)", () => {
@@ -328,5 +338,273 @@ describe("useAutoSave flush-on-unmount (#461)", () => {
     expect(puts).toHaveLength(1);
     expect(puts[0][0]).toBe("/api/estimates/est-1");
     expect(puts.some(([path]) => String(path).includes("/line-items/"))).toBe(false);
+  });
+});
+
+// Hard unload (#477): a real tab-close / refresh / address-bar nav does NOT run
+// React cleanup, so the unmount flush above never fires. These tests keep the
+// component MOUNTED and dispatch the browser page-lifecycle events the hook now
+// listens for — proving the flush is driven by the listeners, not by unmount.
+describe("useAutoSave flush-on-hard-unload (#477)", () => {
+  it("flushes a dirty root edit as a keepalive PUT on a pagehide event (still mounted)", () => {
+    const config = makeConfig();
+    const { rerender, unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    // Edit a root field, staying inside the 2s debounce window (no timer flush).
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({ title: "Roof repair — edited" })}
+      />,
+    );
+
+    // The page is torn down the hard way — React cleanup never runs.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/estimates/est-1");
+    const init = puts[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      title: "Roof repair — edited",
+    });
+
+    // Tidy up while fetch is still stubbed (the test left the node mounted).
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("flushes a dirty root edit as a keepalive PUT on visibilitychange when the page becomes hidden", () => {
+    const config = makeConfig();
+    const { rerender, unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({ title: "Roof repair — edited" })}
+      />,
+    );
+
+    // The tab/app is backgrounded — the common iOS exit path.
+    act(() => {
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/estimates/est-1");
+    const init = puts[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      title: "Roof repair — edited",
+    });
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("does not flush on visibilitychange when the page becomes visible", () => {
+    const config = makeConfig();
+    const { rerender, unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({ title: "Roof repair — edited" })}
+      />,
+    );
+
+    // Returning to the foreground is not a teardown — no flush.
+    act(() => {
+      setVisibility("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("fires no PUT on pagehide or visibilitychange when the document is clean", () => {
+    const config = makeConfig();
+    const { unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    // No edit — both events should be no-ops (the planner returns an empty plan).
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("suppresses the pagehide flush entirely while a stale conflict is active", async () => {
+    const config = makeConfig({ hasSnapshotConcurrency: true });
+    // The debounced save will 409 (another user modified the row), driving the
+    // hook into its stale-conflict state.
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: false, status: 409, json: async () => ({}) } as Response),
+    );
+
+    const { rerender, unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({ title: "Roof repair — edited" })}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    // Hard unload while the conflict is active: the planner still suppresses.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("removes its listeners on unmount — a later pagehide or visibilitychange fires no further PUT", () => {
+    const config = makeConfig();
+    const { rerender, unmount } = render(
+      <Harness config={config} entity={makeEntity({ title: "Roof repair" })} />,
+    );
+
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({ title: "Roof repair — edited" })}
+      />,
+    );
+
+    // In-app unmount flushes once via the #461 cleanup.
+    act(() => {
+      unmount();
+    });
+    const afterUnmount = keepalivePuts(fetchMock).length;
+    expect(afterUnmount).toBe(1);
+
+    // The listeners must be gone: were they leaked, this would fire a 2nd PUT
+    // (the entity is still dirty relative to the un-advanced snapshot).
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(afterUnmount);
+  });
+
+  it("flushes a template's root edit but never a per-line-item PUT on pagehide", () => {
+    const config = makeConfig({
+      entityKind: "template",
+      hasSnapshotConcurrency: false,
+    });
+    const templateEntity = (title: string, description: string) =>
+      makeEntity({
+        title,
+        sections: [{ items: [makeItem("li-1", { description })], subsections: [] }],
+      });
+
+    const { rerender, unmount } = render(
+      <Harness
+        config={config}
+        entity={templateEntity("Roof template", "Replace shingles")}
+      />,
+    );
+
+    // Both the root AND the line item are dirty.
+    rerender(
+      <Harness
+        config={config}
+        entity={templateEntity("Roof template — edited", "Replace shingles — edited")}
+      />,
+    );
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/estimates/est-1");
+    expect(puts.some(([path]) => String(path).includes("/line-items/"))).toBe(false);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("stamps updated_at_snapshot on the pagehide flush when concurrency is enabled", () => {
+    const config = makeConfig({ hasSnapshotConcurrency: true });
+    const { rerender, unmount } = render(
+      <Harness
+        config={config}
+        entity={makeEntity({
+          title: "Roof repair",
+          updated_at: "2026-06-05T12:30:00Z",
+        })}
+      />,
+    );
+
+    rerender(
+      <Harness
+        config={config}
+        entity={makeEntity({
+          title: "Roof repair — edited",
+          updated_at: "2026-06-05T12:30:00Z",
+        })}
+      />,
+    );
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(JSON.parse((puts[0][1] as RequestInit).body as string)).toMatchObject({
+      title: "Roof repair — edited",
+      updated_at_snapshot: "2026-06-05T12:30:00Z",
+    });
+
+    act(() => {
+      unmount();
+    });
   });
 });

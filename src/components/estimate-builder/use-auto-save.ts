@@ -325,6 +325,29 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
   // Empty deps: the cleanup runs only on unmount, reading the latest ref.
   useEffect(() => () => flushOnUnmountRef.current(), []);
 
+  // ── Flush pending edits on hard page-unload (#477) ────────────────────────
+  // The cleanup above fires only on in-app unmount; a true page teardown (tab
+  // close, refresh, address-bar nav, or iOS backgrounding the app and the OS
+  // later killing it) never runs React cleanup, so an edit inside the debounce
+  // window would be silently dropped. Fire the same keepalive flush from the
+  // browser's page-lifecycle event so it survives the page going away.
+  // beforeunload is intentionally avoided (unreliable in iOS WebKit, can
+  // surface a "Leave site?" prompt). Safe to fire alongside the unmount cleanup:
+  // planUnmountFlush returns an empty plan on a clean/already-saved document and
+  // the PUTs are idempotent, so no "already-flushed" guard is needed.
+  useEffect(() => {
+    const flush = () => flushOnUnmountRef.current();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   // ── Core save flow helpers ────────────────────────────────────────────────
 
   const transitionToSaved = useCallback(() => {
