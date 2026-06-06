@@ -527,6 +527,73 @@ describe("PhotoReportBuilder write-up fit counter", () => {
   });
 });
 
+describe("PhotoReportBuilder unmount flush (#443)", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    vi.useFakeTimers();
+  });
+
+  it("flushes the pending edit when the builder unmounts within the debounce window", () => {
+    const { unmount } = renderBuilder();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // Unmount BEFORE the 2s debounce elapses — the autosave timer has not fired,
+    // so nothing has been written yet (this is the lost-edit window in #443).
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    act(() => {
+      unmount();
+    });
+
+    // The pending dirty edit is flushed on unmount, persisting the last edit.
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Roof damage report" }),
+    );
+  });
+
+  it("does not flush when the builder was never edited", () => {
+    const { unmount } = renderBuilder();
+
+    // No edit happened, so the report is not dirty — unmounting must not write.
+    act(() => {
+      unmount();
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+  });
+
+  it("does not flush an over-limit write-up on unmount", () => {
+    const { unmount } = renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: { value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>` },
+      });
+    });
+
+    // The write-up overflows its one-page intro, so the report is dirty but
+    // blocked. The flush must honour the same save-time guard (#404) as the
+    // debounced save and refuse to persist the over-limit content.
+    act(() => {
+      unmount();
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("PhotoReportBuilder save-time guard", () => {
   beforeEach(() => {
     h.updateMock.mockClear();
