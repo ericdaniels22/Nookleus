@@ -5,7 +5,7 @@ import { format } from "date-fns";
 
 import PageFooter from "./page-footer";
 import PageHeader from "./page-header";
-import type { PhotoPageSlot } from "./photo-page";
+import { PHOTO_CORNER_RADIUS, type PhotoPageSlot } from "./photo-page";
 
 const colors = {
   primary: "#1B2434",
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     position: "relative",
     overflow: "hidden",
   },
