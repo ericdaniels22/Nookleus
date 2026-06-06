@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import CoverPage from "./cover-page";
 import type { CoverPageData } from "@/lib/cover-page-data";
-import { collectText, expandTree, findAll } from "./test-helpers";
+import { PHOTO_CORNER_RADIUS } from "./photo-page";
+import { collectText, expandTree, findAll, flattenStyle } from "./test-helpers";
 
 function makeData(overrides: Partial<CoverPageData> = {}): CoverPageData {
   return {
@@ -144,5 +145,48 @@ describe("CoverPage", () => {
       (n) => n.props.src as string,
     );
     expect(imageUrls).toContain("https://cdn.example/logo.png");
+  });
+
+  it("applies the shared corner radius to the cover photo", () => {
+    const tree = expandTree(
+      <CoverPage
+        data={makeData()}
+        title="Site Report"
+        coverPhotoUrl="https://cdn.example/cover.jpg"
+        logoUrl={null}
+      />,
+    );
+
+    // The cover photo is a bare IMAGE (no clipping frame), so the radius lives
+    // on the image's own style — assert it directly rather than via photoFrames.
+    const cover = findAll(tree, (n) => n.type === "IMAGE").find(
+      (n) => n.props.src === "https://cdn.example/cover.jpg",
+    );
+    expect(cover).toBeDefined();
+    expect(flattenStyle(cover!.props.style).borderRadius).toBe(
+      PHOTO_CORNER_RADIUS,
+    );
+  });
+
+  it("rounds the cover-photo placeholder with the same shared radius", () => {
+    const tree = expandTree(
+      <CoverPage
+        data={makeData()}
+        title="Site Report"
+        coverPhotoUrl={null}
+        logoUrl={null}
+      />,
+    );
+
+    // When no cover photo is selected the placeholder fills the same slot, so it
+    // must carry the same rounded corners. It is the only VIEW on the cover page
+    // with a borderRadius.
+    const rounded = findAll(
+      tree,
+      (n) =>
+        n.type === "VIEW" &&
+        flattenStyle(n.props.style).borderRadius === PHOTO_CORNER_RADIUS,
+    );
+    expect(rounded).toHaveLength(1);
   });
 });

@@ -54,6 +54,41 @@ describe("measureWriteupFit", () => {
     ).toBe("Soakeddrywall".length);
   });
 
+  it("does not count <br> hard breaks toward the budget (characters, not lines)", () => {
+    // The budget is deliberately character-based, not line-based (ADR 0009): a
+    // write-up can stack many hard breaks and still measure only its visible
+    // text. A <br> is dropped like any other tag — it adds no character and is
+    // NOT turned into a space — so three visual lines count exactly as the same
+    // text on one line. The budget errs lax: it never blocks on break-driven
+    // height even though such a write-up could spill to a second page.
+    expect(measureWriteupFit("<p>aaa<br>bbb<br>ccc</p>").used).toBe(9);
+    expect(measureWriteupFit("<p>aaa<br>bbb<br>ccc</p>").used).toBe(
+      measureWriteupFit("<p>aaabbbccc</p>").used,
+    );
+  });
+
+  it("collapses a run of &nbsp; entities to a single space, mirroring HTML layout", () => {
+    // HTML renders a run of non-breaking spaces as one space gap, and the budget
+    // mirrors that (whitespace runs collapse to one space). Padding a write-up
+    // with extra &nbsp; therefore never pads the count, regardless of how many
+    // entities the run holds.
+    expect(measureWriteupFit("<p>a&nbsp;&nbsp;&nbsp;b</p>").used).toBe(3); // "a b"
+    expect(measureWriteupFit("<p>a&nbsp;&nbsp;&nbsp;b</p>").used).toBe(
+      measureWriteupFit("<p>a&nbsp;b</p>").used,
+    );
+  });
+
+  it("counts multi-paragraph text continuously, ignoring <p> block structure", () => {
+    // Each paragraph adds vertical margin (height) in the PDF, but the budget
+    // counts characters, not blocks: three short paragraphs measure exactly as
+    // the same characters in a single paragraph. The block boundaries are
+    // weightless, so a write-up of many short paragraphs can still run long.
+    expect(measureWriteupFit("<p>AAA</p><p>BBB</p><p>CCC</p>").used).toBe(9);
+    expect(measureWriteupFit("<p>AAA</p><p>BBB</p><p>CCC</p>").used).toBe(
+      measureWriteupFit("<p>AAABBBCCC</p>").used,
+    );
+  });
+
   it("measures legacy plain text the way the PDF renders it, not as stray markup", () => {
     // A pre-rework one-line subtitle has no HTML tags. The PDF escapes it via
     // normalizeSectionWriteup and renders every character, so the fit module
