@@ -222,10 +222,7 @@ export interface PhotoReportTemplate {
   /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
   organization_id: string;
   name: string;
-  audience: "adjuster" | "customer" | "internal" | "general";
   sections: unknown[];
-  cover_page: Record<string, unknown>;
-  photos_per_page: number;
   created_by: string;
   created_at: string;
   updated_at: string;
