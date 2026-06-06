@@ -11,6 +11,8 @@ handoff: null
 related: ["[[build-66a]]", "[[build-66b]]", "[[build-66d]]"]
 ---
 
+> **Retired 2026-06-05.** The knowledge-vault continuity loop these builds created (the `00-NOW.md` log, dated handoffs, and the `/handoff` + `/orient` skills) was retired — see [ADR 0010](../../adr/0010-retire-knowledge-vault-continuity-loop.md). This card is preserved as historical record.
+
 #status/planned #area/knowledge-vault #area/tooling #build/66c
 
 ## What's planned

@@ -36,5 +36,4 @@ related_builds: ["[[build-65a]]"]
 ## Related
 
 - [[build-65a]]
-- [[2026-04-28-build-65a]] handoff
 - [[00-glossary]] entry for **Nookleus**.

@@ -41,7 +41,7 @@ Names, terms, and shorthand that recur across Nookleus work. New terms get added
   - Future Claude: when you see "Build 16a" in conversation and then a `migration-build35.sql` file in the diff, that's the same thing. Don't try to reconcile the numbers — read the migration content.
 - **Build 66 overload.** The label "Build 66" is shared by two unrelated threads:
   - **[[build-66]]** — soft-delete jobs + 30-day trash, PR #37, migration `build66-soft-delete-jobs`. Shipped.
-  - **[[build-66a]] / [[build-66b]] / [[build-66c]] / [[build-66d]]** — Knowledge Vault meta-spec sub-builds. The plan file at `docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md` calls the meta-spec "Build 66" while the migration counter independently advanced to 66 for soft-delete. They are not the same project.
+  - **[[build-66a]] / [[build-66b]] / [[build-66c]] / [[build-66d]]** — Knowledge Vault meta-spec sub-builds. The Knowledge Vault meta-spec used the label "Build 66" while the migration counter independently advanced to 66 for soft-delete. They are not the same project.
 
 ## Lessons and gotchas
 
@@ -50,6 +50,6 @@ Names, terms, and shorthand that recur across Nookleus work. New terms get added
 ## Process and tooling
 
 - **superpowers** — internal name for the planning / handoff document discipline. Lives in `docs/superpowers/`.
-- **Vault** — this folder, `docs/vault/`. Curated knowledge content. Stood up in Build 66a; populated by Build 66b; maintained by Build 66c skills.
+- **Vault** — this folder, `docs/vault/`. Curated knowledge content. Stood up in Build 66a; populated by Build 66b. The Build 66c maintenance loop (`00-NOW.md` + dated handoffs + the `/handoff` / `/orient` skills) was retired 2026-06-05 — see [ADR 0010](../adr/0010-retire-knowledge-vault-continuity-loop.md). The folder is now a frozen reference; current platform state lives in GitHub issues.
 - **Build guide docs are incomplete.** The four `.docx` files (v1.3, v1.4, v1.6, v1.7) cover specs through Build 17 only. Builds 18, 21, 23, 25a, 27, 28, 29, 30, 31, 64, 65 shipped without ever being written into a guide doc. **The repo is the only source of truth for what shipped.**
 - **Rule C finding** — established triage rule: minor finding → log + proceed; material finding → stop + hand back.

@@ -45,4 +45,3 @@ So at 65e the architectural flip happens: `webDir: 'out'` becomes the live bundl
 
 - Plan: [docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md](../../../docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md) §5.1, §5.5
 - Build: [[build-65a]]
-- Handoff: [[2026-04-28-build-65a]]

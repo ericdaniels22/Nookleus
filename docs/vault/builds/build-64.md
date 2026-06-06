@@ -7,7 +7,7 @@ started: 2026-04-26
 shipped: 2026-04-26
 guide_doc: null
 plan_file: docs/superpowers/plans/2026-04-26-build-64-handle-new-user-trigger.md
-handoff: "[[2026-04-26-build-64]]"
+handoff: null
 related: ["[[build-18a]]", "[[build-18b]]", "[[build-18c]]", "[[build-14d]]"]
 ---
 

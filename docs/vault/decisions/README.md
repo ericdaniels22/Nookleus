@@ -21,4 +21,4 @@ ADR-style records of non-obvious decisions. Anything where "we chose X over Y be
 - **Tags:** `#decision`, plus relevant area tags.
 - **Frontmatter:** `date`, `title`, `status` (`accepted` | `superseded` | `rejected`), `supersedes`, `superseded_by`, `related`.
 - **Sections:** Context · Decision · Alternatives considered · Consequences · Links.
-- **Wikilinks:** to the build cards and handoff cards where the decision was made or first applied.
+- **Wikilinks:** to the build cards where the decision was made or first applied.

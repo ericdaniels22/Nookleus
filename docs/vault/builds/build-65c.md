@@ -9,8 +9,8 @@ guide_doc: null
 spec_file: docs/superpowers/specs/2026-05-08-build-65c-upload-pipeline-design.md
 plan_file: docs/superpowers/plans/2026-05-08-build-65c-upload-pipeline.md
 pr: https://github.com/ericdaniels22/Nookleus/pull/52
-handoff: "[[2026-05-09-build-65c-test-2-findings]]"
-related: ["[[build-65a]]", "[[build-65b]]", "[[2026-05-08-build-65c-spec-and-plan]]", "[[2026-05-09-build-65c-impl-tasks-14-15-partial-16]]", "[[2026-05-09-build-65c-test-2-findings]]"]
+handoff: null
+related: ["[[build-65a]]", "[[build-65b]]"]
 ---
 
 #status/ready-to-merge #area/mobile #build/65c
@@ -140,4 +140,4 @@ Implication: 87 captures on disk are invisible to the worker because `s.upload_s
 - Branch: `build-65c-upload-pipeline`
 - Last commit (pre-finding-investigation): `3ece2b1` (vault handoff for Test 2 findings)
 - Migration: `build65c_photos_mobile_fields` (applied to AAA prod `rzzprgidqbnqcdupmpfe` during impl session)
-- Handoffs: [[2026-05-08-build-65c-spec-and-plan]], [[2026-05-09-build-65c-impl-tasks-14-15-partial-16]], [[2026-05-09-build-65c-test-2-findings]]
+- Handoffs: retired with the continuity loop (recoverable via `git show vault-loop-retired:docs/vault/handoffs/2026-05-09-build-65c-test-2-findings.md`; see ADR 0010)
