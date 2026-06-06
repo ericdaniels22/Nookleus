@@ -280,6 +280,7 @@ export interface Email {
   uid: number | null;
   received_at: string;
   created_at: string;
+  organization_id: string;
   // Joined fields
   job?: Job;
   account?: EmailAccount;
@@ -294,6 +295,7 @@ export interface EmailAttachment {
   file_size: number | null;
   storage_path: string | null;
   created_at: string;
+  organization_id: string;
 }
 
 export interface JobFile {
@@ -326,6 +328,11 @@ export interface EmailAccount {
   last_synced_uid: number | null;
   created_at: string;
   updated_at: string;
+  organization_id: string;
+  /** Owner of a Personal account; null for a Shared account (migration-140). */
+  user_id: string | null;
+  /** One-time inbox-categorization backfill marker; null until it has run. */
+  category_backfill_completed_at: string | null;
 }
 
 export interface JobStatus {
