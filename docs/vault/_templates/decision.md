@@ -1,6 +1,6 @@
 <!--
 Templater stub for decisions/{YYYY-MM-DD}-{slug}.md.
-Authored in Build 66b / 66c. See docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md.
+Authored in Build 66b / 66c.
 -->
 
 # Decision template — placeholder

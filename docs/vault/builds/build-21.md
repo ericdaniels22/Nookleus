@@ -6,7 +6,6 @@ phase: jarvis-ecosystem
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-09-agent-architecture-map.md
 handoff: null
 related: ["[[build-23]]", "[[build-25a]]", "[[build-26b]]", "[[jarvis]]"]
 ---
@@ -27,6 +26,5 @@ Jarvis Core — the orchestrator AI assistant. Chat UI + Claude API backend with
 ## Source
 
 - Commits: `f97e4d6 Build 2.1: Jarvis Chat UI`, `4384bb8 Add Jarvis Claude API backend`, `3cd0d9b Bold & vibrant design overhaul + Jarvis UX improvements`
-- Plan: [docs/superpowers/plans/2026-04-09-agent-architecture-map.md](../../../docs/superpowers/plans/2026-04-09-agent-architecture-map.md)
 - Migration: [supabase/migration-build21-jarvis.sql](../../../supabase/migration-build21-jarvis.sql)
 - Guide: none

@@ -1,6 +1,5 @@
 -- supabase/migration-build67c1-pdf-presets-and-bucket.sql
 -- Build 67c1 — PDF Presets table, pdfs Storage bucket, default-preset seeding.
--- Spec: docs/superpowers/specs/2026-05-04-build-67c1-design.md
 
 -- ============================================================================
 -- 0. Drop placeholder table from build 67a foundation migration.

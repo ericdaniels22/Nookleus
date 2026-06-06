@@ -6,7 +6,6 @@ phase: knowledge-vault
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md
 handoff: null
 related: ["[[build-66a]]", "[[build-66b]]", "[[build-66d]]"]
 ---
@@ -25,6 +24,5 @@ Authoring the Claude Code skills that keep the vault current without willpower:
 
 ## Source
 
-- Plan: [docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md](../../../docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md) §66c
 - Predecessors: [[build-66a]], [[build-66b]]
 - Guide: none

@@ -6,7 +6,6 @@ phase: settings
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-10-navbar-reorder.md
 handoff: null
 related: ["[[build-14a]]"]
 ---
@@ -25,6 +24,5 @@ Admin-configurable sidebar navigation order persisted to DB. Builds on the stati
 ## Source
 
 - Commits: `f9a4050` (migration) through `cd20d41` (per-call snapshot fix), PR #2
-- Plan/spec: [docs/superpowers/specs/2026-04-10-navbar-reorder-design.md](../../../docs/superpowers/specs/2026-04-10-navbar-reorder-design.md), [docs/superpowers/plans/2026-04-10-navbar-reorder.md](../../../docs/superpowers/plans/2026-04-10-navbar-reorder.md)
 - Migration: [supabase/migration-build29-nav-order.sql](../../../supabase/migration-build29-nav-order.sql) — note the rename from build27 to build29 to avoid the email-categories collision (commit `b74d774`)
 - Guide: none

@@ -6,7 +6,6 @@ phase: payments
 started: null
 shipped: 2026-04-20
 guide_doc: "v1.7 §Build 17"
-plan_file: docs/superpowers/plans/2026-04-20-build-17a-stripe.md
 handoff: null
 related: ["[[build-17b]]", "[[build-17c]]", "[[build-16d]]"]
 ---
@@ -25,6 +24,5 @@ Stripe Connect (Standard) flow: connect/disconnect, signed OAuth state, settings
 ## Source
 
 - Commit range: `86fa608` (install) → `e627939` (settings polish), through PR #19
-- Plan: [docs/superpowers/plans/2026-04-20-build-17a-stripe.md](../../../docs/superpowers/plans/2026-04-20-build-17a-stripe.md)
 - Migration: [supabase/migration-build39-stripe-payments.sql](../../../supabase/migration-build39-stripe-payments.sql)
 - Guide: v1.7 §Build 17

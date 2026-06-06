@@ -6,7 +6,6 @@ phase: email
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-09-email-improvements.md
 handoff: null
 related: ["[[build-12]]", "[[build-27]]"]
 ---
@@ -23,6 +22,5 @@ Rule engine extension for `body_pattern` matches (in addition to sender/subject 
 ## Source
 
 - Commit: `194a107 feat(email): body_pattern rules + IMAP header re-fetch for backfill`
-- Plan/spec: [docs/superpowers/specs/2026-04-09-email-improvements-design.md](../../../docs/superpowers/specs/2026-04-09-email-improvements-design.md), [docs/superpowers/plans/2026-04-09-email-improvements.md](../../../docs/superpowers/plans/2026-04-09-email-improvements.md)
 - Migration: [supabase/migration-build28-body-patterns.sql](../../../supabase/migration-build28-body-patterns.sql)
 - Guide: none

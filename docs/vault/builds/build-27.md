@@ -6,7 +6,6 @@ phase: email
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-10-email-categories.md
 handoff: null
 related: ["[[build-12]]", "[[build-13]]", "[[build-28]]"]
 ---
@@ -24,6 +23,5 @@ Configurable inbox categories (Promotions, Social, etc.) driven by rules: `sende
 ## Source
 
 - Commits: `e914f1c feat(db): add category column, rules table, and default seed` → `41a5253 integrate IconRail and CategoryTabs into EmailInbox`
-- Plan/spec: [docs/superpowers/specs/2026-04-10-email-categories-design.md](../../../docs/superpowers/specs/2026-04-10-email-categories-design.md), [docs/superpowers/plans/2026-04-10-email-categories.md](../../../docs/superpowers/plans/2026-04-10-email-categories.md)
 - Migration: [supabase/migration-build27-categories.sql](../../../supabase/migration-build27-categories.sql)
 - Guide: none

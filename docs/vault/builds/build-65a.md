@@ -6,7 +6,6 @@ phase: mobile
 started: 2026-04-26
 shipped: 2026-04-28
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md
 handoff: null
 related: ["[[2026-04-21-rename-to-nookleus]]"]
 ---
@@ -35,7 +34,5 @@ The follow-on Nookleus rename ([[2026-04-21-rename-to-nookleus]]) updated `Info.
 ## Source
 
 - Commits: `a2ae498 build65a: Capacitor iOS scaffolding (#25)` → `1d48859 rename ios app display name to Nookleus (#28)` → `57c1c67 65a: rename app to Nookleus (Info.plist, capacitor.config, build 2) (#38)`
-- Plan: [docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md](../../../docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md) §5.1, §11.1
-- Handoffs: [docs/superpowers/build-65/65a-handoff.md](../../../docs/superpowers/build-65/65a-handoff.md), [docs/superpowers/build-65/65a-windows-handoff.md](../../../docs/superpowers/build-65/65a-windows-handoff.md)
 - Tag: `mobile-v0.1.0`
 - Guide: none

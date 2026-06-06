@@ -6,8 +6,6 @@ phase: mobile
 started: 2026-05-08
 shipped: null
 guide_doc: null
-spec_file: docs/superpowers/specs/2026-05-08-build-65c-upload-pipeline-design.md
-plan_file: docs/superpowers/plans/2026-05-08-build-65c-upload-pipeline.md
 pr: https://github.com/ericdaniels22/Nookleus/pull/52
 handoff: null
 related: ["[[build-65a]]", "[[build-65b]]"]
@@ -134,8 +132,6 @@ Implication: 87 captures on disk are invisible to the worker because `s.upload_s
 
 ## Source
 
-- Spec: [docs/superpowers/specs/2026-05-08-build-65c-upload-pipeline-design.md](../../../docs/superpowers/specs/2026-05-08-build-65c-upload-pipeline-design.md)
-- Plan: [docs/superpowers/plans/2026-05-08-build-65c-upload-pipeline.md](../../../docs/superpowers/plans/2026-05-08-build-65c-upload-pipeline.md)
 - PR #52: https://github.com/ericdaniels22/Nookleus/pull/52
 - Branch: `build-65c-upload-pipeline`
 - Last commit (pre-finding-investigation): `3ece2b1` (vault handoff for Test 2 findings)

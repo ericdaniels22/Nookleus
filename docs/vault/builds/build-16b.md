@@ -6,7 +6,6 @@ phase: accounting
 started: null
 shipped: 2026-04-19
 guide_doc: "v1.6 §Build 16"
-plan_file: docs/superpowers/plans/2026-04-19-build-16b-accounting.md
 handoff: null
 related: ["[[build-16a]]", "[[build-16c]]", "[[build-16d]]"]
 ---
@@ -26,6 +25,5 @@ related: ["[[build-16a]]", "[[build-16c]]", "[[build-16d]]"]
 ## Source
 
 - Commit range: `6b53e1b` (spec) → `6640084` (final fix split)
-- Plan: [docs/superpowers/plans/2026-04-19-build-16b-accounting.md](../../../docs/superpowers/plans/2026-04-19-build-16b-accounting.md)
 - Migration: [supabase/migration-build36-accounting.sql](../../../supabase/migration-build36-accounting.sql)
 - Guide: v1.6 §Build 16

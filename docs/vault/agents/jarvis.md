@@ -91,5 +91,4 @@ Digital marketing content. Built [[build-26b]] (commit `99fde06`, with Build 2.6
 ## Source
 
 - Build cards: [[build-21]] (Jarvis Chat UI + Claude API), [[build-23]] (R&D), [[build-25a]] (Knowledge + Field Ops), [[build-26b]] (Marketing).
-- Plan: [docs/superpowers/plans/2026-04-09-agent-architecture-map.md](../../../docs/superpowers/plans/2026-04-09-agent-architecture-map.md).
 - Code: [src/app/jarvis/page.tsx](../../../src/app/jarvis/page.tsx), [src/app/api/jarvis/](../../../src/app/api/jarvis/), [src/components/jarvis/](../../../src/components/jarvis/), [src/lib/jarvis/](../../../src/lib/jarvis/).

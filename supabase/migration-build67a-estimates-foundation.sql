@@ -1,5 +1,4 @@
 -- Build 67a — Estimates & Invoices Foundation
--- Spec: docs/superpowers/specs/2026-04-30-build-67a-estimates-foundation-design.md
 -- Pre-flight: INV-2026-0001 + its 2 invoice_line_items rows must be deleted before this runs.
 
 -- ============================================================================

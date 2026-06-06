@@ -6,7 +6,6 @@ phase: accounting
 started: null
 shipped: 2026-04-19
 guide_doc: "v1.6 §Build 16"
-plan_file: docs/superpowers/plans/2026-04-19-build-16d-invoice-payment-sync.md
 handoff: null
 related: ["[[build-16b]]", "[[build-16c]]", "[[build-17a]]", "[[build-17c]]"]
 ---
@@ -25,6 +24,5 @@ Invoices, manual payments, and bidirectional sync to QuickBooks. Invoice PDF gen
 ## Source
 
 - Commit range: `d2975fb` (migration) → `70be0b3` (cents fix), through PR #18
-- Plan: [docs/superpowers/plans/2026-04-19-build-16d-invoice-payment-sync.md](../../../docs/superpowers/plans/2026-04-19-build-16d-invoice-payment-sync.md)
 - Migration: [supabase/migration-build38-invoice-payment-sync.sql](../../../supabase/migration-build38-invoice-payment-sync.sql)
 - Guide: v1.6 §Build 16
