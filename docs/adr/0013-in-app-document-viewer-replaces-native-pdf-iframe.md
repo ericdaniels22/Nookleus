@@ -54,8 +54,7 @@ committing, that reputation had to be root-caused.
 
 **Reliability finding — the root cause, written down for slice #464.** The Chrome hang
 was *not* a react-pdf / pdf.js / worker defect. It was **email-iframe sandbox
-inheritance**, diagnosed and fixed on 2026-05-08 (build 15h-followup, prod-verified —
-see [`2026-05-08-build-15h-followup-chrome-sign-sandbox.md`](../vault/handoffs/2026-05-08-build-15h-followup-chrome-sign-sandbox.md)).
+inheritance**, diagnosed and fixed on 2026-05-08 (build 15h-followup, prod-verified).
 The in-app `/email` inbox renders the email body inside
 `<iframe sandbox="allow-same-origin allow-popups">` with `<base target="_blank">`
 injected, so a popup opened by clicking the contract link inherited the parent's
