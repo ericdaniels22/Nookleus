@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PhotoReport, PhotoReportTemplate } from "@/lib/types";
 import { nextReportNumber } from "./next-report-number";
 import { buildDefaultReportSections } from "./photo-report-builder";
-import { buildInitialSections } from "./build-initial-sections";
+import { buildInitialSections, newSectionId } from "./build-initial-sections";
 
 export interface CreatePhotoReportDraftInput {
   organizationId: string;
@@ -50,6 +50,9 @@ const MAX_REPORT_NUMBER_ATTEMPTS = 3;
 export async function createPhotoReportDraft(
   supabase: SupabaseClient,
   input: CreatePhotoReportDraftInput,
+  // Stable-id factory for the seeded Sections (#467). Defaulted so the route
+  // calls this with two args; injectable so tests can assert deterministic ids.
+  makeId: () => string = newSectionId,
 ): Promise<PhotoReport> {
   // Trust nothing about the client-supplied selection: keep only photo ids that
   // actually belong to this Job (the query runs under the caller's RLS, so this
@@ -69,10 +72,12 @@ export async function createPhotoReportDraft(
       // they can redistribute in the builder. With nothing selected there is no
       // Photos section to append.
       [
-        ...buildInitialSections(template),
-        ...(photoIds.length > 0 ? buildDefaultReportSections(photoIds) : []),
+        ...buildInitialSections(template, makeId),
+        ...(photoIds.length > 0
+          ? buildDefaultReportSections(photoIds, makeId)
+          : []),
       ]
-    : buildDefaultReportSections(photoIds);
+    : buildDefaultReportSections(photoIds, makeId);
 
   // Per-Job numbering is read-then-insert with no DB-side serialization, so two
   // near-simultaneous "Create report" clicks on the same Job can read the same

@@ -104,6 +104,25 @@ vi.mock("@dnd-kit/core", async () => {
   };
 });
 
+// Record the id each SortableSection registers with dnd-kit, so a test can assert
+// sections are keyed off their stable `section.id` (not the array index) — the
+// mechanism behind smooth reorder animation (#467, AC2). The wrapper delegates to
+// the real hook, so rendering behaves exactly as in production.
+let capturedSortableIds: string[] = [];
+vi.mock("@dnd-kit/sortable", async () => {
+  const actual =
+    await vi.importActual<typeof import("@dnd-kit/sortable")>(
+      "@dnd-kit/sortable",
+    );
+  return {
+    ...actual,
+    useSortable: (args: { id: string }) => {
+      capturedSortableIds.push(args.id);
+      return actual.useSortable(args);
+    },
+  };
+});
+
 import React from "react";
 import PhotoReportBuilder from "./photo-report-builder";
 import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
@@ -496,6 +515,97 @@ describe("PhotoReportBuilder section + photo management", () => {
         el?.tagName === "P" && (el.textContent ?? "").startsWith("1 photo"),
     );
     expect(label).toBeTruthy();
+  });
+});
+
+// Issue #467 — Sections used to be keyed by array index (React key + dnd-kit
+// sortable id). On reorder, React reconciles by key, so the DOM node the user
+// was focused in stayed put at its old position and had a *different* section's
+// content swapped into it — the caret jumped to the wrong section mid-edit.
+// Keying both off each section's stable `id` instead makes React move the
+// focused node with its section, so focus/caret follows the section the user
+// was editing.
+describe("PhotoReportBuilder section reorder focus (#467)", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    capturedOnDragEnd = null;
+    vi.useFakeTimers();
+  });
+
+  it("keeps focus in the edited section's heading after that section is reordered", () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          { title: "Alpha", description: "", photo_ids: [] },
+          { title: "Beta", description: "", photo_ids: [] },
+        ],
+      }),
+    );
+
+    // The user edits the first section's heading and leaves the caret in it.
+    const alphaInput = screen
+      .getAllByLabelText("Section heading")
+      .find(
+        (el) => (el as HTMLInputElement).value === "Alpha",
+      ) as HTMLInputElement;
+    act(() => {
+      alphaInput.focus();
+      fireEvent.change(alphaInput, { target: { value: "Alpha edited" } });
+    });
+
+    // …then drags that same (edited) section from the top to the bottom.
+    // resolvePhotoReportDragEnd maps the drop by `data.current.index` (the
+    // active/over `id` is immaterial here — see photo-report-drag.ts), so this
+    // drives the real reorder path without a pointer.
+    act(() => {
+      capturedOnDragEnd?.({
+        active: {
+          id: "section-0",
+          data: { current: { type: "section", index: 0 } },
+        },
+        over: {
+          id: "section-1",
+          data: { current: { type: "section", index: 1 } },
+        },
+      });
+    });
+
+    // The reorder really happened — Beta is now first. Asserting this guards the
+    // focus check below from passing vacuously (i.e. by the section never moving).
+    expect(
+      screen
+        .getAllByLabelText("Section heading")
+        .map((el) => (el as HTMLInputElement).value),
+    ).toEqual(["Beta", "Alpha edited"]);
+
+    // …and focus stayed in the field the user was editing — not stranded on
+    // whatever section slid into its old position. With index keys this is
+    // "Beta" (the wrong section); with stable `section.id` keys it follows.
+    expect((document.activeElement as HTMLInputElement).value).toBe(
+      "Alpha edited",
+    );
+  });
+
+  it("keys each section's sortable identity off its stable id, never its array position (#467, AC2)", () => {
+    // Smooth reorder animation (AC2) depends on dnd-kit seeing a *stable* sortable
+    // id per section, so the dragged node keeps its identity as positions shift.
+    // The DndContext is stubbed in these tests, so a revert of `useSortable({ id })`
+    // back to a positional `section-${index}` would not surface through the focus
+    // test above — this asserts it directly. Sections loaded with explicit ids keep
+    // them (ensureSectionIds), making the expected ids deterministic.
+    capturedSortableIds = [];
+    renderBuilder(
+      makeReport({
+        sections: [
+          { id: "sec-a", title: "A", description: "", photo_ids: [] },
+          { id: "sec-b", title: "B", description: "", photo_ids: [] },
+        ],
+      }),
+    );
+
+    expect(capturedSortableIds).toEqual(["sec-a", "sec-b"]);
   });
 });
 

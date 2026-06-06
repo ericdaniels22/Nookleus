@@ -177,7 +177,11 @@ describe("createPhotoReportDraft", () => {
     });
 
     expect(supabase.inserted?.sections).toEqual([
-      { title: "Photos", description: "", photo_ids: ["p1", "p2", "p3"] },
+      expect.objectContaining({
+        title: "Photos",
+        description: "",
+        photo_ids: ["p1", "p2", "p3"],
+      }),
     ]);
   });
 
@@ -195,7 +199,11 @@ describe("createPhotoReportDraft", () => {
     });
 
     expect(supabase.inserted?.sections).toEqual([
-      { title: "Photos", description: "", photo_ids: ["p1", "p3"] },
+      expect.objectContaining({
+        title: "Photos",
+        description: "",
+        photo_ids: ["p1", "p3"],
+      }),
     ]);
   });
 
@@ -237,17 +245,21 @@ describe("createPhotoReportDraft", () => {
     // separate, appended Photos section the user can redistribute.
     expect(supabase.inserted?.template_id).toBe("tmpl-1");
     expect(supabase.inserted?.sections).toEqual([
-      {
+      expect.objectContaining({
         title: "Findings",
         description: "<p>Findings boilerplate</p>",
         photo_ids: [],
-      },
-      {
+      }),
+      expect.objectContaining({
         title: "Work Performed",
         description: "<p>Work boilerplate</p>",
         photo_ids: [],
-      },
-      { title: "Photos", description: "", photo_ids: ["p1", "p2"] },
+      }),
+      expect.objectContaining({
+        title: "Photos",
+        description: "",
+        photo_ids: ["p1", "p2"],
+      }),
     ]);
   });
 
@@ -292,7 +304,11 @@ describe("createPhotoReportDraft", () => {
     });
 
     expect(supabase.inserted?.sections).toEqual([
-      { title: "Findings", description: "<p>x</p>", photo_ids: [] },
+      expect.objectContaining({
+        title: "Findings",
+        description: "<p>x</p>",
+        photo_ids: [],
+      }),
     ]);
   });
 
@@ -332,7 +348,43 @@ describe("createPhotoReportDraft", () => {
 
     expect(supabase.inserted?.template_id).toBeNull();
     expect(supabase.inserted?.sections).toEqual([
-      { title: "Photos", description: "", photo_ids: ["p1"] },
+      expect.objectContaining({
+        title: "Photos",
+        description: "",
+        photo_ids: ["p1"],
+      }),
     ]);
+  });
+
+  it("stamps each seeded Section with a stable id from the injected id factory (#467)", async () => {
+    // Every Section the create step seeds — template boilerplate Sections and the
+    // appended Photos section alike — gets a stable id so the builder can key its
+    // list/dnd off it and old reports never need a backfill on first open. The
+    // injected factory makes the ids deterministic to assert (default is a UUID).
+    const supabase = fakeSupabase([], {
+      template: {
+        id: "tmpl-1",
+        sections: [
+          { title: "Findings", description: "<p>x</p>" },
+          { title: "Work Performed", description: "<p>y</p>" },
+        ],
+      },
+    });
+
+    let n = 0;
+    await createPhotoReportDraft(
+      supabase,
+      {
+        organizationId: "org-1",
+        jobId: "job-1",
+        preparerName: "Eric Daniels",
+        photoIds: ["p1"],
+        templateId: "tmpl-1",
+      },
+      () => `sec-${++n}`,
+    );
+
+    const sections = supabase.inserted?.sections as Array<{ id: string }>;
+    expect(sections.map((s) => s.id)).toEqual(["sec-1", "sec-2", "sec-3"]);
   });
 });

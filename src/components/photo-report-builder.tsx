@@ -41,7 +41,11 @@ import {
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
 import { measureWriteupFit } from "@/lib/section-writeup-fit";
-import type { ReportSection } from "@/lib/build-initial-sections";
+import {
+  newSectionId,
+  type ReportSection,
+  type StoredReportSection,
+} from "@/lib/build-initial-sections";
 import type { Photo, PhotoReport } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the
@@ -89,7 +93,7 @@ export default function PhotoReportBuilder({
     {
       title: report.title,
       report_date: report.report_date,
-      sections: report.sections as ReportSection[],
+      sections: report.sections as StoredReportSection[],
     },
     initBuilderState,
   );
@@ -371,18 +375,14 @@ export default function PhotoReportBuilder({
           </div>
 
           {/*
-            Slice-2b drag wiring. Two known low-severity follow-ups, left for a
-            later slice (no data impact here, controlled inputs keep displayed
-            values correct):
-              - Sections are addressed by array index (React key + sortable id),
-                because ReportSection has no stable id. A stable per-section id
-                would smooth dnd reorder animations and keep input focus/caret
-                pinned to a section across a reorder; it also touches the
-                persisted sections shape, so it is deferred.
-              - closestCenter targets the nearest section *center*; on very tall
-                section cards a photo dropped near an edge can land in the
-                neighbouring section. A pointer-based strategy would be more
-                precise.
+            Slice-2b drag wiring. Sections are keyed (React key + dnd-kit
+            sortable id) off their stable `id` (#467), so editing a Section then
+            reordering it keeps input focus/caret pinned to that Section and the
+            reorder animates smoothly. One known low-severity follow-up remains,
+            left for a later slice: closestCenter targets the nearest section
+            *center*, so on very tall section cards a photo dropped near an edge
+            can land in the neighbouring section; a pointer-based strategy would
+            be more precise.
           */}
           <DndContext
             sensors={sensors}
@@ -391,13 +391,13 @@ export default function PhotoReportBuilder({
           >
             {/* Sections */}
             <SortableContext
-              items={state.sections.map((_, i) => `section-${i}`)}
+              items={state.sections.map((s) => s.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-4">
                 {state.sections.map((section, index) => (
                   <SortableSection
-                    key={index}
+                    key={section.id}
                     index={index}
                     section={section}
                     photosById={photosById}
@@ -410,7 +410,7 @@ export default function PhotoReportBuilder({
 
             <button
               type="button"
-              onClick={() => dispatch({ type: "addSection" })}
+              onClick={() => dispatch({ type: "addSection", id: newSectionId() })}
               className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
             >
               <Plus size={15} />
@@ -453,7 +453,7 @@ function SortableSection({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: `section-${index}`, data: { type: "section", index } });
+  } = useSortable({ id: section.id, data: { type: "section", index } });
 
   const style = {
     transform: CSS.Transform.toString(transform),

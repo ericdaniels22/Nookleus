@@ -9,7 +9,10 @@
 // (rich-text HTML); both are copied verbatim into the new report's Sections.
 
 import { describe, expect, it } from "vitest";
-import { buildInitialSections } from "./build-initial-sections";
+import {
+  buildInitialSections,
+  ensureSectionIds,
+} from "./build-initial-sections";
 import type { PhotoReportTemplate } from "@/lib/types";
 
 function makeTemplate(
@@ -40,8 +43,16 @@ describe("buildInitialSections", () => {
     ]);
 
     expect(buildInitialSections(template)).toEqual([
-      { title: "Exterior", description: "Roof and siding", photo_ids: [] },
-      { title: "Interior", description: "Water damage", photo_ids: [] },
+      expect.objectContaining({
+        title: "Exterior",
+        description: "Roof and siding",
+        photo_ids: [],
+      }),
+      expect.objectContaining({
+        title: "Interior",
+        description: "Water damage",
+        photo_ids: [],
+      }),
     ]);
   });
 
@@ -55,12 +66,12 @@ describe("buildInitialSections", () => {
     ]);
 
     expect(buildInitialSections(template)).toEqual([
-      {
+      expect.objectContaining({
         title: "Findings",
         description:
           "<p>Our inspection found the following:</p><ul><li>Damaged drywall</li></ul>",
         photo_ids: [],
-      },
+      }),
     ]);
   });
 
@@ -68,11 +79,57 @@ describe("buildInitialSections", () => {
     const template = makeTemplate([{ title: "Overview" }]);
 
     expect(buildInitialSections(template)).toEqual([
-      { title: "Overview", description: "", photo_ids: [] },
+      expect.objectContaining({ title: "Overview", description: "", photo_ids: [] }),
     ]);
   });
 
   it("returns an empty array for a template that has no Sections", () => {
     expect(buildInitialSections(makeTemplate([]))).toEqual([]);
+  });
+
+  it("stamps each Section with an id from the injected id factory", () => {
+    const template = makeTemplate([
+      { title: "Exterior", description: "Roof" },
+      { title: "Interior", description: "Walls" },
+    ]);
+    let n = 0;
+    const sections = buildInitialSections(template, () => `sec-${++n}`);
+    expect(sections.map((s) => s.id)).toEqual(["sec-1", "sec-2"]);
+  });
+
+  it("assigns a distinct, non-empty id to each Section by default", () => {
+    const template = makeTemplate([
+      { title: "A", description: "" },
+      { title: "B", description: "" },
+    ]);
+    const ids = buildInitialSections(template).map((s) => s.id);
+    expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("ensureSectionIds", () => {
+  it("keeps a Section's existing id and backfills one onto a Section that lacks it", () => {
+    const out = ensureSectionIds(
+      [
+        { id: "keep", title: "A", description: "", photo_ids: ["p1"] },
+        { title: "B", description: "", photo_ids: [] },
+      ],
+      () => "new-1",
+    );
+    expect(out).toEqual([
+      { id: "keep", title: "A", description: "", photo_ids: ["p1"] },
+      { id: "new-1", title: "B", description: "", photo_ids: [] },
+    ]);
+  });
+
+  it("backfills a distinct, non-empty id by default for legacy sections", () => {
+    const out = ensureSectionIds([
+      { title: "A", description: "", photo_ids: [] },
+      { title: "B", description: "", photo_ids: [] },
+    ]);
+    const ids = out.map((s) => s.id);
+    expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
