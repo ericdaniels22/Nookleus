@@ -62,6 +62,9 @@ describe("POST /api/jobs/[id]/reports/[reportId]/delete", () => {
         userId: "user-1",
         role: "member",
         grants: ["edit_jobs"],
+        extraTables: {
+          photo_reports: [{ id: "r-1", job_id: "job-1", deleted_at: null }],
+        },
       }),
     });
     vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
@@ -77,5 +80,46 @@ describe("POST /api/jobs/[id]/reports/[reportId]/delete", () => {
         payload: { deleted_at: expect.any(String) },
       }),
     );
+  });
+
+  it("returns 404 when no active report matches the id and job", async () => {
+    const client = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "member",
+        grants: ["edit_jobs"],
+        extraTables: { photo_reports: [] },
+      }),
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(new Request("http://test"), paramsFor("job-1", "r-1"));
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not a re-stamp) when the report is already trashed", async () => {
+    // The row exists and matches id + job, but it is already soft-deleted. The
+    // `.is("deleted_at", null)` guard must exclude it so a re-delete is a 404,
+    // never a second `deleted_at` stamp.
+    const client = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "member",
+        grants: ["edit_jobs"],
+        extraTables: {
+          photo_reports: [
+            { id: "r-1", job_id: "job-1", deleted_at: "2026-01-01T00:00:00Z" },
+          ],
+        },
+      }),
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(new Request("http://test"), paramsFor("job-1", "r-1"));
+
+    expect(res.status).toBe(404);
   });
 });
