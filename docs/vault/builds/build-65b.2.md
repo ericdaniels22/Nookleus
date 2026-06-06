@@ -6,7 +6,6 @@ phase: mobile
 started: 2026-05-11
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-05-11-build-65b.2-camera-ui-redesign.md
 pr: null
 handoff: null
 related: ["[[build-65a]]", "[[build-65c]]"]
@@ -92,6 +91,5 @@ Driven by Vanessa's request after the 65c smoke tests: "I want the UI to look mo
 ## Source
 
 - Spec: embedded in this card (no separate file)
-- Plan: [docs/superpowers/plans/2026-05-11-build-65b.2-camera-ui-redesign.md](../../../docs/superpowers/plans/2026-05-11-build-65b.2-camera-ui-redesign.md)
 - Predecessors: [[build-65c]] (just shipped — upload pipeline, the foundation this UI sits on)
 - Grilling session: 2026-05-11 (this conversation)

@@ -6,7 +6,6 @@ phase: multi-tenant
 started: null
 shipped: 2026-04-23
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-23-build-18b-rls-enforcement.md
 handoff: null
 related: ["[[build-18a]]", "[[build-18c]]", "[[build-64]]"]
 ---
@@ -28,8 +27,6 @@ Flips the multi-tenant infrastructure from "RLS written" to "RLS enforced." Drop
 
 ## Source
 
-- Plan: [docs/superpowers/plans/2026-04-23-build-18b-rls-enforcement.md](../../../docs/superpowers/plans/2026-04-23-build-18b-rls-enforcement.md)
-- Source artifacts: [docs/superpowers/build-18b/session-a-handoff.md](../../../docs/superpowers/build-18b/session-a-handoff.md), [docs/superpowers/build-18b/session-c-handoff.md](../../../docs/superpowers/build-18b/session-c-handoff.md), [docs/superpowers/build-18b/code-sweep-report.md](../../../docs/superpowers/build-18b/code-sweep-report.md), [docs/superpowers/build-18b/session-b-rehearsal-report.md](../../../docs/superpowers/build-18b/session-b-rehearsal-report.md), [docs/superpowers/build-18b/session-c-run-log.md](../../../docs/superpowers/build-18b/session-c-run-log.md)
 - Migration files: build55–build60
 - Commit range: `c70abd5` (plan) → `2240df6` (session-c apply)
 - Guide: none

@@ -16,7 +16,6 @@ One card per build. Builds are the unit of work in the Nookleus repo — every s
   started: 2026-04-26
   shipped: 2026-04-28
   guide_doc: null              # or "v1.7 §Build 17" if specced in a docx
-  plan_file: docs/superpowers/plans/2026-04-26-build-65a-scaffold.md
   handoff: null                # retired with the continuity loop — see ADR 0010
   related: ["[[build-65b]]", "[[build-18c]]"]
   ```

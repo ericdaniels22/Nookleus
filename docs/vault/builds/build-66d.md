@@ -6,7 +6,6 @@ phase: knowledge-vault
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md
 handoff: null
 related: ["[[build-66a]]", "[[build-66b]]", "[[build-66c]]"]
 ---
@@ -21,6 +20,5 @@ Stage four of the knowledge-vault build series. Scope is intentionally TBD until
 
 ## Source
 
-- Plan: [docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md](../../../docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md) §66d
 - Predecessors: [[build-66a]], [[build-66b]], [[build-66c]]
 - Guide: none

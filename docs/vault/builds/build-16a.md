@@ -6,7 +6,6 @@ phase: accounting
 started: null
 shipped: 2026-04-18
 guide_doc: "v1.6 §Build 16 (summary of v1.5)"
-plan_file: docs/superpowers/plans/2026-04-18-build-16a-expenses.md
 handoff: null
 related: ["[[build-16b]]", "[[build-16c]]", "[[build-16d]]"]
 ---
@@ -24,6 +23,5 @@ Per-job expense logging with vendor catalog and receipt photo capture (compresse
 ## Source
 
 - Commit range: `23a7701` (spec) → `18c68e5` (final fix), through PR #14
-- Plan: [docs/superpowers/plans/2026-04-18-build-16a-expenses.md](../../../docs/superpowers/plans/2026-04-18-build-16a-expenses.md)
 - Migration: [supabase/migration-build35-expenses.sql](../../../supabase/migration-build35-expenses.sql)
 - Guide: v1.6 §Build 16 (v1.5 referenced; not in repo)

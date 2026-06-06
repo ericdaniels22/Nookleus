@@ -6,7 +6,6 @@ phase: jobs
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-12-job-detail-insurance-redesign.md
 handoff: null
 related: ["[[build-30]]", "[[build-11]]"]
 ---
@@ -28,6 +27,5 @@ Two coordinated job-detail redesigns shipped under the build31 migration:
 
 - Commit range (insurance): `dbc4a3b` (spec) → `b37f4ba` (3-column redesign)
 - Commit range (photos): `3aeb08d` (spec) → `280c4ed` (remove old preview)
-- Plans: [docs/superpowers/plans/2026-04-12-job-detail-insurance-redesign.md](../../../docs/superpowers/plans/2026-04-12-job-detail-insurance-redesign.md), [docs/superpowers/plans/2026-04-12-job-photos-tab.md](../../../docs/superpowers/plans/2026-04-12-job-photos-tab.md)
 - Migration: [supabase/migration-build31-insurance-redesign.sql](../../../supabase/migration-build31-insurance-redesign.sql)
 - Guide: none

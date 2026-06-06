@@ -6,7 +6,6 @@ phase: multi-tenant
 started: null
 shipped: 2026-04-22
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-21-build-18a-schema-backfill.md
 handoff: null
 related: ["[[build-18b]]", "[[build-18c]]", "[[build-64]]", "[[2026-04-22-build52-null-tokens-lesson]]"]
 ---
@@ -38,8 +37,6 @@ Shipped over **9 migrations** — build42 through build50 — with three follow-
 
 ## Source
 
-- Plan: [docs/superpowers/plans/2026-04-21-build-18a-schema-backfill.md](../../../docs/superpowers/plans/2026-04-21-build-18a-schema-backfill.md), [docs/superpowers/plans/build-18a-briefing.md](../../../docs/superpowers/plans/build-18a-briefing.md)
-- Handoffs (older paths, pre-vault): [docs/build-18a-handoff.md](../../../docs/build-18a-handoff.md), [docs/build-18a-complete-handoff.md](../../../docs/build-18a-complete-handoff.md)
 - Migration files: build42–build50, plus build51, build52, build53, build54
 - Commit range: `d64f17d` (briefing/prompts) → `1b4004c` (Build 18a complete) → `c19278a` (build53/54 fixes)
 - Guide: none (post-Build 17)

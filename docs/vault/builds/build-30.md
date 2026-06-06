@@ -6,7 +6,6 @@ phase: jobs
 started: null
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-10-job-files-section.md
 handoff: null
 related: ["[[build-1-10]]", "[[build-31]]"]
 ---
@@ -25,6 +24,5 @@ A "Files" section on the job-detail page — sibling to Photos, but for arbitrar
 ## Source
 
 - Commit range: `7bf0ed6` (db) → `9d0a0e4` (UI mount)
-- Plan/spec: [docs/superpowers/specs/2026-04-10-job-files-section-design.md](../../../docs/superpowers/specs/2026-04-10-job-files-section-design.md), [docs/superpowers/plans/2026-04-10-job-files-section.md](../../../docs/superpowers/plans/2026-04-10-job-files-section.md)
 - Migration: [supabase/migration-build30-job-files.sql](../../../supabase/migration-build30-job-files.sql)
 - Guide: none

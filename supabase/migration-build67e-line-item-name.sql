@@ -1,5 +1,4 @@
 -- Build 67e — Line item name (title) on estimates and invoices.
--- Spec: docs/superpowers/specs/2026-05-06-build-67e-line-item-name-design.md
 --
 -- Adds a nullable `name text` column to estimate_line_items and
 -- invoice_line_items, and updates the two RPCs that INSERT into those tables

@@ -6,7 +6,6 @@ phase: payments
 started: null
 shipped: 2026-04-21
 guide_doc: "v1.7 §Build 17"
-plan_file: docs/superpowers/plans/2026-04-21-build-17c-webhook-receipts-refunds-qb.md
 handoff: null
 related: ["[[build-17a]]", "[[build-17b]]", "[[build-16c]]", "[[build-14g]]"]
 ---
@@ -28,8 +27,5 @@ Full Stripe webhook handler, branded PDF receipts, refund flow, dispute tracking
 ## Source
 
 - Commit range: `eb64bb9` (migration) → `cc50bec` (E2E hardening) → `f97bdf5` (receipt_email fix)
-- Plan: [docs/superpowers/plans/2026-04-21-build-17c-webhook-receipts-refunds-qb.md](../../../docs/superpowers/plans/2026-04-21-build-17c-webhook-receipts-refunds-qb.md)
-- Briefing: [docs/superpowers/plans/2026-04-21-build-17c-briefing.md](../../../docs/superpowers/plans/2026-04-21-build-17c-briefing.md)
-- Post-briefing: [docs/superpowers/plans/2026-04-22-post-17c-briefing.md](../../../docs/superpowers/plans/2026-04-22-post-17c-briefing.md)
 - Migration: [supabase/migration-build41-webhook-receipts-refunds.sql](../../../supabase/migration-build41-webhook-receipts-refunds.sql)
 - Guide: v1.7 §Build 17

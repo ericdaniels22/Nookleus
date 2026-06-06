@@ -6,7 +6,6 @@ phase: payments
 started: null
 shipped: 2026-04-20
 guide_doc: "v1.7 §Build 17"
-plan_file: docs/superpowers/plans/2026-04-20-build-17b-payment-page-email.md
 handoff: null
 related: ["[[build-17a]]", "[[build-17c]]"]
 ---
@@ -24,6 +23,5 @@ Customer-facing `/pay/[token]` page with method selector (card vs ACH), success 
 ## Source
 
 - Commit range: `362da6b` (migration) → `0a84f32` (AppShell /pay public-route bypass), through PR #20 + hotfix PR #21
-- Plan: [docs/superpowers/plans/2026-04-20-build-17b-payment-page-email.md](../../../docs/superpowers/plans/2026-04-20-build-17b-payment-page-email.md)
 - Migration: [supabase/migration-build40-payment-emails.sql](../../../supabase/migration-build40-payment-emails.sql)
 - Guide: v1.7 §Build 17

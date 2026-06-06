@@ -1,6 +1,4 @@
 -- Build 67b cleanup — RPC fixes (I2, I4) + minor comment / variable cleanups (M3/M4/M6/M7/M8)
--- Spec: docs/superpowers/specs/2026-05-01-build-67b-cleanup-chips.md
--- Plan: docs/superpowers/plans/2026-05-02-build-67b-cleanup.md (Task 4)
 
 -- ============================================================================
 -- 1. convert_estimate_to_invoice — I2 fix: regex-safe settings cast

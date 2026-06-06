@@ -6,7 +6,6 @@ phase: knowledge-vault
 started: 2026-04-29
 shipped: null
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md
 handoff: null
 related: ["[[build-66a]]", "[[build-66c]]", "[[build-66d]]"]
 ---
@@ -30,6 +29,5 @@ The non-negotiable discipline: every claim is repo-grounded. The four guide docx
 
 ## Source
 
-- Plan: [docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md](../../../docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md) §66b
 - Predecessor: [[build-66a]]
 - Guide: none (this build is itself the audit-first backfill)

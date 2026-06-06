@@ -6,7 +6,6 @@ phase: knowledge-vault
 started: 2026-04-29
 shipped: 2026-04-29
 guide_doc: null
-plan_file: docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md
 handoff: null
 related: ["[[build-66b]]", "[[build-66c]]", "[[build-66d]]"]
 ---
@@ -26,5 +25,4 @@ The empty-but-structured `docs/vault/` tree: subfolders for builds, handoffs, de
 ## Source
 
 - Commit: `298a072 tooling: vault scaffolding (build 66a)`
-- Plan: [docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md](../../../docs/superpowers/plans/2026-04-29-build-66-knowledge-vault.md)
 - Guide: none

@@ -1,5 +1,4 @@
 -- Build 67b — Estimate→Invoice conversion + Apply Template RPCs
--- Spec: docs/superpowers/specs/2026-05-01-build-67b-design.md (§5)
 
 -- ============================================================================
 -- 1. CHECK constraint: void-when-converted guard
