@@ -56,7 +56,7 @@ const LINE_ITEM_FIELDS = [
 ] as const;
 
 type LineItemFieldKey = typeof LINE_ITEM_FIELDS[number];
-type LineItemSubset = Record<LineItemFieldKey, unknown>;
+export type LineItemSubset = Record<LineItemFieldKey, unknown>;
 
 // Minimal internal shape used for sections traversal — all three entity kinds
 // (EstimateWithContents, InvoiceWithContents, TemplateWithContents) share this
@@ -116,6 +116,83 @@ function diffSubset<T extends Record<string, unknown>>(a: T, b: T): boolean {
     if (a[k] !== b[k]) return true;
   }
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// planUnmountFlush — pure planner (#460)
+//
+// Decides which PUTs an unmount flush must fire to persist a builder's pending
+// (dirty) edits. PURE: no React, no fetch, no timers — given the config, the
+// current entity, and a snapshot bundle, it returns the exact set of writes.
+// Slice 2 (#461) wires this into useAutoSave's unmount cleanup.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PlannedWrite {
+  path: string;
+  body: unknown;
+}
+
+export interface UnmountFlushPlan {
+  rootPut: PlannedWrite | null;
+  lineItemPuts: PlannedWrite[];
+}
+
+export function planUnmountFlush<T extends { id: string; updated_at?: string | null }>(
+  config: AutoSaveConfig<T>,
+  entity: T,
+  snapshots: {
+    rootSnapshot: unknown | null;
+    lineItems: Map<string, LineItemSubset>;
+    updatedAt: string;
+    staleConflict: boolean;
+  },
+): UnmountFlushPlan {
+  // A stale conflict suppresses all saves; a null root snapshot means the hook
+  // never initialized (nothing to compare against) — both flush nothing.
+  if (snapshots.staleConflict || snapshots.rootSnapshot === null) {
+    return { rootPut: null, lineItemPuts: [] };
+  }
+
+  // Attach the optimistic-concurrency token to a body only when the entity kind
+  // uses snapshot concurrency (estimates/invoices), matching performEntitySave /
+  // performLineItemSave. Templates send the bare body.
+  const withToken = (body: Record<string, unknown>): unknown =>
+    config.hasSnapshotConcurrency
+      ? { ...body, updated_at_snapshot: snapshots.updatedAt }
+      : body;
+
+  let rootPut: PlannedWrite | null = null;
+
+  const current = config.serializeRootPut(entity);
+  if (
+    diffSubset(
+      current as Record<string, unknown>,
+      snapshots.rootSnapshot as Record<string, unknown>,
+    )
+  ) {
+    rootPut = {
+      path: config.paths.rootPut,
+      body: withToken(current as Record<string, unknown>),
+    };
+  }
+
+  // Templates have no live DB rows backing their line items, so per-item saves
+  // are gated off (mirrors the watch effect in useAutoSave).
+  const lineItemPuts: PlannedWrite[] = [];
+  if (config.entityKind !== "template") {
+    for (const item of getAllLineItems(entity as unknown as EntityWithSections)) {
+      const saved = snapshots.lineItems.get(item.id);
+      if (!saved) continue; // not yet baselined — the debounced flow records, never saves
+      const currentSubset = pickLineItemFields(item);
+      if (!diffSubset(currentSubset, saved)) continue; // unchanged
+      lineItemPuts.push({
+        path: config.paths.lineItemRoute(item.id),
+        body: withToken(currentSubset),
+      });
+    }
+  }
+
+  return { rootPut, lineItemPuts };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
