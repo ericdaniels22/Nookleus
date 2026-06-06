@@ -14,14 +14,19 @@
  * read-tolerance foundation the narrative slices build on.
  */
 
-// A value is treated as already-rich-text when it contains ANY HTML tag — not
-// just the subset we render richly. The editor is bare StarterKit, so a write-up
-// can be made entirely of tags we fold to plain text downstream (a heading, a
-// code block); those must still reach `htmlToPdfNodes` as HTML rather than be
-// escaped and shown to the customer as literal `<h2>…</h2>` source. Anything with
-// no tag is a legacy plain-text line that gets escaped and wrapped as a single
-// paragraph. The `[a-z]` after `<` keeps stray prose like "a < b" from matching.
-const HTML_TAG = /<\/?[a-z][a-z0-9]*\b[^>]*>/i;
+// A value is treated as already-rich-text only when it OPENS one of the tags the
+// bare-StarterKit editor actually emits. Genuine editor output always opens a
+// block first, so an opening tag from this set is a reliable "this is HTML"
+// signal. Folded-to-plain tags (a heading, a code block) are included so they
+// still reach `htmlToPdfNodes` as HTML rather than be shown to the customer as
+// literal `<h2>…</h2>` source. Everything else is legacy plain text and gets
+// escaped and wrapped as a single paragraph — crucially, an unrecognized
+// `<…>` (a bracketed email `<john@x.com>`, prose like `use <div>`) or a stray
+// CLOSING tag (`</p>`) no longer masquerades as markup, so the PDF tokenizer
+// can never silently drop it (issue #445). Matching openers only — no leading
+// `/` — is what keeps `</p>` on the plain-text branch.
+const HTML_TAG =
+  /<(?:p|ul|ol|li|h[1-6]|strong|b|em|i|br|pre|code|blockquote|hr)\b[^>]*>/i;
 
 export function normalizeSectionWriteup(
   description: string | null | undefined,

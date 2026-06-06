@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { htmlToPdfNodes } from "./html-to-pdf";
+import { normalizeSectionWriteup } from "@/lib/section-writeup";
 import {
   collectText,
   expandTree,
@@ -209,5 +210,23 @@ describe("htmlToPdfNodes", () => {
     expect(indents[1]).toBeGreaterThan(indents[0]);
     expect(indents[2]).toBeGreaterThan(indents[0]);
     expect(indents[3]).toBe(indents[0]);
+  });
+
+  // ── A legacy plain-text subtitle containing angle brackets (a `<email>`, prose
+  // naming `<div>`) used to be misread as HTML by normalizeSectionWriteup and
+  // have the bracketed span dropped here as a phantom tag. Normalized correctly,
+  // it arrives as escaped entities and must render in full. (Issue #445.)
+
+  it("renders an angle-bracketed legacy subtitle in full, brackets included (#445)", () => {
+    expect(text(normalizeSectionWriteup("email me <john@x.com>"))).toBe(
+      "email me <john@x.com>",
+    );
+    expect(text(normalizeSectionWriteup("use <div> tags for layout"))).toBe(
+      "use <div> tags for layout",
+    );
+    // A stray closing tag in prose survives too, rather than being swallowed.
+    expect(text(normalizeSectionWriteup("see the </p> example"))).toBe(
+      "see the </p> example",
+    );
   });
 });
