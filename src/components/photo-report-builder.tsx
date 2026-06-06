@@ -95,6 +95,11 @@ export default function PhotoReportBuilder({
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [generating, setGenerating] = useState(false);
+  // The path of the most recently generated PDF, surfaced as a persistent
+  // "Open PDF" link the user taps (issue #442). Seeded from the report so a
+  // PDF generated in an earlier session is retrievable on load without
+  // regenerating.
+  const [pdfPath, setPdfPath] = useState<string | null>(report.pdf_path);
 
   // The latest edit revision, mirrored into a ref so the async save tail can
   // tell whether a newer edit landed while it was in flight (its own captured
@@ -233,12 +238,9 @@ export default function PhotoReportBuilder({
           return;
         }
       }
-      const pdfPath = await generateReportPDF(report.id);
+      const generatedPath = await generateReportPDF(report.id);
+      setPdfPath(generatedPath);
       toast.success("PDF generated.");
-      window.open(
-        `${supabaseUrl}/storage/v1/object/public/reports/${pdfPath}`,
-        "_blank",
-      );
     } catch {
       toast.error("Failed to generate PDF.");
     } finally {
@@ -284,6 +286,17 @@ export default function PhotoReportBuilder({
           )}
           Generate PDF
         </button>
+        {pdfPath && (
+          <a
+            href={`${supabaseUrl}/storage/v1/object/public/reports/${pdfPath}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#2B5EA7] px-4 py-1.5 text-sm font-semibold text-[#2B5EA7] hover:bg-[#2B5EA7]/10 transition-colors"
+          >
+            <FileDown size={14} />
+            Open PDF
+          </a>
+        )}
       </header>
 
       {/* Body */}

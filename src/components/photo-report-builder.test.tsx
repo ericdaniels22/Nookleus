@@ -866,18 +866,71 @@ describe("PhotoReportBuilder generate", () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalled();
   });
 
-  it("generates and opens the PDF for a fitting report with no pending edits", async () => {
+  it("generates and shows a persistent Open-PDF link instead of a blockable popup", async () => {
     renderBuilder();
 
     await clickGenerate();
 
-    // A clean, fitting report needs no flush, generates, and opens in a new tab.
+    // A clean, fitting report needs no flush and generates…
     expect(h.updateMock).not.toHaveBeenCalled();
     expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
     expect(vi.mocked(toast.success)).toHaveBeenCalled();
-    expect(vi.mocked(window.open)).toHaveBeenCalledWith(
+    // …and the PDF is retrievable via a real anchor the user taps (issue #442),
+    // NOT a post-await window.open that iOS / WebView silently blocks.
+    const link = screen.getByRole("link", { name: /open pdf/i });
+    expect(link.getAttribute("href")).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
-      "_blank",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(vi.mocked(window.open)).not.toHaveBeenCalled();
+  });
+
+  it("updates the link to the latest PDF when regenerated (issue #442)", async () => {
+    vi.mocked(generateReportPDF)
+      .mockResolvedValueOnce("job-1/report-1.pdf")
+      .mockResolvedValueOnce("job-1/report-1-v2.pdf");
+    renderBuilder();
+
+    await clickGenerate();
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+    );
+
+    await clickGenerate();
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1-v2.pdf",
+    );
+  });
+
+  it("shows no link and reports an error when generation fails (issue #442)", async () => {
+    vi.mocked(generateReportPDF).mockRejectedValueOnce(new Error("boom"));
+    renderBuilder();
+
+    await clickGenerate();
+
+    // No false success: no retrieval affordance, an error is surfaced, and the
+    // success toast never fires.
+    expect(screen.queryByRole("link", { name: /open pdf/i })).toBeNull();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it("shows the Open-PDF link on load for an already-generated report (issue #442)", () => {
+    // A report generated in an earlier session persists its pdf_path; the user
+    // can retrieve that PDF without regenerating (restores the Download
+    // affordance the removed global /reports detail page used to provide).
+    renderBuilder(
+      makeReport({ pdf_path: "job-1/report-1.pdf", status: "generated" }),
+    );
+
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
     );
   });
 });
