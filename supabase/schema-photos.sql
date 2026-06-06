@@ -293,6 +293,14 @@ CREATE UNIQUE INDEX photos_org_client_capture_id_key
   ON photos(organization_id, client_capture_id)
   WHERE client_capture_id IS NOT NULL;
 
+-- Per-Job report numbers are unique among active (not-trashed) reports, so two
+-- concurrent "Create report" clicks can't both mint the same display number
+-- (#447 #1). Trashed and legacy-null rows are excluded, matching the
+-- max-over-all numbering that never reuses a number (#400).
+CREATE UNIQUE INDEX photo_reports_job_report_number_key
+  ON photo_reports(job_id, report_number)
+  WHERE deleted_at IS NULL AND report_number IS NOT NULL;
+
 -- ============================================
 -- STORAGE BUCKET FOR REPORT PDFs
 -- ============================================

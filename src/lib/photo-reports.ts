@@ -37,30 +37,20 @@ export interface CreatePhotoReportDraftInput {
   templateId?: string | null;
 }
 
+/** Postgres SQLSTATE for unique_violation, surfaced via PostgREST's error code. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * How many times to re-number-and-insert before giving up. Each lost race frees
+ * exactly one number, so under any realistic concurrency a couple of retries
+ * settle it; the bound just keeps a genuinely stuck insert from spinning.
+ */
+const MAX_REPORT_NUMBER_ATTEMPTS = 3;
+
 export async function createPhotoReportDraft(
   supabase: SupabaseClient,
   input: CreatePhotoReportDraftInput,
 ): Promise<PhotoReport> {
-  const { data: existing, error: numbersError } = await supabase
-    .from("photo_reports")
-    .select("report_number")
-    .eq("job_id", input.jobId);
-  if (numbersError) throw new Error(numbersError.message);
-
-  const existingNumbers = (existing ?? [])
-    .map((row) => (row as { report_number: number | null }).report_number)
-    .filter((n): n is number => typeof n === "number");
-  // Per-Job numbering is read-then-insert with no DB-side serialization. Two
-  // near-simultaneous "Create report" clicks on the same Job can therefore both
-  // read the same max and mint the same display number. report_number is a
-  // human-facing label (not an id or FK), so a collision is cosmetic; we accept
-  // it for slice 2a rather than add a schema change. A follow-up could enforce a
-  // partial unique index on (job_id, report_number) + insert retry, or mint the
-  // number atomically the way next_job_number/next_invoice_number do.
-  const reportNumber = nextReportNumber(existingNumbers);
-
-  const title = input.title?.trim() || `Photo Report #${reportNumber}`;
-
   // Trust nothing about the client-supplied selection: keep only photo ids that
   // actually belong to this Job (the query runs under the caller's RLS, so this
   // also drops any cross-Organization ids) and preserve the selection order.
@@ -84,24 +74,68 @@ export async function createPhotoReportDraft(
       ]
     : buildDefaultReportSections(photoIds);
 
-  const { data: report, error } = await supabase
-    .from("photo_reports")
-    .insert({
-      organization_id: input.organizationId,
-      job_id: input.jobId,
-      template_id: template?.id ?? null,
-      title,
-      report_number: reportNumber,
-      created_by: input.preparerName,
-      sections,
-      status: "draft",
-    })
-    .select("*")
-    .single<PhotoReport>();
-  if (error) throw new Error(error.message);
-  if (!report) throw new Error("Photo report insert returned no row");
+  // Per-Job numbering is read-then-insert with no DB-side serialization, so two
+  // near-simultaneous "Create report" clicks on the same Job can read the same
+  // max and mint the same display number. The partial unique index on
+  // (job_id, report_number) WHERE deleted_at IS NULL (migration 412) turns that
+  // into a unique_violation on insert; we catch it, re-read the numbers (now
+  // including whatever the competing click committed), and retry with the next
+  // free number. Bounded so a persistently failing insert surfaces its error
+  // rather than spinning forever (#447 #1).
+  let lastError: { message: string } | null = null;
+  for (let attempt = 0; attempt < MAX_REPORT_NUMBER_ATTEMPTS; attempt++) {
+    const reportNumber = await nextReportNumberForJob(supabase, input.jobId);
+    const title = input.title?.trim() || `Photo Report #${reportNumber}`;
 
-  return report;
+    const { data: report, error } = await supabase
+      .from("photo_reports")
+      .insert({
+        organization_id: input.organizationId,
+        job_id: input.jobId,
+        template_id: template?.id ?? null,
+        title,
+        report_number: reportNumber,
+        created_by: input.preparerName,
+        sections,
+        status: "draft",
+      })
+      .select("*")
+      .single<PhotoReport>();
+
+    if (!error) {
+      if (!report) throw new Error("Photo report insert returned no row");
+      return report;
+    }
+    // Only a number collision is retryable; any other DB error is fatal.
+    if (error.code !== UNIQUE_VIOLATION) throw new Error(error.message);
+    lastError = error;
+  }
+
+  throw new Error(
+    `Could not assign a unique report number after ${MAX_REPORT_NUMBER_ATTEMPTS} attempts` +
+      (lastError ? `: ${lastError.message}` : ""),
+  );
+}
+
+/**
+ * Read the Job's existing `report_number`s and return the next one (max + 1).
+ * Re-read on each insert attempt so a retry picks up any number a competing
+ * "Create report" click committed in the meantime.
+ */
+async function nextReportNumberForJob(
+  supabase: SupabaseClient,
+  jobId: string,
+): Promise<number> {
+  const { data: existing, error } = await supabase
+    .from("photo_reports")
+    .select("report_number")
+    .eq("job_id", jobId);
+  if (error) throw new Error(error.message);
+
+  const existingNumbers = (existing ?? [])
+    .map((row) => (row as { report_number: number | null }).report_number)
+    .filter((n): n is number => typeof n === "number");
+  return nextReportNumber(existingNumbers);
 }
 
 /**
