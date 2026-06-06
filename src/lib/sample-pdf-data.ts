@@ -5,6 +5,7 @@ import type {
   Invoice, InvoiceSection, InvoiceLineItem,
 } from "@/lib/types";
 import type { PdfCompany, PdfRecipient } from "@/lib/pdf-renderer/types";
+import { resolveEffectiveLayout } from "@/lib/pdf-layout";
 
 export const SAMPLE_COMPANY: PdfCompany = {
   name: "Sample Company LLC",
@@ -68,6 +69,7 @@ export function buildSampleEstimate(orgId: string): {
     last_sent_to_email: null,
     deleted_at: null,
     delete_reason: null,
+    pdf_layout: null,
   };
   const sections: EstimateSection[] = [{
     id: secId,
@@ -166,6 +168,7 @@ export function buildSampleInvoice(orgId: string): {
     last_sent_to_email: null,
     deleted_at: null,
     delete_reason: null,
+    pdf_layout: null,
   };
   const sections: InvoiceSection[] = [{
     id: secId,
@@ -219,12 +222,15 @@ export function buildSampleInvoice(orgId: string): {
 }
 
 export function buildSampleInput(preset: PdfPreset, orgId: string) {
+  // The preset preview shows the preset's own look: resolve it as the effective
+  // layout with no per-document override (preset → field defaults).
+  const layout = resolveEffectiveLayout(null, preset);
   if (preset.document_type === "estimate") {
     const sample = buildSampleEstimate(orgId);
     return {
       kind: "estimate" as const,
       ...sample,
-      preset,
+      layout,
       company: SAMPLE_COMPANY,
       recipient: SAMPLE_RECIPIENT,
       jobNumber: SAMPLE_JOB_NUMBER,
@@ -234,7 +240,7 @@ export function buildSampleInput(preset: PdfPreset, orgId: string) {
   return {
     kind: "invoice" as const,
     ...sample,
-    preset,
+    layout,
     company: SAMPLE_COMPANY,
     recipient: SAMPLE_RECIPIENT,
     jobNumber: SAMPLE_JOB_NUMBER,

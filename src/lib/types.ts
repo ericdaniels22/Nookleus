@@ -141,6 +141,8 @@ export interface Invoice {
   last_sent_to_email: string | null;
   deleted_at: string | null;
   delete_reason: string | null;
+  /** Per-document PDF layout snapshot; NULL = fall back to the org default preset (#482). */
+  pdf_layout: DocumentPdfLayout | null;
 }
 
 export interface Payment {
@@ -657,6 +659,8 @@ export interface Estimate {
   last_sent_to_email: string | null;
   deleted_at: string | null;
   delete_reason: string | null;
+  /** Per-document PDF layout snapshot; NULL = fall back to the org default preset (#482). */
+  pdf_layout: DocumentPdfLayout | null;
 }
 
 export interface EstimateSection {
@@ -769,6 +773,29 @@ export type PdfPresetCreatePayload = Pick<
 export type PdfPresetUpdatePayload = Partial<Omit<PdfPreset,
   "id" | "organization_id" | "created_by" | "created_at" | "updated_at" | "document_type"
 >>;
+
+// ─── PDF layout (per-document snapshot) — #482 / ADR 0012 ──────────────────
+//
+// A document's *PDF layout* is a self-contained snapshot of the look it renders
+// with — a snapshot, NOT a reference to a preset (ADR 0012). It carries the
+// same eight toggles a PdfPreset does, plus `show_document_title`: the ninth
+// toggle, new in #482 (today the title renders unconditionally). `show_item_notes`
+// reuses #382's field name rather than adding a parallel flag.
+//
+// A NULL `pdf_layout` column means "no layout of its own; fall back to the
+// Organization's default preset" — see `resolveEffectiveLayout` in pdf-layout.ts.
+export interface DocumentPdfLayout {
+  document_title: string;
+  show_document_title: boolean;
+  show_markup: boolean;
+  show_discount: boolean;
+  show_tax: boolean;
+  show_opening_statement: boolean;
+  show_closing_statement: boolean;
+  show_category_subtotals: boolean;
+  show_code_column: boolean;
+  show_item_notes: boolean;
+}
 
 // =============================================================================
 // 67b — invoices, templates, builder entity union
