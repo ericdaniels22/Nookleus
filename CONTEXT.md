@@ -167,6 +167,34 @@ state, and QuickBooks sync; a deposit or staged payment is a partial payment on
 the single Invoice, never a second Invoice.
 _Avoid_: bill (fine in UI copy), receipt
 
+**PDF preset**:
+A saved, reusable set of look-preferences for the customer-facing PDF of an
+Estimate or Invoice — which parts show (markup, discount, tax, opening and
+closing statements, code column, category subtotals, the document-title
+heading, and item notes) plus the title text. Belongs to one Organization and
+is the starting point a document's PDF layout is copied from. Exactly one of
+an Organization's presets is its **default preset**, the look any document
+uses until it is given a layout of its own. Distinct from a Photo Report
+template, which the photo-report UI historically also called a "preset" — see
+Flagged ambiguities; the two are always qualified by document.
+_Avoid_: template (that's the Estimate/Photo-Report feature), style, theme,
+bare "preset" outside the billing-PDF context
+
+**PDF layout**:
+The set of show/hide choices a single specific Estimate or Invoice is
+rendered with — its own copy of the preferences, stored on that document. A
+document with no layout falls back to its Organization's **default preset**;
+the moment its look is changed it takes a complete layout of its own and stops
+following the default (it never half-follows). A layout sticks to its
+document and is frozen along with it — once the Estimate is converted or the
+Invoice is paid or voided, the look is locked, so the record keeps exactly the
+look it was approved or billed with. The look a document actually renders with
+is resolved by a pure precedence rule: the document's own layout wins over the
+default preset; absent a layout, the default applies. See
+[ADR 0012](docs/adr/0012-pdf-layout-is-a-per-document-snapshot.md).
+_Avoid_: format, theme, bare "layout" outside the billing-PDF context, View
+(that's the screen a layout is edited on, not the layout itself)
+
 **Target**:
 A row on the Referral Partners call list whose Lifecycle status is still
 Uncontacted (grey) or In progress (yellow) — i.e. someone we want to call
@@ -206,6 +234,7 @@ _Avoid_: stage, pipeline status, partner status
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
+- An **Estimate** or **Invoice** has zero or one **PDF layout** of its own; with none it renders using its Organization's **default preset**. A document's own layout always wins over the default, resolved by a pure precedence rule, and is locked once the document is frozen (Estimate converted, Invoice paid or voided). A **PDF preset** belongs to one **Organization** and seeds a document's layout; applying one copies its preferences in, it is not a binding link.
 - A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …).
 - A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
 
@@ -219,4 +248,5 @@ _Avoid_: stage, pipeline status, partner status
 - "auth gate" was used for four near-identical route helpers (`requirePermission`, `requireAdmin`, `requireViewAccounting`, and an inline `requireLogExpenses`) — resolved: these collapse into the one **Request Context** wrapper.
 - "active" was being used for two unrelated concepts in `src/lib/accounting/margins.ts`: (a) a job with financial activity in a reporting period, and (b) a non-completed job (the user-facing filter pill on the Job Profitability page, which also folds cancelled jobs in with active ones). Neither matches the canonical **Active job** definition above. The dashboard rebuild adopts the canonical meaning; the accounting page is left as-is for now but is a cleanup candidate.
 - "section" is used for two unrelated concepts: an **Estimate** Section (a group of priced line items) and a **Photo Report** Section (a heading + one-page write-up + photos). Resolved: both keep the word but are always qualified by their document ("Estimate section" vs "Photo Report section"); they share no table, type, or component.
-- "template" is likewise overloaded: an **Estimate** template (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)) and a **Photo Report** template. Resolved: always qualify by document. Note the older Photo-Report builder UI also called these "presets" — the canonical term is **Photo Report template**; "preset" is an alias to retire.
+- "template" is likewise overloaded: an **Estimate** template (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)) and a **Photo Report** template. Resolved: always qualify by document. Note the older Photo-Report builder UI also called these "presets" — the canonical term is **Photo Report template**; "preset" is an alias to retire _there_.
+- "preset" and "layout" are overloaded across domains. On the **Photo Report** side both are words to avoid (canonical term: **Photo Report template**). On the **billing-PDF** side they are first-class and canonical — a **PDF preset** (reusable saved look) and a **PDF layout** (the look stuck to one Estimate/Invoice). Resolved the same way as "section"/"template": always qualify by document, so bare "preset"/"layout" never appear unqualified. The billing-PDF preset has lived in the code (`pdf_presets`) since before this was written; ADR 0007 explicitly left that system out of its scope.
