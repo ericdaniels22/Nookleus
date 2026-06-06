@@ -1,7 +1,7 @@
 # The in-app document viewer replaces the native PDF iframe on Estimate and Invoice Views
 
-**Status:** Proposed — amends the #385 inline-PDF-View decision (rendering mechanism only); pending the Chrome/Edge reliability go/no-go (#463)
-**Date:** 2026-06-05
+**Status:** Accepted — amends the #385 inline-PDF-View decision (rendering mechanism only). The #463 Chrome/Edge reliability go/no-go returned **GO** on 2026-06-06 (see the spike `README.md`); the slice chain #464–#466 is unblocked.
+**Date:** 2026-06-05 (accepted 2026-06-06)
 
 ## Context
 

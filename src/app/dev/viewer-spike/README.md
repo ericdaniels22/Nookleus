@@ -60,17 +60,33 @@ behavior, especially on a large multi-page PDF.
   DevTools → Network tab (the worker request should be `200` with a JS MIME, and the
   `/preview` request should return the PDF, not a `401/403/400`).
 
-## Go / no-go record (criterion 7 — fill this in)
+## Go / no-go record (criterion 7)
 
-| Browser | Estimate renders? | Invoice renders? | Range ON also OK? | Notes |
-| ------- | ----------------- | ---------------- | ----------------- | ----- |
-| Chrome  |                   |                  |                   |       |
-| Edge    |                   |                  |                   |       |
+Run on 2026-06-06, Windows 11, local `npm run dev` against prod Supabase data.
+Estimate `WTR-2026-0024-EST-8` (`2d766728…`, 4 pages) and invoice
+`JOB-2026-0025-INV-1` (`52f330f0…`, 1 page), driven via the chrome-devtools /
+edge-devtools MCP.
 
-**Decision:** ☐ GO (own the viewer — proceed with #464–#466) &nbsp; ☐ NO-GO (Option A
+| Browser     | Estimate renders? | Invoice renders? | Range ON also OK? | Notes |
+| ----------- | ----------------- | ---------------- | ----------------- | ----- |
+| Chrome 148  | ✅ 4 pages         | ✅ 1 page         | ✅ (default ON)    | 0 console errors; pdf.js worker `200`; `/preview` `200 application/pdf`, `transfer-encoding: chunked`, **no `Accept-Ranges`** |
+| Edge 149    | ✅ 4 pages         | ✅ 1 page         | ✅ (default ON)    | identical render; 0 console errors |
+
+Both browsers reached `✅ rendered N pages` in continuous fit-to-width scroll with
+**no "Loading PDF…" hang**, with the `disableStream + disableRange` mitigation **on**
+(recommended) *and* with default Range/stream negotiation **on**.
+
+**Caveat:** the available test documents were small (≤4 pages, ≤80 KB). The no-`Accept-Ranges`
+stall is a large-PDF risk, so the default-Range "OK" above is not a stress test of that
+path. Production ships with `disableStream: true, disableRange: true` regardless (per ADR
+0012 constraint 1), which sidesteps Range negotiation entirely — so this gap does not
+affect the GO.
+
+**Decision:** ☑ GO (own the viewer — proceed with #464–#466) &nbsp; ☐ NO-GO (Option A
 native-suppression fallback — revise/drop #464–#466 per ADR 0012)
 
-**Decided by / date:** ______________________
+**Decided by / date:** Evidence gathered by Claude Code (chrome-devtools / edge-devtools
+MCP run, 2026-06-06); decision **GO**, ratified by Eric Daniels / 2026-06-06.
 
-> After recording the decision: flip [ADR 0012](../../../../docs/adr/0012-in-app-document-viewer-replaces-native-pdf-iframe.md)
-> `Status:` from **Proposed** to **Accepted** (on GO) and delete this folder.
+> Decision recorded: [ADR 0012](../../../../docs/adr/0012-in-app-document-viewer-replaces-native-pdf-iframe.md)
+> `Status:` flipped **Proposed → Accepted**. This throwaway folder can now be deleted.
