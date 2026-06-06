@@ -41,8 +41,10 @@ function postBody(body: unknown) {
   });
 }
 
-// A caller who is a member with edit_jobs and whose user_profiles row carries a
-// display name (the route stamps this into the report's "Prepared by").
+// A caller who is a member with edit_jobs, whose user_profiles row carries a
+// display name (the route stamps this into the report's "Prepared by"), and for
+// whom the URL's Job (`job-1`) is visible in their Organization — the route now
+// verifies job visibility before creating a report (#446).
 function authedClient() {
   return fakeUserClient({
     user: { id: "user-1" },
@@ -52,6 +54,7 @@ function authedClient() {
       grants: ["edit_jobs"],
       extraTables: {
         user_profiles: [{ id: "user-1", full_name: "Eric Daniels" }],
+        jobs: [{ id: "job-1", organization_id: "org-1" }],
       },
     }),
   });
@@ -78,6 +81,54 @@ describe("POST /api/jobs/[id]/reports", () => {
 
     expect(res.status).toBe(403);
     expect(createPhotoReportDraft).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 without creating a report when the Job is not visible to the caller's organization", async () => {
+    // Issue #446: the URL job id was used unvalidated, so a caller in org A
+    // could create a report referencing org B's job (or a bogus id). Under the
+    // caller's RLS-scoped client a cross-org or nonexistent job simply isn't
+    // visible, so the route must 404 *before* any report is created — and the
+    // cross-org and nonexistent cases must look identical (no existence oracle
+    // distinguishing a real-but-foreign id from a fake one).
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "member",
+          grants: ["edit_jobs"],
+          extraTables: {
+            user_profiles: [{ id: "user-1", full_name: "Eric Daniels" }],
+            // No `jobs` row: the job is not visible to this caller's org.
+          },
+        }),
+      }) as never,
+    );
+
+    const res = await POST(postBody({ photoIds: ["p1"] }), paramsFor("job-1"));
+
+    expect(res.status).toBe(404);
+    expect(createPhotoReportDraft).not.toHaveBeenCalled();
+  });
+
+  it("creates the report (201) when the Job is visible to the caller's organization", async () => {
+    // AC #3 (#446): the visibility guard must reject only foreign/nonexistent
+    // jobs — a job the caller can legitimately see still creates normally and
+    // forwards the URL job id to the create step.
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await POST(
+      postBody({ photoIds: ["p1", "p2"] }),
+      paramsFor("job-1"),
+    );
+
+    expect(res.status).toBe(201);
+    expect(createPhotoReportDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: "job-1", organizationId: "org-1" }),
+    );
   });
 
   it("forwards an explicit templateId to the create step", async () => {
