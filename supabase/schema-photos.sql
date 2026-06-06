@@ -94,11 +94,7 @@ CREATE TABLE photo_annotations (
 CREATE TABLE photo_report_templates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
-  audience text NOT NULL DEFAULT 'general'
-    CHECK (audience IN ('adjuster', 'customer', 'internal', 'general')),
   sections jsonb NOT NULL DEFAULT '[]',
-  cover_page jsonb NOT NULL DEFAULT '{"show_logo": true, "show_company": true, "show_date": true, "show_photo_count": true}',
-  photos_per_page integer NOT NULL DEFAULT 2,
   created_by text NOT NULL DEFAULT 'Eric',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -292,6 +288,14 @@ CREATE UNIQUE INDEX photo_tags_org_name_key ON photo_tags(organization_id, name)
 CREATE UNIQUE INDEX photos_org_client_capture_id_key
   ON photos(organization_id, client_capture_id)
   WHERE client_capture_id IS NOT NULL;
+
+-- Per-Job report numbers are unique among active (not-trashed) reports, so two
+-- concurrent "Create report" clicks can't both mint the same display number
+-- (#447 #1). Trashed and legacy-null rows are excluded, matching the
+-- max-over-all numbering that never reuses a number (#400).
+CREATE UNIQUE INDEX photo_reports_job_report_number_key
+  ON photo_reports(job_id, report_number)
+  WHERE deleted_at IS NULL AND report_number IS NOT NULL;
 
 -- ============================================
 -- STORAGE BUCKET FOR REPORT PDFs

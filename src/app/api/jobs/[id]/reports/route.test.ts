@@ -167,4 +167,73 @@ describe("POST /api/jobs/[id]/reports", () => {
       expect.objectContaining({ templateId: null }),
     );
   });
+
+  it("falls back to the caller's email when the profile display name is blank", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1", email: "eric@aaacontracting.com" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "member",
+          grants: ["edit_jobs"],
+          extraTables: {
+            user_profiles: [{ id: "user-1", full_name: "   " }],
+          },
+        }),
+      }) as never,
+    );
+
+    const res = await POST(postBody({ photoIds: ["p1"] }), paramsFor("job-1"));
+
+    expect(res.status).toBe(201);
+    expect(createPhotoReportDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ preparerName: "eric@aaacontracting.com" }),
+    );
+  });
+
+  it("uses a placeholder when both the display name and email are blank", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "member",
+          grants: ["edit_jobs"],
+          extraTables: {
+            user_profiles: [{ id: "user-1", full_name: "" }],
+          },
+        }),
+      }) as never,
+    );
+
+    const res = await POST(postBody({ photoIds: ["p1"] }), paramsFor("job-1"));
+
+    expect(res.status).toBe(201);
+    expect(createPhotoReportDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ preparerName: "Unknown" }),
+    );
+  });
+
+  it("treats a malformed JSON body as an empty payload", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await POST(
+      new Request("http://test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not json",
+      }),
+      paramsFor("job-1"),
+    );
+
+    expect(res.status).toBe(201);
+    expect(createPhotoReportDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ photoIds: [], templateId: null }),
+    );
+  });
 });

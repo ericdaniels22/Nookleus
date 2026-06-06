@@ -75,6 +75,59 @@ function fakeSupabase(
   };
 }
 
+// A focused stub for the report-number retry path. The numbers read returns a
+// different set on each call (modelling a competing click landing a row between
+// our attempts), and the insert's `.single()` rejects `report_number === 3`
+// with Postgres unique_violation (23505) — what the partial unique index throws
+// when an active (job_id, report_number) already exists — succeeding otherwise.
+function fakeSupabaseWithReportNumberConflict() {
+  let inserted: Record<string, unknown> | null = null;
+  let numbersRead = 0;
+  const numbersByRead = [
+    [{ report_number: 2 }], // first read → next #3
+    [{ report_number: 2 }, { report_number: 3 }], // retry read → next #4
+  ];
+  const client = {
+    from: (table: string) => {
+      const builder: Record<string, unknown> = {};
+      builder.select = () => builder;
+      builder.eq = () => builder;
+      builder.in = () => builder;
+      builder.insert = (payload: Record<string, unknown>) => {
+        inserted = payload;
+        return builder;
+      };
+      builder.single = async () =>
+        inserted?.report_number === 3
+          ? {
+              data: null,
+              error: {
+                code: "23505",
+                message:
+                  'duplicate key value violates unique constraint "photo_reports_job_report_number_key"',
+              },
+            }
+          : { data: { id: "report-1", ...inserted }, error: null };
+      builder.maybeSingle = async () => ({ data: null, error: null });
+      builder.then = (resolve: (r: unknown) => void) => {
+        if (table === "photos") {
+          return resolve({ data: [], error: null });
+        }
+        const data = numbersByRead[Math.min(numbersRead, numbersByRead.length - 1)];
+        numbersRead += 1;
+        return resolve({ data, error: null });
+      };
+      return builder;
+    },
+    get inserted() {
+      return inserted;
+    },
+  };
+  return client as unknown as SupabaseClient & {
+    inserted: Record<string, unknown> | null;
+  };
+}
+
 describe("createPhotoReportDraft", () => {
   it("numbers the report after the Job's existing reports and stamps the preparer", async () => {
     const supabase = fakeSupabase([{ report_number: 1 }, { report_number: 2 }]);
@@ -241,6 +294,28 @@ describe("createPhotoReportDraft", () => {
     expect(supabase.inserted?.sections).toEqual([
       { title: "Findings", description: "<p>x</p>", photo_ids: [] },
     ]);
+  });
+
+  it("retries with a fresh number when the report number collides", async () => {
+    // Models two near-simultaneous "Create report" clicks on the same Job. Our
+    // first attempt reads max #2 and mints #3, but a competing click already
+    // committed #3, so the partial unique index rejects the insert with Postgres
+    // unique_violation (23505). The retry re-reads the numbers — now including
+    // the competitor's #3 — and mints #4, which inserts cleanly.
+    const supabase = fakeSupabaseWithReportNumberConflict();
+
+    const report = await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: [],
+    });
+
+    expect(report.report_number).toBe(4);
+    expect(supabase.inserted).toMatchObject({
+      report_number: 4,
+      title: "Photo Report #4",
+    });
   });
 
   it("falls back to a blank Photos section when the template id resolves to nothing", async () => {

@@ -4,6 +4,7 @@ import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import type { CoverPageData } from "@/lib/cover-page-data";
 import { formatPreparedBy } from "@/lib/report-prepared-by";
+import { PHOTO_CORNER_RADIUS } from "./photo-page";
 
 const colors = {
   primary: "#1B2434",
@@ -56,7 +57,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     objectFit: "cover",
   },
   coverPhotoPlaceholder: {
@@ -65,7 +66,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 4,
+    borderRadius: PHOTO_CORNER_RADIUS,
     backgroundColor: colors.bg,
     alignItems: "center",
     justifyContent: "center",

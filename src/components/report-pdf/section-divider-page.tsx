@@ -9,7 +9,6 @@ import { normalizeSectionWriteup } from "@/lib/section-writeup";
 
 const colors = {
   text: "#1A1A1A",
-  muted: "#666666",
 };
 
 const styles = StyleSheet.create({
