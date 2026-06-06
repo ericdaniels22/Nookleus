@@ -9,7 +9,7 @@
 // sonner, and the PDF generator. Follows the RTL pattern in
 // estimate-drag-end.test.tsx.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 
 import type { Photo, PhotoReport } from "@/lib/types";
@@ -22,6 +22,9 @@ const h = vi.hoisted(() => ({
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
   manual: false,
   resolvers: [] as Array<() => void>,
+  // When true, every save resolves with a Supabase error, so a test can drive
+  // the failed-save path (issue #441: a failed flush must not yield a PDF).
+  errorOnSave: false,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -31,11 +34,13 @@ vi.mock("@/lib/supabase", () => ({
         h.updateMock(payload);
         return {
           eq: () =>
-            h.manual
-              ? new Promise<{ error: null }>((resolve) =>
-                  h.resolvers.push(() => resolve({ error: null })),
-                )
-              : Promise.resolve({ error: null }),
+            h.errorOnSave
+              ? Promise.resolve({ error: { message: "save failed" } })
+              : h.manual
+                ? new Promise<{ error: null }>((resolve) =>
+                    h.resolvers.push(() => resolve({ error: null })),
+                  )
+                : Promise.resolve({ error: null }),
         };
       },
     }),
@@ -102,6 +107,8 @@ vi.mock("@dnd-kit/core", async () => {
 import React from "react";
 import PhotoReportBuilder from "./photo-report-builder";
 import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
+import { generateReportPDF } from "@/lib/generate-report-pdf";
+import { toast } from "sonner";
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   return {
@@ -759,5 +766,118 @@ describe("PhotoReportBuilder save-time guard", () => {
     });
     expect(screen.queryByText("Saved")).toBeNull();
     expect(screen.getByText(/can't save/i)).toBeTruthy();
+  });
+});
+
+// Issue #441 — Generating the PDF must reflect what is on screen, not the
+// last-saved row. The generator (`generateReportPDF`) re-reads the persisted row
+// and is mocked here, so these tests assert what the builder does *before* it
+// calls the generator: it flushes pending edits, and it refuses to generate a
+// stale PDF when the report is over the one-page limit.
+describe("PhotoReportBuilder generate", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    h.errorOnSave = false;
+    vi.mocked(generateReportPDF).mockClear();
+    vi.mocked(generateReportPDF).mockResolvedValue("job-1/report-1.pdf");
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.mocked(window.open).mockRestore();
+  });
+
+  function clickGenerate() {
+    return act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
+    });
+  }
+
+  it("flushes a pending edit to the database before generating, so the PDF reflects it", async () => {
+    renderBuilder();
+
+    // Edit the title but do NOT let the 2s auto-save debounce elapse.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    // Clicking Generate now must first persist the edit, then generate.
+    await clickGenerate();
+
+    // The latest on-screen content was written…
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Latest title" }),
+    );
+    // …and it was written BEFORE the generator (which reads the persisted row) ran.
+    expect(h.updateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(generateReportPDF).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
+  });
+
+  it("refuses to generate when a section write-up is over the one-page limit, producing no PDF", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          {
+            title: "Findings",
+            description: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+            photo_ids: [],
+          },
+        ],
+      }),
+    );
+
+    await clickGenerate();
+
+    // No stale PDF: the generator (which would render the persisted, shorter
+    // row) is never invoked.
+    expect(vi.mocked(generateReportPDF)).not.toHaveBeenCalled();
+    // The user is told why, in plain terms.
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringMatching(/too long|shorten/i),
+    );
+  });
+
+  it("does not generate a PDF when flushing the pending edit fails", async () => {
+    h.errorOnSave = true;
+    renderBuilder();
+
+    // A pending edit makes the report dirty; the debounce has not elapsed.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+
+    await clickGenerate();
+
+    // The flush failed, so the generator (which would read the older persisted
+    // row) must not run — better no PDF than a stale one.
+    expect(vi.mocked(generateReportPDF)).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
+  });
+
+  it("generates and opens the PDF for a fitting report with no pending edits", async () => {
+    renderBuilder();
+
+    await clickGenerate();
+
+    // A clean, fitting report needs no flush, generates, and opens in a new tab.
+    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+    expect(vi.mocked(window.open)).toHaveBeenCalledWith(
+      "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+      "_blank",
+    );
   });
 });
