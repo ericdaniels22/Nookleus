@@ -1,7 +1,7 @@
 // src/lib/pdf-renderer/types.ts — typed inputs for the renderer.
 
 import type {
-  PdfPreset, Estimate, Invoice, EstimateSection, EstimateLineItem,
+  DocumentPdfLayout, Estimate, Invoice, EstimateSection, EstimateLineItem,
   InvoiceSection, InvoiceLineItem,
 } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export type RenderInput =
       document: Estimate;
       sections: EstimateSection[];
       lineItems: EstimateLineItem[];
-      preset: PdfPreset;
+      layout: DocumentPdfLayout;
       company: PdfCompany;
       recipient: PdfRecipient;
       jobNumber: string;
@@ -37,7 +37,7 @@ export type RenderInput =
       document: Invoice;
       sections: InvoiceSection[];
       lineItems: InvoiceLineItem[];
-      preset: PdfPreset;
+      layout: DocumentPdfLayout;
       company: PdfCompany;
       recipient: PdfRecipient;
       jobNumber: string;

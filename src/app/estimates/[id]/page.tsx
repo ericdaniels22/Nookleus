@@ -8,7 +8,9 @@ import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
-import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
+import { getDefaultPreset } from "@/lib/pdf-presets";
+import { isLayoutLocked, resolveEffectiveLayout } from "@/lib/pdf-layout";
+import { LiveLayoutPanel } from "./live-layout-panel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local ErrorPage helper — mirrors the pattern in /estimates/[id]/edit/page.tsx
@@ -77,6 +79,16 @@ export default async function EstimateViewPage({
     permission: "edit_estimates",
   });
   const canEdit = editAuth.ok;
+
+  // 4. Resolve the document's effective look (ADR 0012 precedence: the
+  //    document's own snapshot → Organization default preset → field defaults)
+  //    so the layout panel's toggle restores the current state. The panel is
+  //    read-only once the estimate is frozen (converted, ADR 0007) or trashed —
+  //    matching the PATCH route's 409/404 refusals.
+  const preset = await getDefaultPreset(supabase, "estimate");
+  const effectiveLayout = resolveEffectiveLayout(estimate.pdf_layout, preset);
+  const layoutLocked =
+    isLayoutLocked("estimate", estimate.status) || Boolean(estimate.deleted_at);
 
   // ── Derived display values ─────────────────────────────────────────────────
   const isVoided = estimate.status === "voided";
@@ -166,10 +178,16 @@ export default async function EstimateViewPage({
         )}
       </div>
 
-      {/* ── INLINE PDF (the real customer-facing document) ──────────────────── */}
-      <PdfPreviewFrame
-        src={`/api/estimates/${id}/preview`}
-        title={`Estimate ${estimate.estimate_number}`}
+      {/* ── LAYOUT PANEL + INLINE PDF (the real customer-facing document) ───── */}
+      {/* The panel owns the live preview so a single shared version drives the
+          re-render: flip the markup toggle → autosave the snapshot → reload. */}
+      <LiveLayoutPanel
+        estimateId={id}
+        previewSrc={`/api/estimates/${id}/preview`}
+        previewTitle={`Estimate ${estimate.estimate_number}`}
+        layout={effectiveLayout}
+        canEdit={canEdit}
+        locked={layoutLocked}
       />
     </div>
   );

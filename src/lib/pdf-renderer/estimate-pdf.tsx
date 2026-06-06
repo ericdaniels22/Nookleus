@@ -14,22 +14,26 @@ import type { RenderInput } from "@/lib/pdf-renderer/types";
 type Input = Extract<RenderInput, { kind: "estimate" }>;
 
 export function EstimatePdf(input: Input) {
-  const { document, sections, lineItems, preset, company, recipient, jobNumber } = input;
+  const { document, sections, lineItems, layout, company, recipient, jobNumber } = input;
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
-        <PageHeader documentTitle={preset.document_title} logoUrl={company.logo_url} />
+        <PageHeader
+          documentTitle={layout.document_title}
+          showDocumentTitle={layout.show_document_title}
+          logoUrl={company.logo_url}
+        />
         <View style={styles.twoCol}>
           <CompanyBlock company={company} />
           <RecipientBlock recipient={recipient} />
         </View>
         <DocumentDetails document={document} kind="estimate" />
-        {preset.show_opening_statement && (
+        {layout.show_opening_statement && (
           <StatementBlock html={document.opening_statement} />
         )}
-        <SectionsTable sections={sections} lineItems={lineItems} preset={preset} />
-        <TotalsBlock document={document} preset={preset} />
-        {preset.show_closing_statement && (
+        <SectionsTable sections={sections} lineItems={lineItems} layout={layout} />
+        <TotalsBlock document={document} layout={layout} />
+        {layout.show_closing_statement && (
           <StatementBlock html={document.closing_statement} />
         )}
         <PageFooter jobNumber={jobNumber} />

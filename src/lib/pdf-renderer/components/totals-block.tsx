@@ -3,18 +3,18 @@
 
 import { View, Text } from "@react-pdf/renderer";
 import { styles } from "@/lib/pdf-renderer/styles";
-import type { PdfPreset, Estimate, Invoice } from "@/lib/types";
+import type { DocumentPdfLayout, Estimate, Invoice } from "@/lib/types";
 
 interface Props {
   document: Estimate | Invoice;
-  preset: PdfPreset;
+  layout: DocumentPdfLayout;
 }
 
 function fmt(n: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-export function TotalsBlock({ document: doc, preset }: Props) {
+export function TotalsBlock({ document: doc, layout }: Props) {
   const subtotal = Number(doc.subtotal);
   const markupAmt = Number(doc.markup_amount);
   const discountAmt = Number(doc.discount_amount);
@@ -30,25 +30,25 @@ export function TotalsBlock({ document: doc, preset }: Props) {
         <Text>Subtotal</Text>
         <Text>{fmt(subtotal)}</Text>
       </View>
-      {preset.show_markup && markupAmt !== 0 && (
+      {layout.show_markup && markupAmt !== 0 && (
         <View style={styles.totalsRow}>
           <Text>Markup</Text>
           <Text>{fmt(markupAmt)}</Text>
         </View>
       )}
-      {preset.show_discount && discountAmt !== 0 && (
+      {layout.show_discount && discountAmt !== 0 && (
         <View style={styles.totalsRow}>
           <Text>Discount</Text>
           <Text>−{fmt(Math.abs(discountAmt))}</Text>
         </View>
       )}
-      {(preset.show_markup && markupAmt !== 0) || (preset.show_discount && discountAmt !== 0) ? (
+      {(layout.show_markup && markupAmt !== 0) || (layout.show_discount && discountAmt !== 0) ? (
         <View style={styles.totalsRow}>
           <Text>Adjusted Subtotal</Text>
           <Text>{fmt(adjusted)}</Text>
         </View>
       ) : null}
-      {preset.show_tax && (
+      {layout.show_tax && (
         <View style={styles.totalsRow}>
           <Text>Tax ({taxRate.toFixed(2)}%)</Text>
           <Text>{fmt(taxAmt)}</Text>

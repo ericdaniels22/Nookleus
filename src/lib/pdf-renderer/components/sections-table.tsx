@@ -1,11 +1,11 @@
 // src/lib/pdf-renderer/components/sections-table.tsx
 // Renders the hierarchical sections + subsections + line items for both estimates and invoices.
-// Pure function of (sections, lineItems, preset) — no DB access.
+// Pure function of (sections, lineItems, layout) — no DB access.
 
 import { View, Text } from "@react-pdf/renderer";
 import { styles } from "@/lib/pdf-renderer/styles";
 import type {
-  PdfPreset, EstimateSection, EstimateLineItem, InvoiceSection, InvoiceLineItem,
+  DocumentPdfLayout, EstimateSection, EstimateLineItem, InvoiceSection, InvoiceLineItem,
 } from "@/lib/types";
 
 type Section = EstimateSection | InvoiceSection;
@@ -14,7 +14,7 @@ type LineItem = EstimateLineItem | InvoiceLineItem;
 interface Props {
   sections: Section[];
   lineItems: LineItem[];
-  preset: PdfPreset;
+  layout: DocumentPdfLayout;
 }
 
 function fmt(n: number): string {
@@ -52,7 +52,7 @@ function sectionSubtotal(items: LineItem[]): number {
   return items.reduce((s, i) => s + lineTotal(i), 0);
 }
 
-export function SectionsTable({ sections, lineItems, preset }: Props) {
+export function SectionsTable({ sections, lineItems, layout }: Props) {
   const { tops, childrenOf } = groupSections(sections);
 
   function renderItemRow(item: LineItem, key: string) {
@@ -60,11 +60,11 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
     const itemName = item.name ?? null;
     return (
       <View key={key} style={styles.tr} wrap={false}>
-        {preset.show_code_column && <Text style={styles.tdCode}>{item.code ?? ""}</Text>}
+        {layout.show_code_column && <Text style={styles.tdCode}>{item.code ?? ""}</Text>}
         <View style={styles.tdDesc}>
           {itemName && <Text style={styles.tdName}>{itemName}</Text>}
           <Text>{item.description}</Text>
-          {preset.show_item_notes && item.note && (
+          {layout.show_item_notes && item.note && (
             <Text style={styles.tdNoteSub}>{item.note}</Text>
           )}
         </View>
@@ -89,7 +89,7 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
         </View>
         {directItems.map((it, i) => renderItemRow(it, `${sectionKey}-it-${i}`))}
         {subs.map((sub, i) => renderSection(sub, depth + 1, `${sectionKey}-sub-${i}`))}
-        {preset.show_category_subtotals && depth === 0 && (
+        {layout.show_category_subtotals && depth === 0 && (
           <View style={styles.sectionSubtotal} wrap={false}>
             <Text>Section subtotal: {fmt(sectionTot)}</Text>
           </View>
@@ -104,7 +104,7 @@ export function SectionsTable({ sections, lineItems, preset }: Props) {
     <View style={styles.table}>
       {/* Header row */}
       <View style={styles.thRow} wrap={false}>
-        {preset.show_code_column && <Text style={styles.tdCode}>Code</Text>}
+        {layout.show_code_column && <Text style={styles.tdCode}>Code</Text>}
         <Text style={styles.tdDesc}>Description</Text>
         <Text style={styles.tdQty}>Qty</Text>
         <Text style={styles.tdUnit}>Unit</Text>

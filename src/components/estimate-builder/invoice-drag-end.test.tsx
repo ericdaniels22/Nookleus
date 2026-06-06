@@ -163,6 +163,7 @@ function makeInvoiceEntity(): BuilderEntity {
     last_sent_to_email: null,
     deleted_at: null,
     delete_reason: null,
+    pdf_layout: null,
     sections: [
       {
         id: "S1",

@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase-api";
 import { getPreset } from "@/lib/pdf-presets";
+import { resolveEffectiveLayout } from "@/lib/pdf-layout";
 import { renderPdf } from "@/lib/pdf-renderer/render";
 import { estimatePdfPath, invoicePdfPath } from "@/lib/storage/paths";
 import type {
@@ -159,6 +160,11 @@ export async function renderEstimatePdfBuffer(
     throw new PdfRenderInputError("preset document_type mismatch", 400);
   }
 
+  // Per-document look (ADR 0012): the document's own snapshot wins; else this
+  // org-default preset; else field defaults. A document with no layout resolves
+  // every field from the preset, so its output stays byte-identical (#482).
+  const layout = resolveEffectiveLayout(doc.pdf_layout, preset);
+
   const service = createServiceClient();
   const company = await loadCompany(service, orgId);
   const { recipient, jobNumber } = await loadRecipient(service, doc.job_id);
@@ -168,7 +174,7 @@ export async function renderEstimatePdfBuffer(
     document: doc,
     sections: (sections ?? []) as EstimateSection[],
     lineItems: (lineItems ?? []) as EstimateLineItem[],
-    preset,
+    layout,
     company,
     recipient,
     jobNumber,
@@ -239,6 +245,11 @@ export async function renderInvoicePdfBuffer(
     throw new PdfRenderInputError("preset document_type mismatch", 400);
   }
 
+  // Per-document look (ADR 0012): the document's own snapshot wins; else this
+  // org-default preset; else field defaults. A document with no layout resolves
+  // every field from the preset, so its output stays byte-identical (#482).
+  const layout = resolveEffectiveLayout(doc.pdf_layout, preset);
+
   const service = createServiceClient();
   const company = await loadCompany(service, orgId);
   const { recipient, jobNumber } = await loadRecipient(service, doc.job_id);
@@ -248,7 +259,7 @@ export async function renderInvoicePdfBuffer(
     document: doc,
     sections: (sections ?? []) as InvoiceSection[],
     lineItems: (lineItems ?? []) as InvoiceLineItem[],
-    preset,
+    layout,
     company,
     recipient,
     jobNumber,
