@@ -172,31 +172,59 @@ export default function PhotoReportBuilder({
     // on each edit; `report.id` is covered transitively through `writeReport`.
   }, [state, writeReport]);
 
-  // Flush a pending edit when the builder unmounts (issue #443). The auto-save
-  // above only persists on a 2s debounce and its cleanup merely clears the
-  // timer, so navigating away (e.g. tapping "Back to job", easy on a tablet)
-  // within that window would otherwise silently drop the last edit. We mirror
-  // the latest savable snapshot into a ref and write it on unmount, reusing the
-  // same update path. The ref is rewritten every render so the cleanup reads the
-  // freshest snapshot, not the stale closure captured at mount.
+  // Flush a pending edit when the page goes away. Two triggers share this one
+  // function: an in-app unmount (#443, e.g. tapping "Back to job", easy on a
+  // tablet) and a hard page-unload (#479: tab close / refresh / app-background).
+  // The debounced auto-save above only persists on a 2s timer and its cleanup
+  // merely clears that timer, so leaving within the window would otherwise drop
+  // the last edit. The Supabase JS client can't ride a teardown — its fetch is
+  // cancelled — so the flush fires a plain `keepalive: true` PUT at the #478
+  // route, whose server-side `edit_jobs` + tenancy gating mirrors the debounced
+  // write. The ref is rewritten every render so a trigger reads the freshest
+  // snapshot, not the stale closure captured at mount.
   const flushOnUnmountRef = useRef<() => void>(() => {});
   flushOnUnmountRef.current = () => {
     if (!state.dirty) return;
     // Honour the same save-time over-limit guard (#404) as the debounced save:
-    // a flush must never sneak an over-limit write-up past it on unmount.
+    // a flush must never sneak an over-limit write-up past it on teardown.
     if (hasOverLimitSection(state.sections)) return;
-    const supabase = createClient();
-    void supabase
-      .from("photo_reports")
-      .update({
+    void fetch(`/api/jobs/${jobId}/reports/${report.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         title: state.title,
         report_date: state.reportDate,
         sections: state.sections,
-      })
-      .eq("id", report.id);
+      }),
+      keepalive: true,
+    });
   };
-  // Empty deps: the cleanup runs only on unmount.
+  // Empty deps: the cleanup runs only on unmount (#443).
   useEffect(() => () => flushOnUnmountRef.current(), []);
+
+  // Hard page-unload (#479): a real tab close / refresh / app-background tears
+  // the page down without running React cleanup, so the unmount flush above
+  // never fires. `pagehide` covers tab-close / refresh; `visibilitychange` to
+  // "hidden" covers app-backgrounding (the common iOS exit, where pagehide is
+  // unreliable). We flush only when the page is actually hidden — a change *to*
+  // visible is the user returning, not leaving. The same flush ref is reused, so
+  // the over-limit (#404) and dirty guards still apply. Listeners are removed on
+  // unmount so a torn-down builder can't keep flushing. iOS can fire both
+  // visibilitychange→hidden AND pagehide in one teardown, re-running the flush;
+  // the #478 PUT is idempotent and the flush no-ops once clean, so — as in #477
+  // — no "already-flushed" guard is needed.
+  useEffect(() => {
+    const onPageHide = () => flushOnUnmountRef.current();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushOnUnmountRef.current();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
