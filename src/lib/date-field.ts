@@ -21,6 +21,18 @@ export function parseMaskedDate(input: string): Date | null {
   return date;
 }
 
+/**
+ * Parse a Postgres `date` string (`"YYYY-MM-DD"`) into a **local**-midnight Date.
+ *
+ * `new Date("YYYY-MM-DD")` parses as UTC midnight, so formatting it in the host's
+ * local timezone renders the previous calendar day in any UTC-minus (US) zone.
+ * Constructing from the parts keeps the calendar day the user actually set.
+ */
+export function parseDateOnly(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 /** True when input is a complete, real `MM/DD/YYYY` date that is not in the future. */
 export function isValidPastDate(input: string): boolean {
   const date = parseMaskedDate(input);
