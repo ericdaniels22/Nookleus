@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 
 // #232 — smoke test for the combined /settings/templates shell. Each tab
 // body has its own behavior covered elsewhere; this test only verifies
-// that the shell wires up the four expected tabs in the right order and
+// that the shell wires up the five expected tabs in the right order and
 // renders without crashing.
 
 vi.mock("next/navigation", () => ({
@@ -24,11 +24,14 @@ vi.mock("./item-library-tab", () => ({
 vi.mock("./photo-report-defaults-tab", () => ({
   PhotoReportDefaultsTab: () => <div>photo-report-defaults-tab-marker</div>,
 }));
+vi.mock("./photo-report-templates-tab", () => ({
+  PhotoReportTemplatesTab: () => <div>photo-report-templates-tab-marker</div>,
+}));
 
 import TemplatesSettingsPage from "./page";
 
 describe("/settings/templates shell", () => {
-  it("renders the four expected tab labels in order", () => {
+  it("renders the five expected tab labels in order", () => {
     render(<TemplatesSettingsPage />);
 
     const tabs = screen.getAllByRole("tab");
@@ -36,6 +39,7 @@ describe("/settings/templates shell", () => {
       "Estimates",
       "Contracts",
       "Item Library",
+      "Photo Report Templates",
       "Photo Report Defaults",
     ]);
   });

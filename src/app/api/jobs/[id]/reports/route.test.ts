@@ -178,6 +178,9 @@ describe("POST /api/jobs/[id]/reports", () => {
           grants: ["edit_jobs"],
           extraTables: {
             user_profiles: [{ id: "user-1", full_name: "   " }],
+            // #446: the route now 404s unless the URL job is visible to the
+            // caller's org, so this preparer-name test must seed the job.
+            jobs: [{ id: "job-1", organization_id: "org-1" }],
           },
         }),
       }) as never,
@@ -202,6 +205,9 @@ describe("POST /api/jobs/[id]/reports", () => {
           grants: ["edit_jobs"],
           extraTables: {
             user_profiles: [{ id: "user-1", full_name: "" }],
+            // #446: the route now 404s unless the URL job is visible to the
+            // caller's org, so this preparer-name test must seed the job.
+            jobs: [{ id: "job-1", organization_id: "org-1" }],
           },
         }),
       }) as never,
