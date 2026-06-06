@@ -63,6 +63,14 @@ describe("measureWriteupFit", () => {
     expect(measureWriteupFit(legacy).used).toBe(legacy.length);
   });
 
+  it("counts an angle-bracketed legacy subtitle in full, not as stray markup (#445)", () => {
+    // `<john@x.com>` looks like a tag to a loose detector, which used to drop
+    // the bracketed address from both the PDF and this counter. It is escaped
+    // legacy text now, so every character — brackets included — is counted.
+    const legacy = "email me <john@x.com>";
+    expect(measureWriteupFit(legacy).used).toBe(legacy.length);
+  });
+
   it("keeps a stray '<' inside HTML, matching the renderer's tokenizer", () => {
     // Hand-authored / boilerplate HTML can carry a literal '<' that is not a
     // tag. The renderer's tokenizer keeps it as text; the count must too.
