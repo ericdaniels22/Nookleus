@@ -7,7 +7,7 @@ started: 2026-04-26
 shipped: 2026-04-28
 guide_doc: null
 plan_file: docs/superpowers/plans/2026-04-26-build-65-mobile-platform.md
-handoff: "[[2026-04-28-build-65a]]"
+handoff: null
 related: ["[[2026-04-21-rename-to-nookleus]]"]
 ---
 

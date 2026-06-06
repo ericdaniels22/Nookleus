@@ -7,7 +7,7 @@ started: null
 shipped: 2026-04-22
 guide_doc: null
 plan_file: docs/superpowers/plans/2026-04-21-build-18a-schema-backfill.md
-handoff: "[[2026-04-22-build-18a-complete]]"
+handoff: null
 related: ["[[build-18b]]", "[[build-18c]]", "[[build-64]]", "[[2026-04-22-build52-null-tokens-lesson]]"]
 ---
 

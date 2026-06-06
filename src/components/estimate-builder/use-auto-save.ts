@@ -11,6 +11,11 @@ import type { AutoSaveConfig } from "@/lib/types";
 const DEBOUNCE_MS = 2000;
 const SAVED_DURATION_MS = 3000;
 const MAX_BACKOFF_MS = 30_000;
+// A hung fetch must not stick saveStatus in "saving" forever: every save wraps its
+// fetch in an AbortController that aborts after FETCH_TIMEOUT_MS, and the resulting
+// AbortError is handled as an ordinary retryable error (exp-backoff), not a dead
+// end. Paired with the per-line-item in-flight guard (inFlightItemsRef) so two
+// debounced saves of the same item can't race.
 const FETCH_TIMEOUT_MS = 30_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,12 +244,23 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // only on mount
 
-  // ── Re-baseline on external entity refresh ────────────────────────────────
-  // When the parent re-syncs entity from a fresh server fetch (e.g. after a
-  // status transition's router.refresh() or apply-template), advance our
-  // snapshots to match so the next autosave doesn't 409 with a stale token.
-  // Skipped when a save is in flight (that save will pick up the new
-  // updated_at via its own response).
+  // ── Re-baseline on external entity refresh (the "two halves" re-sync) ─────
+  // The snapshot baselines (updatedAtRef, lastSavedSnapshotRef,
+  // lastSavedLineItemsRef) are set once on mount. But a server-driven mutation
+  // OUTSIDE the autosave PUT path — a status transition (Mark Paid/Sent/Void),
+  // apply-template, etc. — bumps the row's updated_at server-side, and the parent
+  // then re-syncs the entity prop via router.refresh(). Without this effect the
+  // baselines stay frozen at mount-time values, the next autosave PUT sends a stale
+  // updated_at_snapshot, 409s, and the user is stuck in a "Modified by another
+  // user" stale-conflict toast LOOP. So when entity.updated_at advances we
+  // re-baseline all three refs to match (this runs before the watch effect's
+  // debounced timer fires) and dismiss any stuck stale-conflict toast.
+  //
+  // CRITICAL: skip the re-baseline while a save is in flight. That in-flight save
+  // picks up the new updated_at from its OWN response; re-baselining mid-flight
+  // would clobber that response's token and re-trigger the 409 loop. This is the
+  // inner-hook half of the fix; the parent-state-sync half (useEffect + setState in
+  // the builder shell) is the other half — both halves are required.
   useEffect(() => {
     if (lastSavedSnapshotRef.current === null) return; // not yet initialized
     if (!entity.updated_at) return;

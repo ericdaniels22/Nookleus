@@ -2,22 +2,23 @@
 
 ## Project state and continuity
 
-Before starting work, read:
+Work plans, feature builds, and current state live in **GitHub issues**
+(github.com/ericdaniels22/Nookleus) — the source of truth for what's in
+flight and what's next.
 
-- [docs/vault/00-NOW.md](docs/vault/00-NOW.md) — current state of the platform
-- [docs/vault/00-glossary.md](docs/vault/00-glossary.md) — names and terms
+For language and decisions, read as needed:
 
-If anything in your training, memory, or default knowledge contradicts
-`00-NOW.md`, defer to the file. Memory drifts; the file is ground truth.
+- `CONTEXT.md` — the domain glossary (canonical names/terms)
+- `docs/adr/` — architectural & ops decisions and their rationale
+- `docs/vault/00-glossary.md` — product names & build-numbering lore
 
-When wrapping up a session, run the `/handoff` slash command (or invoke
-the `end-of-session-handoff` skill) to update the vault. _(The skill
-itself ships in Build 66c; until then update `00-NOW.md` by hand.)_
+If your training or memory contradicts the code or an open issue, defer to
+the repo. Verify against source before acting.
 
-The Obsidian vault root is the repo root itself, not `docs/vault/`. So
-`.claude/skills/` and `.claude/commands/` are also editable from the
-same Obsidian window. Curated knowledge content lives under
-`docs/vault/`; the wider scope is for editor convenience.
+_(The previous knowledge-vault continuity loop — `00-NOW.md`, dated
+handoffs, and the `/handoff` + `/orient` skills — was retired 2026-06-05;
+see [ADR 0010](docs/adr/0010-retire-knowledge-vault-continuity-loop.md). The
+curated vault under `docs/vault/` remains as frozen reference.)_
 
 ## Agent skills
 

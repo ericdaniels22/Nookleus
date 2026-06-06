@@ -200,8 +200,19 @@ export async function checkSnapshot(
   return { ok: true, updated_at: result.current };
 }
 
-// Force-bump estimates.updated_at (used by reorder PUTs that don't otherwise
-// touch the estimates row but should still mark it dirty for snapshot guards).
+// Force-bump estimates.updated_at (used by the child-row reorder PUTs —
+// /sections and /line-items — that don't otherwise touch the estimates row but
+// must still mark it dirty for the snapshot guard).
+//
+// Why this matters (don't remove the touch): checkSnapshot above only fires when
+// estimates.updated_at moves. A child write (reorder, line-item edit) that leaves
+// the parent timestamp unchanged is invisible to it — two sessions editing
+// different children would never collide and the second writer would silently
+// clobber the first. So every child-only write force-bumps the parent here. The
+// field-update route gets this for free via recalculateTotals (it writes the
+// estimates row); reorders don't, which is exactly why touchEstimate exists. The
+// invoice editor mirrors this same touch-on-child-write discipline.
+//
 // The BEFORE UPDATE trigger on estimates rewrites updated_at to now() so any
 // UPDATE here works; we name updated_at explicitly for clarity.
 export async function touchEstimate(

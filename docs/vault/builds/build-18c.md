@@ -7,7 +7,7 @@ started: null
 shipped: 2026-04-26
 guide_doc: null
 plan_file: docs/superpowers/plans/2026-04-25-build-18c-workspace-switcher.md
-handoff: "[[2026-04-26-build-18c-session-c]]"
+handoff: null
 related: ["[[build-18a]]", "[[build-18b]]", "[[build-64]]"]
 ---
 
@@ -27,7 +27,6 @@ The workspace switcher UI for users with memberships in multiple orgs, plus publ
 ## Source
 
 - Plan: [docs/superpowers/plans/2026-04-25-build-18c-workspace-switcher.md](../../../docs/superpowers/plans/2026-04-25-build-18c-workspace-switcher.md)
-- Handoffs (vault entries): [[2026-04-25-build-18c-session-a]], [[2026-04-26-build-18c-session-b]], [[2026-04-26-build-18c-session-c]]
 - Source artifacts: [docs/superpowers/build-18c/session-a-handoff.md](../../../docs/superpowers/build-18c/session-a-handoff.md), [docs/superpowers/build-18c/session-b-handoff.md](../../../docs/superpowers/build-18c/session-b-handoff.md), [docs/superpowers/build-18c/session-c-handoff.md](../../../docs/superpowers/build-18c/session-c-handoff.md), [docs/superpowers/build-18c/session-b-run-log.md](../../../docs/superpowers/build-18c/session-b-run-log.md), [docs/superpowers/build-18c/session-c-run-log.md](../../../docs/superpowers/build-18c/session-c-run-log.md), [docs/superpowers/build-18c/public-route-audit.md](../../../docs/superpowers/build-18c/public-route-audit.md)
 - Migration files: build62, build62b, build63
 - Commit range: `c84f652` (plan) → `dcf4127` (merge) → `90d7405` (SSR fix) → `9e986b2` (PR #39 JWT decode)
