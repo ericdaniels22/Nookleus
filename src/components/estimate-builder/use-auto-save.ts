@@ -277,6 +277,38 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
     };
   }, []);
 
+  // ── Flush pending edits on unmount (#461) ─────────────────────────────────
+  // The debounced auto-save persists on a 2s delay and the cleanup above merely
+  // clears the timer, so navigating away (component unmount — easy on a tablet)
+  // within that window would otherwise silently drop the last edit. We mirror
+  // the savable plan into a ref, rewritten every render so the unmount cleanup
+  // reads the freshest entity + snapshots (not the stale closure captured at
+  // mount), and fire each planned PUT with keepalive so the request outlives the
+  // teardown. All the diff/gating logic lives in the pure planUnmountFlush —
+  // this stays a thin transport, no save logic duplicated.
+  const flushOnUnmountRef = useRef<() => void>(() => {});
+  flushOnUnmountRef.current = () => {
+    const plan = planUnmountFlush(config, entity, {
+      rootSnapshot: lastSavedSnapshotRef.current,
+      lineItems: lastSavedLineItemsRef.current,
+      updatedAt: updatedAtRef.current,
+      staleConflict: staleConflictRef.current,
+    });
+    const writes = plan.rootPut
+      ? [plan.rootPut, ...plan.lineItemPuts]
+      : plan.lineItemPuts;
+    for (const write of writes) {
+      void fetch(write.path, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(write.body),
+        keepalive: true,
+      });
+    }
+  };
+  // Empty deps: the cleanup runs only on unmount, reading the latest ref.
+  useEffect(() => () => flushOnUnmountRef.current(), []);
+
   // ── Core save flow helpers ────────────────────────────────────────────────
 
   const transitionToSaved = useCallback(() => {
