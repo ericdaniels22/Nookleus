@@ -9,6 +9,15 @@ interface CreateReportPayload {
   templateId?: string;
 }
 
+/** Trim a value, treating an empty/whitespace string as absent. */
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** Generic stand-in when neither a display name nor an email is available. */
+const UNKNOWN_PREPARER = "Unknown";
+
 // POST /api/jobs/[id]/reports — create a draft Photo Report from the Job's
 // Photos tab "Create report" bulk action (#400). Runs server-side so the
 // report is numbered per Job and stamped with the *real* preparer rather than
@@ -35,7 +44,23 @@ export const POST = withRequestContext(
       return NextResponse.json({ error: "Profile not found" }, { status: 403 });
     }
 
-    const body = (await request.json()) as CreateReportPayload;
+    // `full_name` is NOT NULL in the schema but can still be empty/whitespace,
+    // which would stamp a blank "Prepared by" onto the report. Fall back to the
+    // caller's email (looked up lazily, only when the name is blank), and a
+    // generic placeholder only if even that is unavailable — so the report is
+    // always attributed to *someone* rather than going blank.
+    let preparerName = blankToNull(profile.full_name);
+    if (!preparerName) {
+      const { data: userData } = await ctx.supabase.auth.getUser();
+      preparerName = blankToNull(userData.user?.email) ?? UNKNOWN_PREPARER;
+    }
+
+    // A malformed or empty body is treated as an empty payload rather than
+    // surfacing a 500: the only fields we read are optional, so "create a blank
+    // report" is the sensible fallback.
+    const body = (await request
+      .json()
+      .catch(() => ({}))) as CreateReportPayload;
     const photoIds = Array.isArray(body.photoIds) ? body.photoIds : [];
     const templateId =
       typeof body.templateId === "string" ? body.templateId : null;
@@ -44,7 +69,7 @@ export const POST = withRequestContext(
       const report = await createPhotoReportDraft(ctx.supabase, {
         organizationId: ctx.orgId,
         jobId,
-        preparerName: profile.full_name,
+        preparerName,
         photoIds,
         templateId,
       });

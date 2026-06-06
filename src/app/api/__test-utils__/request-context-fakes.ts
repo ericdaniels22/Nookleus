@@ -23,10 +23,15 @@ export type Mutation = {
   payload?: unknown;
 };
 
+// A PostgREST-style error, enough for routes that branch on `error.code`
+// (e.g. "23505" unique_violation) or surface `error.message`. Inject one per
+// table via `errorsByTable` to exercise a route's DB-error handling.
+export type FakeError = { code?: string; message: string };
+
 type Awaitable = {
-  maybeSingle<T = Row>(): Promise<{ data: T | null; error: null }>;
-  single<T = Row>(): Promise<{ data: T | null; error: null }>;
-  then(resolve: (v: { data: Row[]; error: null }) => unknown): unknown;
+  maybeSingle<T = Row>(): Promise<{ data: T | null; error: FakeError | null }>;
+  single<T = Row>(): Promise<{ data: T | null; error: FakeError | null }>;
+  then(resolve: (v: { data: Row[]; error: FakeError | null }) => unknown): unknown;
 };
 
 // One builder type for both reads and mutations: every filter and mutation
@@ -49,7 +54,12 @@ export interface QueryBuilder extends Awaitable {
   limit(...args: unknown[]): QueryBuilder;
 }
 
-function queryBuilder(rows: Row[], table?: string, mutations?: Mutation[]): QueryBuilder {
+function queryBuilder(
+  rows: Row[],
+  table?: string,
+  mutations?: Mutation[],
+  error?: FakeError,
+): QueryBuilder {
   let filtered = [...rows];
   const passthrough = () => builder;
   const record = (op: Mutation["op"], payload?: unknown) => {
@@ -70,20 +80,39 @@ function queryBuilder(rows: Row[], table?: string, mutations?: Mutation[]): Quer
       filtered = filtered.filter((r) => vals.includes(r[col]));
       return builder;
     },
-    not: passthrough,
-    is: passthrough,
+    not(...args) {
+      // Model PostgREST `.not(col, "is", null)` (IS NOT NULL); a missing column
+      // counts as null. Any other `.not(...)` form stays a passthrough.
+      const [col, op, val] = args as [string, string, unknown];
+      if (op === "is" && val === null) {
+        filtered = filtered.filter((r) => r[col as string] != null);
+      }
+      return builder;
+    },
+    is(...args) {
+      // Model PostgREST `.is(col, null)` (IS NULL); a missing column counts as
+      // null. A non-null target stays a passthrough.
+      const [col, val] = args as [string, unknown];
+      if (val === null) {
+        filtered = filtered.filter((r) => r[col as string] == null);
+      }
+      return builder;
+    },
     lt: passthrough,
     gt: passthrough,
     or: passthrough,
     order: passthrough,
     limit: passthrough,
     async maybeSingle<T = Row>() {
+      if (error) return { data: null, error };
       return { data: (filtered[0] ?? null) as T | null, error: null };
     },
     async single<T = Row>() {
+      if (error) return { data: null, error };
       return { data: (filtered[0] ?? null) as T | null, error: null };
     },
     then(resolve) {
+      if (error) return resolve({ data: [], error });
       return resolve({ data: filtered, error: null });
     },
   };
@@ -116,8 +145,10 @@ function fakeStorage() {
 // permission-gated routes that read/write storage on the User client (the
 // job files/photos routes) can be exercised end-to-end.
 export function fakeUserClient(opts: {
-  user: { id: string } | null;
+  user: { id: string; email?: string } | null;
   tables?: Record<string, Row[]>;
+  /** Inject a DB error for a table's reads/writes (keyed by table name). */
+  errorsByTable?: Record<string, FakeError>;
 }) {
   const tables = opts.tables ?? {};
   const mutations: Mutation[] = [];
@@ -128,7 +159,12 @@ export function fakeUserClient(opts: {
       },
     },
     from(table: string) {
-      return queryBuilder(tables[table] ?? [], table, mutations);
+      return queryBuilder(
+        tables[table] ?? [],
+        table,
+        mutations,
+        opts.errorsByTable?.[table],
+      );
     },
     storage: fakeStorage(),
     // Recorded insert/update/upsert/delete payloads, in call order.
