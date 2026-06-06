@@ -52,6 +52,7 @@ function fixtureEmail(overrides: Partial<Email> = {}): Email {
     uid: null,
     received_at: "2024-03-15T14:30:00",
     created_at: "2024-03-15T14:30:00",
+    organization_id: "org-1",
     ...overrides,
   };
 }
