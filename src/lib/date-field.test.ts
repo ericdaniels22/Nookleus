@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { format } from "date-fns";
 
-import { isValidPastDate, maskDateInput, parseMaskedDate } from "./date-field";
+import { isValidPastDate, maskDateInput, parseDateOnly, parseMaskedDate } from "./date-field";
 
 describe("maskDateInput", () => {
   it("formats eight digits into MM/DD/YYYY", () => {
@@ -48,6 +49,37 @@ describe("parseMaskedDate", () => {
     expect(parseMaskedDate("02/30/2024")).toBeNull();
     expect(parseMaskedDate("13/01/2024")).toBeNull();
   });
+});
+
+describe("parseDateOnly", () => {
+  it("returns a Date whose local Y/M/D equal the YYYY-MM-DD parts", () => {
+    const d = parseDateOnly("2026-06-05");
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(5); // June is month index 5
+    expect(d.getDate()).toBe(5);
+  });
+});
+
+// Issue #444: the Overview rendered report_date a day early in US (UTC-minus)
+// timezones. These pin the exact acceptance criteria across both US zones named
+// in the issue. The first assertion in each case is a guard: it confirms the TZ
+// override is live and the off-by-one is genuinely reproducible here, so the
+// second assertion is a meaningful regression test rather than a no-op.
+describe("parseDateOnly across US timezones (issue #444)", () => {
+  const originalTz = process.env.TZ;
+  afterAll(() => {
+    process.env.TZ = originalTz;
+  });
+
+  for (const tz of ["America/New_York", "America/Los_Angeles"]) {
+    it(`renders "Jun 5, 2026" for 2026-06-05 in ${tz}`, () => {
+      process.env.TZ = tz;
+      // The bug: a naive UTC parse renders the previous calendar day here.
+      expect(format(new Date("2026-06-05"), "MMM d, yyyy")).toBe("Jun 4, 2026");
+      // The fix: parseDateOnly preserves the day the user set.
+      expect(format(parseDateOnly("2026-06-05"), "MMM d, yyyy")).toBe("Jun 5, 2026");
+    });
+  }
 });
 
 describe("isValidPastDate", () => {
