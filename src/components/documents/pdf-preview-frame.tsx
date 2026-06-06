@@ -1,10 +1,25 @@
-// Inline PDF preview frame (#385). Embeds a server-rendered, customer-facing
-// document PDF via the browser's native viewer, so the View surface shows the
-// real PDF — exactly what the customer receives — rather than an HTML
-// re-render. Purely presentational (no hooks/events), so it is safe to render
-// from either a Server Component (estimate View) or a Client Component
-// (invoice View). `src` points at the `/preview` route that streams the PDF
-// inline.
+"use client";
+
+// In-app document viewer seam (ADR 0013, #464). The Estimate and Invoice Views
+// both render the customer-facing PDF through this one frame — byte-for-byte the
+// `/preview` document, a pure read, never an HTML re-render (the #385 intent).
+// The mechanism is now an owned react-pdf island instead of the browser's native
+// iframe chrome, so we can ship a slim page picker (#465) the native viewer never
+// let us size. react-pdf evaluates pdfjs-dist at import time and cannot be
+// server-rendered, so the island loads client-only via dynamic ssr:false — this
+// `'use client'` wrapper is what lets a Server Component (the Estimate View) and a
+// Client Component (the Invoice View) both render the same seam unchanged. The
+// public `{ src, title }` interface is preserved exactly so neither consumer moves.
+import dynamic from "next/dynamic";
+
+const PdfDocumentViewer = dynamic(() => import("./pdf-document-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-muted-foreground py-12 text-center">
+      Loading document…
+    </div>
+  ),
+});
 
 interface PdfPreviewFrameProps {
   src: string;
@@ -13,8 +28,8 @@ interface PdfPreviewFrameProps {
 
 export function PdfPreviewFrame({ src, title }: PdfPreviewFrameProps) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 overflow-hidden">
-      <iframe src={src} title={title} className="w-full h-[80vh]" />
+    <div className="rounded-lg border border-border bg-muted/30 overflow-auto h-[80vh]">
+      <PdfDocumentViewer src={src} title={title} />
     </div>
   );
 }
