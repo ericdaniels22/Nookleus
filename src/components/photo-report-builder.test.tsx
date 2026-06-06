@@ -9,7 +9,7 @@
 // sonner, and the PDF generator. Follows the RTL pattern in
 // estimate-drag-end.test.tsx.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 
 import type { Photo, PhotoReport } from "@/lib/types";
@@ -22,6 +22,9 @@ const h = vi.hoisted(() => ({
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
   manual: false,
   resolvers: [] as Array<() => void>,
+  // When true, every save resolves with a Supabase error, so a test can drive
+  // the failed-save path (issue #441: a failed flush must not yield a PDF).
+  errorOnSave: false,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -31,11 +34,13 @@ vi.mock("@/lib/supabase", () => ({
         h.updateMock(payload);
         return {
           eq: () =>
-            h.manual
-              ? new Promise<{ error: null }>((resolve) =>
-                  h.resolvers.push(() => resolve({ error: null })),
-                )
-              : Promise.resolve({ error: null }),
+            h.errorOnSave
+              ? Promise.resolve({ error: { message: "save failed" } })
+              : h.manual
+                ? new Promise<{ error: null }>((resolve) =>
+                    h.resolvers.push(() => resolve({ error: null })),
+                  )
+                : Promise.resolve({ error: null }),
         };
       },
     }),
@@ -100,12 +105,10 @@ vi.mock("@dnd-kit/core", async () => {
 });
 
 import React from "react";
-import { toast } from "sonner";
 import PhotoReportBuilder from "./photo-report-builder";
-import { generateReportPDF } from "@/lib/generate-report-pdf";
 import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
-
-const mockGenerate = vi.mocked(generateReportPDF);
+import { generateReportPDF } from "@/lib/generate-report-pdf";
+import { toast } from "sonner";
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   return {
@@ -531,6 +534,73 @@ describe("PhotoReportBuilder write-up fit counter", () => {
   });
 });
 
+describe("PhotoReportBuilder unmount flush (#443)", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    vi.useFakeTimers();
+  });
+
+  it("flushes the pending edit when the builder unmounts within the debounce window", () => {
+    const { unmount } = renderBuilder();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // Unmount BEFORE the 2s debounce elapses — the autosave timer has not fired,
+    // so nothing has been written yet (this is the lost-edit window in #443).
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    act(() => {
+      unmount();
+    });
+
+    // The pending dirty edit is flushed on unmount, persisting the last edit.
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Roof damage report" }),
+    );
+  });
+
+  it("does not flush when the builder was never edited", () => {
+    const { unmount } = renderBuilder();
+
+    // No edit happened, so the report is not dirty — unmounting must not write.
+    act(() => {
+      unmount();
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+  });
+
+  it("does not flush an over-limit write-up on unmount", () => {
+    const { unmount } = renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: { value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>` },
+      });
+    });
+
+    // The write-up overflows its one-page intro, so the report is dirty but
+    // blocked. The flush must honour the same save-time guard (#404) as the
+    // debounced save and refuse to persist the over-limit content.
+    act(() => {
+      unmount();
+    });
+
+    expect(h.updateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("PhotoReportBuilder save-time guard", () => {
   beforeEach(() => {
     h.updateMock.mockClear();
@@ -699,90 +769,148 @@ describe("PhotoReportBuilder save-time guard", () => {
   });
 });
 
-// Issue #442 — on iPad / iOS WebView the post-`await` window.open is blocked, so
-// the generated PDF was a dead-end that still showed a success toast. The fix is
-// a persistent "Open PDF" anchor the user taps (a real user gesture), bound to
-// the report's pdf_path. These drive the generate flow through the DOM. No fake
-// timers here: generation is promise-based, not debounce/timer-based.
-describe("PhotoReportBuilder generate + retrieve PDF", () => {
+// Issue #441 — Generating the PDF must reflect what is on screen, not the
+// last-saved row. The generator (`generateReportPDF`) re-reads the persisted row
+// and is mocked here, so these tests assert what the builder does *before* it
+// calls the generator: it flushes pending edits, and it refuses to generate a
+// stale PDF when the report is over the one-page limit.
+describe("PhotoReportBuilder generate", () => {
   beforeEach(() => {
-    // Generation is promise-based, and findByRole polls on real timers. Earlier
-    // describes enable fake timers without restoring them, so reset to real
-    // timers here or findByRole would stall.
-    vi.useRealTimers();
     h.updateMock.mockClear();
     h.manual = false;
     h.resolvers = [];
-    // Reset the generator to a clean default so per-call overrides
-    // (mockResolvedValueOnce / mockRejectedValueOnce) can't leak between tests.
-    mockGenerate.mockReset();
-    mockGenerate.mockResolvedValue("job-1/report-1.pdf");
+    h.errorOnSave = false;
+    vi.mocked(generateReportPDF).mockClear();
+    vi.mocked(generateReportPDF).mockResolvedValue("job-1/report-1.pdf");
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.useFakeTimers();
   });
 
-  it("shows a tappable Open-PDF link after generating, bound to the report PDF path", async () => {
-    renderBuilder();
+  afterEach(() => {
+    vi.mocked(window.open).mockRestore();
+  });
 
-    await act(async () => {
+  function clickGenerate() {
+    return act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
     });
+  }
 
-    const link = await screen.findByRole("link", { name: /open pdf/i });
+  it("flushes a pending edit to the database before generating, so the PDF reflects it", async () => {
+    renderBuilder();
+
+    // Edit the title but do NOT let the 2s auto-save debounce elapse.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    // Clicking Generate now must first persist the edit, then generate.
+    await clickGenerate();
+
+    // The latest on-screen content was written…
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Latest title" }),
+    );
+    // …and it was written BEFORE the generator (which reads the persisted row) ran.
+    expect(h.updateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(generateReportPDF).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
+  });
+
+  it("refuses to generate when a section write-up is over the one-page limit, producing no PDF", async () => {
+    renderBuilder(
+      makeReport({
+        sections: [
+          {
+            title: "Findings",
+            description: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
+            photo_ids: [],
+          },
+        ],
+      }),
+    );
+
+    await clickGenerate();
+
+    // No stale PDF: the generator (which would render the persisted, shorter
+    // row) is never invoked.
+    expect(vi.mocked(generateReportPDF)).not.toHaveBeenCalled();
+    // The user is told why, in plain terms.
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringMatching(/too long|shorten/i),
+    );
+  });
+
+  it("does not generate a PDF when flushing the pending edit fails", async () => {
+    h.errorOnSave = true;
+    renderBuilder();
+
+    // A pending edit makes the report dirty; the debounce has not elapsed.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+
+    await clickGenerate();
+
+    // The flush failed, so the generator (which would read the older persisted
+    // row) must not run — better no PDF than a stale one.
+    expect(vi.mocked(generateReportPDF)).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
+  });
+
+  it("generates and shows a persistent Open-PDF link instead of a blockable popup", async () => {
+    renderBuilder();
+
+    await clickGenerate();
+
+    // A clean, fitting report needs no flush and generates…
+    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+    // …and the PDF is retrievable via a real anchor the user taps (issue #442),
+    // NOT a post-await window.open that iOS / WebView silently blocks.
+    const link = screen.getByRole("link", { name: /open pdf/i });
     expect(link.getAttribute("href")).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
     );
     expect(link.getAttribute("target")).toBe("_blank");
+    expect(vi.mocked(window.open)).not.toHaveBeenCalled();
   });
 
-  it("delivers the PDF via the link, not a programmatic popup (the iPad/WebView regression)", async () => {
-    // The original bug: window.open ran after `await`, so iOS had already
-    // consumed the tap's user-gesture allowance and silently blocked the popup.
-    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
-    renderBuilder();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
-    });
-
-    // Retrieval works — the persistent link is there ...
-    await screen.findByRole("link", { name: /open pdf/i });
-    // ... and it does not depend on a blockable post-await window.open.
-    expect(openSpy).not.toHaveBeenCalled();
-
-    openSpy.mockRestore();
-  });
-
-  it("updates the link to the latest PDF when regenerated", async () => {
-    mockGenerate
+  it("updates the link to the latest PDF when regenerated (issue #442)", async () => {
+    vi.mocked(generateReportPDF)
       .mockResolvedValueOnce("job-1/report-1.pdf")
       .mockResolvedValueOnce("job-1/report-1-v2.pdf");
     renderBuilder();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
-    });
-    const first = await screen.findByRole("link", { name: /open pdf/i });
-    expect(first.getAttribute("href")).toBe(
+    await clickGenerate();
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
-    });
-    const second = await screen.findByRole("link", { name: /open pdf/i });
-    expect(second.getAttribute("href")).toBe(
+    await clickGenerate();
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1-v2.pdf",
     );
   });
 
-  it("shows no link and reports an error when generation fails", async () => {
-    mockGenerate.mockRejectedValueOnce(new Error("boom"));
+  it("shows no link and reports an error when generation fails (issue #442)", async () => {
+    vi.mocked(generateReportPDF).mockRejectedValueOnce(new Error("boom"));
     renderBuilder();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /generate pdf/i }));
-    });
+    await clickGenerate();
 
     // No false success: no retrieval affordance, an error is surfaced, and the
     // success toast never fires.
@@ -791,16 +919,17 @@ describe("PhotoReportBuilder generate + retrieve PDF", () => {
     expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
   });
 
-  it("shows the Open-PDF link on load for an already-generated report", () => {
-    // A report generated in a previous session persists its pdf_path; the user
-    // can retrieve that PDF without regenerating (the removed global /reports
-    // detail page used to provide this Download anchor).
+  it("shows the Open-PDF link on load for an already-generated report (issue #442)", () => {
+    // A report generated in an earlier session persists its pdf_path; the user
+    // can retrieve that PDF without regenerating (restores the Download
+    // affordance the removed global /reports detail page used to provide).
     renderBuilder(
       makeReport({ pdf_path: "job-1/report-1.pdf", status: "generated" }),
     );
 
-    const link = screen.getByRole("link", { name: /open pdf/i });
-    expect(link.getAttribute("href")).toBe(
+    expect(
+      screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
+    ).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
     );
   });

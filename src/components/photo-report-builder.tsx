@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import {
   DndContext,
@@ -37,6 +37,7 @@ import TiptapEditor from "@/components/tiptap-editor";
 import {
   initBuilderState,
   photoReportBuilderReducer,
+  type PhotoReportBuilderState,
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
 import { measureWriteupFit } from "@/lib/section-writeup-fit";
@@ -48,6 +49,26 @@ import type { Photo, PhotoReport } from "@/lib/types";
 const DEBOUNCE_MS = 2000;
 
 type SaveStatus = "idle" | "saving" | "saved" | "error" | "blocked";
+
+// A report can't be persisted while any Section's write-up overflows its
+// one-page intro (issue #404). Every save path gates on this one rule — the
+// debounced auto-save, the unmount flush (#443), and the Generate flush (#441)
+// — so it lives in one place.
+function hasOverLimitSection(sections: ReportSection[]): boolean {
+  return sections.some((s) => !measureWriteupFit(s.description).fits);
+}
+
+// The fields a save persists, plus the revision that snapshot belongs to. Built
+// in one place so the debounced auto-save and the Generate flush always persist
+// exactly the same shape. (issue #441)
+function snapshotOf(state: PhotoReportBuilderState) {
+  return {
+    title: state.title,
+    reportDate: state.reportDate,
+    sections: state.sections,
+    revision: state.revision,
+  };
+}
 
 interface PhotoReportBuilderProps {
   jobId: string;
@@ -85,62 +106,97 @@ export default function PhotoReportBuilder({
   // `state` is stale by then). Without this, a slow valid save resolving after a
   // newer over-limit edit would flip the badge from "blocked" back to "Saved".
   const revisionRef = useRef(state.revision);
+  // Holds the pending auto-save debounce timer so the Generate flush can cancel
+  // it and write immediately, rather than racing the debounce. (issue #441)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const photosById = new Map(photos.map((p) => [p.id, p]));
 
-  // Auto-save: a debounced write whenever the builder is dirty. The closure
-  // captures the state (and its `revision`) as of the last edit, so we persist
-  // exactly that snapshot and tell `markSaved` which revision it was. If the
-  // user edits again while this write is in flight, that edit bumps the
-  // revision and reschedules its own save; `markSaved` then declines to clear
-  // dirty for the older revision, so the newer edit is never lost.
-  useEffect(() => {
-    revisionRef.current = state.revision;
-    if (!state.dirty) return;
-    const savedRevision = state.revision;
-    // Save-time guard (issue #404): a write-up that overflows its one-page
-    // intro must not be persisted. The whole report write is held back while any
-    // Section is over the limit — the same measureWriteupFit the live counter
-    // uses — so the report stays dirty and saves itself once trimmed back under.
-    const overLimit = state.sections.some(
-      (s) => !measureWriteupFit(s.description).fits,
-    );
-    const timer = setTimeout(async () => {
-      if (overLimit) {
-        setSaveStatus("blocked");
-        return;
-      }
+  // Persist a builder snapshot. Shared by the debounced auto-save and the
+  // Generate flush so both write the same way and report status the same way.
+  // The snapshot is passed in (not closed over) so this function is stable and
+  // always writes exactly what the caller decided to persist. Returns whether
+  // the write succeeded, so a caller (Generate) can avoid producing a stale PDF
+  // when the flush failed. (issue #441)
+  const writeReport = useCallback(
+    async (snapshot: ReturnType<typeof snapshotOf>): Promise<boolean> => {
       setSaveStatus("saving");
       const supabase = createClient();
       const { error } = await supabase
         .from("photo_reports")
         .update({
-          title: state.title,
-          report_date: state.reportDate,
-          sections: state.sections,
+          title: snapshot.title,
+          report_date: snapshot.reportDate,
+          sections: snapshot.sections,
         })
         .eq("id", report.id);
       if (error) {
         setSaveStatus("error");
-        return;
+        return false;
       }
-      dispatch({ type: "markSaved", revision: savedRevision });
+      dispatch({ type: "markSaved", revision: snapshot.revision });
       // Only claim "Saved" if no newer edit landed while this write was in
       // flight. If one did, its own effect run owns the status (e.g. it may have
       // set "blocked"), so we must not overwrite it with a stale success.
-      if (savedRevision === revisionRef.current) {
+      if (snapshot.revision === revisionRef.current) {
         setSaveStatus("saved");
       }
+      return true;
+    },
+    [report.id],
+  );
+
+  // Auto-save: a debounced write whenever the builder is dirty. The effect
+  // captures the state (and its `revision`) as of the last edit and hands that
+  // snapshot to `writeReport`, so we persist exactly that snapshot. If the user
+  // edits again while this write is in flight, that edit bumps the revision and
+  // reschedules its own save; `markSaved` then declines to clear dirty for the
+  // older revision, so the newer edit is never lost.
+  useEffect(() => {
+    revisionRef.current = state.revision;
+    if (!state.dirty) return;
+    // Save-time guard (issue #404): the whole report write is held back while
+    // any Section is over the limit, so the report stays dirty and saves itself
+    // once trimmed back under.
+    const overLimit = hasOverLimitSection(state.sections);
+    const timer = setTimeout(() => {
+      if (overLimit) {
+        setSaveStatus("blocked");
+        return;
+      }
+      void writeReport(snapshotOf(state));
     }, DEBOUNCE_MS);
+    saveTimerRef.current = timer;
     return () => clearTimeout(timer);
-  }, [
-    state.dirty,
-    state.title,
-    state.reportDate,
-    state.sections,
-    state.revision,
-    report.id,
-  ]);
+    // `state` is a fresh object on every dispatch, so this re-arms the debounce
+    // on each edit; `report.id` is covered transitively through `writeReport`.
+  }, [state, writeReport]);
+
+  // Flush a pending edit when the builder unmounts (issue #443). The auto-save
+  // above only persists on a 2s debounce and its cleanup merely clears the
+  // timer, so navigating away (e.g. tapping "Back to job", easy on a tablet)
+  // within that window would otherwise silently drop the last edit. We mirror
+  // the latest savable snapshot into a ref and write it on unmount, reusing the
+  // same update path. The ref is rewritten every render so the cleanup reads the
+  // freshest snapshot, not the stale closure captured at mount.
+  const flushOnUnmountRef = useRef<() => void>(() => {});
+  flushOnUnmountRef.current = () => {
+    if (!state.dirty) return;
+    // Honour the same save-time over-limit guard (#404) as the debounced save:
+    // a flush must never sneak an over-limit write-up past it on unmount.
+    if (hasOverLimitSection(state.sections)) return;
+    const supabase = createClient();
+    void supabase
+      .from("photo_reports")
+      .update({
+        title: state.title,
+        report_date: state.reportDate,
+        sections: state.sections,
+      })
+      .eq("id", report.id);
+  };
+  // Empty deps: the cleanup runs only on unmount.
+  useEffect(() => () => flushOnUnmountRef.current(), []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -158,8 +214,30 @@ export default function PhotoReportBuilder({
   const availablePhotos = photos.filter((p) => !assignedIds.has(p.id));
 
   const handleGenerate = async () => {
+    // A write-up over the one-page limit was never persisted (the save guard
+    // holds it back), so generating now would render a stale, shorter PDF.
+    // Refuse with a clear message instead of silently producing it. (issue #441)
+    if (hasOverLimitSection(state.sections)) {
+      setSaveStatus("blocked");
+      toast.error("Write-up too long — shorten it before generating.");
+      return;
+    }
+
     setGenerating(true);
     try {
+      // The PDF is rendered from the persisted row and auto-save is debounced,
+      // so a just-made edit may not be on disk yet. Flush it first (cancelling
+      // the pending debounce) so the PDF reflects what is on screen. (issue #441)
+      if (state.dirty) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        const saved = await writeReport(snapshotOf(state));
+        // If the flush failed, the persisted row is still the old one. Better to
+        // produce no PDF than a stale one — bail with a message. (issue #441)
+        if (!saved) {
+          toast.error("Couldn't save your latest edits — try again.");
+          return;
+        }
+      }
       const generatedPath = await generateReportPDF(report.id);
       setPdfPath(generatedPath);
       toast.success("PDF generated.");

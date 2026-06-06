@@ -26,6 +26,24 @@ export const POST = withRequestContext(
       );
     }
 
+    // Verify the URL's Job is visible to the caller's Organization before doing
+    // any work for it (#446). `ctx.supabase` is RLS-scoped, so a cross-org or
+    // nonexistent job id resolves to no row — both 404 identically, leaking no
+    // existence oracle. Without this, the create step would stamp a report with
+    // the caller's org_id but a foreign job_id (a cross-org dangling reference),
+    // since the report-row RLS WITH CHECK validates only organization_id.
+    const { data: job, error: jobError } = await ctx.supabase
+      .from("jobs")
+      .select("id")
+      .eq("id", jobId)
+      .maybeSingle<{ id: string }>();
+    if (jobError) {
+      return apiDbError(jobError.message, "POST /api/jobs/[id]/reports");
+    }
+    if (!job) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+
     const { data: profile } = await ctx.supabase
       .from("user_profiles")
       .select("full_name")
