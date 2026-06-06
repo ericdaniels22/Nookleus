@@ -10,7 +10,7 @@
 // estimate-drag-end.test.tsx.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
 import type { Photo, PhotoReport } from "@/lib/types";
 
@@ -151,6 +151,48 @@ function renderBuilder(report = makeReport(), photos: Photo[] = noPhotos) {
     />,
   );
 }
+
+// The teardown flush (unmount #443 and hard-unload #479) can't ride the Supabase
+// JS client — its fetch is cancelled when the page goes away "the hard way" — so
+// it fires a plain `keepalive: true` PUT at the #478 route instead. Only those
+// PUTs carry keepalive:true, so isolate them: an assertion can't then be fooled
+// by an unrelated debounced/in-flight Supabase write.
+function keepalivePuts(mock: ReturnType<typeof vi.fn>): unknown[][] {
+  return mock.mock.calls.filter(
+    ([, init]) => (init as RequestInit | undefined)?.keepalive === true,
+  );
+}
+
+// jsdom's document.visibilityState is a read-only getter; override it so a
+// visibilitychange event can simulate the page being backgrounded/hidden.
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+}
+
+// The teardown flush is a keepalive `fetch` PUT, not a Supabase call. Stub fetch
+// inert for every test so the flush is harmless where it isn't asserted, and so
+// the flush tests can inspect what it sent. A fresh mock per test prevents bleed.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  fetchMock = vi.fn(() =>
+    Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  // Unmount now, while `fetch` is still stubbed, so a teardown flush from a
+  // component a test left mounted-and-dirty hits the inert mock instead of the
+  // real undici fetch (which rejects on the route's relative URL). Runs before
+  // RTL's own auto-cleanup either way, so that becomes a no-op.
+  cleanup();
+  vi.unstubAllGlobals();
+  setVisibility("visible"); // reset so a hidden value can't leak to the next test
+});
 
 describe("PhotoReportBuilder auto-save", () => {
   beforeEach(() => {
@@ -542,7 +584,7 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
     vi.useFakeTimers();
   });
 
-  it("flushes the pending edit when the builder unmounts within the debounce window", () => {
+  it("flushes the pending edit as a keepalive PUT when the builder unmounts within the debounce window", () => {
     const { unmount } = renderBuilder();
 
     act(() => {
@@ -553,17 +595,23 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
 
     // Unmount BEFORE the 2s debounce elapses — the autosave timer has not fired,
     // so nothing has been written yet (this is the lost-edit window in #443).
-    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
 
     act(() => {
       unmount();
     });
 
-    // The pending dirty edit is flushed on unmount, persisting the last edit.
-    expect(h.updateMock).toHaveBeenCalledTimes(1);
-    expect(h.updateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Roof damage report" }),
-    );
+    // The pending dirty edit is flushed on unmount via a keepalive PUT to the
+    // #478 route (not the Supabase client, whose fetch can't survive teardown).
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/jobs/job-1/reports/report-1");
+    const init = puts[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      title: "Roof damage report",
+    });
   });
 
   it("does not flush when the builder was never edited", () => {
@@ -574,7 +622,7 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
       unmount();
     });
 
-    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
   });
 
   it("does not flush an over-limit write-up on unmount", () => {
@@ -597,7 +645,185 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
       unmount();
     });
 
-    expect(h.updateMock).not.toHaveBeenCalled();
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+  });
+});
+
+// Hard unload (#479): a real tab-close / refresh / app-background does NOT run
+// React cleanup, so the unmount flush (#443) above never fires. These tests keep
+// the builder MOUNTED and dispatch the browser page-lifecycle events it now
+// listens for — proving the flush is driven by the listeners, not by unmount.
+// Mirrors the Estimate/Invoice hard-unload trigger (slice A / #477).
+describe("PhotoReportBuilder hard-unload flush (#479)", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    vi.useFakeTimers();
+  });
+
+  it("flushes a dirty edit as a keepalive PUT on a pagehide event (still mounted)", () => {
+    const { unmount } = renderBuilder();
+
+    // Edit the title, staying inside the 2s debounce window (no timer flush).
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // The page is torn down the hard way — React cleanup never runs.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/jobs/job-1/reports/report-1");
+    const init = puts[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      title: "Roof damage report",
+    });
+
+    // Tidy up while fetch is still stubbed (the test left the node mounted).
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("flushes a dirty edit as a keepalive PUT on visibilitychange when the page becomes hidden", () => {
+    const { unmount } = renderBuilder();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // The tab/app is backgrounded — the common iOS exit path.
+    act(() => {
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe("/api/jobs/job-1/reports/report-1");
+    const init = puts[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      title: "Roof damage report",
+    });
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("flushes on visibilitychange only when hidden, not when the page becomes visible", () => {
+    const { unmount } = renderBuilder();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // Returning to the foreground is not a teardown — no flush. The report is
+    // dirty and savable here (proven below), so a missing hidden-guard would
+    // fire a PUT and fail this assertion; it isn't the dirty guard masking it.
+    act(() => {
+      setVisibility("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    // Same dirty edit, now the page genuinely hides → the flush fires. Holding
+    // the dirty state constant across both branches isolates the visibility
+    // guard: only document.visibilityState gates the difference.
+    act(() => {
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(keepalivePuts(fetchMock)).toHaveLength(1);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("does not flush an over-limit write-up on pagehide or visibilitychange (#404)", () => {
+    const { unmount } = renderBuilder(
+      makeReport({
+        sections: [{ title: "Findings", description: "", photo_ids: [] }],
+      }),
+    );
+
+    // Dirty, but the write-up overflows its one-page intro — the same save-time
+    // guard (#404) that holds back the debounced save must hold back the flush.
+    act(() => {
+      fireEvent.change(screen.getByTestId("tiptap-stub"), {
+        target: { value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>` },
+      });
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("fires no PUT on pagehide or visibilitychange when the report is clean", () => {
+    const { unmount } = renderBuilder();
+
+    // No edit — both events must be no-ops (the report is not dirty).
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+
+    act(() => {
+      unmount();
+    });
+  });
+
+  it("removes its listeners on unmount — a later pagehide or visibilitychange fires no further PUT", () => {
+    const { unmount } = renderBuilder();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Roof damage report" },
+      });
+    });
+
+    // In-app unmount flushes once via the #443 cleanup.
+    act(() => {
+      unmount();
+    });
+    const afterUnmount = keepalivePuts(fetchMock).length;
+    expect(afterUnmount).toBe(1);
+
+    // The listeners must be gone: were they leaked, this would fire a 2nd PUT.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      setVisibility("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(keepalivePuts(fetchMock)).toHaveLength(afterUnmount);
   });
 });
 
