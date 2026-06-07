@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import RecordPaymentModal from "@/components/payments/record-payment-modal";
 import { PaymentRequestModal } from "@/components/payments/payment-request-modal";
-import { ExportPdfButton } from "@/components/export-pdf-modal/button";
+import { ExportPdfButton } from "@/components/documents/export-pdf-button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
 import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
@@ -76,17 +76,13 @@ export default function InvoiceReadOnlyClient({
         >
           {formatStatusLabel("invoice", invoice.status)}
         </span>
+        {/* Edit + payment actions stay in the header; Send + Export PDF moved
+            beside the layout panel/preview below (#487). */}
         {!isTrashed && (
           <div className="ml-auto flex gap-2">
             <Link href={`/invoices/${invoice.id}/edit`} className="btn">
               Edit
             </Link>
-            <SendButton
-              mode="invoice"
-              documentId={invoice.id}
-              jobId={invoice.job_id}
-              status={invoice.status}
-            />
             {invoice.status !== "voided" && invoice.status !== "paid" && stripeConnected && (
               <button onClick={() => setPaymentRequestOpen(true)} className="btn">
                 Send Payment Request
@@ -97,11 +93,6 @@ export default function InvoiceReadOnlyClient({
                 Record Payment
               </button>
             )}
-            <ExportPdfButton
-              documentType="invoice"
-              documentId={invoice.id}
-              filenameHint={invoice.invoice_number}
-            />
           </div>
         )}
       </div>
@@ -114,6 +105,25 @@ export default function InvoiceReadOnlyClient({
           flip a toggle → autosave the snapshot → reload. Line-item editing lives
           in the builder (the Edit link), never here. */}
       <div className="mt-4">
+        {/* ── DOCUMENT ACTIONS (beside the panel/preview, #487) ─────────────── */}
+        {/* Send + Export render the invoice through the same effective layout
+            (ADR 0012) as the preview below, so the file the customer gets is
+            byte-for-byte the look shown here. */}
+        {!isTrashed && (
+          <div className="mb-3 flex items-center justify-end gap-2">
+            <SendButton
+              mode="invoice"
+              documentId={invoice.id}
+              jobId={invoice.job_id}
+              status={invoice.status}
+            />
+            <ExportPdfButton
+              documentType="invoice"
+              documentId={invoice.id}
+              filenameHint={invoice.invoice_number}
+            />
+          </div>
+        )}
         <LiveLayoutPanel
           documentType="invoice"
           documentId={invoice.id}
