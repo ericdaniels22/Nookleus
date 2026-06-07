@@ -103,13 +103,23 @@ const LAYOUT_TOGGLE_KEYS = [
   "show_item_notes",
 ] as const;
 
+// Server-side cap on the title text, matching the panel's `maxLength={200}`
+// (live-layout-panel.tsx). The client attribute is bypassable, so enforce the
+// same bound here before an oversized title can reach the JSONB column / the PDF.
+export const DOCUMENT_TITLE_MAX_LENGTH = 200;
+
 export function parseLayoutPayload(body: unknown): DocumentPdfLayout | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
   }
   const obj = body as Record<string, unknown>;
 
-  if (typeof obj.document_title !== "string") return null;
+  if (
+    typeof obj.document_title !== "string" ||
+    obj.document_title.length > DOCUMENT_TITLE_MAX_LENGTH
+  ) {
+    return null;
+  }
 
   const toggles = {} as Record<(typeof LAYOUT_TOGGLE_KEYS)[number], boolean>;
   for (const key of LAYOUT_TOGGLE_KEYS) {

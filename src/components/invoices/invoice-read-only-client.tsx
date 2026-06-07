@@ -8,9 +8,9 @@ import { PaymentRequestModal } from "@/components/payments/payment-request-modal
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
-import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
+import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
-import type { InvoiceWithContents } from "@/lib/types";
+import type { DocumentPdfLayout, InvoiceWithContents } from "@/lib/types";
 
 export interface InvoiceReadOnlyClientProps {
   invoice: InvoiceWithContents & {
@@ -27,6 +27,12 @@ export interface InvoiceReadOnlyClientProps {
   stripeConnected: boolean;
   isTrashed?: boolean;
   deletedAt?: string;
+  /** The document's effective PDF layout (ADR 0012 precedence, resolved server-side). */
+  layout: DocumentPdfLayout;
+  /** Caller holds edit_invoices — the layout panel's toggles are interactive. */
+  canEdit: boolean;
+  /** The invoice is frozen (paid or voided) or trashed — the panel is read-only. */
+  locked: boolean;
 }
 
 export default function InvoiceReadOnlyClient({
@@ -34,6 +40,9 @@ export default function InvoiceReadOnlyClient({
   stripeConnected,
   isTrashed = false,
   deletedAt,
+  layout,
+  canEdit,
+  locked,
 }: InvoiceReadOnlyClientProps) {
   const [paymentRequestOpen, setPaymentRequestOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
@@ -99,13 +108,20 @@ export default function InvoiceReadOnlyClient({
 
       <h2 className="text-xl">{invoice.title}</h2>
 
-      {/* ── INLINE PDF (the real customer-facing document) ──────────────────── */}
-      {/* #385: View shows the real PDF, not an HTML re-render. Line-item
-          editing lives in the builder (the Edit link), never here. */}
+      {/* ── LAYOUT PANEL + INLINE PDF (the real customer-facing document) ───── */}
+      {/* #385: View shows the real PDF, not an HTML re-render. #485: the panel
+          owns the live preview so a single shared version drives the re-render —
+          flip a toggle → autosave the snapshot → reload. Line-item editing lives
+          in the builder (the Edit link), never here. */}
       <div className="mt-4">
-        <PdfPreviewFrame
-          src={`/api/invoices/${invoice.id}/preview`}
-          title={`Invoice ${invoice.invoice_number}`}
+        <LiveLayoutPanel
+          documentType="invoice"
+          documentId={invoice.id}
+          previewSrc={`/api/invoices/${invoice.id}/preview`}
+          previewTitle={`Invoice ${invoice.invoice_number}`}
+          layout={layout}
+          canEdit={canEdit}
+          locked={locked}
         />
       </div>
 

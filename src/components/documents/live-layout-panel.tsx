@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import { toast } from "sonner";
-import type { DocumentPdfLayout } from "@/lib/types";
+import type { DocumentPdfLayout, DocumentType } from "@/lib/types";
 
 const SAVE_DELAY_MS = 600;
 
@@ -37,20 +37,26 @@ const TOGGLES: { key: ToggleKey; label: string; help?: string }[] = [
 ];
 
 interface LiveLayoutPanelProps {
-  estimateId: string;
+  /** Which document kind this panel edits — selects the layout PATCH route. */
+  documentType: DocumentType;
+  /** The document's id (estimate or invoice). */
+  documentId: string;
   previewSrc: string;
   previewTitle: string;
-  /** The document's effective layout (server-resolved), so the toggle restores state. */
+  /** The document's effective layout (server-resolved), so the toggles restore state. */
   layout: DocumentPdfLayout;
-  /** Caller holds edit_estimates. */
+  /** Caller holds the matching edit-document permission (edit_estimates / edit_invoices). */
   canEdit: boolean;
-  /** The document is frozen (converted) — layout is read-only. */
+  /** The document is frozen (a converted estimate, or a paid/voided invoice) — read-only. */
   locked: boolean;
 }
 
-// Live single-toggle layout panel on the Estimate View (#483).
+// The live PDF layout panel, shared by the Estimate View (#483/#484) and the
+// Invoice View (#485). The nine toggles + editable title autosave the complete
+// per-document snapshot (ADR 0012) and re-render the preview live.
 export function LiveLayoutPanel({
-  estimateId,
+  documentType,
+  documentId,
   previewSrc,
   previewTitle,
   layout: initialLayout,
@@ -73,29 +79,36 @@ export function LiveLayoutPanel({
 
   const sendLayout = useCallback(
     (next: DocumentPdfLayout, keepalive = false) =>
-      fetch(`/api/estimates/${estimateId}/layout`, {
+      // Estimates and invoices each expose a /api/{type}s/[id]/layout PATCH route
+      // (both pluralize with a trailing "s"); the panel is otherwise identical.
+      fetch(`/api/${documentType}s/${documentId}/layout`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(next),
         keepalive,
       }),
-    [estimateId],
+    [documentType, documentId],
   );
 
   // Flush the pending edit on unmount instead of merely clearing the timer: the
   // debounce window would otherwise drop the last toggle on a fast navigate-away
   // (easy on a tablet). Mirrors the keepalive flush in use-auto-save.ts (#461).
-  // A ref-held closure, rewritten each render, reads the freshest sendLayout.
+  // The flush closure rides in a ref so the teardown paths below (unmount +
+  // pagehide) always call the freshest one. Rewriting it in a no-dep effect
+  // (runs after every commit) keeps `sendLayout` current without writing a ref
+  // during render (react-hooks/refs).
   const flushRef = useRef<() => void>(() => {});
-  flushRef.current = () => {
-    if (timer.current && pending.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-      const body = pending.current;
-      pending.current = null;
-      void sendLayout(body, true);
-    }
-  };
+  useEffect(() => {
+    flushRef.current = () => {
+      if (timer.current && pending.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        const body = pending.current;
+        pending.current = null;
+        void sendLayout(body, true);
+      }
+    };
+  });
   useEffect(() => () => flushRef.current(), []);
 
   // The unmount cleanup above fires only on in-app navigation; a hard teardown
