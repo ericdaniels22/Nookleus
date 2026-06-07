@@ -3,11 +3,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import { toast } from "sonner";
 import type { DocumentPdfLayout } from "@/lib/types";
 
 const SAVE_DELAY_MS = 600;
+
+// The boolean show/hide fields of a layout (everything but the title text).
+type ToggleKey = Exclude<keyof DocumentPdfLayout, "document_title">;
+
+// The nine show/hide toggles in panel order. Labels/help mirror the org preset
+// editor's vocabulary (settings/pdf-presets) so the two surfaces read the same;
+// show_document_title is the document-level field the preset has no column for.
+const TOGGLES: { key: ToggleKey; label: string; help?: string }[] = [
+  { key: "show_document_title", label: "Show document title" },
+  { key: "show_markup", label: "Show markup row in totals" },
+  { key: "show_discount", label: "Show discount row in totals" },
+  { key: "show_tax", label: "Show tax row in totals" },
+  { key: "show_opening_statement", label: "Show opening statement" },
+  { key: "show_closing_statement", label: "Show closing statement" },
+  {
+    key: "show_category_subtotals",
+    label: "Show per-section subtotals",
+    help: "Adds a subtotal row at the end of each section",
+  },
+  { key: "show_code_column", label: "Show Code column" },
+  {
+    key: "show_item_notes",
+    label: "Show item notes",
+    help: "Renders each line item's note as an italic sub-line under the item",
+  },
+];
 
 interface LiveLayoutPanelProps {
   estimateId: string;
@@ -110,31 +137,61 @@ export function LiveLayoutPanel({
     [sendLayout],
   );
 
-  const setMarkup = (show_markup: boolean) => {
+  // One generic handler for every switch: flip the field on the complete snapshot
+  // and persist the whole thing (ADR 0012), seeded from the effective look.
+  const setToggle = (key: ToggleKey) => (checked: boolean) => {
     if (readOnly) return;
-    const next = { ...layout, show_markup };
+    const next = { ...layout, [key]: checked };
     setLayout(next); // optimistic
     save(next);
   };
 
+  // The editable title text rides in the same snapshot as the toggles; an edit
+  // funnels through the identical debounced whole-snapshot save.
+  const setTitle = (document_title: string) => {
+    if (readOnly) return;
+    const next = { ...layout, document_title };
+    setLayout(next); // optimistic (keeps the input controlled)
+    save(next);
+  };
+
   // version 0 is the untouched server-rendered preview; later versions append a
-  // cache-busting param so the iframe (also keyed on src) re-fetches live.
+  // cache-busting param so the preview frame (also keyed on src) re-fetches live.
   const src = version === 0 ? previewSrc : `${previewSrc}?v=${version}`;
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-border bg-card px-5 py-4">
         <h2 className="text-sm font-medium text-foreground mb-3">Document layout</h2>
-        <div className="flex items-start gap-3">
-          <Switch
-            id="show_markup"
-            checked={layout.show_markup}
-            disabled={readOnly}
-            onCheckedChange={setMarkup}
-          />
-          <Label htmlFor="show_markup" className="cursor-pointer">
-            Show markup row in totals
-          </Label>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="document_title">Document title</Label>
+            <Input
+              id="document_title"
+              value={layout.document_title}
+              maxLength={200}
+              disabled={readOnly}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+          {TOGGLES.map((t) => (
+            <div key={t.key} className="flex items-start gap-3">
+              <Switch
+                id={t.key}
+                checked={layout[t.key]}
+                disabled={readOnly}
+                onCheckedChange={setToggle(t.key)}
+              />
+              <div>
+                <Label htmlFor={t.key} className="cursor-pointer">
+                  {t.label}
+                </Label>
+                {t.help && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{t.help}</p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
       <PdfPreviewFrame key={src} src={src} title={previewTitle} />
