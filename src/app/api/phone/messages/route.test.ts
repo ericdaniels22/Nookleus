@@ -52,7 +52,7 @@ vi.mock("@/lib/phone/attachments-storage", () => ({
   signedUrlForPhoneAttachment: (...args: unknown[]) => signedUrlMock(...args),
 }));
 
-import { POST } from "./route";
+import { POST, GET } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
@@ -161,6 +161,35 @@ function sendReq(body: Record<string, unknown>) {
   return new Request("http://test/api/phone/messages", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+// GET reads through the User client (RLS pass-through), so its tests seed
+// `phone_messages` straight onto the authenticated fake client rather than
+// the Service client.
+function authedWith(
+  userId: string,
+  role: "admin" | "crew_lead" | "crew_member",
+  extraTables: Record<string, Row[]> = {},
+) {
+  vi.mocked(createServerSupabaseClient).mockResolvedValue(
+    fakeUserClient({
+      user: { id: userId },
+      tables: {
+        ...memberTables({
+          userId,
+          role,
+          grants: role === "crew_member" ? [] : ["view_phone"],
+        }),
+        ...extraTables,
+      },
+    }) as never,
+  );
+}
+
+function getReq(query: string) {
+  return new Request(`http://test/api/phone/messages${query}`, {
+    method: "GET",
   });
 }
 
@@ -644,5 +673,113 @@ describe("POST /api/phone/messages — MMS attachments", () => {
     expect(signedUrlMock).not.toHaveBeenCalled();
     expect(sendSmsMock).not.toHaveBeenCalled();
     expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Job-page Text — outbound auto-tag persistence (slice 7 / #311)
+//
+// The Job-page Text button posts sourceContext { kind: 'job', jobId }. The
+// route hands that to decideJobTag, which auto-tags the send to that Job —
+// no chip prompt, regardless of the contact's Active-job count. The pure
+// decision is unit-tested in smart-attach.test.ts; here we pin where it
+// actually lands: the inserted phone_messages row carries job_tag, and the
+// 201 echoes smartAttach. This is the persistence headline AC6 rests on.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/messages — Job-page auto-tag (#311)", () => {
+  it("persists job_tag from a { kind:'job', jobId } source and echoes smartAttach:auto", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "On our way",
+        sourceContext: { kind: "job", jobId: "job-1" },
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    // The route echoes the decision so the client can confirm the tag.
+    expect(body.smartAttach).toEqual({ kind: "auto", jobId: "job-1" });
+    // And it persists onto the row — the Job's Messages (N) section reads
+    // by job_tag, so an unpersisted tag would silently drop the message.
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row.job_tag).toBe("job-1");
+  });
+
+  it("leaves job_tag null for a phone-tab send with no Active jobs (no source-driven tag)", async () => {
+    // Pins that the Job auto-tag is source-driven, not a blanket default:
+    // a phone-tab send with no contact match falls through to untagged.
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "no job here",
+        sourceContext: "phone-tab",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.smartAttach).toEqual({ kind: "untagged" });
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row.job_tag).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. GET — Job-page Messages read (slice 7 / #311)
+//
+// The Job-page Messages (N) section reads every text/MMS tagged to a Job
+// through GET /api/phone/messages?jobId=. Like the conversation-thread
+// read route it is a thin RLS pass-through over the User client — a caller
+// who cannot see a row simply does not get it back. The section itself is
+// hidden from anyone without view_phone, and so is this endpoint.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/phone/messages?jobId= — Job-page Messages read", () => {
+  it("returns only the messages tagged to the requested job", async () => {
+    authedWith("user-1", "crew_lead", {
+      phone_messages: [
+        { id: "a", job_tag: "job-1", body: "one", sent_at: "2026-06-01T10:00:00Z" },
+        { id: "b", job_tag: "job-1", body: "two", sent_at: "2026-06-01T11:00:00Z" },
+        { id: "c", job_tag: "job-2", body: "other", sent_at: "2026-06-01T12:00:00Z" },
+      ],
+    });
+
+    const res = await GET(getReq("?jobId=job-1"), noParams);
+
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as Array<{ id: string }>;
+    expect(rows.map((r) => r.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("returns 400 when jobId is missing", async () => {
+    authedWith("user-1", "crew_lead", { phone_messages: [] });
+
+    const res = await GET(getReq(""), noParams);
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 403 when the caller lacks view_phone (crew_member)", async () => {
+    authedWith("user-cm", "crew_member", { phone_messages: [] });
+
+    const res = await GET(getReq("?jobId=job-1"), noParams);
+
+    expect(res.status).toBe(403);
   });
 });
