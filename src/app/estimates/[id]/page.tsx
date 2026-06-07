@@ -5,7 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
 import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
-import { ExportPdfButton } from "@/components/export-pdf-modal/button";
+import { ExportPdfButton } from "@/components/documents/export-pdf-button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
 import { listPresets } from "@/lib/pdf-presets";
@@ -161,32 +161,40 @@ export default async function EstimateViewPage({
           </h1>
         </div>
 
-        {/* Right: Send + Export PDF + Edit button (if permitted, and not trashed) */}
-        {!estimate.deleted_at && (
+        {/* Right: Edit button (if permitted, and not trashed). Send + Export PDF
+            moved beside the layout panel/preview below (#487). */}
+        {!estimate.deleted_at && canEdit && (
           <div className="flex items-center gap-2 shrink-0">
-            <SendButton
-              mode="estimate"
-              documentId={id}
-              jobId={estimate.job_id}
-              status={estimate.status}
-            />
-            <ExportPdfButton
-              documentType="estimate"
-              documentId={id}
-              filenameHint={estimate.estimate_number}
-            />
-            {canEdit && (
-              <Link
-                href={`/estimates/${id}/edit`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
-              >
-                <Pencil size={14} />
-                Edit
-              </Link>
-            )}
+            <Link
+              href={`/estimates/${id}/edit`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+            >
+              <Pencil size={14} />
+              Edit
+            </Link>
           </div>
         )}
       </div>
+
+      {/* ── DOCUMENT ACTIONS (beside the panel/preview, #487) ───────────────── */}
+      {/* Send + Export live with the preview: both render the document through
+          the same effective layout (ADR 0012), so the file the customer gets is
+          byte-for-byte the look shown below. */}
+      {!estimate.deleted_at && (
+        <div className="flex items-center justify-end gap-2">
+          <SendButton
+            mode="estimate"
+            documentId={id}
+            jobId={estimate.job_id}
+            status={estimate.status}
+          />
+          <ExportPdfButton
+            documentType="estimate"
+            documentId={id}
+            filenameHint={estimate.estimate_number}
+          />
+        </div>
+      )}
 
       {/* ── LAYOUT PANEL + INLINE PDF (the real customer-facing document) ───── */}
       {/* The panel owns the live preview so a single shared version drives the

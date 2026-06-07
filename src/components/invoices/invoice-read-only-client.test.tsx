@@ -43,7 +43,7 @@ vi.mock("@/components/payments/record-payment-modal", () => ({ default: () => nu
 vi.mock("@/components/payments/payment-request-modal", () => ({
   PaymentRequestModal: () => null,
 }));
-vi.mock("@/components/export-pdf-modal/button", () => ({ ExportPdfButton: () => null }));
+vi.mock("@/components/documents/export-pdf-button", () => ({ ExportPdfButton: () => null }));
 vi.mock("@/components/send-modal/button", () => ({ SendButton: () => null }));
 vi.mock("@/components/trash/trashed-banner", () => ({ TrashedBanner: () => null }));
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Ban, ArrowLeft, CheckCircle, XCircle, Receipt, Send } from "lucide-react";
 import { toast } from "sonner";
 import { SaveIndicator } from "./save-indicator";
-import { ExportPdfButton } from "@/components/export-pdf-modal/button";
+import { ExportPdfButton } from "@/components/documents/export-pdf-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VoidConfirmDialog } from "@/components/void-confirm-dialog";
