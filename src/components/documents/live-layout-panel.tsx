@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import { toast } from "sonner";
 import { presetToLayout } from "@/lib/pdf-layout";
@@ -37,6 +47,149 @@ const TOGGLES: { key: ToggleKey; label: string; help?: string }[] = [
   },
 ];
 
+interface LayoutControlsProps {
+  /**
+   * Namespaces every control's `id` so the desktop rail and the mobile sheet —
+   * which both render this same control set and can be in the DOM at once (the
+   * rail stays mounted under `hidden lg:block` while the sheet is open) — never
+   * collide on duplicate ids, keeping each `<Label htmlFor>` pointing at its own
+   * input (a11y). The two instances share parent state, so they stay in sync.
+   */
+  idPrefix: string;
+  layout: DocumentPdfLayout;
+  readOnly: boolean;
+  presets: PdfPreset[];
+  canManagePresets: boolean;
+  naming: boolean;
+  presetName: string;
+  onApplyPreset: (preset: PdfPreset) => void;
+  onTitleChange: (value: string) => void;
+  onToggle: (key: ToggleKey) => (checked: boolean) => void;
+  onNamingChange: (open: boolean) => void;
+  onPresetNameChange: (value: string) => void;
+  onSaveAsPreset: () => void;
+}
+
+// The controls themselves (preset picker + editable title + the nine toggles +
+// "Save as preset"), with no surrounding chrome. The parent wraps this in a card
+// for the desktop rail and in a Sheet for the mobile bottom sheet, so the markup
+// lives in exactly one place and both surfaces are driven by the same state.
+function LayoutControls({
+  idPrefix,
+  layout,
+  readOnly,
+  presets,
+  canManagePresets,
+  naming,
+  presetName,
+  onApplyPreset,
+  onTitleChange,
+  onToggle,
+  onNamingChange,
+  onPresetNameChange,
+  onSaveAsPreset,
+}: LayoutControlsProps) {
+  return (
+    <div className="space-y-4">
+      {presets.length > 0 && (
+        <div className="border-b border-border pb-3">
+          <p className="text-sm font-medium text-foreground mb-2">
+            Start from a preset
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                disabled={readOnly}
+                onClick={() => onApplyPreset(p)}
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="space-y-3">
+        <div>
+          <Label htmlFor={`${idPrefix}document_title`}>Document title</Label>
+          <Input
+            id={`${idPrefix}document_title`}
+            value={layout.document_title}
+            maxLength={200}
+            disabled={readOnly}
+            onChange={(e) => onTitleChange(e.target.value)}
+          />
+        </div>
+        {TOGGLES.map((t) => (
+          <div key={t.key} className="flex items-start gap-3">
+            <Switch
+              id={`${idPrefix}${t.key}`}
+              checked={layout[t.key]}
+              disabled={readOnly}
+              onCheckedChange={onToggle(t.key)}
+            />
+            <div>
+              <Label htmlFor={`${idPrefix}${t.key}`} className="cursor-pointer">
+                {t.label}
+              </Label>
+              {t.help && (
+                <p className="text-xs text-muted-foreground mt-0.5">{t.help}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* "Save as preset" — turn the current look into a reusable org preset.
+          Gated behind manage_pdf_presets: an edit-only user can change the look
+          (and apply presets) but never sees this control (#486). */}
+      {canManagePresets && (
+        <div className="border-t border-border pt-3">
+          {naming ? (
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="Preset name"
+                placeholder="Preset name"
+                value={presetName}
+                maxLength={200}
+                onChange={(e) => onPresetNameChange(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={onSaveAsPreset}
+                disabled={!presetName.trim()}
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                Create
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onNamingChange(false);
+                  onPresetNameChange("");
+                }}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onNamingChange(true)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+            >
+              Save as preset
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface LiveLayoutPanelProps {
   /** Which document kind this panel edits — selects the layout PATCH route. */
   documentType: DocumentType;
@@ -66,6 +219,13 @@ interface LiveLayoutPanelProps {
 // The live PDF layout panel, shared by the Estimate View (#483/#484) and the
 // Invoice View (#485). The nine toggles + editable title autosave the complete
 // per-document snapshot (ADR 0012) and re-render the preview live.
+//
+// Responsive treatment (#488): the preview is the always-mounted main column;
+// the controls render twice from one shared state — a `hidden lg:block` right
+// rail on a wide screen and a `lg:hidden` bottom Sheet on a narrow one. The
+// switch is pure CSS (Tailwind `lg:`), never a JS viewport hook, so there is no
+// hydration flash and SSR matches the client. Because the preview lives outside
+// the sheet, autosave + the live re-render keep working while the sheet is open.
 export function LiveLayoutPanel({
   documentType,
   documentId,
@@ -233,107 +393,76 @@ export function LiveLayoutPanel({
   // cache-busting param so the preview frame (also keyed on src) re-fetches live.
   const src = version === 0 ? previewSrc : `${previewSrc}?v=${version}`;
 
+  // The shared props both control surfaces (rail + sheet) bind to. They render
+  // the same LayoutControls against one parent state, so a toggle in the sheet
+  // and the same toggle in the rail are the very same value.
+  const controlsProps = {
+    layout,
+    readOnly,
+    presets,
+    canManagePresets,
+    naming,
+    presetName,
+    onApplyPreset: applyPreset,
+    onTitleChange: setTitle,
+    onToggle: setToggle,
+    onNamingChange: setNaming,
+    onPresetNameChange: setPresetName,
+    onSaveAsPreset: saveAsPreset,
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-border bg-card px-5 py-4">
-        <h2 className="text-sm font-medium text-foreground mb-3">Document layout</h2>
-        {presets.length > 0 && (
-          <div className="mb-4 border-b border-border pb-3">
-            <p className="text-sm font-medium text-foreground mb-2">
-              Start from a preset
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {presets.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => applyPreset(p)}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="space-y-3">
-          <div>
-            <Label htmlFor="document_title">Document title</Label>
-            <Input
-              id="document_title"
-              value={layout.document_title}
-              maxLength={200}
-              disabled={readOnly}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-          {TOGGLES.map((t) => (
-            <div key={t.key} className="flex items-start gap-3">
-              <Switch
-                id={t.key}
-                checked={layout[t.key]}
-                disabled={readOnly}
-                onCheckedChange={setToggle(t.key)}
-              />
-              <div>
-                <Label htmlFor={t.key} className="cursor-pointer">
-                  {t.label}
-                </Label>
-                {t.help && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{t.help}</p>
-                )}
+    <div className="lg:flex lg:items-start lg:gap-6">
+      {/* Main column — the live preview (the real #385 document), always mounted
+          regardless of breakpoint, so autosave's version bump re-renders it
+          whether the controls are a rail or an open sheet. */}
+      <div className="lg:min-w-0 lg:flex-1">
+        {/* Mobile only (lg:hidden): a trigger that opens the bottom sheet of
+            layout options. The preview behind stays visible and live-updates as
+            toggles flip inside the sheet. */}
+        <div className="mb-3 lg:hidden">
+          <Sheet>
+            <SheetTrigger
+              render={<Button variant="outline" className="w-full" />}
+            >
+              <SlidersHorizontal />
+              Document layout
+            </SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[85vh]">
+              <SheetHeader>
+                <SheetTitle>Document layout</SheetTitle>
+                <SheetDescription>
+                  Choose what appears on the {documentType}. Changes save and
+                  refresh the preview automatically.
+                </SheetDescription>
+              </SheetHeader>
+              {/* pb clears the iOS home-indicator so the last control (Save as
+                  preset / final toggle) never lands under the system gesture
+                  area — matches the app-wide safe-area idiom (nav, camera-view,
+                  review-screen) under the root viewportFit:"cover". */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),24px)]">
+                <LayoutControls idPrefix="sheet-" {...controlsProps} />
               </div>
-            </div>
-          ))}
+            </SheetContent>
+          </Sheet>
         </div>
 
-        {/* "Save as preset" — turn the current look into a reusable org preset.
-            Gated behind manage_pdf_presets: an edit-only user can change the look
-            (and apply presets) but never sees this control (#486). */}
-        {canManagePresets && (
-          <div className="mt-4 border-t border-border pt-3">
-            {naming ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  aria-label="Preset name"
-                  placeholder="Preset name"
-                  value={presetName}
-                  maxLength={200}
-                  onChange={(e) => setPresetName(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={saveAsPreset}
-                  disabled={!presetName.trim()}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNaming(false);
-                    setPresetName("");
-                  }}
-                  className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setNaming(true)}
-                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
-              >
-                Save as preset
-              </button>
-            )}
-          </div>
-        )}
+        <PdfPreviewFrame key={src} src={src} title={previewTitle} />
       </div>
-      <PdfPreviewFrame key={src} src={src} title={previewTitle} />
+
+      {/* Desktop only (hidden lg:block): the same controls as a sticky right
+          rail beside the preview. The Estimate/Invoice Views widen to max-w-6xl
+          so the preview column clears the viewer's 640px page-picker threshold
+          (#465); the rail stays slim (w-72) to leave the preview that room, which
+          at a 1280px viewport with the sidebar open is what tips it over 640. */}
+      <aside className="hidden lg:block lg:w-72 lg:shrink-0">
+        <div className="rounded-lg border border-border bg-card px-5 py-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          <h2 className="text-sm font-medium text-foreground mb-3">
+            Document layout
+          </h2>
+          <LayoutControls idPrefix="rail-" {...controlsProps} />
+        </div>
+      </aside>
     </div>
   );
 }

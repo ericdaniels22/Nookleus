@@ -10,7 +10,7 @@
 // use-auto-save.flush-on-unmount.test.tsx and photo-report-defaults-tab.test.tsx.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -665,5 +665,45 @@ describe("LiveLayoutPanel", () => {
     expect(url2).toBe("/api/pdf-presets");
     const body2 = JSON.parse((init2 as RequestInit).body as string);
     expect(body2.document_type).toBe("invoice");
+  });
+
+  // ── #488: the mobile bottom sheet renders the SAME controls and drives the
+  // SAME autosave as the desktop rail ─────────────────────────────────────────
+
+  it("drives autosave from inside the mobile bottom sheet, not just the desktop rail (#488)", async () => {
+    // Every other test exercises only the rail instance: the Sheet's portal is
+    // unmounted while closed (Base UI keepMounted defaults false), so the rail's
+    // controls are the only ones in the DOM. Open the sheet and prove its copy of
+    // the toggles is wired to the same shared state + debounced PATCH — otherwise
+    // a sheet-only regression (e.g. a future edit that forgets to thread
+    // controlsProps into the sheet instance) would pass silently.
+    renderPanel({ layout: { ...EFFECTIVE_LAYOUT, show_markup: true } });
+
+    // The mobile affordance is a "Document layout" trigger button (the rail's
+    // same-text heading is an <h2>, not a button, so this is unambiguous).
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /document layout/i }));
+    });
+
+    // Scope to the opened dialog so we hit the SHEET's switch specifically,
+    // independent of whether the background rail is inert/aria-hidden.
+    const sheet = screen.getByRole("dialog");
+    fireEvent.click(
+      within(sheet).getByRole("switch", { name: /show markup row in totals/i }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled(); // same debounce as the rail
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    // One PATCH carrying the whole snapshot with only markup flipped — proving
+    // the sheet's controls share the rail's state + save path (ADR 0012).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/estimates/est-1/layout");
+    expect((init as RequestInit).method).toBe("PATCH");
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toEqual({ ...EFFECTIVE_LAYOUT, show_markup: false });
   });
 });
