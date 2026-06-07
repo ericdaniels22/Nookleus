@@ -40,8 +40,35 @@ the `App` target and `NookleusWidgets.appex` embedded.
 > not order transitive SPM package dependencies, so `SecureStoragePlugin`
 > fails with `unable to resolve module dependency: 'SwiftKeychainWrapper'`.
 
-The plugin registers itself at runtime via `CAPBridgedPlugin` — no Objective-C
-`.m` macro file and no `Podfile` entry are needed.
+### Registration — manual, NOT automatic (issue #175)
+
+The earlier claim that "the plugin registers itself at runtime via
+`CAPBridgedPlugin`" was **wrong**, and it was the root cause of the Emails
+widget shipping empty through build 223.
+
+Capacitor 8 only instantiates the plugin classes listed in
+`capacitor.config.json`'s `packageClassList`. That file is **gitignored**
+(`ios/.gitignore`) and **regenerated** by `npx cap sync ios` — which CI runs in
+`ios/App/App/ci_scripts/ci_post_clone.sh` — from the installed npm
+`@capacitor/*` packages. A hand-written, non-npm Swift plugin is never added
+there. Capacitor 8 also dropped the Objective-C `CAP_PLUGIN` macro scan, so
+**compiling the file into the target is necessary but NOT sufficient** — the
+class is never instantiated, `registerPlugin("EmailWidgetBridge")` resolves to
+the no-op web proxy, and `writeEmailSummary` rejects "not implemented".
+
+The fix is **manual registration** in a `CAPBridgeViewController` subclass that
+is the storyboard's root view controller:
+
+- `ios/App/App/MainViewController.swift` — overrides `capacitorDidLoad()` and
+  calls `bridge?.registerPluginInstance(EmailWidgetBridgePlugin())`.
+- `ios/App/App/Base.lproj/Main.storyboard` — the initial view controller is
+  repointed from `CAPBridgeViewController`/`Capacitor` to
+  `MainViewController`/`App` (`customModuleProvider="target"`).
+
+Both files are in the `App` target's Compile Sources / resources in
+`project.pbxproj`. No Objective-C `.m` macro file and no `Podfile` entry are
+needed — but editing `packageClassList` directly would NOT survive the next
+`cap sync`, which is why registration lives in code.
 
 No new entitlement work: the **App Group `group.com.aaacontracting.platform`**
 was already wired onto the `App` target in #172 (`App/App.entitlements`,

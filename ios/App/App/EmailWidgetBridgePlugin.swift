@@ -9,9 +9,12 @@ import WidgetKit
 /// WidgetKit extension does no networking and no auth: it renders whatever
 /// snapshot this plugin last wrote into the shared App Group container.
 ///
-/// Registration is Swift-only via `CAPBridgedPlugin` — Capacitor discovers
-/// the plugin at runtime, so no Objective-C `.m` macro file is required. The
-/// file must be added to the `App` target's Compile Sources in Xcode; see
+/// Capacitor 8 does NOT auto-discover this plugin. It only instantiates the
+/// classes named in `capacitor.config.json`'s `packageClassList` (regenerated
+/// from the installed npm `@capacitor/*` packages by `npx cap sync ios`), and
+/// the old Objective-C `CAP_PLUGIN` macro scan is gone — so being in the `App`
+/// target's Compile Sources is necessary but not sufficient. The instance is
+/// registered manually in `MainViewController.capacitorDidLoad()`; see
 /// `ios/App/App/EmailWidgetBridge-SETUP.md`.
 @objc(EmailWidgetBridgePlugin)
 public class EmailWidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
