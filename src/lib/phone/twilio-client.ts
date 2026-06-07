@@ -18,6 +18,7 @@
 
 import twilio, { validateRequest } from "twilio";
 import { createFakeTwilioClient } from "./fake-twilio-client";
+import type { DecideSharedResult } from "./route-shared-call";
 
 // A narrowed slice of an item returned by `availablePhoneNumbers.list` —
 // the four fields the UI's "pick a number" step actually shows. Twilio
@@ -254,4 +255,56 @@ export function validateTwilioSignature(
     throw new Error("twilio-client: TWILIO_AUTH_TOKEN must be set");
   }
   return validateRequest(authToken, twilioSignatureHeader, url, params);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 8 (#312) — inbound voice TwiML. `buildVoiceTwiml` turns a
+// `decideShared()` decision (the pure routing module's output) into the XML
+// Twilio executes when an inbound call hits a Shared number. twilio-client is
+// the only file allowed to import twilio, so the TwiML builder lives here —
+// using the SDK's `twiml.VoiceResponse` for correct XML escaping rather than
+// hand-concatenating strings.
+// ---------------------------------------------------------------------------
+export interface VoiceTwimlOptions {
+  // The Nookleus number to present as the caller ID on the outbound legs, so
+  // the team member's phone shows the business number (not the outside
+  // caller) and a call-back rings the Nookleus number.
+  callerId?: string;
+}
+
+// Spoken when an inbound call falls through to voicemail and no custom
+// greeting is configured for the number.
+const DEFAULT_VOICEMAIL_GREETING =
+  "You've reached us. Please leave a message after the tone and we'll get back to you.";
+
+/**
+ * Build the inbound-call TwiML for a `decideShared` decision. Each decision
+ * kind maps to a Twilio verb:
+ *   - ring-all     → one <Dial> with every reachable cell as a <Number>
+ *                     child (Twilio rings them in parallel; first to answer
+ *                     wins).
+ *   - forward      → one <Dial> to the single forward-target cell.
+ *   - round-robin  → one <Dial> to the single cell the cursor selected. The
+ *                     returned nextCursor is the webhook's to persist; it is
+ *                     never reflected in the TwiML.
+ *   - voicemail    → a spoken greeting then a <Record> of the caller.
+ */
+export function buildVoiceTwiml(
+  decision: DecideSharedResult,
+  opts: VoiceTwimlOptions = {},
+): string {
+  const vr = new twilio.twiml.VoiceResponse();
+  if (decision.kind === "ring-all") {
+    const dial = vr.dial({ callerId: opts.callerId });
+    for (const cell of decision.cells) {
+      dial.number(cell);
+    }
+  } else if (decision.kind === "forward" || decision.kind === "round-robin") {
+    const dial = vr.dial({ callerId: opts.callerId });
+    dial.number(decision.cell);
+  } else {
+    vr.say(DEFAULT_VOICEMAIL_GREETING);
+    vr.record({});
+  }
+  return vr.toString();
 }

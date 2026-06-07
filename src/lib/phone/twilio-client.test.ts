@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  buildVoiceTwiml,
   createTwilioClient,
   listAvailableLocalNumbers,
   provisionNumber,
@@ -372,5 +373,60 @@ describe("createTwilioClient — Phone demo mode guard (#368)", () => {
     vi.stubEnv("NODE_ENV", "development");
 
     expect(() => createTwilioClient()).toThrow(/TWILIO_ACCOUNT_SID|TWILIO_AUTH_TOKEN/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 8 (#312) — buildVoiceTwiml. Turns a decideShared() decision into the
+// TwiML Twilio executes for an inbound voice call. Pure (uses the Twilio
+// SDK's twiml.VoiceResponse builder for correct XML escaping; no network).
+// twilio-client is the only file allowed to import twilio, so the builder
+// lives here alongside the other Twilio-boundary helpers.
+// ---------------------------------------------------------------------------
+describe("buildVoiceTwiml — ring-all", () => {
+  it("dials every cell as a <Number> child of one <Dial> (parallel ring)", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "ring-all", cells: ["+15125550001", "+15125550002"] },
+      { callerId: "+15125550000" },
+    );
+    expect(xml).toContain("<Dial");
+    expect(xml).toContain("<Number>+15125550001</Number>");
+    expect(xml).toContain("<Number>+15125550002</Number>");
+  });
+});
+
+describe("buildVoiceTwiml — forward", () => {
+  it("dials the single forward-target cell", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "forward", cell: "+15125550009" },
+      { callerId: "+15125550000" },
+    );
+    expect(xml).toContain("<Dial");
+    expect(xml).toContain("<Number>+15125550009</Number>");
+  });
+});
+
+describe("buildVoiceTwiml — round-robin", () => {
+  it("dials the single member the cursor selected (nextCursor is the caller's concern)", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "round-robin", cell: "+15125550007", nextCursor: 3 },
+      { callerId: "+15125550000" },
+    );
+    expect(xml).toContain("<Dial");
+    expect(xml).toContain("<Number>+15125550007</Number>");
+    // The cursor is rotation bookkeeping persisted by the webhook — it must
+    // never leak into the TwiML Twilio executes.
+    expect(xml).not.toContain("nextCursor");
+    expect(xml).not.toContain("3");
+  });
+});
+
+describe("buildVoiceTwiml — voicemail", () => {
+  it("speaks a default greeting then records the caller", () => {
+    const xml = buildVoiceTwiml({ kind: "voicemail" });
+    expect(xml).toContain("<Say");
+    expect(xml).toContain("<Record");
+    // No dial leg — the call goes straight to the recorder.
+    expect(xml).not.toContain("<Dial");
   });
 });
