@@ -10,7 +10,7 @@ import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
 import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
-import type { DocumentPdfLayout, InvoiceWithContents } from "@/lib/types";
+import type { DocumentPdfLayout, InvoiceWithContents, PdfPreset } from "@/lib/types";
 
 export interface InvoiceReadOnlyClientProps {
   invoice: InvoiceWithContents & {
@@ -33,6 +33,10 @@ export interface InvoiceReadOnlyClientProps {
   canEdit: boolean;
   /** The invoice is frozen (paid or voided) or trashed — the panel is read-only. */
   locked: boolean;
+  /** The Organization's saved invoice presets — the panel's one-click starting points (#486). */
+  presets?: PdfPreset[];
+  /** Caller holds manage_pdf_presets — gates the panel's "Save as preset" action (#486). */
+  canManagePresets?: boolean;
 }
 
 export default function InvoiceReadOnlyClient({
@@ -43,6 +47,8 @@ export default function InvoiceReadOnlyClient({
   layout,
   canEdit,
   locked,
+  presets = [],
+  canManagePresets = false,
 }: InvoiceReadOnlyClientProps) {
   const [paymentRequestOpen, setPaymentRequestOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
@@ -122,6 +128,8 @@ export default function InvoiceReadOnlyClient({
           layout={layout}
           canEdit={canEdit}
           locked={locked}
+          presets={presets}
+          canManagePresets={canManagePresets}
         />
       </div>
 

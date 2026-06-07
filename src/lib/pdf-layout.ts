@@ -85,6 +85,31 @@ export function resolveEffectiveLayout(
   };
 }
 
+// Snapshot a saved preset's choices onto a document's own layout (#486). Per
+// ADR 0012 applying a preset is a *copy*, never a binding link — the document
+// gets its own complete layout, so later edits to the preset never reach back
+// into it. The preset carries the eight shared toggles + the title but has no
+// `show_document_title` column, so that one document-level field is preserved
+// from the document's current look (default: the field default) rather than
+// silently reset. Pure.
+export function presetToLayout(
+  preset: PdfPreset,
+  currentShowDocumentTitle: boolean = LAYOUT_FIELD_DEFAULTS.show_document_title,
+): DocumentPdfLayout {
+  return {
+    document_title: preset.document_title,
+    show_document_title: currentShowDocumentTitle,
+    show_markup: preset.show_markup,
+    show_discount: preset.show_discount,
+    show_tax: preset.show_tax,
+    show_opening_statement: preset.show_opening_statement,
+    show_closing_statement: preset.show_closing_statement,
+    show_category_subtotals: preset.show_category_subtotals,
+    show_code_column: preset.show_code_column,
+    show_item_notes: preset.show_item_notes,
+  };
+}
+
 // Validate an untrusted PATCH body into a `DocumentPdfLayout`. Accepts only a
 // well-formed layout — exactly the nine boolean toggles plus a string
 // `document_title` — and returns it normalized (extra keys stripped) so only the

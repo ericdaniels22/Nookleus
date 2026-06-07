@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import { toast } from "sonner";
-import type { DocumentPdfLayout, DocumentType } from "@/lib/types";
+import { presetToLayout } from "@/lib/pdf-layout";
+import type { DocumentPdfLayout, DocumentType, PdfPreset } from "@/lib/types";
 
 const SAVE_DELAY_MS = 600;
 
@@ -49,6 +50,17 @@ interface LiveLayoutPanelProps {
   canEdit: boolean;
   /** The document is frozen (a converted estimate, or a paid/voided invoice) — read-only. */
   locked: boolean;
+  /**
+   * The Organization's saved presets for this document type (server-prefetched).
+   * Each is a one-click starting point: applying one COPIES its choices onto the
+   * document's own layout (ADR 0012 snapshot, never a binding link). #486.
+   */
+  presets?: PdfPreset[];
+  /**
+   * Caller holds `manage_pdf_presets` — gates the "Save as preset" action. An
+   * edit-only user can change the look (and apply presets) but cannot save one.
+   */
+  canManagePresets?: boolean;
 }
 
 // The live PDF layout panel, shared by the Estimate View (#483/#484) and the
@@ -62,12 +74,17 @@ export function LiveLayoutPanel({
   layout: initialLayout,
   canEdit,
   locked,
+  presets = [],
+  canManagePresets = false,
 }: LiveLayoutPanelProps) {
   // A frozen document, or a caller without the edit grant, sees the look but
   // cannot change it (ADR 0012 reuses the edit-document boundary + freeze).
   const readOnly = !canEdit || locked;
   const [layout, setLayout] = useState<DocumentPdfLayout>(initialLayout);
   const [version, setVersion] = useState(0);
+  // "Save as preset" inline form: closed until the user opts in, then a name box.
+  const [naming, setNaming] = useState(false);
+  const [presetName, setPresetName] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The edit currently waiting on the debounce timer — flushed on teardown so a
   // fast navigate-away inside the window doesn't silently drop it.
@@ -168,6 +185,50 @@ export function LiveLayoutPanel({
     save(next);
   };
 
+  // Apply a preset as a starting point (#486): COPY its choices onto the
+  // document's own layout (ADR 0012 snapshot — no binding link, so later edits
+  // to the preset never reach this document) and persist the whole snapshot
+  // through the identical debounced save. `show_document_title` is preserved from
+  // the current look (the preset has no such field).
+  const applyPreset = (preset: PdfPreset) => {
+    if (readOnly) return;
+    const next = presetToLayout(preset, layout.show_document_title);
+    setLayout(next); // optimistic
+    save(next);
+  };
+
+  // Save the document's current look as a new reusable org preset (#486), via the
+  // existing POST /api/pdf-presets (gated `manage_pdf_presets` server-side too).
+  // `show_document_title` is a document-only field with no preset column, so it is
+  // dropped; the eight shared toggles + the title become the preset. This is an
+  // explicit action, not debounced.
+  const saveAsPreset = async () => {
+    const name = presetName.trim();
+    if (!name) return;
+    const { show_document_title: _omit, ...sharedFields } = layout;
+    void _omit;
+    const res = await fetch("/api/pdf-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        document_type: documentType,
+        ...sharedFields, // document_title + the eight shared toggles
+        is_default: false,
+      }),
+    });
+    if (res.ok) {
+      toast.success("Preset saved");
+      setNaming(false);
+      setPresetName("");
+    } else {
+      const { error } = await res
+        .json()
+        .catch(() => ({ error: undefined as string | undefined }));
+      toast.error(error ?? "Couldn't save preset");
+    }
+  };
+
   // version 0 is the untouched server-rendered preview; later versions append a
   // cache-busting param so the preview frame (also keyed on src) re-fetches live.
   const src = version === 0 ? previewSrc : `${previewSrc}?v=${version}`;
@@ -176,6 +237,26 @@ export function LiveLayoutPanel({
     <div className="space-y-4">
       <div className="rounded-lg border border-border bg-card px-5 py-4">
         <h2 className="text-sm font-medium text-foreground mb-3">Document layout</h2>
+        {presets.length > 0 && (
+          <div className="mb-4 border-b border-border pb-3">
+            <p className="text-sm font-medium text-foreground mb-2">
+              Start from a preset
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => applyPreset(p)}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="space-y-3">
           <div>
             <Label htmlFor="document_title">Document title</Label>
@@ -206,6 +287,51 @@ export function LiveLayoutPanel({
             </div>
           ))}
         </div>
+
+        {/* "Save as preset" — turn the current look into a reusable org preset.
+            Gated behind manage_pdf_presets: an edit-only user can change the look
+            (and apply presets) but never sees this control (#486). */}
+        {canManagePresets && (
+          <div className="mt-4 border-t border-border pt-3">
+            {naming ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  aria-label="Preset name"
+                  placeholder="Preset name"
+                  value={presetName}
+                  maxLength={200}
+                  onChange={(e) => setPresetName(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={saveAsPreset}
+                  disabled={!presetName.trim()}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNaming(false);
+                    setPresetName("");
+                  }}
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setNaming(true)}
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+              >
+                Save as preset
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <PdfPreviewFrame key={src} src={src} title={previewTitle} />
     </div>

@@ -4,7 +4,7 @@ import { requirePagePermission } from "@/lib/request-context/require-page-permis
 import { getInvoiceWithContents } from "@/lib/invoices";
 import { loadStripeConnection } from "@/lib/stripe";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import { getDefaultPreset } from "@/lib/pdf-presets";
+import { listPresets } from "@/lib/pdf-presets";
 import { isLayoutLocked, resolveEffectiveLayout } from "@/lib/pdf-layout";
 import InvoiceReadOnlyClient from "@/components/invoices/invoice-read-only-client";
 
@@ -40,12 +40,21 @@ export default async function InvoicePage({
   });
   const canEdit = editAuth.ok;
 
+  // Manage-presets permission gates the panel's "Save as preset" action (#486).
+  const manageAuth = await requirePagePermission(supabase, {
+    permission: "manage_pdf_presets",
+  });
+  const canManagePresets = manageAuth.ok;
+
   // Resolve the document's effective look (ADR 0012 precedence: the document's
   // own snapshot → Organization default preset → field defaults) so the panel's
   // toggles restore the current state. Read-only once the invoice is frozen
   // (paid or voided, ADR 0007) or trashed — matching the PATCH route's 409/404.
-  const preset = await getDefaultPreset(supabase, "invoice");
-  const effectiveLayout = resolveEffectiveLayout(inv.pdf_layout, preset);
+  // The same preset list feeds the panel's picker (#486), so derive the default
+  // from it rather than issuing a second query.
+  const presets = await listPresets(supabase, "invoice");
+  const defaultPreset = presets.find((p) => p.is_default) ?? null;
+  const effectiveLayout = resolveEffectiveLayout(inv.pdf_layout, defaultPreset);
   const layoutLocked =
     isLayoutLocked("invoice", inv.status) || Boolean(inv.deleted_at);
 
@@ -58,6 +67,8 @@ export default async function InvoicePage({
       layout={effectiveLayout}
       canEdit={canEdit}
       locked={layoutLocked}
+      presets={presets}
+      canManagePresets={canManagePresets}
     />
   );
 }

@@ -8,7 +8,7 @@ import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/export-pdf-modal/button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
-import { getDefaultPreset } from "@/lib/pdf-presets";
+import { listPresets } from "@/lib/pdf-presets";
 import { isLayoutLocked, resolveEffectiveLayout } from "@/lib/pdf-layout";
 import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
 
@@ -80,13 +80,23 @@ export default async function EstimateViewPage({
   });
   const canEdit = editAuth.ok;
 
+  // 3b. Manage-presets permission gates the panel's "Save as preset" action
+  //     (#486). An edit-only user can change the look but cannot save a preset.
+  const manageAuth = await requirePagePermission(supabase, {
+    permission: "manage_pdf_presets",
+  });
+  const canManagePresets = manageAuth.ok;
+
   // 4. Resolve the document's effective look (ADR 0012 precedence: the
   //    document's own snapshot → Organization default preset → field defaults)
   //    so the layout panel's toggle restores the current state. The panel is
   //    read-only once the estimate is frozen (converted, ADR 0007) or trashed —
-  //    matching the PATCH route's 409/404 refusals.
-  const preset = await getDefaultPreset(supabase, "estimate");
-  const effectiveLayout = resolveEffectiveLayout(estimate.pdf_layout, preset);
+  //    matching the PATCH route's 409/404 refusals. The same preset list also
+  //    feeds the panel's preset picker (#486), so derive the default from it
+  //    rather than issuing a second query.
+  const presets = await listPresets(supabase, "estimate");
+  const defaultPreset = presets.find((p) => p.is_default) ?? null;
+  const effectiveLayout = resolveEffectiveLayout(estimate.pdf_layout, defaultPreset);
   const layoutLocked =
     isLayoutLocked("estimate", estimate.status) || Boolean(estimate.deleted_at);
 
@@ -189,6 +199,8 @@ export default async function EstimateViewPage({
         layout={effectiveLayout}
         canEdit={canEdit}
         locked={layoutLocked}
+        presets={presets}
+        canManagePresets={canManagePresets}
       />
     </div>
   );
