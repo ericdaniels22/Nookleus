@@ -1068,3 +1068,241 @@ describe("PhonePageClient — thread media render (#310)", () => {
     await waitFor(() => expect(link.href).toContain("estimate.pdf"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 8 (#312) — voice calls in the thread.
+//
+// A call threads on the same conversation as the texts. The thread fetches
+// /calls alongside /messages and interleaves them chronologically
+// (mergeThreadItems). A call row shows a direction icon, the status, the
+// duration when known, and the time. Clicking it opens the slice-11
+// placeholder (call detail/recording lands later).
+// ---------------------------------------------------------------------------
+
+describe("PhonePageClient — call events (#312)", () => {
+  function setupThread(opts: {
+    messages?: Array<Record<string, unknown>>;
+    calls?: Array<Record<string, unknown>>;
+  }) {
+    mockFetch.mockImplementation(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      if (path === "/api/phone/conversations/conv-1/messages") {
+        return { ok: true, status: 200, json: async () => opts.messages ?? [] };
+      }
+      if (path === "/api/phone/conversations/conv-1/calls") {
+        return { ok: true, status: 200, json: async () => opts.calls ?? [] };
+      }
+      throw new Error(`unmocked fetch: ${path}`);
+    });
+  }
+
+  it("interleaves a voice call into the thread chronologically with messages", async () => {
+    setupThread({
+      messages: [
+        {
+          id: "m-1",
+          conversation_id: "conv-1",
+          direction: "out",
+          body: "Hi back",
+          sent_at: "2026-05-27T10:05:00Z",
+          job_tag: null,
+        },
+      ],
+      calls: [
+        {
+          id: "call-1",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "completed",
+          duration_seconds: 42,
+          started_at: "2026-05-27T10:00:00Z",
+          ended_at: "2026-05-27T10:00:42Z",
+        },
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const callRow = await screen.findByText(/incoming call/i);
+    const message = screen.getByText("Hi back");
+    // The call started at 10:00, the text at 10:05 — the call row renders
+    // before the message bubble in the DOM.
+    expect(
+      callRow.compareDocumentPosition(message) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows a call's status, with its duration only when the call has one", async () => {
+    setupThread({
+      messages: [],
+      calls: [
+        {
+          id: "call-done",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "completed",
+          duration_seconds: 125,
+          started_at: "2026-05-27T10:00:00Z",
+          ended_at: "2026-05-27T10:02:05Z",
+        },
+        {
+          id: "call-ringing",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "ringing",
+          duration_seconds: null,
+          started_at: "2026-05-27T10:05:00Z",
+          ended_at: null,
+        },
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    // Both calls carry a human-readable status…
+    expect(await screen.findByText("Completed")).toBeDefined();
+    expect(screen.getByText("Ringing")).toBeDefined();
+    // …but only the completed call shows a duration (mm:ss); the ringing
+    // call has none yet, so exactly one duration timecode is present.
+    const durations = screen.getAllByText(/^\d+:\d{2}$/);
+    expect(durations).toHaveLength(1);
+    expect(durations[0].textContent).toBe("2:05");
+  });
+
+  it("uses a distinct direction icon for incoming vs outgoing calls", async () => {
+    setupThread({
+      messages: [],
+      calls: [
+        {
+          id: "c-in",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "completed",
+          duration_seconds: 10,
+          started_at: "2026-05-27T10:00:00Z",
+          ended_at: "2026-05-27T10:00:10Z",
+        },
+        {
+          id: "c-out",
+          conversation_id: "conv-1",
+          direction: "out",
+          status: "completed",
+          duration_seconds: 20,
+          started_at: "2026-05-27T10:05:00Z",
+          ended_at: "2026-05-27T10:05:20Z",
+        },
+      ],
+    });
+
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByText(/incoming call/i);
+
+    // An inbound call gets an incoming-call glyph; an outbound call an
+    // outgoing-call glyph — the icon reinforces the textual direction.
+    expect(container.querySelector(".lucide-phone-incoming")).not.toBeNull();
+    expect(container.querySelector(".lucide-phone-outgoing")).not.toBeNull();
+  });
+
+  it("shows the call's start time", async () => {
+    const startedAt = "2026-05-27T18:30:00Z";
+    setupThread({
+      messages: [],
+      calls: [
+        {
+          id: "c-time",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "completed",
+          duration_seconds: 7,
+          started_at: startedAt,
+          ended_at: "2026-05-27T18:30:07Z",
+        },
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByText(/incoming call/i);
+
+    // The start time renders as a local clock time. Compute the expected
+    // string the same way so the assertion is timezone-agnostic, and
+    // normalize whitespace (Intl can emit a narrow no-break space).
+    const expected = new Date(startedAt).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+    expect(
+      screen.getByText((content) => norm(content) === norm(expected)),
+    ).toBeDefined();
+  });
+
+  it("opens a slice-11 recording placeholder when a call row is clicked", async () => {
+    setupThread({
+      messages: [],
+      calls: [
+        {
+          id: "c-click",
+          conversation_id: "conv-1",
+          direction: "in",
+          status: "completed",
+          duration_seconds: 30,
+          started_at: "2026-05-27T10:00:00Z",
+          ended_at: "2026-05-27T10:00:30Z",
+        },
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    const callRow = await screen.findByText(/incoming call/i);
+
+    // Nothing about slice 11 until the row is clicked…
+    expect(screen.queryByText(/slice 11/i)).toBeNull();
+    // …recording playback ships in slice 11, so for now the click reveals
+    // a placeholder pointing there (AC: "Click on a row opens a future
+    // placeholder").
+    fireEvent.click(callRow);
+    expect(await screen.findByText(/slice 11/i)).toBeDefined();
+  });
+});

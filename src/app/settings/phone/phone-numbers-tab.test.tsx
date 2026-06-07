@@ -72,11 +72,20 @@ type Available = {
   region: string | null;
 };
 
+type Member = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+};
+
 function stubFetch(opts: {
   rows?: PhoneNumberRow[];
   available?: Available[];
+  members?: Member[];
   postResult?: PhoneNumberRow;
   releaseResult?: PhoneNumberRow;
+  patchResult?: PhoneNumberRow;
 }) {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -84,6 +93,9 @@ function stubFetch(opts: {
       headers: { "Content-Type": "application/json" },
     });
   const spy = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/settings/users")) {
+      return json(opts.members ?? []);
+    }
     if (url.startsWith("/api/phone/numbers/available")) {
       return json(opts.available ?? []);
     }
@@ -93,6 +105,9 @@ function stubFetch(opts: {
     if (url.startsWith("/api/phone/numbers")) {
       if (init?.method === "POST") {
         return json(opts.postResult ?? row({ id: "row-new" }), 201);
+      }
+      if (init?.method === "PATCH") {
+        return json(opts.patchResult ?? row(), 200);
       }
       return json(opts.rows ?? []);
     }
@@ -144,13 +159,59 @@ describe("PhoneNumbersTab — list rendering", () => {
     expect(screen.getByText("Shared")).toBeDefined();
   });
 
-  it("shows the inbound-rule placeholder copy for Shared rows (slice 8 lands the configurator)", async () => {
+  it("summarizes an unconfigured Shared number as Voicemail (decideShared's null default)", async () => {
     asAdmin();
-    stubFetch({ rows: [row()] });
+    stubFetch({ rows: [row({ inbound_rule: null })] });
 
     render(<PhoneNumbersTab />);
 
-    expect(await screen.findByText(/ring-all default/i)).toBeDefined();
+    await screen.findByText("Marketing");
+    // An unconfigured Shared number has inbound_rule = null. decideShared
+    // falls through to voicemail for a null config, so the cell must say
+    // Voicemail — not the old (untruthful) "ring-all default" placeholder.
+    expect(screen.getByText(/^voicemail$/i)).toBeDefined();
+  });
+
+  it("summarizes a ring-all rule with the member count", async () => {
+    asAdmin();
+    stubFetch({
+      rows: [
+        row({ inbound_rule: { kind: "ring-all", users: ["u1", "u2"] } }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(screen.getByText(/ring all \(2\)/i)).toBeDefined();
+  });
+
+  it("summarizes a round-robin rule with the sequence length", async () => {
+    asAdmin();
+    stubFetch({
+      rows: [
+        row({
+          inbound_rule: { kind: "round-robin", sequence: ["u1", "u2", "u3"] },
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(screen.getByText(/round robin \(3\)/i)).toBeDefined();
+  });
+
+  it("summarizes a forward rule as Forward", async () => {
+    asAdmin();
+    stubFetch({
+      rows: [row({ inbound_rule: { kind: "forward", forwardUserId: "u2" } })],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(screen.getByText(/^forward$/i)).toBeDefined();
   });
 
   it("shows the empty-state when no rows exist", async () => {
@@ -252,6 +313,214 @@ describe("PhoneNumbersTab — Add Shared Number flow", () => {
       expect(postCall).toBeDefined();
       const body = JSON.parse(String((postCall![1] as RequestInit).body));
       expect(body).toEqual({ phoneNumber: "+15125551234", label: "New" });
+    });
+  });
+});
+
+describe("PhoneNumbersTab — inbound-rule editor", () => {
+  it("admin clicks Configure on a Shared row and the editor opens with the four answer rules", async () => {
+    asAdmin();
+    stubFetch({ rows: [row({ id: "pn-1" })], members: [] });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+
+    // The kind picker offers the four routable rules (ADR 0006).
+    expect(await screen.findByLabelText(/ring all/i)).toBeDefined();
+    expect(screen.getByLabelText(/round robin/i)).toBeDefined();
+    expect(screen.getByLabelText(/forward/i)).toBeDefined();
+    expect(screen.getByLabelText(/^voicemail$/i)).toBeDefined();
+  });
+
+  it("hides the Configure button from a non-admin (Shared is admin-only, ADR 0003)", async () => {
+    asNonAdmin();
+    stubFetch({ rows: [row({ id: "pn-1" })], members: [] });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(
+      screen.queryByRole("button", { name: /configure/i }),
+    ).toBeNull();
+  });
+
+  it("lists members with a cell as selectable, omitting those without one", async () => {
+    asAdmin();
+    stubFetch({
+      rows: [row({ id: "pn-1", inbound_rule: { kind: "ring-all", users: [] } })],
+      members: [
+        { id: "u1", full_name: "Has Cell", phone: "+15125550001", role: "admin" },
+        { id: "u2", full_name: "No Cell", phone: null, role: "crew_lead" },
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+
+    // A member with a cell on file is offered; one without is not —
+    // decideShared drops cell-less members, so they could never be part of a
+    // routable rule.
+    expect(await screen.findByText("Has Cell")).toBeDefined();
+    expect(screen.queryByText("No Cell")).toBeNull();
+  });
+
+  it("admin checks members and saves a ring-all rule via PATCH", async () => {
+    asAdmin();
+    const fetchSpy = stubFetch({
+      rows: [row({ id: "pn-1", inbound_rule: { kind: "ring-all", users: [] } })],
+      members: [
+        { id: "u1", full_name: "Has Cell", phone: "+15125550001", role: "admin" },
+      ],
+      patchResult: row({
+        id: "pn-1",
+        inbound_rule: { kind: "ring-all", users: ["u1"] },
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+    fireEvent.click(await screen.findByLabelText(/has cell/i));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const patchCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/pn-1" &&
+          (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+      expect(body).toEqual({
+        inbound_rule: { kind: "ring-all", users: ["u1"] },
+      });
+    });
+  });
+
+  it("admin switches a number to voicemail and saves via PATCH", async () => {
+    asAdmin();
+    const fetchSpy = stubFetch({
+      rows: [
+        row({ id: "pn-1", inbound_rule: { kind: "ring-all", users: ["u1"] } }),
+      ],
+      members: [
+        { id: "u1", full_name: "Has Cell", phone: "+15125550001", role: "admin" },
+      ],
+      patchResult: row({ id: "pn-1", inbound_rule: { kind: "voicemail" } }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+    fireEvent.click(await screen.findByLabelText(/^voicemail$/i));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const patchCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/pn-1" &&
+          (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+      expect(body).toEqual({ inbound_rule: { kind: "voicemail" } });
+    });
+  });
+
+  it("admin picks one member to forward to (single-select) and saves via PATCH", async () => {
+    asAdmin();
+    const fetchSpy = stubFetch({
+      rows: [row({ id: "pn-1", inbound_rule: { kind: "voicemail" } })],
+      members: [
+        {
+          id: "u1",
+          full_name: "First Cell",
+          phone: "+15125550001",
+          role: "admin",
+        },
+        {
+          id: "u2",
+          full_name: "Second Cell",
+          phone: "+15125550002",
+          role: "crew_lead",
+        },
+      ],
+      patchResult: row({
+        id: "pn-1",
+        inbound_rule: { kind: "forward", forwardUserId: "u2" },
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+    fireEvent.click(await screen.findByLabelText(/forward/i));
+    // Forward is single-select: picking First then Second forwards to Second
+    // only — the second pick replaces the first.
+    fireEvent.click(await screen.findByLabelText(/^first cell$/i));
+    fireEvent.click(await screen.findByLabelText(/^second cell$/i));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const patchCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/pn-1" &&
+          (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+      expect(body).toEqual({
+        inbound_rule: { kind: "forward", forwardUserId: "u2" },
+      });
+    });
+  });
+
+  it("admin orders members and saves a round-robin rule (sequence keeps click order)", async () => {
+    asAdmin();
+    const fetchSpy = stubFetch({
+      rows: [row({ id: "pn-1", inbound_rule: { kind: "voicemail" } })],
+      members: [
+        {
+          id: "u1",
+          full_name: "First Cell",
+          phone: "+15125550001",
+          role: "admin",
+        },
+        {
+          id: "u2",
+          full_name: "Second Cell",
+          phone: "+15125550002",
+          role: "crew_lead",
+        },
+      ],
+      patchResult: row({
+        id: "pn-1",
+        inbound_rule: { kind: "round-robin", sequence: ["u2", "u1"] },
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /configure/i }));
+    fireEvent.click(await screen.findByLabelText(/round robin/i));
+    // The sequence follows click order: Second, then First.
+    fireEvent.click(await screen.findByLabelText(/^second cell$/i));
+    fireEvent.click(await screen.findByLabelText(/^first cell$/i));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const patchCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/pn-1" &&
+          (c[1] as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+      expect(body).toEqual({
+        inbound_rule: { kind: "round-robin", sequence: ["u2", "u1"] },
+      });
     });
   });
 });

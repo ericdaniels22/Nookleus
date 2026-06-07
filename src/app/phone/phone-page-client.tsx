@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Phone as PhoneIcon, Plus, UserPlus, Send, Paperclip, X } from "lucide-react";
+import {
+  Phone as PhoneIcon,
+  PhoneIncoming,
+  PhoneOutgoing,
+  Plus,
+  UserPlus,
+  Send,
+  Paperclip,
+  X,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import { usePhoneSync } from "@/lib/phone/use-phone-sync";
@@ -13,6 +22,7 @@ import {
   PhoneAttachmentLightbox,
   type PhoneAttachmentRef,
 } from "@/components/phone/message-attachment";
+import { mergeThreadItems } from "@/lib/phone/merge-thread-items";
 
 // PRD #304 — Nookleus Phone. Slice 4 (#308) — two-pane Phone-tab UI.
 //
@@ -49,6 +59,20 @@ interface PhoneMessage {
   sent_at: string;
   job_tag: string | null;
   media_urls?: PhoneAttachmentRef[];
+}
+
+// Slice 8 (#312) — a voice call in the thread. Threads on the same
+// conversation as the messages; `started_at` is its timeline anchor.
+// `status`/`duration_seconds` are null until the status-callback webhook
+// advances the row (a 'ringing' insert has neither yet).
+interface PhoneCall {
+  id: string;
+  conversation_id: string;
+  direction: "in" | "out";
+  status: string | null;
+  duration_seconds: number | null;
+  started_at: string;
+  ended_at: string | null;
 }
 
 // Slice 6 (#310) — a staged attachment in the compose strip. Either the
@@ -97,6 +121,7 @@ export function PhonePageClient({
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<PhoneMessage[]>([]);
+  const [calls, setCalls] = useState<PhoneCall[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -110,6 +135,10 @@ export function PhonePageClient({
   // Slice 6 (#310) — lightbox state: the storage_path of the image
   // currently being shown full-size, or null.
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
+  // Slice 8 (#312) — the call whose detail placeholder is open, or null.
+  // Recording playback ships in slice 11; until then a click on a call row
+  // opens this placeholder.
+  const [callDetail, setCallDetail] = useState<PhoneCall | null>(null);
   // #309 outbound surfaces are gated on the A2P 10DLC feature flag.
   // Computed once at mount — the flag flips by env-var redeploy, not at
   // runtime, so we never need to re-evaluate. The read path (thread,
@@ -141,14 +170,35 @@ export function PhonePageClient({
     }
   }, []);
 
+  // Slice 8 (#312) — calls thread alongside the messages; fetched in
+  // parallel and interleaved chronologically (mergeThreadItems). A failed
+  // calls fetch degrades gracefully — the text thread still renders.
+  const loadCalls = useCallback(async (convId: string) => {
+    try {
+      const res = await fetch(`/api/phone/conversations/${convId}/calls`);
+      if (!res.ok) return;
+      const data = (await res.json()) as PhoneCall[];
+      setCalls(data);
+    } catch {
+      // Network/parse error — leave calls empty; messages are unaffected.
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedId) return;
     setDraft("");
     setSendError(null);
     setAttachments([]);
     setAttachError(null);
+    setCalls([]);
     void loadMessages(selectedId);
-  }, [selectedId, loadMessages]);
+    void loadCalls(selectedId);
+  }, [selectedId, loadMessages, loadCalls]);
+
+  const threadItems = useMemo(
+    () => mergeThreadItems(messages, calls),
+    [messages, calls],
+  );
 
   // Slice 6 (#310) — pre-upload one picked/dropped file. Returns the
   // staged ID so the caller can correlate the in-flight slot.
@@ -579,6 +629,33 @@ export function PhonePageClient({
         />
       ) : null}
 
+      {/* Slice 8 (#312) — call-detail placeholder. Recording playback
+          lands in slice 11 (#11); until then a tapped call row shows this. */}
+      {callDetail ? (
+        <div
+          role="dialog"
+          aria-label="Call details"
+          onClick={() => setCallDetail(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-sm rounded-lg bg-background p-6 text-center shadow-lg"
+          >
+            <p className="text-sm text-muted-foreground">
+              Recording playback will land in slice 11.
+            </p>
+            <button
+              type="button"
+              onClick={() => setCallDetail(null)}
+              className="mt-4 rounded-md bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* Right pane — selected thread */}
       <section className="flex-1 flex flex-col">
         {selected ? (
@@ -601,14 +678,24 @@ export function PhonePageClient({
               {loadingThread ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
               ) : null}
-              {messages.map((m) => {
+              {threadItems.map((item) => {
+                if (item.kind === "call") {
+                  return (
+                    <CallRow
+                      key={`call-${item.call.id}`}
+                      call={item.call}
+                      onOpen={() => setCallDetail(item.call)}
+                    />
+                  );
+                }
+                const m = item.message;
                 const showChips =
                   m.direction === "in" &&
                   m.job_tag === null &&
                   selected.active_jobs.length >= 2;
                 const retagOpen = retagMenuFor === m.id;
                 return (
-                  <div key={m.id} className="flex flex-col gap-1">
+                  <div key={`msg-${m.id}`} className="flex flex-col gap-1">
                     {showChips ? (
                       <div className="flex flex-wrap gap-2 text-xs">
                         <span className="text-muted-foreground self-center">
@@ -844,6 +931,50 @@ export function PhonePageClient({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// Slice 8 (#312) — render a Twilio status code as human-readable text.
+// "no_answer" → "No answer", "in_progress" → "In progress", etc.
+function formatCallStatus(status: string): string {
+  const words = status.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// Slice 8 (#312) — seconds → mm:ss (e.g. 125 → "2:05").
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+// Slice 8 (#312) — a voice call rendered inline in the thread, centered
+// like a system row (distinct from the left/right message bubbles).
+function CallRow({ call, onOpen }: { call: PhoneCall; onOpen: () => void }) {
+  const incoming = call.direction === "in";
+  const label = incoming ? "Incoming call" : "Outgoing call";
+  const DirectionIcon = incoming ? PhoneIncoming : PhoneOutgoing;
+  return (
+    <div className="flex justify-center">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70"
+      >
+        <DirectionIcon size={12} aria-hidden="true" />
+        <span>{label}</span>
+        {call.status && <span>{formatCallStatus(call.status)}</span>}
+        {call.duration_seconds !== null && (
+          <span>{formatDuration(call.duration_seconds)}</span>
+        )}
+        <span>
+          {new Date(call.started_at).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+      </button>
     </div>
   );
 }

@@ -39,9 +39,95 @@ interface AvailableLocalNumber {
   region: string | null;
 }
 
+// An org member as returned by GET /api/settings/users. `phone` is the cell
+// on file (E.164) or null — the inbound router (decideShared) drops anyone
+// without a cell, so only members with one are selectable in the editor.
+interface OrgMember {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+}
+
+type InboundKind = "ring-all" | "round-robin" | "forward" | "voicemail";
+
+// The four routable shapes decideShared understands (ADR 0006). The editor
+// builds one of these and PATCHes it; parseInboundRule re-validates server-side.
+type InboundRule =
+  | { kind: "ring-all"; users: string[] }
+  | { kind: "round-robin"; sequence: string[] }
+  | { kind: "forward"; forwardUserId: string }
+  | { kind: "voicemail" };
+
+const INBOUND_KIND_OPTIONS: { kind: InboundKind; label: string; help: string }[] =
+  [
+    {
+      kind: "ring-all",
+      label: "Ring all",
+      help: "Ring every selected member's cell at once; first to answer wins.",
+    },
+    {
+      kind: "round-robin",
+      label: "Round robin",
+      help: "Ring one selected member per call, rotating through the list.",
+    },
+    {
+      kind: "forward",
+      label: "Forward",
+      help: "Always forward to one member's cell.",
+    },
+    {
+      kind: "voicemail",
+      label: "Voicemail",
+      help: "Send every caller straight to voicemail.",
+    },
+  ];
+
+// Map a persisted inbound_rule back to the editor's kind so opening the
+// editor pre-selects the number's current rule. A null/unknown rule opens
+// on voicemail (decideShared's null fallthrough).
+function ruleToKind(rule: unknown): InboundKind {
+  if (rule && typeof rule === "object" && "kind" in rule) {
+    const k = (rule as { kind: string }).kind;
+    if (
+      k === "ring-all" ||
+      k === "round-robin" ||
+      k === "forward" ||
+      k === "voicemail"
+    ) {
+      return k;
+    }
+  }
+  return "voicemail";
+}
+
 function formatCents(cents: number | null): string {
   if (cents === null) return "—";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+// A one-line, human summary of a Shared number's inbound_rule for the table
+// cell. Mirrors decideShared: a null (unconfigured) rule falls through to
+// voicemail, so it summarizes as "Voicemail" — never the old "ring-all
+// default" copy, which was untruthful.
+function summarizeInboundRule(rule: unknown): string {
+  if (rule && typeof rule === "object" && "kind" in rule) {
+    const r = rule as {
+      kind: string;
+      users?: unknown[];
+      sequence?: unknown[];
+    };
+    if (r.kind === "ring-all" && Array.isArray(r.users)) {
+      return `Ring all (${r.users.length})`;
+    }
+    if (r.kind === "round-robin" && Array.isArray(r.sequence)) {
+      return `Round robin (${r.sequence.length})`;
+    }
+    if (r.kind === "forward") {
+      return "Forward";
+    }
+  }
+  return "Voicemail";
 }
 
 export function PhoneNumbersTab() {
@@ -67,6 +153,16 @@ export function PhoneNumbersTab() {
   const [releasing, setReleasing] = useState<PhoneNumberRow | null>(null);
   const [releaseInFlight, setReleaseInFlight] = useState(false);
 
+  // Inbound-rule editor state — the Shared row the admin clicked Configure on.
+  const [editing, setEditing] = useState<PhoneNumberRow | null>(null);
+  const [editKind, setEditKind] = useState<InboundKind>("voicemail");
+  // Selected member ids: the ring-all users / round-robin sequence (in click
+  // order) and, for forward, the single chosen id at index 0.
+  const [editUsers, setEditUsers] = useState<string[]>([]);
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [saveInFlight, setSaveInFlight] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -87,6 +183,89 @@ export function PhoneNumbersTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Open the inbound-rule editor for a Shared row: pre-select the number's
+  // current rule and lazy-load the org roster (only admins reach this, and
+  // they have access_settings). Members without a cell are filtered at
+  // render — the router would drop them anyway.
+  async function openEditor(r: PhoneNumberRow) {
+    const rule = r.inbound_rule as
+      | { kind?: string; users?: string[]; sequence?: string[]; forwardUserId?: string }
+      | null;
+    setEditKind(ruleToKind(r.inbound_rule));
+    if (rule?.kind === "ring-all" && Array.isArray(rule.users)) {
+      setEditUsers(rule.users);
+    } else if (rule?.kind === "round-robin" && Array.isArray(rule.sequence)) {
+      setEditUsers(rule.sequence);
+    } else if (rule?.kind === "forward" && typeof rule.forwardUserId === "string") {
+      setEditUsers([rule.forwardUserId]);
+    } else {
+      setEditUsers([]);
+    }
+    setEditing(r);
+
+    setMembersLoading(true);
+    try {
+      const res = await fetch("/api/settings/users");
+      if (res.ok) {
+        setMembers((await res.json()) as OrgMember[]);
+      }
+    } finally {
+      setMembersLoading(false);
+    }
+  }
+
+  // Toggle a member in/out of the selected set, preserving click order (the
+  // round-robin sequence and ring-all set both read off editUsers).
+  function toggleUser(id: string) {
+    setEditUsers((prev) =>
+      prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id],
+    );
+  }
+
+  // Only members with a cell on file are routable — decideShared drops the
+  // rest, so they are never offered.
+  const selectableMembers = members.filter((m) => m.phone !== null);
+
+  // Build the routable rule from the editor's current selection. Returns null
+  // for a kind the editor cannot yet express, so Save is a no-op rather than
+  // PATCHing a half-formed rule.
+  function buildRule(): InboundRule | null {
+    switch (editKind) {
+      case "ring-all":
+        return { kind: "ring-all", users: editUsers };
+      case "round-robin":
+        return { kind: "round-robin", sequence: editUsers };
+      case "forward":
+        return editUsers[0]
+          ? { kind: "forward", forwardUserId: editUsers[0] }
+          : null;
+      case "voicemail":
+        return { kind: "voicemail" };
+      default:
+        return null;
+    }
+  }
+
+  async function handleSaveRule() {
+    if (!editing) return;
+    const rule = buildRule();
+    if (!rule) return;
+    setSaveInFlight(true);
+    try {
+      const res = await fetch(`/api/phone/numbers/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inbound_rule: rule }),
+      });
+      if (res.ok) {
+        setEditing(null);
+        await load();
+      }
+    } finally {
+      setSaveInFlight(false);
+    }
+  }
 
   const liveRows = useMemo(
     () => rows.filter((r) => r.released_at === null),
@@ -232,7 +411,22 @@ export function PhoneNumbersTab() {
                     {r.kind === "shared" ? "—" : r.user_id ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">
-                    ring-all default — configurable in slice 8
+                    <div className="flex items-center gap-2">
+                      <span>
+                        {summarizeInboundRule(
+                          r.kind === "shared" ? r.inbound_rule : null,
+                        )}
+                      </span>
+                      {isAdmin && r.kind === "shared" && (
+                        <button
+                          type="button"
+                          onClick={() => void openEditor(r)}
+                          className="text-[var(--brand-primary)] font-medium hover:underline"
+                        >
+                          Configure
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-foreground">
                     {formatCents(r.monthly_cost_cents)}
@@ -383,6 +577,105 @@ export function PhoneNumbersTab() {
                 className="rounded-md bg-destructive text-destructive-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
                 {releaseInFlight ? "Releasing…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbound-rule editor — pick an answer rule + (for ring/forward) the
+          members to dial. Saves to PATCH /api/phone/numbers/[id]. */}
+      {editing && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-card rounded-xl border border-border w-full max-w-md p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Inbound rule — {formatPhoneNumber(editing.e164)}
+            </h3>
+
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-foreground">
+                When a call comes in
+              </legend>
+              {INBOUND_KIND_OPTIONS.map((opt) => (
+                <label
+                  key={opt.kind}
+                  className="flex items-start gap-2 text-sm cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="inbound-kind"
+                    value={opt.kind}
+                    aria-label={opt.label}
+                    checked={editKind === opt.kind}
+                    onChange={() => setEditKind(opt.kind)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium text-foreground">
+                      {opt.label}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {opt.help}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
+            {editKind !== "voicemail" && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Members</p>
+                {membersLoading ? (
+                  <p className="text-xs text-muted-foreground">Loading…</p>
+                ) : selectableMembers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No members with a cell on file.
+                  </p>
+                ) : (
+                  selectableMembers.map((m) => {
+                    // Forward goes to exactly one member (single-select radio);
+                    // ring-all / round-robin select a set (checkboxes).
+                    const single = editKind === "forward";
+                    return (
+                      <label
+                        key={m.id}
+                        className="flex items-center gap-2 text-sm cursor-pointer"
+                      >
+                        <input
+                          type={single ? "radio" : "checkbox"}
+                          name={single ? "forward-member" : undefined}
+                          checked={
+                            single
+                              ? editUsers[0] === m.id
+                              : editUsers.includes(m.id)
+                          }
+                          onChange={() =>
+                            single ? setEditUsers([m.id]) : toggleUser(m.id)
+                          }
+                        />
+                        <span className="text-foreground">{m.full_name}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveRule()}
+                disabled={saveInFlight}
+                className="rounded-md bg-[var(--brand-primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {saveInFlight ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
