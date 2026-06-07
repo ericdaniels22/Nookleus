@@ -8,7 +8,7 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 // it, and the page `children` once loaded. `vi.hoisted` lets the hoisted
 // vi.mock factory reference these capture/control objects without a
 // temporal-dead-zone error.
-const { documentCalls, pdf } = vi.hoisted(() => {
+const { documentCalls, pdf, io } = vi.hoisted(() => {
   // Reassigned by the latest mounted <Document> mock, so a retry remount wins.
   // The no-op placeholders take no args (assignable to the declared signature),
   // which keeps the typed `resolve(n)` call site honest without an unused param.
@@ -16,7 +16,35 @@ const { documentCalls, pdf } = vi.hoisted(() => {
     resolve: () => {},
     fail: () => {},
   };
-  return { documentCalls: [] as Array<Record<string, unknown>>, pdf };
+  // Drives the scroll-spy IntersectionObserver (#466). The viewer observes each
+  // page node; the stubbed observer records the callback + observed nodes here,
+  // and `io.fire` synthesises entries from a { pageNumber: ratio } map so a test
+  // can say "page 2 is now the most-visible" without a real layout engine.
+  const io: {
+    cb:
+      | ((
+          entries: Array<{
+            target: Element;
+            isIntersecting: boolean;
+            intersectionRatio: number;
+          }>,
+        ) => void)
+      | null;
+    observed: Element[];
+    fire: (ratios: Record<number, number>) => void;
+  } = {
+    cb: null,
+    observed: [],
+    fire: (ratios) => {
+      const entries = io.observed.map((target) => {
+        const pageNumber = Number(target.getAttribute("data-page-number"));
+        const ratio = ratios[pageNumber] ?? 0;
+        return { target, isIntersecting: ratio > 0, intersectionRatio: ratio };
+      });
+      io.cb?.(entries);
+    },
+  };
+  return { documentCalls: [] as Array<Record<string, unknown>>, pdf, io };
 });
 
 vi.mock("react-pdf", async () => {
@@ -116,6 +144,41 @@ beforeEach(() => {
     unobserve() {}
     disconnect() {}
   };
+  // jsdom has no IntersectionObserver either. Scroll-spy (#466) observes each
+  // page node and marks the most-visible one active; the stub captures the
+  // viewer's callback and observed nodes into `io` so a test can drive
+  // intersection ratios with `io.fire({ page: ratio })`.
+  io.cb = null;
+  io.observed = [];
+  globalThis.IntersectionObserver = class {
+    constructor(
+      cb: (
+        entries: Array<{
+          target: Element;
+          isIntersecting: boolean;
+          intersectionRatio: number;
+        }>,
+      ) => void,
+    ) {
+      io.cb = cb;
+      io.observed = [];
+    }
+    observe(el: Element) {
+      io.observed.push(el);
+    }
+    unobserve(el: Element) {
+      io.observed = io.observed.filter((node) => node !== el);
+    }
+    disconnect() {
+      io.observed = [];
+    }
+    takeRecords() {
+      return [];
+    }
+    root = null;
+    rootMargin = "";
+    thresholds = [];
+  } as unknown as typeof IntersectionObserver;
 });
 
 describe("PdfDocumentViewer", () => {
@@ -298,7 +361,8 @@ describe("PdfDocumentViewer", () => {
 
   it("labels each thumbnail with its page position for screen readers", () => {
     // #465: react-pdf's Page drops aria-label, so the accessible name has to
-    // come from the Thumbnail's content — an sr-only "Page N of M" label.
+    // come from the Thumbnail's content — an sr-only "Page N of M" label. #466
+    // appends ", current page" to whichever page is active (page 1 on load).
     render(
       <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
     );
@@ -306,7 +370,9 @@ describe("PdfDocumentViewer", () => {
       pdf.resolve(7);
     });
 
-    expect(screen.getByRole("link", { name: "Page 1 of 7" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "Page 1 of 7, current page" }),
+    ).toBeDefined();
     expect(screen.getByRole("link", { name: "Page 3 of 7" })).toBeDefined();
     expect(screen.getByRole("link", { name: "Page 7 of 7" })).toBeDefined();
   });
@@ -380,5 +446,209 @@ describe("PdfDocumentViewer", () => {
     );
 
     expect(vi.mocked(configurePdfjs)).toHaveBeenCalled();
+  });
+
+  it("marks the first page as the active thumbnail once the document loads", () => {
+    // #466: the picker always has exactly one active page; before the reader
+    // scrolls or picks, that is page 1. Active state is exposed as aria-current
+    // on the thumbnail's wrapper so it is both visible and announced.
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    expect(
+      screen.getByTestId("pdf-thumb-1").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-3").closest('[aria-current="page"]'),
+    ).toBeNull();
+  });
+
+  it("announces the active page as the current page in its accessible name", () => {
+    // #466: react-pdf forwards only className/onItemClick to the thumbnail's <a>,
+    // so aria-current on the wrapper is never inherited by the link a keyboard /
+    // screen-reader user actually focuses. The current-page state therefore has
+    // to ride the link's own accessible name, so AT users hear it too — not just
+    // sighted users who see the ring.
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    // Page 1 is active on load: its link announces that it is current.
+    expect(
+      screen.getByRole("link", { name: "Page 1 of 3, current page" }),
+    ).toBeDefined();
+    // Non-active pages announce only their position.
+    expect(screen.getByRole("link", { name: "Page 2 of 3" })).toBeDefined();
+    expect(
+      screen.queryByRole("link", { name: "Page 2 of 3, current page" }),
+    ).toBeNull();
+  });
+
+  it("tracks the most-visible page as the reader scrolls, marking its thumbnail active", () => {
+    // #466 core behavior: scroll-spy is an IntersectionObserver binding that maps
+    // whichever page element is most visible in the pane to the active page. We
+    // drive the observer directly with intersection ratios — no real layout — and
+    // assert the active marker follows the dominant page.
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    // Page 2 now dominates the viewport: it becomes the active thumbnail.
+    act(() => {
+      io.fire({ 1: 0.1, 2: 0.9, 3: 0 });
+    });
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-1").closest('[aria-current="page"]'),
+    ).toBeNull();
+
+    // Scrolling on so page 3 dominates moves the active marker along with it.
+    act(() => {
+      io.fire({ 1: 0, 2: 0.2, 3: 0.85 });
+    });
+    expect(
+      screen.getByTestId("pdf-thumb-3").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).toBeNull();
+  });
+
+  it("breaks an equal-visibility tie toward the lower page so the marker never jitters", () => {
+    // #466: when two pages straddle the fold equally, the active marker must
+    // settle deterministically rather than flicker between them. The lower page
+    // number wins.
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    act(() => {
+      io.fire({ 1: 0, 2: 0.5, 3: 0.5 });
+    });
+
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-3").closest('[aria-current="page"]'),
+    ).toBeNull();
+  });
+
+  it("marks a clicked thumbnail active immediately, not just after the scroll settles", () => {
+    // #466: a thumbnail click jumps to that page (smooth scroll) AND makes it the
+    // active page right away, so the highlight tracks the reader's intent without
+    // waiting for scroll-spy to catch up. jsdom has no scrollIntoView, so stub it.
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function () {},
+    });
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("pdf-thumb-3"));
+    });
+
+    expect(
+      screen.getByTestId("pdf-thumb-3").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("pdf-thumb-1").closest('[aria-current="page"]'),
+    ).toBeNull();
+  });
+
+  it("moves the active page up and down the rail with the arrow keys, scrolling the document to each", () => {
+    // #466: the rail is keyboard-navigable — ArrowDown/ArrowUp step the active
+    // page through the document AND scroll the pane to the page they land on
+    // (criterion 4, "the document scrolls accordingly"). jsdom has no
+    // scrollIntoView, so record which page node each step scrolls to.
+    const scrolledPages: Array<string | null> = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function (this: HTMLElement) {
+        scrolledPages.push(this.getAttribute("data-page-number"));
+      },
+    });
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    const rail = screen.getByRole("navigation", { name: /page thumbnails/i });
+
+    act(() => {
+      fireEvent.keyDown(rail, { key: "ArrowDown" });
+    });
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      fireEvent.keyDown(rail, { key: "ArrowDown" });
+    });
+    expect(
+      screen.getByTestId("pdf-thumb-3").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      fireEvent.keyDown(rail, { key: "ArrowUp" });
+    });
+    expect(
+      screen.getByTestId("pdf-thumb-2").closest('[aria-current="page"]'),
+    ).not.toBeNull();
+
+    // Each arrow step scrolled the pane to the page it landed on.
+    expect(scrolledPages).toEqual(["2", "3", "2"]);
+  });
+
+  it("moves keyboard focus onto the thumbnail it steps to without a competing scroll", () => {
+    // #466: arrow-key nav must carry focus to the page it lands on, so a keyboard
+    // reader is never stranded on the thumbnail they just left. The focus call
+    // must opt out of the browser's instant focus-scroll (preventScroll) so it
+    // doesn't fight the smooth scrollIntoView that the same keypress kicks off.
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function () {},
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+    render(
+      <PdfDocumentViewer src="/api/estimates/abc/preview" title="Estimate WTR-1" />,
+    );
+    act(() => {
+      pdf.resolve(3);
+    });
+
+    const rail = screen.getByRole("navigation", { name: /page thumbnails/i });
+    act(() => {
+      fireEvent.keyDown(rail, { key: "ArrowDown" });
+    });
+
+    expect(document.activeElement).toBe(screen.getByTestId("pdf-thumb-2"));
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    focusSpy.mockRestore();
   });
 });
