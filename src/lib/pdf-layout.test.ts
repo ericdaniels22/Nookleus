@@ -3,6 +3,7 @@ import {
   isLayoutLocked,
   resolveEffectiveLayout,
   parseLayoutPayload,
+  presetToLayout,
   LAYOUT_FIELD_DEFAULTS,
   DOCUMENT_TITLE_MAX_LENGTH,
 } from "./pdf-layout";
@@ -137,6 +138,47 @@ describe("resolveEffectiveLayout — precedence (#482)", () => {
     // The missing field falls through to the preset (false), not "off" and not
     // the field default (true) — proving per-field, not all-or-nothing, merge.
     expect(resolved.show_tax).toBe(false);
+  });
+});
+
+// #486 — applying a saved preset COPIES its choices onto the document's own
+// layout (ADR 0012 snapshot, never a binding link). A preset carries the eight
+// shared toggles + the title, but has no `show_document_title` column — that one
+// document-level field is preserved from the document's current look rather than
+// reset, so applying a preset never silently flips the title on or off.
+describe("presetToLayout — snapshot a preset's choices onto a document layout (#486)", () => {
+  it("copies the preset's eight toggles + title and preserves the current show_document_title", () => {
+    const preset = customPreset(); // every toggle the opposite of the field defaults
+    // The document currently hides its title; the preset has no opinion on that
+    // field, so applying it must leave show_document_title alone.
+    expect(presetToLayout(preset, false)).toEqual({
+      document_title: preset.document_title,
+      show_document_title: false, // preserved from the document, not the preset
+      show_markup: preset.show_markup,
+      show_discount: preset.show_discount,
+      show_tax: preset.show_tax,
+      show_opening_statement: preset.show_opening_statement,
+      show_closing_statement: preset.show_closing_statement,
+      show_category_subtotals: preset.show_category_subtotals,
+      show_code_column: preset.show_code_column,
+      show_item_notes: preset.show_item_notes,
+    });
+  });
+
+  it("falls back to the field default for show_document_title when no current value is given", () => {
+    expect(presetToLayout(customPreset()).show_document_title).toBe(
+      LAYOUT_FIELD_DEFAULTS.show_document_title,
+    );
+  });
+
+  it("returns exactly the canonical layout shape — no preset-only keys leak through", () => {
+    const result = presetToLayout(customPreset(), true);
+    expect(Object.keys(result).sort()).toEqual(
+      Object.keys(LAYOUT_FIELD_DEFAULTS).sort(),
+    );
+    for (const leaked of ["id", "organization_id", "is_default", "name", "document_type"]) {
+      expect(result).not.toHaveProperty(leaked);
+    }
   });
 });
 
