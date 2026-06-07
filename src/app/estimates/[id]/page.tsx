@@ -106,7 +106,11 @@ export default async function EstimateViewPage({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    // max-w-6xl (wider than the usual View width): the live-layout panel's right
+    // rail eats ~290px, so the preview column needs this room to clear the
+    // viewer's 640px page-picker threshold (#465, #488). Keep in sync with the
+    // Invoice View container.
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       {/* ── BACK LINK ───────────────────────────────────────────────────────── */}
       <Link
         href={`/jobs/${estimate.job_id}`}
