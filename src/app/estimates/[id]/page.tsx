@@ -10,7 +10,7 @@ import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
 import { getDefaultPreset } from "@/lib/pdf-presets";
 import { isLayoutLocked, resolveEffectiveLayout } from "@/lib/pdf-layout";
-import { LiveLayoutPanel } from "./live-layout-panel";
+import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local ErrorPage helper — mirrors the pattern in /estimates/[id]/edit/page.tsx
@@ -182,7 +182,8 @@ export default async function EstimateViewPage({
       {/* The panel owns the live preview so a single shared version drives the
           re-render: flip the markup toggle → autosave the snapshot → reload. */}
       <LiveLayoutPanel
-        estimateId={id}
+        documentType="estimate"
+        documentId={id}
         previewSrc={`/api/estimates/${id}/preview`}
         previewTitle={`Estimate ${estimate.estimate_number}`}
         layout={effectiveLayout}

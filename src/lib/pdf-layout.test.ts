@@ -4,6 +4,7 @@ import {
   resolveEffectiveLayout,
   parseLayoutPayload,
   LAYOUT_FIELD_DEFAULTS,
+  DOCUMENT_TITLE_MAX_LENGTH,
 } from "./pdf-layout";
 import type {
   DocumentPdfLayout,
@@ -171,6 +172,24 @@ describe("parseLayoutPayload — validation (#482)", () => {
     const { document_title: _t, ...noTitle } = customLayout();
     void _t;
     expect(parseLayoutPayload(noTitle)).toBeNull();
+  });
+
+  // The panel caps the title at maxLength={200}, but that attribute is
+  // bypassable; the server enforces the same bound so an oversized title can't
+  // reach the JSONB column / the PDF. Pin the boundary: 200 is accepted, 201 is
+  // rejected.
+  it("accepts a document_title at the length cap and rejects one over it", () => {
+    const atCap = parseLayoutPayload({
+      ...customLayout(),
+      document_title: "a".repeat(DOCUMENT_TITLE_MAX_LENGTH),
+    });
+    expect(atCap?.document_title).toHaveLength(DOCUMENT_TITLE_MAX_LENGTH);
+    expect(
+      parseLayoutPayload({
+        ...customLayout(),
+        document_title: "a".repeat(DOCUMENT_TITLE_MAX_LENGTH + 1),
+      }),
+    ).toBeNull();
   });
 
   it("strips unknown keys, returning only the canonical layout shape", () => {

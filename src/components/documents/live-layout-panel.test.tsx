@@ -1,9 +1,10 @@
-// Component test for the live single-toggle layout panel on the Estimate View
-// (#483). The panel renders one "Show markup" switch over a live PDF preview:
-// flipping the switch optimistically updates, debounce-saves the *complete*
-// layout snapshot (ADR 0012) to PATCH /api/estimates/[id]/layout, and on success
-// reloads the preview iframe (cache-busting query param + key remount). It is
-// read-only on a frozen (converted) estimate.
+// Component test for the shared live PDF layout panel (Estimate View #483/#484,
+// Invoice View #485). The panel renders nine show/hide switches + an editable
+// title over a live PDF preview: flipping a switch optimistically updates,
+// debounce-saves the *complete* layout snapshot (ADR 0012) to PATCH
+// /api/{estimates|invoices}/[id]/layout, and on success reloads the preview
+// iframe (cache-busting query param + key remount). It is read-only on a frozen
+// document (a converted estimate, or a paid/voided invoice) or without the grant.
 //
 // Mirrors the fetch-mock + fake-timer pattern from
 // use-auto-save.flush-on-unmount.test.tsx and photo-report-defaults-tab.test.tsx.
@@ -77,7 +78,8 @@ afterEach(() => {
 function renderPanel(over: Partial<Parameters<typeof LiveLayoutPanel>[0]> = {}) {
   return render(
     <LiveLayoutPanel
-      estimateId="est-1"
+      documentType="estimate"
+      documentId="est-1"
       previewSrc="/api/estimates/est-1/preview"
       previewTitle="Estimate EST-1"
       layout={{ ...EFFECTIVE_LAYOUT }}
@@ -132,6 +134,25 @@ describe("LiveLayoutPanel", () => {
     expect((init as RequestInit).method).toBe("PATCH");
     // The whole snapshot is sent (seeded from the effective look) with only
     // show_markup flipped — ADR 0012 snapshot, not a partial overlay.
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toEqual({ ...EFFECTIVE_LAYOUT, show_markup: false });
+  });
+
+  it("targets the invoice layout route when documentType is invoice (Invoice View parity, #485)", async () => {
+    // Same panel, same behavior — only the PATCH target differs by document kind.
+    // This is the seam #485 relies on to mount the Estimate View panel on the
+    // (client-component) Invoice View.
+    renderPanel({ documentType: "invoice", documentId: "inv-1" });
+
+    fireEvent.click(screen.getByRole("switch", { name: /show markup row in totals/i }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/invoices/inv-1/layout");
+    expect((init as RequestInit).method).toBe("PATCH");
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body).toEqual({ ...EFFECTIVE_LAYOUT, show_markup: false });
   });
