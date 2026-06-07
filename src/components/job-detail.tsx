@@ -31,6 +31,8 @@ import PhotoAnnotator from "@/components/photo-annotator";
 import ComposeEmailModal from "@/components/compose-email";
 import { JobEmailRow } from "@/components/email/job-email-row";
 import { buildQuotedReply } from "@/components/email/build-quoted-reply";
+import { JobMessagesSection } from "@/components/job-detail/job-messages-section";
+import { buildJobTextContacts } from "@/components/job-detail/job-text-contacts";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
@@ -1007,6 +1009,15 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           </div>
         )}
       </div>
+
+      {/* Messages (texts/MMS) — mirrors Emails. Hidden from users without
+          view_phone; renders every text tagged to this Job across all
+          numbers (Shared + Personal). PRD #304, slice 7 (#311). */}
+      <JobMessagesSection
+        jobId={jobId}
+        organizationId={job.organization_id}
+        contacts={buildJobTextContacts(job)}
+      />
 
       {/* Custom Fields */}
       {customFields.length > 0 && (

@@ -34,22 +34,35 @@ export interface UsePhoneSyncInput {
   // the hook holds no subscription in that state.
   organizationId: string | null;
   onNewMessage: (row: PhoneMessageRow) => void;
+  // Slice 7 (#311) — optional. When provided, the hook also subscribes to
+  // `phone_messages` UPDATEs so a message re-tagged to a Job after the fact
+  // (job_tag changed) can resurface in realtime. Omitted by the Phone-tab
+  // caller, which only cares about new arrivals — so no UPDATE subscription
+  // is registered there and its behavior is unchanged.
+  onMessageUpdate?: (row: PhoneMessageRow) => void;
 }
 
 export function usePhoneSync(input: UsePhoneSyncInput): void {
   const onNewMessageRef = useRef(input.onNewMessage);
+  const onMessageUpdateRef = useRef(input.onMessageUpdate);
   // useLayoutEffect (or useEffect — either works since the effect runs
   // before the next event-loop tick that fires the subscription handler)
   // keeps the ref read-only during render, satisfying react-hooks/refs.
   useLayoutEffect(() => {
     onNewMessageRef.current = input.onNewMessage;
-  }, [input.onNewMessage]);
+    onMessageUpdateRef.current = input.onMessageUpdate;
+  }, [input.onNewMessage, input.onMessageUpdate]);
 
   const { supabase, organizationId } = input;
+  // Whether to register the UPDATE subscription is decided once per
+  // (org) effect run; toggling the callback's presence is rare and a
+  // remount-worthy change, so it gates the effect rather than living
+  // behind the ref.
+  const wantsUpdates = input.onMessageUpdate != null;
 
   useEffect(() => {
     if (!organizationId) return;
-    const channel = supabase
+    let channel = supabase
       .channel(`phone-messages-${organizationId}`)
       .on(
         "postgres_changes",
@@ -62,11 +75,27 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
         (payload: { new: PhoneMessageRow }) => {
           onNewMessageRef.current(payload.new);
         },
-      )
-      .subscribe();
+      );
+
+    if (wantsUpdates) {
+      channel = channel.on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "phone_messages",
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        (payload: { new: PhoneMessageRow }) => {
+          onMessageUpdateRef.current?.(payload.new);
+        },
+      );
+    }
+
+    const subscribed = channel.subscribe();
 
     return () => {
-      channel.unsubscribe();
+      subscribed.unsubscribe();
     };
-  }, [supabase, organizationId]);
+  }, [supabase, organizationId, wantsUpdates]);
 }

@@ -101,6 +101,34 @@ function parseSourceContext(input: unknown): SmartAttachSource {
   return { kind: "phone-tab" };
 }
 
+// Slice 7 (#311) — the Job-page Messages (N) section reads every text/MMS
+// tagged to a Job here. A thin RLS pass-through over the User client,
+// mirroring the conversation-thread read route: RLS (migration-308)
+// enforces the ADR 0005 access matrix, so a caller who cannot see a row
+// simply does not get it back. The section is hidden from anyone without
+// view_phone, and so is this endpoint.
+const JOB_MESSAGE_FIELDS =
+  "id, organization_id, conversation_id, direction, from_e164, to_e164, body, media_urls, twilio_sid, status, job_tag, tagged_by_user_id, sent_by_user_id, sent_at, created_at";
+
+export const GET = withRequestContext(
+  { permission: "view_phone" },
+  async (request, ctx) => {
+    const jobId = new URL(request.url).searchParams.get("jobId");
+    if (!jobId) {
+      return NextResponse.json({ error: "jobId is required" }, { status: 400 });
+    }
+    const { data, error } = await ctx.supabase
+      .from("phone_messages")
+      .select(JOB_MESSAGE_FIELDS)
+      .eq("job_tag", jobId)
+      .order("sent_at", { ascending: true });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data ?? []);
+  },
+);
+
 export const POST = withRequestContext(
   { permission: "view_phone", serviceClient: true },
   async (request, ctx) => {

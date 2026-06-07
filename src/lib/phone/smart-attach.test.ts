@@ -133,3 +133,52 @@ describe("decideJobTag — inbound branches (PRD #304, slice 4)", () => {
     });
   });
 });
+
+describe("decideJobTag — outbound branches (PRD #304, Job-page Text #311)", () => {
+  // The Job-page Text button (#311) sends sourceContext { kind: 'job', jobId }.
+  // This is the decision AC6 rests on: a Job-page send is auto-tagged to that
+  // Job — no chip prompt — so the message lands in that Job's Messages section.
+  it("outbound from a Job page: auto-tags to that Job regardless of the contact's Active-job count", () => {
+    // Definite tag — auto even when the contact has multiple Active jobs that
+    // would otherwise prompt. The Job page IS the disambiguation.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "job", jobId: "job-9" },
+        contactId: CONTACT_ID,
+        activeJobs: [
+          job("job-1", "WTR-2026-0001"),
+          job("job-2", "FYR-2026-0005"),
+        ],
+      }),
+    ).toEqual({ kind: "auto", jobId: "job-9" });
+  });
+
+  it("outbound from a Job page auto-tags from the source even with no contact and no Active jobs", () => {
+    // The route's Job-source path skips the contact/Active-jobs lookup
+    // entirely; the jobId comes straight from the source context.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "job", jobId: "job-9" },
+        contactId: null,
+        activeJobs: [],
+      }),
+    ).toEqual({ kind: "auto", jobId: "job-9" });
+  });
+
+  it("outbound from the Phone tab does NOT auto-tag from the source (only a Job-page source carries a jobId)", () => {
+    // Pins that the kind:'job' short-circuit is the ONLY source-driven
+    // auto-tag: a phone-tab send falls through to the contact rules, so with
+    // no Active jobs it stays untagged. A one-char change to the source check
+    // (matching 'phone-tab') would wrongly auto-tag here.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "phone-tab" },
+        contactId: CONTACT_ID,
+        activeJobs: [],
+      }),
+    ).toEqual({ kind: "untagged" });
+  });
+});

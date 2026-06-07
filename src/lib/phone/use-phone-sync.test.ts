@@ -160,3 +160,86 @@ describe("usePhoneSync", () => {
     expect(supabase.channel).not.toHaveBeenCalled();
   });
 });
+
+// Slice 7 (#311) — re-tag support. A message tagged to a Job after the fact
+// (an untagged Phone-tab message UPDATEd with a job_tag) must surface in the
+// Job's Messages section in realtime. That's an UPDATE, not an INSERT, so the
+// hook grows an optional `onMessageUpdate` callback that registers a *second*
+// subscription. The Phone-tab caller passes none, so its behavior is
+// unchanged (no UPDATE subscription at all).
+describe("usePhoneSync — onMessageUpdate (re-tag)", () => {
+  it("registers a second UPDATE subscription and fires onMessageUpdate with the updated row", () => {
+    const supabase = fakeSupabase();
+    const onMessageUpdate = vi.fn();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+        onMessageUpdate,
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    // INSERT stays the first .on() (existing callers read calls[0]); UPDATE
+    // is the second.
+    expect(ch.on.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ event: "INSERT" }),
+    );
+    expect(ch.on).toHaveBeenCalledWith(
+      "postgres_changes",
+      expect.objectContaining({
+        event: "UPDATE",
+        schema: "public",
+        table: "phone_messages",
+        filter: "organization_id=eq.org-1",
+      }),
+      expect.any(Function),
+    );
+
+    const updateHandler = ch.on.mock.calls[1][2] as (payload: {
+      new: Record<string, unknown>;
+    }) => void;
+    act(() => {
+      updateHandler({
+        new: {
+          id: "m-9",
+          organization_id: "org-1",
+          conversation_id: "conv-1",
+          direction: "in",
+          body: "now tagged",
+          job_tag: "job-1",
+        },
+      });
+    });
+
+    expect(onMessageUpdate).toHaveBeenCalledWith({
+      id: "m-9",
+      organization_id: "org-1",
+      conversation_id: "conv-1",
+      direction: "in",
+      body: "now tagged",
+      job_tag: "job-1",
+    });
+  });
+
+  it("registers no UPDATE subscription when onMessageUpdate is omitted", () => {
+    const supabase = fakeSupabase();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    // INSERT only — exactly one .on() call, and it's not an UPDATE.
+    expect(ch.on).toHaveBeenCalledTimes(1);
+    expect(ch.on.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ event: "INSERT" }),
+    );
+  });
+});
