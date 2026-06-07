@@ -74,8 +74,9 @@ values
    '31200000-0000-0000-0000-0000000000a2', '+15551110002');
 
 -- One Job in org-1 for the Job-tagged cases. Contact is a placeholder.
-insert into public.contacts (id, full_name)
-values ('31200000-0000-0000-0000-0000000000c1', 'smoke-312-contact');
+insert into public.contacts (id, organization_id, full_name)
+values ('31200000-0000-0000-0000-0000000000c1',
+        '31200000-0000-0000-0000-000000000001', 'smoke-312-contact');
 
 insert into public.jobs
   (id, organization_id, contact_id, damage_type, property_address)
