@@ -12,13 +12,18 @@ import WidgetKit
 // The JSON schema mirrors `EmailSummarySnapshot` in
 // `src/lib/mobile/email-summary.ts`. Change one side, change the other.
 
-struct EmailSummaryPreview: Codable, Identifiable {
+// These mirror the JSON the app writes; the widget only ever DECODES them
+// (the web side in `email-summary.ts` is the sole producer), so `Decodable` is
+// all that's needed — and dropping `Encodable` lets the lenient initializers
+// below stay fully explicit with no synthesis ambiguity.
+
+struct EmailSummaryPreview: Decodable, Identifiable {
     let id: String
     let sender: String
     let subject: String
 }
 
-struct AccountEmailSummary: Codable {
+struct AccountEmailSummary: Decodable {
     let accountId: String
     let label: String
     let unreadCount: Int
@@ -27,9 +32,54 @@ struct AccountEmailSummary: Codable {
     let updatedAt: String
 }
 
-struct EmailSummarySnapshot: Codable {
+struct EmailSummarySnapshot: Decodable {
     let generatedAt: String
     let accounts: [String: AccountEmailSummary]
+}
+
+// MARK: - Lenient decoding (issue #175)
+//
+// `EmailSummaryStore.loadSnapshot()` decodes with `try?`, so ANY decode error —
+// e.g. a JSON `null` where a non-optional `String` is expected — would discard
+// the ENTIRE snapshot and blank the widget. These initializers coalesce a
+// missing-or-null leaf field to a sane default so one bad value can't take down
+// the whole face. Keeping them in extensions preserves each struct's memberwise
+// initializer, which the sample data below relies on.
+
+extension EmailSummaryPreview {
+    enum CodingKeys: String, CodingKey { case id, sender, subject }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        sender = try c.decodeIfPresent(String.self, forKey: .sender) ?? ""
+        subject = try c.decodeIfPresent(String.self, forKey: .subject) ?? ""
+    }
+}
+
+extension AccountEmailSummary {
+    enum CodingKeys: String, CodingKey {
+        case accountId, label, unreadCount, previews, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        accountId = try c.decodeIfPresent(String.self, forKey: .accountId) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
+        previews = try c.decodeIfPresent([EmailSummaryPreview].self, forKey: .previews) ?? []
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+}
+
+extension EmailSummarySnapshot {
+    enum CodingKeys: String, CodingKey { case generatedAt, accounts }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try c.decodeIfPresent(String.self, forKey: .generatedAt) ?? ""
+        accounts = try c.decodeIfPresent([String: AccountEmailSummary].self, forKey: .accounts) ?? [:]
+    }
 }
 
 // MARK: - App Group store
