@@ -14,20 +14,34 @@
 // no-op `supabase` via the supabase module's `createClient`.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
+// Capture the realtime subscription handlers usePhoneSync registers so tests
+// can simulate a postgres_changes event arriving. Chainable `.on()` mirrors
+// the real Supabase channel (the hook chains multiple subscriptions).
+const realtime = vi.hoisted(() => ({
+  handlers: [] as Array<{
+    config: { table?: string; event?: string };
+    handler: (payload: { new: Record<string, unknown> }) => void;
+  }>,
+}));
 vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
     // The realtime hook chains `.on()` once per subscription (phone_messages
-    // INSERT, plus phone_calls INSERT/UPDATE since slice 10), so `.on()` must
-    // return the channel itself to stay chainable.
+    // INSERT, message UPDATE, phone_calls INSERT/UPDATE since slice 10, and
+    // phone_voicemails UPDATE since slice 9). `.on()` captures each handler so
+    // a test can fire a postgres_changes event, and returns the channel to
+    // stay chainable.
     channel: () => {
-      const ch: {
-        on: () => typeof ch;
-        subscribe: () => { unsubscribe: () => void };
-        unsubscribe: () => void;
-      } = {
-        on: () => ch,
+      const ch = {
+        on: (
+          _event: string,
+          config: { table?: string; event?: string },
+          handler: (payload: { new: Record<string, unknown> }) => void,
+        ) => {
+          realtime.handlers.push({ config, handler });
+          return ch;
+        },
         subscribe: () => ({ unsubscribe: () => undefined }),
         unsubscribe: () => undefined,
       };
@@ -35,6 +49,15 @@ vi.mock("@/lib/supabase", () => ({
     },
   }),
 }));
+
+// Fire a phone_voicemails UPDATE through the handler usePhoneSync registered.
+function emitVoicemailUpdate(row: Record<string, unknown>) {
+  const entry = realtime.handlers.find(
+    (h) => h.config?.table === "phone_voicemails" && h.config?.event === "UPDATE",
+  );
+  if (!entry) throw new Error("no phone_voicemails UPDATE subscription registered");
+  act(() => entry.handler({ new: row }));
+}
 
 const searchParamsMock = vi.fn<() => URLSearchParams>();
 vi.mock("next/navigation", () => ({
@@ -53,6 +76,7 @@ const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  realtime.handlers.length = 0;
   // Use globalThis to type-narrow as `unknown`, then cast at the
   // assignment site. Avoids the `any` lint hit on the `global.fetch =`
   // shorthand.
@@ -1314,5 +1338,228 @@ describe("PhonePageClient — call events (#312)", () => {
     // placeholder").
     fireEvent.click(callRow);
     expect(await screen.findByText(/slice 11/i)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 9 (#313) — voicemail render.
+//
+// A call that went to voicemail carries its recording + transcript inline on
+// the call (the /calls route flattens the embed to `call.voicemail`). When the
+// transcript is ready the thread shows the transcript text and an <audio>
+// player; the player's src is a short-lived signed URL fetched from
+// /api/phone/recordings. Pending/failed transcript states land in slice 8.
+// ---------------------------------------------------------------------------
+
+describe("PhonePageClient — voicemail render (#313)", () => {
+  function setupThread(opts: {
+    messages?: Array<Record<string, unknown>>;
+    calls?: Array<Record<string, unknown>>;
+    recordingUrl?: string;
+  }) {
+    mockFetch.mockImplementation(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      if (path === "/api/phone/conversations/conv-1/messages") {
+        return { ok: true, status: 200, json: async () => opts.messages ?? [] };
+      }
+      if (path === "/api/phone/conversations/conv-1/calls") {
+        return { ok: true, status: 200, json: async () => opts.calls ?? [] };
+      }
+      if (path.startsWith("/api/phone/recordings")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            url: opts.recordingUrl ?? "https://signed/rec.mp3",
+          }),
+        };
+      }
+      throw new Error(`unmocked fetch: ${path}`);
+    });
+  }
+
+  const voicemailCall = (voicemail: Record<string, unknown> | null) => ({
+    id: "call-vm",
+    conversation_id: "conv-1",
+    direction: "in",
+    status: "no_answer",
+    duration_seconds: 18,
+    started_at: "2026-05-27T10:00:00Z",
+    ended_at: "2026-05-27T10:00:18Z",
+    voicemail,
+  });
+
+  it("renders the transcript text of a ready voicemail inline in the thread", async () => {
+    setupThread({
+      calls: [
+        voicemailCall({
+          id: "vm-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          transcript: "Hi, please call me back about the roof.",
+          transcript_status: "ready",
+          duration_seconds: 12,
+        }),
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    expect(
+      await screen.findByText(/please call me back about the roof/i),
+    ).toBeDefined();
+  });
+
+  it("renders an <audio> player whose src is the signed recording URL", async () => {
+    setupThread({
+      recordingUrl: "https://signed/phone-recordings/org-1/rec-1.mp3",
+      calls: [
+        voicemailCall({
+          id: "vm-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          transcript: "Call me back.",
+          transcript_status: "ready",
+          duration_seconds: 12,
+        }),
+      ],
+    });
+
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    // The player resolves its src from the signed-URL endpoint, keyed on the
+    // voicemail's storage path.
+    await waitFor(() => {
+      const audio = container.querySelector("audio");
+      expect(audio?.getAttribute("src")).toBe(
+        "https://signed/phone-recordings/org-1/rec-1.mp3",
+      );
+    });
+    const signedCall = mockFetch.mock.calls.find(([input]) =>
+      String(input).includes("/api/phone/recordings"),
+    );
+    expect(signedCall).toBeDefined();
+    expect(String(signedCall![0])).toContain(
+      `path=${encodeURIComponent("org-1/rec-1.mp3")}`,
+    );
+  });
+
+  it("shows a transcribing indicator while the transcript is pending", async () => {
+    setupThread({
+      calls: [
+        voicemailCall({
+          id: "vm-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          // Recorded, but the transcription webhook hasn't landed yet.
+          transcript: null,
+          transcript_status: "pending",
+          duration_seconds: 12,
+        }),
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    expect(await screen.findByText(/transcribing/i)).toBeDefined();
+  });
+
+  it("shows 'Transcript unavailable' when transcription failed, with the player still present", async () => {
+    setupThread({
+      calls: [
+        voicemailCall({
+          id: "vm-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          // Transcription failed — transcript stays null (the webhook drops
+          // any partial text), so the audio is still playable but there is no
+          // transcript to show.
+          transcript: null,
+          transcript_status: "failed",
+          duration_seconds: 12,
+        }),
+      ],
+    });
+
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    expect(await screen.findByText(/transcript unavailable/i)).toBeDefined();
+    // The recording is still playable even though transcription failed.
+    expect(container.querySelector("audio")).not.toBeNull();
+    // No transcribing spinner once we know it failed.
+    expect(screen.queryByText(/transcribing/i)).toBeNull();
+  });
+
+  it("flips a pending voicemail to its transcript live on a realtime UPDATE", async () => {
+    setupThread({
+      calls: [
+        voicemailCall({
+          id: "vm-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          transcript: null,
+          transcript_status: "pending",
+          duration_seconds: 12,
+        }),
+      ],
+    });
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    // Starts in the transcribing state…
+    expect(await screen.findByText(/transcribing/i)).toBeDefined();
+
+    // …the transcription-completed webhook UPDATEs the phone_voicemails row;
+    // realtime delivers it and the open thread flips to the transcript text.
+    emitVoicemailUpdate({
+      id: "vm-1",
+      organization_id: "org-1",
+      phone_call_id: "call-vm",
+      audio_storage_path: "org-1/rec-1.mp3",
+      transcript: "Roof is leaking, call me.",
+      transcript_status: "ready",
+      duration_seconds: 12,
+    });
+
+    expect(
+      await screen.findByText(/roof is leaking, call me/i),
+    ).toBeDefined();
+    expect(screen.queryByText(/transcribing/i)).toBeNull();
   });
 });

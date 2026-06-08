@@ -15,6 +15,7 @@ import {
   buildBridgeTwiml,
   buildVoiceTwiml,
   createTwilioClient,
+  deleteRecording,
   listAvailableLocalNumbers,
   placeBridgeCall,
   provisionNumber,
@@ -31,17 +32,22 @@ function fakeClient(opts: {
   messageCreateImpl?: (params: unknown) => Promise<unknown>;
   callCreateResult?: { sid: string; status: string };
   callCreateImpl?: (params: unknown) => Promise<unknown>;
+  recordingRemoveImpl?: () => Promise<void>;
   listSpy?: ReturnType<typeof vi.fn>;
   createSpy?: ReturnType<typeof vi.fn>;
   removeSpy?: ReturnType<typeof vi.fn>;
   messageCreateSpy?: ReturnType<typeof vi.fn>;
   callCreateSpy?: ReturnType<typeof vi.fn>;
+  recordingRemoveSpy?: ReturnType<typeof vi.fn>;
 }): TwilioClientLike {
   const list = opts.listSpy ?? vi.fn(async () => opts.listResult ?? []);
   const create =
     opts.createSpy ??
     vi.fn(async () => opts.createResult ?? { sid: "PNxxx", phoneNumber: "+15555550100" });
   const remove = opts.removeSpy ?? vi.fn(opts.removeImpl ?? (async () => undefined));
+  const recordingRemove =
+    opts.recordingRemoveSpy ??
+    vi.fn(opts.recordingRemoveImpl ?? (async () => undefined));
   const messageCreate =
     opts.messageCreateSpy ??
     vi.fn(
@@ -64,6 +70,9 @@ function fakeClient(opts: {
   return {
     availablePhoneNumbers: (_country: string) => ({ local: { list } }),
     incomingPhoneNumbers,
+    // `recordings` mirrors `incomingPhoneNumbers`'s single-resource callable
+    // shape: `client.recordings(sid).remove()` hard-deletes the recording.
+    recordings: (_sid: string) => ({ remove: recordingRemove }),
     messages: { create: messageCreate },
     calls: { create: callCreate },
   } as TwilioClientLike;
@@ -183,6 +192,57 @@ describe("releaseNumber", () => {
   it("rejects an empty sid (programming-error guard)", async () => {
     const client = fakeClient({});
     await expect(releaseNumber(client, "")).rejects.toThrow(/sid/i);
+  });
+});
+
+// Slice 10 (#313) — voicemail deletion. Deleting a voicemail hard-deletes the
+// recording on Twilio's side (PRD #304 story 54 — Nookleus owns retention).
+// `deleteRecording` mirrors `releaseNumber`: a thin wrapper over the SDK's
+// `client.recordings(sid).remove()` that the canManage-gated DELETE route
+// calls before removing the DB row.
+describe("deleteRecording", () => {
+  it("invokes the Twilio remove() on the named recording sid", async () => {
+    const recordingRemoveSpy = vi.fn(async () => undefined);
+    const client = fakeClient({ recordingRemoveSpy });
+
+    await deleteRecording(client, "REabc");
+
+    expect(recordingRemoveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates non-not-found errors from the SDK (caller surfaces them as 502)", async () => {
+    const client = fakeClient({
+      recordingRemoveImpl: async () => {
+        throw Object.assign(new Error("twilio: 503 service unavailable"), {
+          status: 503,
+        });
+      },
+    });
+
+    await expect(deleteRecording(client, "REzzz")).rejects.toThrow(/503/);
+  });
+
+  it("treats Twilio's already-deleted recording (404 / code 20404) as success so a DELETE retry can clear the orphaned DB row", async () => {
+    // Scenario: a prior DELETE hard-deleted the recording on Twilio, then the
+    // DB row-delete failed (500). The admin retries; Twilio now 404s the
+    // remove() of the already-gone recording. deleteRecording must swallow it
+    // (resolve) so the route falls through to clear the row, instead of
+    // 502-looping forever on a recording that no longer exists.
+    const recordingRemoveSpy = vi.fn(async () => {
+      throw Object.assign(new Error("The requested resource was not found"), {
+        status: 404,
+        code: 20404,
+      });
+    });
+    const client = fakeClient({ recordingRemoveSpy });
+
+    await expect(deleteRecording(client, "REgone")).resolves.toBeUndefined();
+    expect(recordingRemoveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an empty sid (programming-error guard)", async () => {
+    const client = fakeClient({});
+    await expect(deleteRecording(client, "")).rejects.toThrow(/sid/i);
   });
 });
 
@@ -587,5 +647,49 @@ describe("placeBridgeCall", () => {
         twiml: "<Response><Dial><Number>+15551234567</Number></Dial></Response>",
       }),
     ).rejects.toThrow(/21215/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 9 (#313) — Voicemail + auto-transcription. The voicemail branch of
+// buildVoiceTwiml grows the <Record> callback wiring: Twilio posts the
+// finished recording to the voicemail-completed webhook (recordingStatusCallback)
+// and the auto-transcription to the transcription-completed webhook
+// (transcribeCallback). The two callback URLs are injected through
+// VoiceTwimlOptions so the route supplies them from env (mirroring
+// PHONE_STATUS_CALLBACK_URL for SMS) and the builder stays pure.
+// ---------------------------------------------------------------------------
+describe("buildVoiceTwiml — voicemail recording callbacks (#313)", () => {
+  it("wires <Record recordingStatusCallback> to the voicemail-completed URL", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "voicemail" },
+      {
+        recordingStatusCallback:
+          "https://app.example.com/api/phone/webhook/voicemail-completed",
+      },
+    );
+    expect(xml).toContain(
+      'recordingStatusCallback="https://app.example.com/api/phone/webhook/voicemail-completed"',
+    );
+  });
+
+  it("enables transcription and wires <Record transcribeCallback> to the transcription-completed URL", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "voicemail" },
+      {
+        transcribeCallback:
+          "https://app.example.com/api/phone/webhook/transcription-completed",
+      },
+    );
+    expect(xml).toContain('transcribe="true"');
+    expect(xml).toContain(
+      'transcribeCallback="https://app.example.com/api/phone/webhook/transcription-completed"',
+    );
+  });
+
+  it("plays a beep and caps the recording length (voicemail UX defaults, no options needed)", () => {
+    const xml = buildVoiceTwiml({ kind: "voicemail" });
+    expect(xml).toContain('playBeep="true"');
+    expect(xml).toContain('maxLength="120"');
   });
 });

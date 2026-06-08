@@ -199,7 +199,16 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     }
   }
 
-  const twiml = buildVoiceTwiml(result, { callerId: toE164 });
+  // Slice 9 (#313) — voicemail callback URLs. Passed on every call (the
+  // builder ignores them in the dial branches); the <Record> verb in the
+  // voicemail branch posts the finished recording to voicemail-completed and
+  // the auto-transcription to transcription-completed. Fully-qualified URLs
+  // from env, mirroring PHONE_STATUS_CALLBACK_URL for outbound SMS.
+  const twiml = buildVoiceTwiml(result, {
+    callerId: toE164,
+    recordingStatusCallback: process.env.PHONE_VOICEMAIL_CALLBACK_URL || undefined,
+    transcribeCallback: process.env.PHONE_TRANSCRIPTION_CALLBACK_URL || undefined,
+  });
 
   // 4. Persist the ringing call row, threaded on the conversation.
   await ingestInboundCall({

@@ -16,6 +16,7 @@ import { describe, it, expect } from "vitest";
 import { createFakeTwilioClient } from "./fake-twilio-client";
 import {
   buildBridgeTwiml,
+  deleteRecording,
   listAvailableLocalNumbers,
   placeBridgeCall,
   provisionNumber,
@@ -122,5 +123,13 @@ describe("createFakeTwilioClient — calls.create (outbound bridge call, #314)",
     expect(result.sid).toMatch(/^CA/);
     expect(result.sid.length).toBeGreaterThan(2);
     expect(result.status).toBe("queued");
+  });
+});
+
+describe("createFakeTwilioClient — recordings(sid).remove (voicemail delete)", () => {
+  it("resolves with no error (no-op)", async () => {
+    const client = createFakeTwilioClient();
+
+    await expect(deleteRecording(client, "REfake")).resolves.toBeUndefined();
   });
 });

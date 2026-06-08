@@ -257,7 +257,13 @@ describe("usePhoneSync — phone_calls (outbound bridge call, #314)", () => {
   function findCall(
     ch: FakeChannel,
     event: "INSERT" | "UPDATE",
-  ): [unknown, Record<string, unknown>, (p: { new: Record<string, unknown> }) => void] | undefined {
+  ):
+    | [
+        unknown,
+        Record<string, unknown>,
+        (p: { new: Record<string, unknown> }) => void,
+      ]
+    | undefined {
     return ch.on.mock.calls.find(
       (c) =>
         (c[1] as Record<string, unknown>).table === "phone_calls" &&
@@ -365,5 +371,93 @@ describe("usePhoneSync — phone_calls (outbound bridge call, #314)", () => {
       (c) => (c[1] as Record<string, unknown>).table === "phone_calls",
     );
     expect(callRegs).toHaveLength(0);
+  });
+});
+
+// Slice 9 (#313) — voicemail transcription lands asynchronously: the
+// transcription-completed webhook UPDATEs the phone_voicemails row long after
+// the call row first rendered. The open thread must flip "Transcribing…" to
+// the transcript text in realtime, so the hook grows an optional
+// `onVoicemailUpdate` callback that registers a subscription on
+// `phone_voicemails` UPDATEs for the active org. Callers that don't want it
+// (Job-page Messages) pass none and register no such subscription.
+describe("usePhoneSync — onVoicemailUpdate (#313)", () => {
+  it("registers a phone_voicemails UPDATE subscription and fires onVoicemailUpdate with the updated row", () => {
+    const supabase = fakeSupabase();
+    const onVoicemailUpdate = vi.fn();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+        onVoicemailUpdate,
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    expect(ch.on).toHaveBeenCalledWith(
+      "postgres_changes",
+      expect.objectContaining({
+        event: "UPDATE",
+        schema: "public",
+        table: "phone_voicemails",
+        filter: "organization_id=eq.org-1",
+      }),
+      expect.any(Function),
+    );
+
+    // Find the voicemail-UPDATE handler (not the phone_messages INSERT) and
+    // simulate the transcription-completed webhook's UPDATE arriving.
+    const vmCall = ch.on.mock.calls.find(
+      (c) =>
+        (c[1] as { table?: string }).table === "phone_voicemails" &&
+        (c[1] as { event?: string }).event === "UPDATE",
+    );
+    expect(vmCall).toBeDefined();
+    const handler = vmCall![2] as (payload: {
+      new: Record<string, unknown>;
+    }) => void;
+
+    act(() => {
+      handler({
+        new: {
+          id: "vm-1",
+          organization_id: "org-1",
+          phone_call_id: "call-1",
+          audio_storage_path: "org-1/rec-1.mp3",
+          transcript: "Call me back.",
+          transcript_status: "ready",
+          duration_seconds: 12,
+        },
+      });
+    });
+
+    expect(onVoicemailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "vm-1",
+        phone_call_id: "call-1",
+        transcript: "Call me back.",
+        transcript_status: "ready",
+      }),
+    );
+  });
+
+  it("registers no phone_voicemails subscription when onVoicemailUpdate is omitted", () => {
+    const supabase = fakeSupabase();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    const vmCall = ch.on.mock.calls.find(
+      (c) => (c[1] as { table?: string }).table === "phone_voicemails",
+    );
+    expect(vmCall).toBeUndefined();
   });
 });
