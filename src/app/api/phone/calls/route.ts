@@ -35,9 +35,12 @@ import {
 //      present as caller ID (owned-number safety; 422).
 //   4. Profile-cell gate — refuse if the caller has no cell to ring (422).
 //   5. TCPA opt-out — refuse before any Twilio call (403).
-//   6. Twilio dispatch BEFORE the DB write — we never want a phone_calls
+//   6. Job-ownership gate — if a `{ kind:'job' }` source is given, refuse
+//      unless the Job exists and belongs to the caller's org (#531; 422),
+//      before Twilio and before any DB write.
+//   7. Twilio dispatch BEFORE the DB write — we never want a phone_calls
 //      row claiming a dispatch that didn't happen (502 on Twilio error).
-//   7. Insert the phone_calls row (direction='out', initiated_by_user_id).
+//   8. Insert the phone_calls row (direction='out', initiated_by_user_id).
 //
 // The Twilio call lifecycle is tracked by the existing voice-status webhook
 // keyed on CallSid — generic over inbound/outbound, so the outbound row is
@@ -200,6 +203,29 @@ export const POST = withRequestContext(
       );
     }
 
+    // Job-ownership gate (#531). A `{ kind:'job' }` source writes its jobId
+    // into job_tag, which carries a foreign key to jobs(id). Confirm the Job
+    // exists AND belongs to the caller's org BEFORE Twilio and before any DB
+    // write — a single query filtered by id + organization_id refuses both a
+    // non-existent id (orphan call: rings, then the FK insert fails) and a
+    // cross-org id (a row tagged to another org's Job). The happy path never
+    // hits this: the Job-page Call button always sends a valid in-org id.
+    const source = parseSourceContext(body.sourceContext);
+    if (source.kind === "job") {
+      const { data: job } = await ctx.serviceClient!
+        .from("jobs")
+        .select("id, organization_id")
+        .eq("id", source.jobId)
+        .eq("organization_id", ctx.orgId)
+        .maybeSingle<{ id: string; organization_id: string }>();
+      if (!job) {
+        return NextResponse.json(
+          { error: "Job not found in this organization." },
+          { status: 422 },
+        );
+      }
+    }
+
     // Resolve the conversation_id we'll write under — upsert by
     // (phone_number_id, outside_e164), the natural key from migration-308.
     let conversationId: string;
@@ -231,8 +257,8 @@ export const POST = withRequestContext(
 
     // Smart-attach. A Job-page Call auto-tags to that Job; Phone-tab /
     // Contact-card calls are untagged. The rule is given the conversation's
-    // contact + their Active jobs for the non-Job sources.
-    const source = parseSourceContext(body.sourceContext);
+    // contact + their Active jobs for the non-Job sources. (`source` was
+    // parsed and ownership-checked above, before Twilio.)
     let activeJobs: ActiveJob[] = [];
     let contactId: string | null = null;
     if (source.kind === "phone-tab" || source.kind === "contact-card") {

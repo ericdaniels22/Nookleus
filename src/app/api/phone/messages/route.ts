@@ -270,6 +270,30 @@ export const POST = withRequestContext(
       );
     }
 
+    // Job-ownership gate (#531). A `{ kind:'job' }` source writes its jobId
+    // into job_tag, which carries a foreign key to jobs(id). Confirm the Job
+    // exists AND belongs to the caller's org BEFORE Twilio and before any DB
+    // write — a single query filtered by id + organization_id refuses both a
+    // non-existent id (orphan send: the text goes out, then the FK insert
+    // fails) and a cross-org id (a row tagged to another org's Job). The
+    // happy path never hits this: the Job-page Text button always sends a
+    // valid in-org id.
+    const source = parseSourceContext(body.sourceContext);
+    if (source.kind === "job") {
+      const { data: job } = await ctx.serviceClient!
+        .from("jobs")
+        .select("id, organization_id")
+        .eq("id", source.jobId)
+        .eq("organization_id", ctx.orgId)
+        .maybeSingle<{ id: string; organization_id: string }>();
+      if (!job) {
+        return NextResponse.json(
+          { error: "Job not found in this organization." },
+          { status: 422 },
+        );
+      }
+    }
+
     // Resolve the conversation_id we'll write under. Upsert by
     // (phone_number_id, outside_e164) — slice 4 wrote the unique
     // constraint on that pair.
@@ -302,8 +326,8 @@ export const POST = withRequestContext(
 
     // Smart-attach. Slice 5 only ever sees the outbound sources
     // 'phone-tab' / 'contact-card' (Job-page Text is slice 7). The rule
-    // covers all three.
-    const source = parseSourceContext(body.sourceContext);
+    // covers all three. (`source` was parsed and ownership-checked above,
+    // before Twilio.)
     let activeJobs: ActiveJob[] = [];
     let contactId: string | null = null;
     if (source.kind === "phone-tab" || source.kind === "contact-card") {

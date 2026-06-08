@@ -692,6 +692,17 @@ describe("POST /api/phone/messages — Job-page auto-tag (#311)", () => {
     authed("user-1", "crew_lead");
     const { client, inserts } = makeServiceClient({
       phone_numbers: [SHARED_NUM_ROW],
+      // The Job must exist in the caller's org — the #531 ownership gate
+      // refuses an unknown / cross-org id before Twilio.
+      jobs: [
+        {
+          id: "job-1",
+          organization_id: ORG,
+          contact_id: "contact-1",
+          job_number: "JOB-001",
+          status: "in_progress",
+        },
+      ],
     });
     vi.mocked(createServiceClient).mockReturnValue(client as never);
 
@@ -795,6 +806,78 @@ describe("POST /api/phone/messages — outbound prompt on a single Active job (#
     // The text is persisted UNTAGGED — the chip is offered, not applied.
     const msgInsert = inserts.find((i) => i.table === "phone_messages");
     expect(msgInsert?.row.job_tag).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7c. Job-ownership gate (#531) — a { kind:'job' } source writes jobId into
+//     job_tag, which carries a foreign key to jobs(id). A crafted cross-org
+//     or non-existent id must be refused with 422 BEFORE Twilio, and no row
+//     may be written. Otherwise: a non-existent id sends the text, then the
+//     FK insert fails into an orphan; a cross-org id succeeds and tags the
+//     row to another organization's Job. Defense in depth — the Job-page
+//     Text button only ever sends a valid in-org id.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/messages — job-ownership gate (#531)", () => {
+  it("refuses with 422 and never calls Twilio when the jobId belongs to another org", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts, upserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+      jobs: [
+        {
+          id: "job-x",
+          organization_id: "org-2",
+          contact_id: "contact-x",
+          job_number: "JOB-X",
+          status: "in_progress",
+        },
+      ],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "On our way",
+        sourceContext: { kind: "job", jobId: "job-x" },
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(422);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+    expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
+    // "no DB row written" covers every mutation — the guard refuses BEFORE
+    // the conversation upsert, so not even a phone_conversations row appears.
+    expect(
+      upserts.find((u) => u.table === "phone_conversations"),
+    ).toBeUndefined();
+  });
+
+  it("refuses with 422 and never calls Twilio when the jobId does not exist (no orphan send)", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts, upserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+      jobs: [], // no Job at all — a crafted / stale id
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "On our way",
+        sourceContext: { kind: "job", jobId: "job-does-not-exist" },
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(422);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+    expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
+    expect(
+      upserts.find((u) => u.table === "phone_conversations"),
+    ).toBeUndefined();
   });
 });
 
