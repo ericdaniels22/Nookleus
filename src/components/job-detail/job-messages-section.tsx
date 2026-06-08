@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MessageSquare, Send } from "lucide-react";
+import { MessageSquare, Phone, Send } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { createClient } from "@/lib/supabase";
 import { findContactByPhone, formatPhoneNumber } from "@/lib/phone";
@@ -9,6 +9,7 @@ import { isPhoneOutboundEnabled } from "@/lib/phone/feature-flags";
 import { usePhoneSync } from "@/lib/phone/use-phone-sync";
 import { JobMessageRow } from "@/components/phone/job-message-row";
 import { ComposeTextModal } from "@/components/phone/compose-text-modal";
+import { ComposeCallModal } from "@/components/phone/compose-call-modal";
 import type { PhoneAttachmentRef } from "@/components/phone/message-attachment";
 
 // PRD #304 — Nookleus Phone. Slice 7 (#311) — Job-page Messages (N) section.
@@ -49,12 +50,19 @@ export function JobMessagesSection({
   const canView = !loading && hasPermission("view_phone");
   const [messages, setMessages] = useState<JobMessage[]>([]);
   const [composeOpen, setComposeOpen] = useState(false);
+  // Slice 10 (#314) — Job-page Call compose.
+  const [callOpen, setCallOpen] = useState(false);
 
   // Only contacts with a phone number can be texted; the Text button is
   // hidden when there's no one to text or while outbound SMS is gated
   // (#305 A2P 10DLC).
   const textableContacts = contacts.filter((c) => c.phone);
   const canText = isPhoneOutboundEnabled() && textableContacts.length > 0;
+  // Slice 10 (#314) — calling has the same callable-contact requirement but
+  // NO A2P 10DLC gate (voice carries no 10DLC dependency), so the Call
+  // button shows for any view_phone user with a callable contact.
+  const callableContacts = textableContacts;
+  const canCall = callableContacts.length > 0;
 
   const fetchMessages = useCallback(async () => {
     const res = await fetch(
@@ -93,15 +101,26 @@ export function JobMessagesSection({
           <MessageSquare size={16} className="inline mr-2 -mt-0.5" />
           Messages ({messages.length})
         </h3>
-        {canText && (
-          <button
-            onClick={() => setComposeOpen(true)}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-colors gap-1.5"
-          >
-            <Send size={14} />
-            Text
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canCall && (
+            <button
+              onClick={() => setCallOpen(true)}
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 border border-border bg-background text-foreground shadow-sm hover:bg-accent transition-colors gap-1.5"
+            >
+              <Phone size={14} />
+              Call
+            </button>
+          )}
+          {canText && (
+            <button
+              onClick={() => setComposeOpen(true)}
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-colors gap-1.5"
+            >
+              <Send size={14} />
+              Text
+            </button>
+          )}
+        </div>
       </div>
       <ComposeTextModal
         open={composeOpen}
@@ -109,6 +128,12 @@ export function JobMessagesSection({
         jobId={jobId}
         contacts={textableContacts}
         onSent={fetchMessages}
+      />
+      <ComposeCallModal
+        open={callOpen}
+        onClose={() => setCallOpen(false)}
+        jobId={jobId}
+        contacts={callableContacts}
       />
       {messages.length > 0 && (
         <div className="space-y-2">

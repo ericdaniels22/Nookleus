@@ -111,5 +111,24 @@ export function createFakeTwilioClient(): TwilioClientLike {
         };
       },
     },
+    // Slice 10 (#314) — outbound bridge call. Mirrors Twilio's
+    // `calls.create`: a CA-prefixed SID and an initial 'queued' status. The
+    // demo provider never actually rings a phone; the voice-status webhook
+    // can be driven by the dev simulate route to advance the lifecycle.
+    calls: {
+      async create(_opts: {
+        from: string;
+        to: string;
+        twiml: string;
+        statusCallback?: string;
+        statusCallbackEvent?: string[];
+        statusCallbackMethod?: string;
+      }) {
+        return {
+          sid: `CA${fakeSidTail()}`,
+          status: "queued",
+        };
+      },
+    },
   };
 }

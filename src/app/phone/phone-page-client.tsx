@@ -126,6 +126,9 @@ export function PhonePageClient({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Slice 10 (#314) — outbound bridge call in flight + its error, if any.
+  const [calling, setCalling] = useState(false);
+  const [callError, setCallError] = useState<string | null>(null);
   const [retagMenuFor, setRetagMenuFor] = useState<string | null>(null);
   // Slice 6 (#310) — staged MMS attachments + the file input ref the
   // paperclip button hands clicks to.
@@ -432,6 +435,73 @@ export function PhonePageClient({
     }
   }, [selected, draft, readyAttachments, anyUploading, attachments]);
 
+  // Slice 10 (#314) — place an outbound bridge call from the open thread.
+  // Twilio rings the Crew Lead's own cell (resolved server-side from their
+  // profile) and bridges to the customer with the Nookleus number as caller
+  // ID. The route returns the queued phone_calls row; we insert it
+  // optimistically as the in-flight indicator, and the status-callback
+  // webhook advances it live via the phone_calls realtime UPDATE below.
+  //
+  // No A2P 10DLC gate — voice has no 10DLC dependency, so Call is available
+  // wherever the Phone tab (view_phone) is, regardless of the SMS flag.
+  const onCall = useCallback(async () => {
+    if (!selected || calling) return;
+    setCalling(true);
+    setCallError(null);
+    try {
+      const res = await fetch("/api/phone/calls", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: selected.id,
+          sourceContext: { kind: "phone-tab" },
+        }),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setCallError(errBody.error ?? `Call failed (${res.status})`);
+        return;
+      }
+      const created = (await res.json()) as {
+        id: string;
+        conversationId: string;
+        twilio_call_sid: string;
+        status: string;
+      };
+      const now = new Date().toISOString();
+      // Dedupe: the realtime INSERT echo for this same row may have beaten
+      // this optimistic insert (the mirror of onNewCall's own guard). Append
+      // only if it isn't already present, or the call shows twice.
+      setCalls((prev) =>
+        prev.some((c) => c.id === created.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: created.id,
+                conversation_id: selected.id,
+                direction: "out",
+                status: created.status,
+                duration_seconds: null,
+                started_at: now,
+                ended_at: null,
+              },
+            ],
+      );
+      setConversations((prev) =>
+        sortConversations(
+          prev.map((c) =>
+            c.id === selected.id ? { ...c, last_event_at: now } : c,
+          ),
+        ),
+      );
+    } finally {
+      setCalling(false);
+    }
+  }, [selected, calling]);
+
   // Realtime: when a new inbound lands, reload the affected thread and
   // bump the conversation in the list. Slice 4's update is intentionally
   // coarse — a full thread re-fetch on each incoming message — because
@@ -459,6 +529,45 @@ export function PhonePageClient({
         );
         return sortConversations(next);
       });
+    },
+    // Slice 10 (#314) — a call placed elsewhere (or an inbound ring) for the
+    // open thread arrives as an INSERT; add it if not already present
+    // (our own optimistic insert may have beaten the realtime echo).
+    onNewCall: (row) => {
+      if (selectedId !== row.conversation_id) return;
+      setCalls((prev) =>
+        prev.some((c) => c.id === row.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: row.id,
+                conversation_id: row.conversation_id,
+                direction: row.direction,
+                status: row.status,
+                duration_seconds: row.duration_seconds,
+                started_at: row.started_at,
+                ended_at: row.ended_at,
+              },
+            ],
+      );
+    },
+    // Slice 10 (#314) — the status-callback webhook stamps status /
+    // duration / ended_at; patch the in-flight row in place so it advances
+    // queued → ringing → in_progress → completed without a refetch.
+    onCallUpdate: (row) => {
+      setCalls((prev) =>
+        prev.map((c) =>
+          c.id === row.id
+            ? {
+                ...c,
+                status: row.status,
+                duration_seconds: row.duration_seconds,
+                ended_at: row.ended_at,
+              }
+            : c,
+        ),
+      );
     },
   });
 
@@ -664,16 +773,36 @@ export function PhonePageClient({
               <div className="font-medium text-foreground">
                 {conversationLabel(selected)}
               </div>
-              {selected.contact_id === null ? (
+              <div className="flex items-center gap-4">
+                {/* Slice 10 (#314) — Call. No A2P 10DLC gate (voice has no
+                    10DLC dependency); shown wherever the Phone tab is. */}
                 <button
                   type="button"
-                  onClick={onSaveAsContact}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                  onClick={() => void onCall()}
+                  disabled={calling}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline disabled:opacity-50"
                 >
-                  <UserPlus size={16} /> Save as Contact
+                  <PhoneIcon size={16} /> Call
                 </button>
-              ) : null}
+                {selected.contact_id === null ? (
+                  <button
+                    type="button"
+                    onClick={onSaveAsContact}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                  >
+                    <UserPlus size={16} /> Save as Contact
+                  </button>
+                ) : null}
+              </div>
             </header>
+            {callError ? (
+              <p
+                role="alert"
+                className="border-b border-border px-4 py-2 text-sm text-red-600 dark:text-red-400"
+              >
+                {callError}
+              </p>
+            ) : null}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {loadingThread ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>

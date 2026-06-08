@@ -26,11 +26,21 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
 // keeps `createClient()` from reading process.env at module-eval time.
 vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
-    channel: () => ({
-      on: () => ({ subscribe: () => ({ unsubscribe: () => undefined }) }),
-      subscribe: () => ({ unsubscribe: () => undefined }),
-      unsubscribe: () => undefined,
-    }),
+    // The realtime hook chains `.on()` once per subscription (phone_messages
+    // INSERT, plus phone_calls INSERT/UPDATE since slice 10), so `.on()` must
+    // return the channel itself to stay chainable.
+    channel: () => {
+      const ch: {
+        on: () => typeof ch;
+        subscribe: () => { unsubscribe: () => void };
+        unsubscribe: () => void;
+      } = {
+        on: () => ch,
+        subscribe: () => ({ unsubscribe: () => undefined }),
+        unsubscribe: () => undefined,
+      };
+      return ch;
+    },
   }),
 }));
 

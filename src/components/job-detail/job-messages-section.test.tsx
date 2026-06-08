@@ -13,7 +13,13 @@
 // and fetch (the GET /api/phone/messages?jobId= read).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 const auth = vi.hoisted(() => ({
   value: {
@@ -238,6 +244,78 @@ describe("JobMessagesSection — Text button", () => {
 
     await screen.findByText("Messages (0)");
     expect(screen.queryByRole("button", { name: /^text$/i })).toBeNull();
+  });
+});
+
+// Slice 10 (#314) — Job-page Call button. Sits alongside Text, but is NOT
+// gated on the A2P 10DLC flag (voice has no 10DLC dependency). Opening it
+// and placing the call POSTs to /api/phone/calls with the Job smart-attach
+// source so the call auto-tags to this Job.
+describe("JobMessagesSection — Call button (#314)", () => {
+  it("shows the Call button even when outbound SMS is flag-disabled", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PHONE_OUTBOUND_ENABLED", "");
+    asViewPhone();
+    stubMessages([]);
+
+    render(
+      <JobMessagesSection
+        jobId="job-1"
+        organizationId="org-1"
+        contacts={contacts}
+      />,
+    );
+
+    await screen.findByText("Messages (0)");
+    // Text is hidden (SMS gated), Call is present (voice ungated).
+    expect(screen.queryByRole("button", { name: /^text$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^call$/i })).toBeDefined();
+  });
+
+  it("Call → place posts to /api/phone/calls with the Job smart-attach source", async () => {
+    asViewPhone();
+    const spy = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.startsWith("/api/phone/calls") && method === "POST") {
+        return new Response(
+          JSON.stringify({ id: "call-1", twilio_call_sid: "CA-1", status: "queued" }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", spy);
+
+    render(
+      <JobMessagesSection
+        jobId="job-1"
+        organizationId="org-1"
+        contacts={contacts}
+      />,
+    );
+
+    await screen.findByText("Messages (0)");
+    fireEvent.click(screen.getByRole("button", { name: /^call$/i }));
+    // The Call dialog opens with the contact; place the call from within it
+    // (the header also has a Call button, so scope to the dialog).
+    const dialog = screen.getByRole("dialog", { name: /call a contact/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^call$/i }));
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find(
+        ([u, init]) =>
+          String(u).startsWith("/api/phone/calls") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(post).toBeDefined();
+      const body = JSON.parse(String((post![1] as RequestInit).body));
+      expect(body).toMatchObject({
+        outsideE164: "+15125550001",
+        sourceContext: { kind: "job", jobId: "job-1" },
+      });
+    });
   });
 });
 

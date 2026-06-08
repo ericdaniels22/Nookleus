@@ -243,3 +243,127 @@ describe("usePhoneSync — onMessageUpdate (re-tag)", () => {
     );
   });
 });
+
+// Slice 10 (#314) — outbound bridge calling. The Phone-tab thread shows an
+// in-flight indicator for an outbound call and must flip it live as the
+// status-callback webhook advances the `phone_calls` row (queued → ringing →
+// in_progress → completed). That's a `phone_calls` UPDATE; a brand-new call
+// (e.g. one this user placed from another device, or an inbound ring) is a
+// `phone_calls` INSERT. The hook grows two optional callbacks — `onNewCall`
+// (INSERT) and `onCallUpdate` (UPDATE) — that register additional
+// subscriptions only when supplied. Callers that pass neither (the Job-page
+// section) keep exactly their phone_messages subscriptions.
+describe("usePhoneSync — phone_calls (outbound bridge call, #314)", () => {
+  function findCall(
+    ch: FakeChannel,
+    event: "INSERT" | "UPDATE",
+  ): [unknown, Record<string, unknown>, (p: { new: Record<string, unknown> }) => void] | undefined {
+    return ch.on.mock.calls.find(
+      (c) =>
+        (c[1] as Record<string, unknown>).table === "phone_calls" &&
+        (c[1] as Record<string, unknown>).event === event,
+    ) as never;
+  }
+
+  it("registers a phone_calls INSERT subscription and fires onNewCall with the row", () => {
+    const supabase = fakeSupabase();
+    const onNewCall = vi.fn();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+        onNewCall,
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    const reg = findCall(ch, "INSERT");
+    expect(reg).toBeDefined();
+    expect(reg![1]).toEqual(
+      expect.objectContaining({
+        event: "INSERT",
+        schema: "public",
+        table: "phone_calls",
+        filter: "organization_id=eq.org-1",
+      }),
+    );
+
+    act(() => {
+      reg![2]({
+        new: {
+          id: "call-1",
+          organization_id: "org-1",
+          conversation_id: "conv-1",
+          direction: "out",
+          status: "queued",
+        },
+      });
+    });
+    expect(onNewCall).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "call-1", status: "queued" }),
+    );
+  });
+
+  it("registers a phone_calls UPDATE subscription and fires onCallUpdate with the row", () => {
+    const supabase = fakeSupabase();
+    const onCallUpdate = vi.fn();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+        onCallUpdate,
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    const reg = findCall(ch, "UPDATE");
+    expect(reg).toBeDefined();
+    expect(reg![1]).toEqual(
+      expect.objectContaining({
+        event: "UPDATE",
+        schema: "public",
+        table: "phone_calls",
+        filter: "organization_id=eq.org-1",
+      }),
+    );
+
+    act(() => {
+      reg![2]({
+        new: {
+          id: "call-1",
+          organization_id: "org-1",
+          conversation_id: "conv-1",
+          direction: "out",
+          status: "completed",
+          duration_seconds: 30,
+        },
+      });
+    });
+    expect(onCallUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "call-1", status: "completed" }),
+    );
+  });
+
+  it("registers no phone_calls subscription when neither call callback is supplied", () => {
+    const supabase = fakeSupabase();
+
+    renderHook(() =>
+      usePhoneSync({
+        supabase: supabase as never,
+        organizationId: "org-1",
+        onNewMessage: vi.fn(),
+        onMessageUpdate: vi.fn(),
+      }),
+    );
+
+    const ch = supabase.channels[0];
+    const callRegs = ch.on.mock.calls.filter(
+      (c) => (c[1] as Record<string, unknown>).table === "phone_calls",
+    );
+    expect(callRegs).toHaveLength(0);
+  });
+});

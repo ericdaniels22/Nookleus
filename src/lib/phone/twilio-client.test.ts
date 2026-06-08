@@ -12,9 +12,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  buildBridgeTwiml,
   buildVoiceTwiml,
   createTwilioClient,
   listAvailableLocalNumbers,
+  placeBridgeCall,
   provisionNumber,
   releaseNumber,
   sendSms,
@@ -27,10 +29,13 @@ function fakeClient(opts: {
   removeImpl?: () => Promise<void>;
   messageCreateResult?: { sid: string; status: string };
   messageCreateImpl?: (params: unknown) => Promise<unknown>;
+  callCreateResult?: { sid: string; status: string };
+  callCreateImpl?: (params: unknown) => Promise<unknown>;
   listSpy?: ReturnType<typeof vi.fn>;
   createSpy?: ReturnType<typeof vi.fn>;
   removeSpy?: ReturnType<typeof vi.fn>;
   messageCreateSpy?: ReturnType<typeof vi.fn>;
+  callCreateSpy?: ReturnType<typeof vi.fn>;
 }): TwilioClientLike {
   const list = opts.listSpy ?? vi.fn(async () => opts.listResult ?? []);
   const create =
@@ -43,6 +48,12 @@ function fakeClient(opts: {
       opts.messageCreateImpl ??
         (async () => opts.messageCreateResult ?? { sid: "SMabc", status: "queued" }),
     );
+  const callCreate =
+    opts.callCreateSpy ??
+    vi.fn(
+      opts.callCreateImpl ??
+        (async () => opts.callCreateResult ?? { sid: "CAabc", status: "queued" }),
+    );
   // Twilio SDK shape: `incomingPhoneNumbers` is callable (sid) → resource AND
   // has a `.create` method. We replicate that surface here so the helper
   // can stay byte-identical between fake and real client.
@@ -54,6 +65,7 @@ function fakeClient(opts: {
     availablePhoneNumbers: (_country: string) => ({ local: { list } }),
     incomingPhoneNumbers,
     messages: { create: messageCreate },
+    calls: { create: callCreate },
   } as TwilioClientLike;
 }
 
@@ -428,5 +440,152 @@ describe("buildVoiceTwiml — voicemail", () => {
     expect(xml).toContain("<Record");
     // No dial leg — the call goes straight to the recorder.
     expect(xml).not.toContain("<Dial");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 10 (#314) — outbound bridge call. `buildBridgeTwiml` is the inline
+// TwiML Twilio executes when the Crew Lead answers their cell: it dials the
+// customer with the Nookleus number presented as caller ID, so the customer
+// NEVER sees the Crew Lead's real cell. This is the caller-ID-spoofing safety
+// property the whole slice rests on. Pure (Twilio SDK's twiml.VoiceResponse
+// for correct XML escaping; no network).
+// ---------------------------------------------------------------------------
+describe("buildBridgeTwiml — outbound bridge (#314)", () => {
+  it("dials the customer as a <Number> with the Nookleus number as caller ID", () => {
+    const xml = buildBridgeTwiml({
+      customerE164: "+15551234567",
+      callerId: "+15125550000",
+    });
+    expect(xml).toContain("<Dial");
+    // The customer's caller ID is the Nookleus number — not the crew lead's cell.
+    expect(xml).toContain('callerId="+15125550000"');
+    expect(xml).toContain("<Number>+15551234567</Number>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 10 (#314) — placeBridgeCall. Rings the Crew Lead's cell (`to`) from
+// the Nookleus number (`from`), executing the inline bridge `twiml` on answer.
+// Returns the outer-leg CallSid + initial status; the route stores that SID so
+// the voice-status webhook can advance the call through its state machine.
+// Mirrors sendSms: E.164 guards before the SDK, errors propagate to the caller.
+// ---------------------------------------------------------------------------
+describe("placeBridgeCall", () => {
+  it("dispatches a Twilio call (cell FROM the Nookleus number, inline bridge twiml) and returns SID + status", async () => {
+    const callCreateSpy = vi.fn(async () => ({ sid: "CAxyz", status: "queued" }));
+    const client = fakeClient({ callCreateSpy });
+
+    const result = await placeBridgeCall(client, {
+      from: "+15125550000",
+      to: "+15129990000",
+      twiml: '<Response><Dial callerId="+15125550000"><Number>+15551234567</Number></Dial></Response>',
+      statusCallback: "https://example.com/voice-status",
+    });
+
+    expect(callCreateSpy).toHaveBeenCalledTimes(1);
+    const payload = (callCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      from: "+15125550000",
+      to: "+15129990000",
+      twiml:
+        '<Response><Dial callerId="+15125550000"><Number>+15551234567</Number></Dial></Response>',
+      statusCallback: "https://example.com/voice-status",
+    });
+    expect(result).toEqual({ sid: "CAxyz", status: "queued" });
+  });
+
+  it("requests the full event list so ringing/answered transitions reach the webhook (not just 'completed')", async () => {
+    // Twilio's default statusCallbackEvent is ['completed'] only. Without the
+    // intermediate events the in-flight thread row would jump straight from
+    // queued to completed — never showing ringing / in-progress. Pin that
+    // placeBridgeCall opts into the whole lifecycle whenever a callback is set.
+    const callCreateSpy = vi.fn(async () => ({ sid: "CAa", status: "queued" }));
+    const client = fakeClient({ callCreateSpy });
+
+    await placeBridgeCall(client, {
+      from: "+15125550000",
+      to: "+15129990000",
+      twiml: "<Response><Dial><Number>+15551234567</Number></Dial></Response>",
+      statusCallback: "https://example.com/voice-status",
+    });
+
+    const payload = (callCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    const events = payload.statusCallbackEvent as string[];
+    expect(events).toEqual(
+      expect.arrayContaining(["initiated", "ringing", "answered", "completed"]),
+    );
+  });
+
+  it("omits statusCallback (and the event list) when no callback URL is provided", async () => {
+    const callCreateSpy = vi.fn(async () => ({ sid: "CAa", status: "queued" }));
+    const client = fakeClient({ callCreateSpy });
+
+    await placeBridgeCall(client, {
+      from: "+15125550000",
+      to: "+15129990000",
+      twiml: "<Response><Dial><Number>+15551234567</Number></Dial></Response>",
+    });
+
+    const payload = (callCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("statusCallback");
+    expect(payload).not.toHaveProperty("statusCallbackEvent");
+  });
+
+  it("rejects when from is not E.164 (caller-ID safety — never dial from a non-owned number shape)", async () => {
+    const client = fakeClient({});
+    await expect(
+      placeBridgeCall(client, {
+        from: "5125550000",
+        to: "+15129990000",
+        twiml: "<Response/>",
+      }),
+    ).rejects.toThrow(/from.*E\.164/);
+  });
+
+  it("rejects when to is not E.164", async () => {
+    const client = fakeClient({});
+    await expect(
+      placeBridgeCall(client, {
+        from: "+15125550000",
+        to: "5129990000",
+        twiml: "<Response/>",
+      }),
+    ).rejects.toThrow(/to.*E\.164/);
+  });
+
+  it("rejects when twiml is empty (a bridge call with no dial leg is a programming error)", async () => {
+    const client = fakeClient({});
+    await expect(
+      placeBridgeCall(client, {
+        from: "+15125550000",
+        to: "+15129990000",
+        twiml: "",
+      }),
+    ).rejects.toThrow(/twiml/i);
+  });
+
+  it("propagates errors from the SDK (caller surfaces as 5xx)", async () => {
+    const client = fakeClient({
+      callCreateImpl: async () => {
+        throw new Error("twilio: 21215 geo-permission not enabled");
+      },
+    });
+    await expect(
+      placeBridgeCall(client, {
+        from: "+15125550000",
+        to: "+15129990000",
+        twiml: "<Response><Dial><Number>+15551234567</Number></Dial></Response>",
+      }),
+    ).rejects.toThrow(/21215/);
   });
 });

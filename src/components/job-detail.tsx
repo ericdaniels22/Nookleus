@@ -8,6 +8,7 @@ import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoT
 import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
 import { partitionPhotoReportsByTrash } from "@/lib/photo-report-trash";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
+import { ClickToCall } from "@/components/phone/click-to-call";
 import { parseDateOnly } from "@/lib/date-field";
 import { OFFICIAL_INVOICE_STATUSES } from "@/lib/invoice-status";
 import FinancialsTab from "@/components/job-detail/financials-tab";
@@ -706,6 +707,16 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                 <p className="text-xs text-muted-foreground">
                   {[formatPhoneNumber(job.contact.phone || ""), job.contact.email].filter(Boolean).join(" \u00b7 ")}
                 </p>
+                {/* Slice 10 (#314) \u2014 Homeowner-card click-to-call. */}
+                {job.contact.phone && (
+                  <div className="mt-1.5">
+                    <ClickToCall
+                      e164={normalizePhoneToE164(job.contact.phone) ?? job.contact.phone}
+                      sourceContext={{ kind: "contact" }}
+                      className="inline-flex items-center gap-1 text-[11px] text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1273,6 +1284,16 @@ function AdjusterCard({
       </div>
       <p className="text-xs text-muted-foreground">{[adj.title, adj.company].filter(Boolean).join(" \u00b7 ")}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{[formatPhoneNumber(adj.phone || ""), adj.email].filter(Boolean).join(" \u00b7 ")}</p>
+      {/* Slice 10 (#314) \u2014 Adjuster-card click-to-call. */}
+      {adj.phone && (
+        <div className="mt-1">
+          <ClickToCall
+            e164={normalizePhoneToE164(adj.phone) ?? adj.phone}
+            sourceContext={{ kind: "contact" }}
+            className="inline-flex items-center gap-1 text-xs text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+          />
+        </div>
+      )}
     </div>
   );
 }

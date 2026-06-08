@@ -64,6 +64,19 @@ export interface TwilioClientLike {
       mediaUrl?: string[];
     }): Promise<{ sid: string; status: string }>;
   };
+  // Slice 10 (#314) — outbound bridge calling. We use the inline-`twiml`
+  // form (TwiML executed on answer) rather than a hosted `url`, so the
+  // customer number never transits a webhook URL.
+  calls: {
+    create(opts: {
+      from: string;
+      to: string;
+      twiml: string;
+      statusCallback?: string;
+      statusCallbackEvent?: string[];
+      statusCallbackMethod?: string;
+    }): Promise<{ sid: string; status: string }>;
+  };
 }
 
 // US 3-digit area codes only. Twilio enforces the same; failing fast here
@@ -307,4 +320,104 @@ export function buildVoiceTwiml(
     vr.record({});
   }
   return vr.toString();
+}
+
+// ---------------------------------------------------------------------------
+// Slice 10 (#314) — outbound bridge call. The Crew Lead clicks Call; Twilio
+// rings their own cell first (a call FROM the Nookleus number), and when they
+// answer, executes the TwiML below to bridge them to the customer. The
+// customer's caller ID is the Nookleus number — the Crew Lead's real cell is
+// never exposed. This is the caller-ID-spoofing safety property of the slice.
+//
+// We pass this TwiML INLINE on `calls.create({ twiml })` rather than hosting a
+// webhook the call fetches: no customer number transits a URL, no extra
+// signature-validated endpoint, and no answer-before-insert race. twilio-client
+// is the only file allowed to import twilio, so the builder lives here.
+// ---------------------------------------------------------------------------
+export interface BridgeTwimlInput {
+  // The customer's number to dial once the Crew Lead answers.
+  customerE164: string;
+  // The Nookleus number presented to the customer as caller ID.
+  callerId: string;
+}
+
+export function buildBridgeTwiml(input: BridgeTwimlInput): string {
+  const vr = new twilio.twiml.VoiceResponse();
+  const dial = vr.dial({ callerId: input.callerId });
+  dial.number(input.customerE164);
+  return vr.toString();
+}
+
+export interface PlaceBridgeCallParams {
+  // The Nookleus number. Caller ID the Crew Lead's cell sees on the leg
+  // Twilio places to them, and (in the bridge twiml) the caller ID the
+  // customer sees. Must be a Twilio-owned number.
+  from: string;
+  // The Crew Lead's own cell — rung first.
+  to: string;
+  // The inline bridge TwiML (from buildBridgeTwiml) executed on answer.
+  twiml: string;
+  // Our voice-status webhook; Twilio POSTs call-state transitions there.
+  statusCallback?: string;
+}
+
+export interface PlaceBridgeCallResult {
+  sid: string;
+  status: string;
+}
+
+/**
+ * Place the outbound bridge call. Rings `to` (the Crew Lead's cell) from
+ * `from` (the Nookleus number); on answer Twilio executes the inline
+ * `twiml` to dial the customer. Returns the outer-leg CallSid + initial
+ * status (typically `'queued'`) — the route stores the SID so the
+ * voice-status webhook can advance the row through ringing → in_progress →
+ * completed.
+ *
+ * E.164 guards mirror sendSms: reject obviously-wrong numbers before the
+ * network round-trip. Errors from the SDK propagate so the route can
+ * surface them as a 502.
+ */
+export async function placeBridgeCall(
+  client: TwilioClientLike,
+  params: PlaceBridgeCallParams,
+): Promise<PlaceBridgeCallResult> {
+  if (!E164_RE.test(params.from)) {
+    throw new Error(
+      `twilio-client: placeBridgeCall from "${params.from}" must be E.164 (e.g. +15125551234)`,
+    );
+  }
+  if (!E164_RE.test(params.to)) {
+    throw new Error(
+      `twilio-client: placeBridgeCall to "${params.to}" must be E.164 (e.g. +15125551234)`,
+    );
+  }
+  if (!params.twiml) {
+    throw new Error("twilio-client: placeBridgeCall requires non-empty twiml");
+  }
+  const payload: {
+    from: string;
+    to: string;
+    twiml: string;
+    statusCallback?: string;
+    statusCallbackEvent?: string[];
+  } = {
+    from: params.from,
+    to: params.to,
+    twiml: params.twiml,
+  };
+  if (params.statusCallback) {
+    payload.statusCallback = params.statusCallback;
+    // Twilio's default is ['completed'] only. Opt into the whole lifecycle
+    // so the row advances ringing → in-progress → completed in the thread,
+    // not a single jump from queued to completed.
+    payload.statusCallbackEvent = [
+      "initiated",
+      "ringing",
+      "answered",
+      "completed",
+    ];
+  }
+  const created = await client.calls.create(payload);
+  return { sid: created.sid, status: created.status };
 }
