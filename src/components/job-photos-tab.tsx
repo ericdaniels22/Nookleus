@@ -77,6 +77,11 @@ export default function JobPhotosTab({
   );
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
 
+  // The always-visible "New report" toolbar button (separate from the bulk bar's
+  // "Create report") has its own open state, so the two "Start from…" menus open
+  // and close independently.
+  const [newReportMenuOpen, setNewReportMenuOpen] = useState(false);
+
   // Cover photo: id of the photo whose "Set as cover" write is in flight
   const [settingCover, setSettingCover] = useState<string | null>(null);
 
@@ -280,22 +285,31 @@ export default function JobPhotosTab({
     setTemplatesLoaded(true);
   }, [templatesLoaded]);
 
-  // Create a Photo Report from the selected photos (#400, #405). Server-side so
-  // the report is numbered per Job and stamped with the real preparer; an
-  // optional template seeds its boilerplate Sections (the selected photos are
-  // appended as a Photos section). On success we open the full-screen, Job-scoped
-  // builder.
-  const handleCreateReport = async (templateId: string | null = null) => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
+  // Create a Photo Report and open the full-screen, Job-scoped builder (#400,
+  // #405). Server-side so the report is numbered per Job and stamped with the
+  // real preparer; an optional template seeds its boilerplate Sections. The
+  // caller passes the photos to include: the bulk bar passes the current
+  // selection, the always-visible toolbar button passes none — a blank start the
+  // user then fills from the builder's photo tray. An empty selection is a valid
+  // blank report (the API treats photoIds as optional), so there is no early
+  // return.
+  const handleCreateReport = async (
+    templateId: string | null,
+    photoIds: string[],
+  ) => {
+    // A create is already in flight: with the old empty-selection early return
+    // gone, nothing else stops a fast double-click on a "Start from…" item from
+    // POSTing a second, separately-numbered report. Bail before re-firing.
+    if (creatingReport) return;
     setReportMenuOpen(false);
+    setNewReportMenuOpen(false);
     setCreatingReport(true);
     try {
       const res = await fetch(`/api/jobs/${jobId}/reports`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photoIds: ids,
+          photoIds,
           ...(templateId ? { templateId } : {}),
         }),
       });
@@ -410,6 +424,34 @@ export default function JobPhotosTab({
           {viewSize === "compact" ? "Comfortable" : "Compact"}
         </button>
 
+        {/* New report (always visible) — starts a blank report; the user adds
+            photos from the builder's tray. The bulk bar's "Create report" is the
+            way to seed a report with the currently selected photos. */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              const next = !newReportMenuOpen;
+              setNewReportMenuOpen(next);
+              if (next) {
+                setReportMenuOpen(false);
+                loadReportTemplates();
+              }
+            }}
+            disabled={creatingReport}
+            className="px-4 py-1.5 rounded-lg border border-border bg-card text-sm font-semibold text-foreground flex items-center gap-1.5 hover:border-muted-foreground/40 transition-colors disabled:opacity-60"
+          >
+            <Plus size={14} />
+            {creatingReport ? "Creating..." : "New report"}
+          </button>
+          {newReportMenuOpen && (
+            <StartFromMenu
+              templates={reportTemplates}
+              templatesLoaded={templatesLoaded}
+              onPick={(id) => handleCreateReport(id, [])}
+            />
+          )}
+        </div>
+
         {/* Upload */}
         <button
           onClick={() => setUploadOpen(true)}
@@ -467,39 +509,21 @@ export default function JobPhotosTab({
               onClick={() => {
                 const next = !reportMenuOpen;
                 setReportMenuOpen(next);
-                if (next) loadReportTemplates();
+                if (next) {
+                  setNewReportMenuOpen(false);
+                  loadReportTemplates();
+                }
               }}
               disabled={creatingReport}
             >
               {creatingReport ? "Creating..." : "Create report"}
             </button>
             {reportMenuOpen && (
-              <div className="absolute top-full left-0 mt-2 bg-card border border-border rounded-lg shadow-lg p-2 min-w-[220px] z-50 text-foreground">
-                <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">
-                  Start from…
-                </p>
-                <button
-                  onClick={() => handleCreateReport(null)}
-                  className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
-                >
-                  Blank report
-                </button>
-                {reportTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => handleCreateReport(t.id)}
-                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-                {templatesLoaded && reportTemplates.length === 0 && (
-                  <p className="text-xs text-muted-foreground/60 px-2 py-1.5">
-                    No templates yet — add them in Settings → Photo Report
-                    Templates.
-                  </p>
-                )}
-              </div>
+              <StartFromMenu
+                templates={reportTemplates}
+                templatesLoaded={templatesLoaded}
+                onPick={(id) => handleCreateReport(id, Array.from(selectedIds))}
+              />
             )}
           </div>
           <button
@@ -706,6 +730,49 @@ export default function JobPhotosTab({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// The "Start from…" popover shared by the Photos tab's two report entry points:
+// the always-visible "New report" toolbar button and the bulk bar's "Create
+// report". Both list Blank + the Organization's templates; only the photos they
+// seed differ (none vs the current selection), which the caller decides via
+// `onPick`. Local to this file — two consumers, not a cross-module helper.
+function StartFromMenu({
+  templates,
+  templatesLoaded,
+  onPick,
+}: {
+  templates: PhotoReportTemplate[];
+  templatesLoaded: boolean;
+  onPick: (templateId: string | null) => void;
+}) {
+  return (
+    <div className="absolute top-full left-0 mt-2 bg-card border border-border rounded-lg shadow-lg p-2 min-w-[220px] z-50 text-foreground">
+      <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">
+        Start from…
+      </p>
+      <button
+        onClick={() => onPick(null)}
+        className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
+      >
+        Blank report
+      </button>
+      {templates.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onPick(t.id)}
+          className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
+        >
+          {t.name}
+        </button>
+      ))}
+      {templatesLoaded && templates.length === 0 && (
+        <p className="text-xs text-muted-foreground/60 px-2 py-1.5">
+          No templates yet — add them in Settings → Photo Report Templates.
+        </p>
       )}
     </div>
   );
