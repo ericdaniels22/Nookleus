@@ -139,12 +139,58 @@ reopened from the Job's Overview tab. There is no standalone reports area.
 _Avoid_: report (ambiguous — there is also the accounting/profitability report), photo log, gallery
 
 **Section** (of a Photo Report):
-One unit of a Photo Report: a heading, a one-page rich-text write-up
-(paragraphs and bullet/numbered lists), and the Photos that illustrate it.
-Renders as an intro page (heading + write-up, capped to one page) followed
-by the photo pages. Distinct from an **Estimate** Section, which is a group
-of priced line items — the two share only the word and no code.
+One unit of a Photo Report: a heading, a rich-text write-up (paragraphs and
+bullet/numbered lists), and the Photos that illustrate it. Renders as an
+optional **Section Title Page** (heading + write-up) followed by its **Photo
+Pages**; the write-up is capped to a length set by the report's
+photos-per-page choice. Distinct from an **Estimate** Section, which is a
+group of priced line items — the two share only the word and no code.
 _Avoid_: chapter, page, group
+
+**Cover Page** (of a Photo Report):
+The first page of a Photo Report — its title, an optional lead Photo (the
+cover photo), and identifying blocks drawn from the Job and Organization
+(logo, customer, property address, point of contact, insurance). Each report
+owns its Cover Page: the title is editable, the cover photo is chosen per
+report, and any block can be hidden. Previously every report's cover was
+fixed and derived wholesale from the Job; it is now a per-report surface (see
+[ADR 0014](docs/adr/0014-photo-reports-carry-per-report-cover-and-layout.md)).
+_Avoid_: title page, front page, splash
+
+**Section Title Page** (of a Photo Report):
+The full page that carries one Section's heading and its write-up, printed
+ahead of that Section's Photo Pages. Optional per report: when a report's
+Report Settings switch Section Title Pages off, the write-up is left out of
+the PDF and the Section is named only by the footer running along its Photo
+Pages. The code calls this `section-divider-page`.
+_Avoid_: section divider, intro page, summary page
+
+**Photo Page** (of a Photo Report):
+A page that lays out a Section's Photos — 2, 3, or 4 to a page per the
+report's Report Settings — each Photo shown with the per-photo details the
+report leaves switched on: its number, who captured it, where ("location
+captured" — the Job's property address, as Photos carry no GPS), when it was
+captured, and its tags. Carries a slim footer (Section name + page number)
+and no running top header.
+_Avoid_: gallery page, grid page, photo grid
+
+**Report Settings** (of a Photo Report):
+The per-report set of look choices a Photo Report renders with — how many
+Photos sit on a Photo Page (2/3/4, which also fixes the Section write-up's
+character cap) and the show/hide switches for Section Title Pages and each
+per-photo detail. A new report copies these from its Organization's **Report
+layout default**; from then on the report keeps its own copy, so changing the
+Organization default never rewrites a report that already exists. Parallel in
+shape to a billing document's **PDF layout** (the per-document copy) versus
+its **PDF preset** (the Organization default it was seeded from) — see
+[ADR 0014](docs/adr/0014-photo-reports-carry-per-report-cover-and-layout.md).
+_Avoid_: report layout (unqualified), report preset, report look
+
+**Report layout default** (of an Organization):
+The Organization-wide default **Report Settings** that every new Photo Report
+is seeded from, set once in Settings. Distinct from a **Photo Report
+template**, which seeds a report's Sections, not its look.
+_Avoid_: company report settings, default report layout, report preset
 
 **Photo Report template**:
 A saved, reusable set of Sections (headings plus optional boilerplate
@@ -235,8 +281,9 @@ _Avoid_: stage, pipeline status, partner status
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
 - An **Estimate** or **Invoice** has zero or one **PDF layout** of its own; with none it renders using its Organization's **default preset**. A document's own layout always wins over the default, resolved by a pure precedence rule, and is locked once the document is frozen (Estimate converted, Invoice paid or voided). A **PDF preset** belongs to one **Organization** and seeds a document's layout; applying one copies its preferences in, it is not a binding link.
-- A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …).
+- A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …). Each Photo Report also owns a per-report **Cover Page** and per-report **Report Settings**, seeded from the Organization at creation (the settings from the **Report layout default**, the cover photo from the Job) and editable per report thereafter — a later change to the Organization default does not rewrite an existing report.
 - A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
+- An **Organization** has one **Report layout default**; it seeds every new Photo Report's **Report Settings** at creation and is not a binding link (the report keeps its own copy). Distinct from a **Photo Report template**, which seeds Sections rather than look.
 
 ## Example dialogue
 

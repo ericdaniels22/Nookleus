@@ -1,6 +1,6 @@
 # Photo Reports are an in-job, section-narrative document
 
-**Status:** Accepted — supersedes [ADR 0003](0003-single-photo-report-layout.md) in part
+**Status:** Accepted — supersedes [ADR 0003](0003-single-photo-report-layout.md) in part. Partly superseded by [ADR 0014](0014-photo-reports-carry-per-report-cover-and-layout.md) (issue #540) — the fixed cover and company-wide photos-per-page it kept become per-report, and the full-screen builder regains the (collapsed) app navigation.
 **Date:** 2026-06-04
 
 ## Context
