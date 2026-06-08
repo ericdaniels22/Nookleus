@@ -113,6 +113,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const [loading, setLoading] = useState(true);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  // The grid's full loaded list, captured when a Photo is opened, so the viewer
+  // (and the Annotator it hands off to) navigates continuously across every
+  // Photo the grid shows — not just the newest screenful in `photos` (#515).
+  const [viewerPhotos, setViewerPhotos] = useState<Photo[]>([]);
   const [annotatorOpen, setAnnotatorOpen] = useState(false);
   const [annotatorPhoto, setAnnotatorPhoto] = useState<Photo | null>(null);
   const [editJobOpen, setEditJobOpen] = useState(false);
@@ -1052,7 +1056,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           onPhotosAdded={fetchData}
           onPhotoUpdated={fetchData}
           onCoverPhotoChanged={fetchData}
-          onSelectPhoto={(photo) => setSelectedPhoto(photo)}
+          onSelectPhoto={(photo, orderedPhotos) => {
+            setViewerPhotos(orderedPhotos);
+            setSelectedPhoto(photo);
+          }}
         />
       )}
 
@@ -1074,8 +1081,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         onOpenChange={(open) => {
           if (!open) setSelectedPhoto(null);
         }}
-        photos={photos}
-        initialPhotoIndex={photos.findIndex((p) => p.id === selectedPhoto?.id)}
+        photos={viewerPhotos}
+        initialPhotoIndex={viewerPhotos.findIndex((p) => p.id === selectedPhoto?.id)}
         allTags={tags}
         supabaseUrl={supabaseUrl}
         coverPhotoId={job?.cover_photo_id ?? null}
@@ -1097,8 +1104,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
             setAnnotatorPhoto(null);
           }
         }}
-        photos={photos}
-        initialPhotoIndex={photos.findIndex((p) => p.id === annotatorPhoto?.id)}
+        photos={viewerPhotos}
+        initialPhotoIndex={viewerPhotos.findIndex((p) => p.id === annotatorPhoto?.id)}
         onSaved={fetchData}
       />
     </div>

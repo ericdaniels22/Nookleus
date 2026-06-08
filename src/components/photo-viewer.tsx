@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo, PhotoTag } from "@/lib/types";
 import { photoUrl } from "@/lib/jobs/photo-url";
+import {
+  orderPhotosForViewer,
+  nextPhotoIndex,
+  prevPhotoIndex,
+  hasNext,
+  hasPrev,
+  indexAfterDelete,
+} from "@/lib/jobs/photo-viewer-navigation";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -19,9 +27,15 @@ import {
   X,
   MoreHorizontal,
   Star,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+
+// How long the deleted Photo lingers — hidden but recoverable — before the
+// permanent hard delete commits (#515). Matches the Undo toast's lifetime.
+const UNDO_WINDOW_MS = 5000;
 
 export default function PhotoViewer({
   open,
@@ -44,8 +58,75 @@ export default function PhotoViewer({
   onUpdated: () => void;
   onAnnotate: (photo: Photo, url: string) => void;
 }) {
-  const currentPhoto = photos[initialPhotoIndex];
+  // Navigation runs over the Job's Photos newest-first and continuous across
+  // the grid's date dividers (#515) — the dividers are display context, not
+  // navigation stops. `removedIds` hides a Photo the instant its delete is
+  // confirmed while the real delete waits out the Undo window, so the viewer
+  // advances immediately and Undo can bring it straight back.
+  const ordered = useMemo(() => orderPhotosForViewer(photos), [photos]);
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const visiblePhotos = useMemo(
+    () => ordered.filter((p) => !removedIds.has(p.id)),
+    [ordered, removedIds],
+  );
+
+  const initialId = photos[initialPhotoIndex]?.id ?? null;
+  const [currentIndex, setCurrentIndex] = useState(0);
+  // Seed the position when the viewer opens on a Photo. Keyed on the opened
+  // Photo (not the `photos` array) so a background refetch doesn't yank the
+  // user back to where they started.
+  useEffect(() => {
+    if (!open) return;
+    setRemovedIds(new Set());
+    const idx = ordered.findIndex((p) => p.id === initialId);
+    setCurrentIndex(idx >= 0 ? idx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialId]);
+
+  const safeIndex = Math.min(currentIndex, visiblePhotos.length - 1);
+  const currentPhoto = visiblePhotos[safeIndex];
   const isCover = !!currentPhoto && currentPhoto.id === coverPhotoId;
+
+  const goNext = () =>
+    setCurrentIndex(nextPhotoIndex(safeIndex, visiblePhotos.length));
+  const goPrev = () => setCurrentIndex(prevPhotoIndex(safeIndex));
+
+  // Deletes still inside their Undo window, keyed by Photo id. Each holds the
+  // pending commit timer and the Photo, so a commit (on window-elapse) or an
+  // undo (clear timer) can run without re-deriving it from the list.
+  const pendingDeletes = useRef<
+    Map<string, { timer: ReturnType<typeof setTimeout>; photo: Photo }>
+  >(new Map());
+
+  // On unmount, commit any deletes still in their Undo window so a confirmed
+  // delete isn't silently lost when the user leaves the Job.
+  useEffect(() => {
+    const pending = pendingDeletes.current;
+    return () => {
+      pending.forEach(({ timer, photo }) => {
+        clearTimeout(timer);
+        const supabase = createClient();
+        void supabase.storage.from("photos").remove([photo.storage_path]);
+        void supabase.from("photos").delete().eq("id", photo.id);
+      });
+      pending.clear();
+    };
+  }, []);
+
+  // Touch swipe: a horizontal drag past the threshold steps between Photos —
+  // left for the next (older), right for the previous (newer).
+  const SWIPE_THRESHOLD = 50;
+  const touchStartX = useRef<number | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
+    touchStartX.current = null;
+    if (dx <= -SWIPE_THRESHOLD) goNext();
+    else if (dx >= SWIPE_THRESHOLD) goPrev();
+  };
 
   const [caption, setCaption] = useState("");
   const [beforeAfterRole, setBeforeAfterRole] = useState<
@@ -55,7 +136,6 @@ export default function PhotoViewer({
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [hasOriginalBackup, setHasOriginalBackup] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -166,6 +246,22 @@ export default function PhotoViewer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onOpenChange]);
 
+  // Arrow keys move between Photos, mirroring the on-screen arrows. Kept apart
+  // from the Escape handler so its deps track the current position; the step
+  // logic is inlined so the listener never closes over a stale index.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "ArrowRight") {
+        setCurrentIndex(nextPhotoIndex(safeIndex, visiblePhotos.length));
+      } else if (e.key === "ArrowLeft") {
+        setCurrentIndex(prevPhotoIndex(safeIndex));
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, safeIndex, visiblePhotos.length]);
+
   function toggleTag(tagId: string) {
     setAssignedTagIds((prev) =>
       prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
@@ -264,29 +360,66 @@ export default function PhotoViewer({
     onUpdated();
   }
 
-  // Permanent hard delete: remove the storage object and the photos row (which
-  // cascades tag assignments + annotations), then close the viewer (1A — no
-  // advance-to-next, no recycle bin). Gated behind the confirm step.
-  async function handleDelete() {
-    if (!currentPhoto) return;
-    setDeleting(true);
-    const supabase = createClient();
-
-    await supabase.storage.from("photos").remove([currentPhoto.storage_path]);
-
-    const { error } = await supabase
-      .from("photos")
-      .delete()
-      .eq("id", currentPhoto.id);
-
-    if (error) {
-      toast.error("Failed to delete photo.");
-    } else {
-      toast.success("Photo deleted.");
-      onOpenChange(false);
+  // Delete is deferred behind an Undo window (#515). Confirming hides the Photo
+  // and advances to the next (or closes on the last) immediately, then shows an
+  // Undo toast; the permanent hard delete — storage object + photos row, which
+  // cascades tag assignments + annotations — commits only once the window
+  // elapses. Because there is no recycle bin, deferral is what makes the delete
+  // recoverable: Undo cancels the pending commit before it ever runs.
+  function commitDelete(photo: Photo) {
+    pendingDeletes.current.delete(photo.id);
+    void (async () => {
+      const supabase = createClient();
+      await supabase.storage.from("photos").remove([photo.storage_path]);
+      const { error } = await supabase
+        .from("photos")
+        .delete()
+        .eq("id", photo.id);
+      if (error) {
+        // The delete didn't take — surface the Photo again.
+        toast.error("Failed to delete photo.");
+        setRemovedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(photo.id);
+          return next;
+        });
+        return;
+      }
       onUpdated();
+    })();
+  }
+
+  function undoDelete(photo: Photo) {
+    const pending = pendingDeletes.current.get(photo.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingDeletes.current.delete(photo.id);
     }
-    setDeleting(false);
+    setRemovedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(photo.id);
+      return next;
+    });
+  }
+
+  function handleConfirmDelete() {
+    if (!currentPhoto) return;
+    const photo = currentPhoto;
+    const outcome = indexAfterDelete(safeIndex, visiblePhotos.length);
+
+    setConfirmDelete(false);
+    setMoreOpen(false);
+    setRemovedIds((prev) => new Set(prev).add(photo.id));
+    if (outcome.close) onOpenChange(false);
+    else setCurrentIndex(outcome.index);
+
+    const timer = setTimeout(() => commitDelete(photo), UNDO_WINDOW_MS);
+    pendingDeletes.current.set(photo.id, { timer, photo });
+
+    toast("Photo deleted", {
+      action: { label: "Undo", onClick: () => undoDelete(photo) },
+      duration: UNDO_WINDOW_MS,
+    });
   }
 
   if (!open || !currentPhoto) return null;
@@ -298,12 +431,47 @@ export default function PhotoViewer({
   return (
     <div className="fixed inset-0 z-[90] flex bg-black">
       {/* Photo, centered + letterboxed on black, with the action toolbar over it */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+      <div
+        className="flex-1 relative flex items-center justify-center overflow-hidden"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
         <img
           src={displayUrl}
           alt={currentPhoto.caption || "Photo"}
           className="max-w-full max-h-full object-contain"
         />
+
+        {/* Prev / next — newest-first, continuous across the grid's date
+            dividers, clamped at the ends (#515). */}
+        {hasPrev(safeIndex) && (
+          <button
+            type="button"
+            aria-label="Previous photo"
+            title="Previous photo"
+            onClick={goPrev}
+            className={cn(
+              toolbarBtn,
+              "absolute left-3 top-1/2 -translate-y-1/2 hover:bg-black/70",
+            )}
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
+        {hasNext(safeIndex, visiblePhotos.length) && (
+          <button
+            type="button"
+            aria-label="Next photo"
+            title="Next photo"
+            onClick={goNext}
+            className={cn(
+              toolbarBtn,
+              "absolute right-3 top-1/2 -translate-y-1/2 hover:bg-black/70",
+            )}
+          >
+            <ChevronRight size={22} />
+          </button>
+        )}
 
         {/* Close back to the Job */}
         <button
@@ -408,11 +576,9 @@ export default function PhotoViewer({
           <div className="absolute top-14 right-3 bg-white rounded-lg shadow-lg p-3 flex items-center gap-2">
             <button
               type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-sm text-white bg-[#C41E2A] hover:bg-[#A3171F] px-3 py-1 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+              onClick={handleConfirmDelete}
+              className="text-sm text-white bg-[#C41E2A] hover:bg-[#A3171F] px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
             >
-              {deleting && <Loader2 size={12} className="animate-spin" />}
               Confirm Delete
             </button>
             <button
