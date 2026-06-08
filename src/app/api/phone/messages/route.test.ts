@@ -741,6 +741,64 @@ describe("POST /api/phone/messages — Job-page auto-tag (#311)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 7b. Outbound smart-attach prompt on a single Active job (#530)
+//
+// A Phone-tab / Contact-card send must never auto-tag, even when the contact
+// has exactly one Active job — the locked rule is "Outbound from Phone tab /
+// Contact card → prompt chips." Before #530 the single-job case fell through
+// to the inbound auto-tag branch and silently tagged the text to that Job.
+// The row persists job_tag null; the 201 echoes smartAttach:prompt with the
+// one candidate so the UI can offer the chip.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/messages — outbound prompt on a single Active job (#530)", () => {
+  it("persists job_tag null and echoes smartAttach:prompt for a phone-tab send to a contact with exactly one Active job", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+      phone_conversations: [
+        {
+          id: "conv-530",
+          organization_id: ORG,
+          phone_number_id: "num-shared",
+          outside_e164: "+15550003333",
+          contact_id: "contact-22",
+        },
+      ],
+      jobs: [
+        {
+          id: "job-7",
+          organization_id: ORG,
+          contact_id: "contact-22",
+          job_number: "JOB-007",
+          status: "in_progress",
+        },
+      ],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        conversationId: "conv-530",
+        body: "quick question",
+        sourceContext: "phone-tab",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.smartAttach.kind).toBe("prompt");
+    expect(body.smartAttach.candidates).toEqual([
+      { jobId: "job-7", label: "JOB-007" },
+    ]);
+    // The text is persisted UNTAGGED — the chip is offered, not applied.
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row.job_tag).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 8. GET — Job-page Messages read (slice 7 / #311)
 //
 // The Job-page Messages (N) section reads every text/MMS tagged to a Job

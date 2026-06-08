@@ -67,7 +67,13 @@ export function decideJobTag(input: SmartAttachInput): SmartAttachDecision {
   if (input.activeJobs.length === 0) {
     return { kind: "untagged" };
   }
-  if (input.activeJobs.length === 1) {
+  // A single Active job auto-tags ONLY for inbound. An outbound send from the
+  // Phone tab / Contact card must prompt even here — the locked rule is
+  // "Outbound from Phone tab / Contact card → prompt chips" (#530). The
+  // Job-page outbound source (kind:'job') already returned above, so any
+  // outbound reaching this point is a non-Job source that must never
+  // auto-tag: a false attribution is worse than the friction of one click.
+  if (input.direction === "in" && input.activeJobs.length === 1) {
     return { kind: "auto", jobId: input.activeJobs[0].id };
   }
   return {
