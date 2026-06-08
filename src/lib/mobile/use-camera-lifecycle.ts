@@ -15,6 +15,9 @@ export interface UseCameraLifecycleInput {
   position: "rear" | "front";
   safeAreaTop: number;
   onError?: (err: unknown) => void;
+  /** Reports the rear-camera zoom stops detected after each successful start.
+   *  Receives [] when the native method is unavailable (old binary / web). */
+  onZoomFactorsAvailable?: (factors: number[]) => void;
 }
 
 const RECT_TOLERANCE_PX = 4;
@@ -29,12 +32,14 @@ function rectsDiffer(a: CameraLifecycleRect, b: CameraLifecycleRect): boolean {
 }
 
 export function useCameraLifecycle(input: UseCameraLifecycleInput): void {
-  const { rect, position, safeAreaTop, onError } = input;
+  const { rect, position, safeAreaTop, onError, onZoomFactorsAvailable } = input;
   const startedRef = useRef(false);
   const lastRectRef = useRef<CameraLifecycleRect | null>(null);
   const lastPositionRef = useRef<"rear" | "front">(position);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onZoomFactorsAvailableRef = useRef(onZoomFactorsAvailable);
+  onZoomFactorsAvailableRef.current = onZoomFactorsAvailable;
 
   // Body/html background transparency dance — the native overlay sits behind
   // the WebView via toBack:true, so the page background must be transparent
@@ -68,6 +73,15 @@ export function useCameraLifecycle(input: UseCameraLifecycleInput): void {
           disableAudio: true,
         });
         startedRef.current = true;
+        // Feature-detect zoom support after a successful start. An old native
+        // binary (pre-patch) or the web fallback rejects here → report [] so
+        // the UI hides the lens pill. Re-runs on every restart (flip/resize).
+        try {
+          const { factors } = await CameraPreview.getAvailableZoomFactors();
+          onZoomFactorsAvailableRef.current?.(factors);
+        } catch {
+          onZoomFactorsAvailableRef.current?.([]);
+        }
       } catch (err) {
         onErrorRef.current?.(err);
       }

@@ -3,11 +3,15 @@ import { renderHook, act } from "@testing-library/react";
 
 const startMock = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
 const stopMock = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
+const getFactorsMock = vi.fn(
+  (): Promise<{ factors: number[] }> => Promise.resolve({ factors: [0.5, 1, 2] }),
+);
 
 vi.mock("@capacitor-community/camera-preview", () => ({
   CameraPreview: {
     start: (arg: unknown) => startMock(arg),
     stop: () => stopMock(),
+    getAvailableZoomFactors: () => getFactorsMock(),
   },
 }));
 
@@ -18,6 +22,8 @@ describe("useCameraLifecycle", () => {
   beforeEach(() => {
     startMock.mockClear();
     stopMock.mockClear();
+    getFactorsMock.mockClear();
+    getFactorsMock.mockImplementation(() => Promise.resolve({ factors: [0.5, 1, 2] }));
   });
 
   it("starts the preview on mount with the supplied rect and position", async () => {
@@ -174,5 +180,46 @@ describe("useCameraLifecycle", () => {
 
     expect(startMock).not.toHaveBeenCalled();
     expect(stopMock).not.toHaveBeenCalled();
+  });
+
+  it("reports available zoom factors after start resolves", async () => {
+    const rect = { x: 0, y: 0, width: 390, height: 520 };
+    const onZoomFactorsAvailable = vi.fn();
+    renderHook(() =>
+      useCameraLifecycle({
+        rect,
+        position: "rear",
+        safeAreaTop: 0,
+        onZoomFactorsAvailable,
+      }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onZoomFactorsAvailable).toHaveBeenCalledWith([0.5, 1, 2]);
+  });
+
+  it("reports [] when getAvailableZoomFactors rejects (old binary / web)", async () => {
+    getFactorsMock.mockImplementationOnce(() => Promise.reject(new Error("UNIMPLEMENTED")));
+    const rect = { x: 0, y: 0, width: 390, height: 520 };
+    const onZoomFactorsAvailable = vi.fn();
+    renderHook(() =>
+      useCameraLifecycle({
+        rect,
+        position: "rear",
+        safeAreaTop: 0,
+        onZoomFactorsAvailable,
+      }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onZoomFactorsAvailable).toHaveBeenCalledWith([]);
   });
 });
