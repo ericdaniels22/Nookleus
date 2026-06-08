@@ -44,6 +44,19 @@ interface PhoneCallRow {
   [key: string]: unknown;
 }
 
+// Slice 9 (#313) — a phone_voicemails row as it arrives on a realtime UPDATE
+// (the transcription-completed webhook fills transcript + flips status).
+export interface PhoneVoicemailRow {
+  id: string;
+  organization_id: string;
+  phone_call_id: string;
+  audio_storage_path: string | null;
+  transcript: string | null;
+  transcript_status: "pending" | "ready" | "failed";
+  duration_seconds: number | null;
+  [key: string]: unknown;
+}
+
 export interface UsePhoneSyncInput {
   supabase: SupabaseClient;
   // The active org. Null while loading or when the user is logged out;
@@ -65,6 +78,11 @@ export interface UsePhoneSyncInput {
   // status-callback webhook stamps the row. Callers that pass neither call
   // callback register no phone_calls subscription at all.
   onCallUpdate?: (row: PhoneCallRow) => void;
+  // Slice 9 (#313) — optional. When provided, the hook also subscribes to
+  // `phone_voicemails` UPDATEs so a transcript that lands after the call row
+  // rendered (the transcription-completed webhook) flips "Transcribing…" to
+  // the text in realtime. The Job-page Messages caller omits it.
+  onVoicemailUpdate?: (row: PhoneVoicemailRow) => void;
 }
 
 export function usePhoneSync(input: UsePhoneSyncInput): void {
@@ -72,6 +90,7 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
   const onMessageUpdateRef = useRef(input.onMessageUpdate);
   const onNewCallRef = useRef(input.onNewCall);
   const onCallUpdateRef = useRef(input.onCallUpdate);
+  const onVoicemailUpdateRef = useRef(input.onVoicemailUpdate);
   // useLayoutEffect (or useEffect — either works since the effect runs
   // before the next event-loop tick that fires the subscription handler)
   // keeps the ref read-only during render, satisfying react-hooks/refs.
@@ -80,11 +99,13 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
     onMessageUpdateRef.current = input.onMessageUpdate;
     onNewCallRef.current = input.onNewCall;
     onCallUpdateRef.current = input.onCallUpdate;
+    onVoicemailUpdateRef.current = input.onVoicemailUpdate;
   }, [
     input.onNewMessage,
     input.onMessageUpdate,
     input.onNewCall,
     input.onCallUpdate,
+    input.onVoicemailUpdate,
   ]);
 
   const { supabase, organizationId } = input;
@@ -95,6 +116,7 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
   const wantsUpdates = input.onMessageUpdate != null;
   const wantsCallInsert = input.onNewCall != null;
   const wantsCallUpdate = input.onCallUpdate != null;
+  const wantsVoicemailUpdates = input.onVoicemailUpdate != null;
 
   useEffect(() => {
     if (!organizationId) return;
@@ -161,6 +183,23 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
       );
     }
 
+    // Slice 9 (#313) — voicemail transcript realtime. A transcript that
+    // lands after the call row rendered arrives as a phone_voicemails UPDATE.
+    if (wantsVoicemailUpdates) {
+      channel = channel.on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "phone_voicemails",
+          filter: orgFilter,
+        },
+        (payload: { new: PhoneVoicemailRow }) => {
+          onVoicemailUpdateRef.current?.(payload.new);
+        },
+      );
+    }
+
     const subscribed = channel.subscribe();
 
     return () => {
@@ -172,5 +211,6 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
     wantsUpdates,
     wantsCallInsert,
     wantsCallUpdate,
+    wantsVoicemailUpdates,
   ]);
 }

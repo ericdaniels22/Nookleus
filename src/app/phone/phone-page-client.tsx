@@ -61,6 +61,20 @@ interface PhoneMessage {
   media_urls?: PhoneAttachmentRef[];
 }
 
+// Slice 9 (#313) — the voicemail recorded for an unanswered call, flattened
+// onto the call by the /calls route. `transcript_status` drives the UI:
+// 'pending' (recorded, transcript not back yet), 'ready' (transcript shown),
+// 'failed' (transcript unavailable). `audio_storage_path` is the stored MP3
+// the <audio> player signs a URL for; it can lag the row briefly while the
+// copy-from-Twilio finishes.
+interface PhoneVoicemail {
+  id: string;
+  audio_storage_path: string | null;
+  transcript: string | null;
+  transcript_status: "pending" | "ready" | "failed";
+  duration_seconds: number | null;
+}
+
 // Slice 8 (#312) — a voice call in the thread. Threads on the same
 // conversation as the messages; `started_at` is its timeline anchor.
 // `status`/`duration_seconds` are null until the status-callback webhook
@@ -73,6 +87,8 @@ interface PhoneCall {
   duration_seconds: number | null;
   started_at: string;
   ended_at: string | null;
+  // Slice 9 (#313) — present when the call went to voicemail.
+  voicemail?: PhoneVoicemail | null;
 }
 
 // Slice 6 (#310) — a staged attachment in the compose strip. Either the
@@ -564,6 +580,29 @@ export function PhonePageClient({
                 status: row.status,
                 duration_seconds: row.duration_seconds,
                 ended_at: row.ended_at,
+              }
+            : c,
+        ),
+      );
+    },
+    // Slice 9 (#313) — the transcription-completed webhook UPDATEs the
+    // voicemail row after the call already rendered. Patch the matching call
+    // in the open thread so "Transcribing…" flips to the transcript (or the
+    // failed state) live. A row for a call not in the current thread is a
+    // no-op (map finds no match).
+    onVoicemailUpdate: (row) => {
+      setCalls((prev) =>
+        prev.map((c) =>
+          c.id === row.phone_call_id
+            ? {
+                ...c,
+                voicemail: {
+                  id: row.id,
+                  audio_storage_path: row.audio_storage_path,
+                  transcript: row.transcript,
+                  transcript_status: row.transcript_status,
+                  duration_seconds: row.duration_seconds,
+                },
               }
             : c,
         ),
@@ -1079,13 +1118,15 @@ function formatDuration(seconds: number): string {
 }
 
 // Slice 8 (#312) — a voice call rendered inline in the thread, centered
-// like a system row (distinct from the left/right message bubbles).
+// like a system row (distinct from the left/right message bubbles). Slice 9
+// (#313) — when the call went to voicemail, its recording + transcript render
+// inline beneath the call pill.
 function CallRow({ call, onOpen }: { call: PhoneCall; onOpen: () => void }) {
   const incoming = call.direction === "in";
   const label = incoming ? "Incoming call" : "Outgoing call";
   const DirectionIcon = incoming ? PhoneIncoming : PhoneOutgoing;
   return (
-    <div className="flex justify-center">
+    <div className="flex flex-col items-center gap-1">
       <button
         type="button"
         onClick={onOpen}
@@ -1104,6 +1145,61 @@ function CallRow({ call, onOpen }: { call: PhoneCall; onOpen: () => void }) {
           })}
         </span>
       </button>
+      {call.voicemail ? <VoicemailBlock voicemail={call.voicemail} /> : null}
     </div>
+  );
+}
+
+// Slice 9 (#313) — the voicemail recording + transcript shown under a call.
+// The transcript renders synchronously from the call payload; the audio
+// player fetches a short-lived signed URL for the stored MP3 (mirrors
+// MessageAttachment). Pending/failed transcript states land in slice 8.
+function VoicemailBlock({ voicemail }: { voicemail: PhoneVoicemail }) {
+  return (
+    <div className="w-full max-w-sm rounded-lg border border-border bg-background p-2 text-xs">
+      {voicemail.audio_storage_path ? (
+        <VoicemailPlayer storagePath={voicemail.audio_storage_path} />
+      ) : null}
+      {voicemail.transcript_status === "ready" && voicemail.transcript ? (
+        <p className="mt-1 text-foreground">{voicemail.transcript}</p>
+      ) : null}
+      {voicemail.transcript_status === "pending" ? (
+        <p className="mt-1 italic text-muted-foreground">Transcribing…</p>
+      ) : null}
+      {voicemail.transcript_status === "failed" ? (
+        <p className="mt-1 italic text-muted-foreground">
+          Transcript unavailable
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// Slice 9 (#313) — <audio> player for a stored voicemail. Fetches a signed URL
+// for the MP3 on mount (same signed-URL pattern as MessageAttachment) and
+// renders a native audio control once it resolves.
+function VoicemailPlayer({ storagePath }: { storagePath: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(
+        `/api/phone/recordings?path=${encodeURIComponent(storagePath)}`,
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { url: string };
+      if (!cancelled) setUrl(body.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storagePath]);
+  return (
+    <audio
+      controls
+      src={url ?? undefined}
+      aria-label="Voicemail recording"
+      className="w-full"
+    />
   );
 }

@@ -22,7 +22,7 @@
 // the REAL buildVoiceTwiml + decideShared + routeInbound + ingestInboundCall
 // run, so the TwiML and persistence are asserted end-to-end.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const validateSignatureMock = vi.fn();
 vi.mock("@/lib/phone/twilio-client", async (importOriginal) => {
@@ -174,6 +174,10 @@ beforeEach(() => {
   validateSignatureMock.mockReturnValue(true);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("POST /api/phone/webhook/voice-inbound — ring-all (tracer)", () => {
   it("dials every selected member's cell and writes a ringing phone_calls row", async () => {
     const { client, inserts } = makeServiceClient(ringAllTables());
@@ -286,6 +290,34 @@ describe("POST /api/phone/webhook/voice-inbound — voicemail / unconfigured", (
     expect(xml).not.toContain("<Dial");
     // The inbound attempt is still persisted.
     expect(inserts.find((i) => i.table === "phone_calls")).toBeDefined();
+  });
+});
+
+describe("POST /api/phone/webhook/voice-inbound — voicemail callbacks (#313)", () => {
+  it("wires the voicemail-completed + transcription-completed webhook URLs from env into the <Record>", async () => {
+    vi.stubEnv(
+      "PHONE_VOICEMAIL_CALLBACK_URL",
+      "https://app.test/api/phone/webhook/voicemail-completed",
+    );
+    vi.stubEnv(
+      "PHONE_TRANSCRIPTION_CALLBACK_URL",
+      "https://app.test/api/phone/webhook/transcription-completed",
+    );
+    const tables = ringAllTables();
+    tables.phone_numbers[0].inbound_rule = null; // Shared, no rule → voicemail.
+    const { client } = makeServiceClient(tables);
+    createServiceClientMock.mockReturnValue(client);
+
+    const res = await POST(voiceForm({}));
+    const xml = await res.text();
+
+    expect(xml).toContain(
+      'recordingStatusCallback="https://app.test/api/phone/webhook/voicemail-completed"',
+    );
+    expect(xml).toContain('transcribe="true"');
+    expect(xml).toContain(
+      'transcribeCallback="https://app.test/api/phone/webhook/transcription-completed"',
+    );
   });
 });
 

@@ -97,6 +97,13 @@ export function createFakeTwilioClient(): TwilioClientLike {
       },
     }),
     incomingPhoneNumbers,
+    // recordings(sid).remove() → resolves (no-op). Demo voicemails have no real
+    // Twilio recording to hard-delete; the deletion path still runs end-to-end.
+    recordings: (_sid: string) => ({
+      async remove() {
+        return undefined;
+      },
+    }),
     messages: {
       async create(_opts: {
         from: string;

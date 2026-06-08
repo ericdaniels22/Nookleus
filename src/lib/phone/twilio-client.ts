@@ -55,6 +55,12 @@ export interface TwilioClientLike {
       phoneNumber: string;
     }>;
   };
+  // Slice 10 (#313) — voicemail deletion. The SDK's `recordings` is the same
+  // callable-single-resource shape: `client.recordings(sid).remove()` issues
+  // Twilio's hard-delete of the recording media.
+  recordings(sid: string): {
+    remove(): Promise<unknown>;
+  };
   messages: {
     create(opts: {
       from: string;
@@ -146,6 +152,43 @@ export async function releaseNumber(
     throw new Error("twilio-client: releaseNumber called with empty sid");
   }
   await client.incomingPhoneNumbers(sid).remove();
+}
+
+/**
+ * Hard-delete a recording on Twilio's side. Slice 10 (#313): deleting a
+ * voicemail removes the Twilio recording media (PRD #304 story 54 — Nookleus
+ * owns retention, and the playable copy lives in our own Storage bucket). Like
+ * `releaseNumber`, this does Twilio only; the call site decides ordering — we
+ * delete on Twilio first so a billing/retention-relevant remove cannot be lost
+ * behind a DB-write failure.
+ */
+export async function deleteRecording(
+  client: TwilioClientLike,
+  sid: string,
+): Promise<void> {
+  if (!sid) {
+    throw new Error("twilio-client: deleteRecording called with empty sid");
+  }
+  try {
+    await client.recordings(sid).remove();
+  } catch (err) {
+    // Idempotent: Twilio 404s a remove() of an already-deleted recording
+    // (HTTP 404 / error code 20404). Treat that as success so a DELETE retry
+    // — after a prior Twilio-success + DB-write failure — can fall through to
+    // clear the orphaned row, instead of 502-looping on a recording that no
+    // longer exists. Re-throw any other (transient / auth) error so the route
+    // still surfaces a 502 and leaves the DB row untouched.
+    if (isRecordingAlreadyGone(err)) return;
+    throw err;
+  }
+}
+
+// Twilio's RestException carries the HTTP `status` and a numeric Twilio
+// `code`; an already-deleted recording surfaces as 404 / 20404.
+function isRecordingAlreadyGone(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { status?: unknown; code?: unknown };
+  return e.status === 404 || e.code === 20404;
 }
 
 export interface SendSmsParams {
@@ -283,12 +326,29 @@ export interface VoiceTwimlOptions {
   // the team member's phone shows the business number (not the outside
   // caller) and a call-back rings the Nookleus number.
   callerId?: string;
+  // Slice 9 (#313) — voicemail recording callbacks. When the decision is
+  // voicemail, the <Record> verb posts the finished recording here (Twilio's
+  // RecordingSid / RecordingUrl / RecordingDuration + the CallSid). The route
+  // supplies the voicemail-completed webhook URL from env; omitted in the
+  // dial branches.
+  recordingStatusCallback?: string;
+  // Slice 9 (#313) — auto-transcription callback. When set, the <Record>
+  // verb requests Twilio's auto-transcription (transcribe="true") and posts
+  // the result here (Twilio's TranscriptionText / TranscriptionStatus +
+  // RecordingSid). The route supplies the transcription-completed webhook URL
+  // from env; transcription is off when this is omitted.
+  transcribeCallback?: string;
 }
 
 // Spoken when an inbound call falls through to voicemail and no custom
 // greeting is configured for the number.
 const DEFAULT_VOICEMAIL_GREETING =
   "You've reached us. Please leave a message after the tone and we'll get back to you.";
+
+// Voicemail UX defaults applied to every <Record>. The beep cues the caller
+// to start speaking; the cap bounds Twilio recording/storage cost and matches
+// a typical voicemail length (2 minutes).
+const VOICEMAIL_MAX_LENGTH_SECONDS = 120;
 
 /**
  * Build the inbound-call TwiML for a `decideShared` decision. Each decision
@@ -317,7 +377,18 @@ export function buildVoiceTwiml(
     dial.number(decision.cell);
   } else {
     vr.say(DEFAULT_VOICEMAIL_GREETING);
-    vr.record({});
+    const record: NonNullable<Parameters<typeof vr.record>[0]> = {
+      playBeep: true,
+      maxLength: VOICEMAIL_MAX_LENGTH_SECONDS,
+    };
+    if (opts.recordingStatusCallback) {
+      record.recordingStatusCallback = opts.recordingStatusCallback;
+    }
+    if (opts.transcribeCallback) {
+      record.transcribe = true;
+      record.transcribeCallback = opts.transcribeCallback;
+    }
+    vr.record(record);
   }
   return vr.toString();
 }

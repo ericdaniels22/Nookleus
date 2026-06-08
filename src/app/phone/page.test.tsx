@@ -24,11 +24,13 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
 // Slice 4 — PhonePageClient instantiates the browser Supabase client for
 // the realtime subscription. The tests don't exercise realtime; this stub
 // keeps `createClient()` from reading process.env at module-eval time.
+// The realtime hook chains `.on()` once per subscription (phone_messages
+// INSERT, message UPDATE, phone_calls INSERT/UPDATE since slice 10, and
+// phone_voicemails UPDATE since slice 9), so `.on()` must return the channel
+// itself to stay chainable — a non-chainable stub breaks the moment a second
+// `.on()` fires.
 vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
-    // The realtime hook chains `.on()` once per subscription (phone_messages
-    // INSERT, plus phone_calls INSERT/UPDATE since slice 10), so `.on()` must
-    // return the channel itself to stay chainable.
     channel: () => {
       const ch: {
         on: () => typeof ch;
