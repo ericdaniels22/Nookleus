@@ -38,7 +38,7 @@ index a98694c..5e52247 100644
  //# sourceMappingURL=web.js.map
 \ No newline at end of file
 diff --git a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
-index 6ec075a..fc059c3 100644
+index 6ec075a..95ea58c 100644
 --- a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
 +++ b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
 @@ -20,7 +20,9 @@ class CameraController: NSObject {
@@ -61,7 +61,7 @@ index 6ec075a..fc059c3 100644
  
              let cameras = session.devices.compactMap { $0 }
              guard !cameras.isEmpty else { throw CameraControllerError.noCamerasAvailable }
-@@ -56,14 +58,27 @@ extension CameraController {
+@@ -56,14 +58,35 @@ extension CameraController {
                      self.frontCamera = camera
                  }
  
@@ -80,7 +80,16 @@ index 6ec075a..fc059c3 100644
 +                    }
  
                      try camera.lockForConfiguration()
-                     camera.focusMode = .continuousAutoFocus
+-                    camera.focusMode = .continuousAutoFocus
++                    // Guard focusMode: many ultra-wide lenses (iPhone 11/12 and the
++                    // non-Pro models through 14) are FIXED-FOCUS. Setting an unsupported
++                    // focusMode raises an uncatchable NSInvalidArgumentException (an Obj-C
++                    // exception — Swift try/catch does NOT catch it), which hard-crashes
++                    // the app on camera open the moment the ultra-wide lens is enumerated.
++                    // Mirrors the isFocusModeSupported guard already used in handleTap().
++                    if camera.isFocusModeSupported(.continuousAutoFocus) {
++                        camera.focusMode = .continuousAutoFocus
++                    }
 +                    camera.videoZoomFactor = 1.0   // clear any zoom retained on the device singleton
                      camera.unlockForConfiguration()
                  }
@@ -90,7 +99,7 @@ index 6ec075a..fc059c3 100644
              if disableAudio == false {
                  self.audioDevice = AVCaptureDevice.default(for: AVMediaType.audio)
              }
-@@ -262,6 +277,72 @@ extension CameraController {
+@@ -262,6 +285,72 @@ extension CameraController {
          captureSession.commitConfiguration()
      }
  
