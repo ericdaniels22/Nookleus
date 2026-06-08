@@ -17,6 +17,7 @@ import {
 import React from "react";
 
 import type { Photo } from "@/lib/types";
+import { toast } from "sonner";
 
 // Hoisted, per-test-configurable backing data for the mocked Supabase reads and
 // a stable router.push spy (a fresh vi.fn() per useRouter call could not be
@@ -209,5 +210,55 @@ describe("JobPhotosTab — New report entry point", () => {
     const body = JSON.parse(call![1].body as string);
     expect(body.photoIds).toEqual(["p1"]);
     expect(h.push).toHaveBeenCalledWith("/jobs/job-1/reports/new-report-1");
+  });
+
+  it("surfaces an error and resets the button when creating a report fails", async () => {
+    vi.mocked(toast.error).mockClear();
+    fetchMock.mockImplementation(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    }));
+    renderTab();
+
+    await act(async () => {
+      fireEvent.click(
+        await screen.findByRole("button", { name: /new report/i }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Blank report"));
+    });
+
+    // The failed POST surfaces a toast and does not navigate…
+    expect(reportsPostCall()).toBeTruthy();
+    expect(toast.error).toHaveBeenCalledWith("Failed to create report.");
+    expect(h.push).not.toHaveBeenCalled();
+    // …and the button resets to its idle label, not stuck on "Creating…".
+    expect(screen.getByRole("button", { name: /new report/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /creating/i })).toBeNull();
+  });
+
+  it("opening one Start-from menu closes the other", async () => {
+    h.photos = [makePhoto("p1")];
+    renderTab();
+
+    // Right-click a photo so the bulk bar (with "Create report") appears.
+    const img = await screen.findByRole("img");
+    act(() => {
+      fireEvent.contextMenu(img);
+    });
+
+    // Open the bulk bar's menu — exactly one "Start from…" popover is open.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /create report/i }));
+    });
+    expect(screen.getAllByText("Start from…")).toHaveLength(1);
+
+    // Opening the toolbar's menu must close the bulk one, never two at once.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /new report/i }));
+    });
+    expect(screen.getAllByText("Start from…")).toHaveLength(1);
   });
 });

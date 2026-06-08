@@ -295,6 +295,10 @@ export default function JobPhotosTab({
     templateId: string | null,
     photoIds: string[],
   ) => {
+    // A create is already in flight: with the old empty-selection early return
+    // gone, nothing else stops a fast double-click on a "Start from…" item from
+    // POSTing a second, separately-numbered report. Bail before re-firing.
+    if (creatingReport) return;
     setReportMenuOpen(false);
     setNewReportMenuOpen(false);
     setCreatingReport(true);
@@ -426,7 +430,10 @@ export default function JobPhotosTab({
             onClick={() => {
               const next = !newReportMenuOpen;
               setNewReportMenuOpen(next);
-              if (next) loadReportTemplates();
+              if (next) {
+                setReportMenuOpen(false);
+                loadReportTemplates();
+              }
             }}
             disabled={creatingReport}
             className="px-4 py-1.5 rounded-lg border border-border bg-card text-sm font-semibold text-foreground flex items-center gap-1.5 hover:border-muted-foreground/40 transition-colors disabled:opacity-60"
@@ -500,7 +507,10 @@ export default function JobPhotosTab({
               onClick={() => {
                 const next = !reportMenuOpen;
                 setReportMenuOpen(next);
-                if (next) loadReportTemplates();
+                if (next) {
+                  setNewReportMenuOpen(false);
+                  loadReportTemplates();
+                }
               }}
               disabled={creatingReport}
             >
