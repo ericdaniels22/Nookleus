@@ -14,6 +14,8 @@ import {
   indexAfterDelete,
 } from "@/lib/jobs/photo-viewer-navigation";
 import { mediaCapabilities } from "@/lib/jobs/photo-media-capabilities";
+import { isPhoneViewport } from "@/lib/jobs/photo-viewer-layout";
+import { useViewportOrientation } from "@/lib/mobile/use-viewport-orientation";
 import { exportVersion } from "@/lib/jobs/photo-export-version";
 import { shareOrDownloadFile } from "@/lib/share/share-or-download";
 import {
@@ -48,6 +50,8 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
+  Info,
+  ArrowLeftRight,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -55,6 +59,54 @@ import { toast } from "sonner";
 // How long the deleted Photo lingers — hidden but recoverable — before the
 // permanent hard delete commits (#515). Matches the Undo toast's lifetime.
 const UNDO_WINDOW_MS = 5000;
+
+// A safe-area-aware slide-up panel for the phone layout (#520) — the bottom
+// sheet each action button raises. Mirrors the existing pattern: a full-screen
+// scrim that dismisses on tap and a rounded panel pinned to the bottom edge,
+// its scroll area padded past the iOS home indicator with
+// pb-[max(env(safe-area-inset-bottom),24px)]. Renders nothing when closed, so
+// its contents never collide with the desktop layout's controls.
+function PhoneSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative w-full max-h-[80vh] overflow-y-auto rounded-t-2xl bg-white px-4 pt-4 pb-[max(env(safe-area-inset-bottom),24px)]">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-[#1A1A1A]">{title}</h2>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#666666] hover:bg-gray-100"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function PhotoViewer({
   open,
@@ -64,6 +116,7 @@ export default function PhotoViewer({
   allTags,
   supabaseUrl,
   coverPhotoId,
+  jobName,
   onUpdated,
   onAnnotate,
 }: {
@@ -74,6 +127,8 @@ export default function PhotoViewer({
   allTags: PhotoTag[];
   supabaseUrl: string;
   coverPhotoId: string | null;
+  /** The Job's display name, shown in the phone layout's top bar (#520). */
+  jobName?: string;
   onUpdated: () => void;
   onAnnotate: (photo: Photo, url: string) => void;
 }) {
@@ -139,6 +194,13 @@ export default function PhotoViewer({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const isZoomed = transform.scale > 1;
+
+  // Phone vs desktop is chosen at runtime from the live viewport width: narrow
+  // viewports get the full-bleed phone layout with slide-up action panels, wider
+  // ones keep the desktop side panel (#520). The pure rule decides; the hook
+  // just supplies the measured width (and re-renders on rotate/resize).
+  const { width: viewportWidth } = useViewportOrientation();
+  const isPhone = isPhoneViewport(viewportWidth);
 
   // The transform reasons in pixels: the surface's measured size is the
   // viewport, and the Photo's stored dimensions (falling back to the decoded
@@ -338,6 +400,11 @@ export default function PhotoViewer({
   const [restoring, setRestoring] = useState(false);
   const [hasOriginalBackup, setHasOriginalBackup] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Which phone slide-up panel is raised, if any (#520). Only one at a time; the
+  // desktop layout never opens these (it has the always-visible side panel).
+  const [phoneSheet, setPhoneSheet] = useState<
+    null | "tags" | "beforeAfter" | "info" | "more"
+  >(null);
   const [settingCover, setSettingCover] = useState(false);
   // Which export, if any, is in flight — so the chosen ⋯ menu entry shows a
   // spinner and both stay disabled until the share/download settles.
@@ -514,6 +581,14 @@ export default function PhotoViewer({
     onUpdated();
   }
 
+  // A phone slide-up panel's "Done" persists its change through the same write
+  // the desktop side panel's Save uses, then lowers the panel (#520). The Tags
+  // and Before/After panels both route through here so there is one save path.
+  async function handlePhoneSheetDone() {
+    await handleSave();
+    setPhoneSheet(null);
+  }
+
   // Download the original-quality image. Reuses the grid's download route
   // (signed URL of the clean original — storage_path, never the annotated copy).
   async function handleDownload() {
@@ -677,8 +752,21 @@ export default function PhotoViewer({
   // <video> src for a clip.
   const caps = mediaCapabilities(currentPhoto, supabaseUrl);
 
+  // The full tag records for the Photo's current assignments, in the gallery's
+  // tag order — drives both the on-photo pills (view-only) and the Tags panel's
+  // selected state (#520).
+  const assignedTags = allTags.filter((t) => assignedTagIds.includes(t.id));
+
   const toolbarBtn =
     "inline-flex items-center justify-center w-9 h-9 rounded-full bg-black/50 text-white transition-colors";
+
+  // A phone bottom-row action: a stacked icon + label, comfortably tappable.
+  const phoneActionBtn =
+    "flex flex-1 flex-col items-center gap-1 py-1 text-[11px] font-medium text-white transition-opacity active:opacity-60";
+
+  // A row in the ⋯ More slide-up panel: an icon + label, full-width and tappable.
+  const phoneMenuItem =
+    "flex items-center gap-3 px-1 py-3 text-sm text-[#1A1A1A] text-left border-b border-gray-100 last:border-0 disabled:opacity-60";
 
   return (
     <div className="fixed inset-0 z-[90] flex bg-black">
@@ -723,8 +811,10 @@ export default function PhotoViewer({
         )}
 
         {/* Zoom controls (desktop) — scroll-wheel and double-click also zoom;
-            hidden for media that can't zoom (video). */}
-        {caps.canZoom && (
+            hidden for media that can't zoom (video) and on phones, where pinch /
+            double-tap zoom replaces them and the bottom action row owns the
+            bottom-left (#520). */}
+        {caps.canZoom && !isPhone && (
           <div className="absolute bottom-3 left-3 flex flex-col gap-2">
             <button
               type="button"
@@ -779,6 +869,11 @@ export default function PhotoViewer({
           </button>
         )}
 
+        {/* Desktop chrome over the Photo: close, cover badge, action toolbar,
+            and the ⋯ menu. On a phone these give way to the top bar, the on-photo
+            tag pills, and the bottom slide-up panels (#520). */}
+        {!isPhone && (
+          <>
         {/* Close back to the Job */}
         <button
           type="button"
@@ -919,6 +1014,53 @@ export default function PhotoViewer({
             </button>
           </div>
         )}
+          </>
+        )}
+
+        {/* Phone top bar — ✕, the Job name, and an info (ⓘ) button that raises
+            the details panel (#520). The full-bleed Photo sits behind it. */}
+        {isPhone && (
+          <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] pb-6 bg-gradient-to-b from-black/60 to-transparent text-white">
+            <button
+              type="button"
+              aria-label="Close"
+              title="Close"
+              onClick={() => onOpenChange(false)}
+              className={cn(toolbarBtn, "shrink-0 hover:bg-black/70")}
+            >
+              <X size={18} />
+            </button>
+            <span className="flex-1 truncate text-sm font-semibold">
+              {jobName}
+            </span>
+            <button
+              type="button"
+              aria-label="Photo details"
+              title="Photo details"
+              onClick={() => setPhoneSheet("info")}
+              className={cn(toolbarBtn, "shrink-0 hover:bg-black/70")}
+            >
+              <Info size={18} />
+            </button>
+          </div>
+        )}
+
+        {/* On-photo tag pills (phone) — a view-only glance at how the Photo is
+            tagged while swiping; editing happens in the Tags panel, so these are
+            plain pills, never buttons (#520). */}
+        {isPhone && assignedTags.length > 0 && (
+          <div className="absolute left-3 right-3 top-[max(env(safe-area-inset-top),12px)] mt-12 flex flex-wrap gap-1.5">
+            {assignedTags.map((tag) => (
+              <span
+                key={tag.id}
+                className="px-2.5 py-1 rounded-full text-xs font-medium text-white shadow-sm"
+                style={{ backgroundColor: tag.color }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Delete confirmation */}
         {confirmDelete && (
@@ -939,9 +1081,77 @@ export default function PhotoViewer({
             </button>
           </div>
         )}
+
+        {/* Phone bottom — the uploader · date · caption sit inline so the field
+            user has context without opening anything (#520). The action row that
+            raises the slide-up panels sits below it, closest to the thumb. */}
+        {isPhone && (
+          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 px-4 pt-10 pb-[max(env(safe-area-inset-bottom),12px)] bg-gradient-to-t from-black/70 via-black/40 to-transparent text-white">
+            <div className="space-y-0.5">
+              {currentPhoto.caption && (
+                <p className="text-sm font-medium">{currentPhoto.caption}</p>
+              )}
+              <p className="text-xs text-white/70">
+                {currentPhoto.taken_by}
+                {" · "}
+                {format(new Date(currentPhoto.created_at), "MMM d, yyyy")}
+              </p>
+            </div>
+
+            {/* Action row — Tags · Draw · Before/After · ⋯ More. Tags,
+                Before/After and More each raise their own slide-up panel; Draw
+                hands off to the Annotator (hidden for video). */}
+            <div className="flex items-stretch justify-around">
+              <button
+                type="button"
+                aria-label="Tags"
+                onClick={() => setPhoneSheet("tags")}
+                className={phoneActionBtn}
+              >
+                <Tag size={20} />
+                Tags
+              </button>
+              {caps.canDraw && (
+                <button
+                  type="button"
+                  aria-label="Draw"
+                  onClick={() =>
+                    onAnnotate(
+                      currentPhoto,
+                      photoUrl(currentPhoto, supabaseUrl, "full"),
+                    )
+                  }
+                  className={phoneActionBtn}
+                >
+                  <Pencil size={20} />
+                  Draw
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Before / After"
+                onClick={() => setPhoneSheet("beforeAfter")}
+                className={phoneActionBtn}
+              >
+                <ArrowLeftRight size={20} />
+                Before/After
+              </button>
+              <button
+                type="button"
+                aria-label="More"
+                onClick={() => setPhoneSheet("more")}
+                className={phoneActionBtn}
+              >
+                <MoreHorizontal size={20} />
+                More
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Always-visible side panel (desktop) carries the modal's fields */}
+      {!isPhone && (
       <aside className="w-[340px] shrink-0 bg-white border-l border-gray-200 overflow-y-auto p-4 space-y-4">
         {/* Caption */}
         <div>
@@ -1078,6 +1288,221 @@ export default function PhotoViewer({
           </button>
         </div>
       </aside>
+      )}
+
+      {/* Phone slide-up panels (#520). Each action button raises its own; only
+          one is open at a time. Tags and Before/After persist on Done through
+          the same writes the desktop Save uses. */}
+      {isPhone && (
+        <>
+          <PhoneSheet
+            open={phoneSheet === "tags"}
+            onClose={() => setPhoneSheet(null)}
+            title="Tags"
+          >
+            <div className="flex flex-wrap gap-1.5">
+              {allTags.map((tag) => {
+                const selected = assignedTagIds.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => toggleTag(tag.id)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-sm font-medium border transition-all flex items-center gap-1",
+                      selected
+                        ? "text-white border-transparent"
+                        : "bg-white text-[#666666] border-gray-200 hover:border-gray-300",
+                    )}
+                    style={
+                      selected
+                        ? { backgroundColor: tag.color, borderColor: tag.color }
+                        : undefined
+                    }
+                  >
+                    {selected && <Check size={12} />}
+                    {tag.name}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={handlePhoneSheetDone}
+              disabled={saving}
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+            >
+              {saving && <Loader2 size={14} className="animate-spin mr-1.5" />}
+              Done
+            </button>
+          </PhoneSheet>
+
+          <PhoneSheet
+            open={phoneSheet === "beforeAfter"}
+            onClose={() => setPhoneSheet(null)}
+            title="Before / After"
+          >
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setBeforeAfterRole(
+                    beforeAfterRole === "before" ? null : "before",
+                  )
+                }
+                className={cn(
+                  "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
+                  beforeAfterRole === "before"
+                    ? "bg-[#FCEBEB] text-[#791F1F] border-[#791F1F]/20"
+                    : "bg-white text-[#666666] border-gray-200",
+                )}
+              >
+                Before
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setBeforeAfterRole(
+                    beforeAfterRole === "after" ? null : "after",
+                  )
+                }
+                className={cn(
+                  "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
+                  beforeAfterRole === "after"
+                    ? "bg-[#E1F5EE] text-[#085041] border-[#085041]/20"
+                    : "bg-white text-[#666666] border-gray-200",
+                )}
+              >
+                After
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handlePhoneSheetDone}
+              disabled={saving}
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+            >
+              {saving && <Loader2 size={14} className="animate-spin mr-1.5" />}
+              Done
+            </button>
+          </PhoneSheet>
+
+          <PhoneSheet
+            open={phoneSheet === "more"}
+            onClose={() => setPhoneSheet(null)}
+            title="More"
+          >
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={handleSetCover}
+                disabled={settingCover || isCover}
+                className={phoneMenuItem}
+              >
+                {settingCover ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : isCover ? (
+                  <Check size={18} className="text-[#085041]" />
+                ) : (
+                  <Star size={18} />
+                )}
+                {isCover ? "Cover photo" : "Set as cover"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("share")}
+                disabled={exporting !== null}
+                className={phoneMenuItem}
+              >
+                {exporting === "share" ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Share2 size={18} />
+                )}
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("save")}
+                disabled={exporting !== null}
+                className={phoneMenuItem}
+              >
+                {exporting === "save" ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <ArrowDownToLine size={18} />
+                )}
+                Save to device
+              </button>
+              <button
+                type="button"
+                onClick={handleDuplicate}
+                disabled={duplicating}
+                className={phoneMenuItem}
+              >
+                {duplicating ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Copy size={18} />
+                )}
+                Duplicate
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhoneSheet(null);
+                  setConfirmDelete(true);
+                }}
+                className={cn(phoneMenuItem, "text-[#C41E2A]")}
+              >
+                <Trash2 size={18} />
+                Delete
+              </button>
+            </div>
+          </PhoneSheet>
+
+          <PhoneSheet
+            open={phoneSheet === "info"}
+            onClose={() => setPhoneSheet(null)}
+            title="Details"
+          >
+            <div className="text-sm text-[#444444] space-y-1.5">
+              <p>
+                <span className="text-[#999999]">Uploaded: </span>
+                {format(
+                  new Date(currentPhoto.created_at),
+                  "MMM d, yyyy 'at' h:mm a",
+                )}
+              </p>
+              <p>
+                <span className="text-[#999999]">By: </span>
+                {currentPhoto.taken_by}
+              </p>
+              {currentPhoto.file_size && (
+                <p>
+                  <span className="text-[#999999]">Size: </span>
+                  {(currentPhoto.file_size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              )}
+            </div>
+            {hasOriginalBackup && (
+              <button
+                type="button"
+                onClick={handleRestoreOriginal}
+                disabled={restoring}
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-[#791F1F] hover:text-[#C41E2A] transition-colors disabled:opacity-50"
+              >
+                {restoring ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <RotateCcw size={14} />
+                )}
+                Restore Original Photo
+              </button>
+            )}
+          </PhoneSheet>
+        </>
+      )}
     </div>
   );
 }
