@@ -577,7 +577,11 @@ describe("POST /api/phone/calls — smart-attach", () => {
     expect(body.smartAttach).toMatchObject({ kind: "auto", jobId: "job-77" });
   });
 
-  it("auto-tags a Contact-card call when the contact has exactly one Active job", async () => {
+  it("leaves a Contact-card call untagged and offers a chip even when the contact has exactly one Active job (#530)", async () => {
+    // The locked rule is "Outbound from Phone tab / Contact card → prompt
+    // chips." A single Active job must NOT be auto-tagged on an outbound
+    // call — the row persists job_tag null and the 201 echoes a prompt with
+    // the one candidate so the UI can offer it. Before #530 this auto-tagged.
     authed("user-1", "crew_lead");
     const { client, inserts } = makeServiceClient({
       phone_numbers: [SHARED_NUM_ROW],
@@ -610,7 +614,12 @@ describe("POST /api/phone/calls — smart-attach", () => {
 
     expect(res.status).toBe(201);
     const callInsert = inserts.find((i) => i.table === "phone_calls");
-    expect(callInsert?.row).toMatchObject({ job_tag: "job-5" });
+    expect(callInsert?.row).toMatchObject({ job_tag: null });
+    const body = await res.json();
+    expect(body.smartAttach.kind).toBe("prompt");
+    expect(body.smartAttach.candidates).toEqual([
+      { jobId: "job-5", label: "JOB-005" },
+    ]);
   });
 
   it("leaves the row untagged and offers chips when the contact has 2+ Active jobs", async () => {

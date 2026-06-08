@@ -181,4 +181,76 @@ describe("decideJobTag — outbound branches (PRD #304, Job-page Text #311)", ()
       }),
     ).toEqual({ kind: "untagged" });
   });
+
+  it("outbound from the Phone tab with exactly one Active job PROMPTS, never auto-tags (#530)", () => {
+    // The locked rule is "Outbound from Phone tab / Contact card → prompt
+    // chips." The single-Active-job auto-tag is INBOUND-only: an outbound
+    // send must never silently attribute itself to the contact's lone Job —
+    // a false attribution (a personal text landing on a Job's timeline) is
+    // worse than one click. Before #530 this fell through to the inbound
+    // branch and returned { kind:'auto' }.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "phone-tab" },
+        contactId: CONTACT_ID,
+        activeJobs: [job("job-1", "WTR-2026-0001")],
+      }),
+    ).toEqual({
+      kind: "prompt",
+      candidates: [{ jobId: "job-1", label: "WTR-2026-0001" }],
+    });
+  });
+
+  it("outbound from a Contact card with exactly one Active job PROMPTS, never auto-tags (#530)", () => {
+    // Same locked rule as the Phone tab — the Contact card is the other
+    // outbound non-Job source. One Active job still prompts; the crew lead
+    // picks the Job (or none) rather than the system guessing.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "contact-card" },
+        contactId: CONTACT_ID,
+        activeJobs: [job("job-1", "WTR-2026-0001")],
+      }),
+    ).toEqual({
+      kind: "prompt",
+      candidates: [{ jobId: "job-1", label: "WTR-2026-0001" }],
+    });
+  });
+
+  it("outbound from the Phone tab with two Active jobs PROMPTS with both candidates", () => {
+    // 2+ Active jobs already prompted before #530; pinned here so the AC2
+    // "2+ still returns prompt" guarantee survives the inbound/outbound split.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "phone-tab" },
+        contactId: CONTACT_ID,
+        activeJobs: [
+          job("job-1", "WTR-2026-0001"),
+          job("job-2", "FYR-2026-0005"),
+        ],
+      }),
+    ).toEqual({
+      kind: "prompt",
+      candidates: [
+        { jobId: "job-1", label: "WTR-2026-0001" },
+        { jobId: "job-2", label: "FYR-2026-0005" },
+      ],
+    });
+  });
+
+  it("outbound from a Contact card with zero Active jobs stays untagged", () => {
+    // AC2: outbound with no Active jobs still returns untagged (nothing to
+    // prompt for) — the empty-jobs branch is shared with inbound.
+    expect(
+      decideJobTag({
+        direction: "out",
+        sourceContext: { kind: "contact-card" },
+        contactId: CONTACT_ID,
+        activeJobs: [],
+      }),
+    ).toEqual({ kind: "untagged" });
+  });
 });
