@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
-import { photoUrl } from "@/lib/jobs/photo-url";
 import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
 import { partitionPhotoReportsByTrash } from "@/lib/photo-report-trash";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
@@ -26,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import ActivityTimeline from "@/components/activity-timeline";
 import PhotoUploadModal from "@/components/photo-upload";
-import PhotoDetailModal from "@/components/photo-detail";
+import PhotoViewer from "@/components/photo-viewer";
 import PhotoAnnotator from "@/components/photo-annotator";
 import ComposeEmailModal from "@/components/compose-email";
 import { JobEmailRow } from "@/components/email/job-email-row";
@@ -116,7 +115,6 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [annotatorOpen, setAnnotatorOpen] = useState(false);
   const [annotatorPhoto, setAnnotatorPhoto] = useState<Photo | null>(null);
-  const [annotatorUrl, setAnnotatorUrl] = useState("");
   const [editJobOpen, setEditJobOpen] = useState(false);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const [editInsuranceOpen, setEditInsuranceOpen] = useState(false);
@@ -1071,24 +1069,22 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         tags={tags}
         onPhotosAdded={fetchData}
       />
-      <PhotoDetailModal
+      <PhotoViewer
         open={!!selectedPhoto}
         onOpenChange={(open) => {
           if (!open) setSelectedPhoto(null);
         }}
-        photo={selectedPhoto}
+        photos={photos}
+        initialPhotoIndex={photos.findIndex((p) => p.id === selectedPhoto?.id)}
         allTags={tags}
-        photoUrl={
-          selectedPhoto ? photoUrl(selectedPhoto, supabaseUrl, "full") : ""
-        }
-        onUpdated={() => {
-          setSelectedPhoto(null);
-          fetchData();
-        }}
-        onAnnotate={(photo, url) => {
+        supabaseUrl={supabaseUrl}
+        // Refetch only — the viewer stays open after a Save (the side panel is
+        // always visible). Delete/Restore close themselves via onOpenChange.
+        onUpdated={fetchData}
+        // Keep the viewer mounted underneath; the Annotator opens on top and
+        // closing it returns to the viewer on the same Photo (#513 AC: Edit).
+        onAnnotate={(photo) => {
           setAnnotatorPhoto(photo);
-          setAnnotatorUrl(url);
-          setSelectedPhoto(null);
           setAnnotatorOpen(true);
         }}
       />
@@ -1098,7 +1094,6 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           setAnnotatorOpen(val);
           if (!val) {
             setAnnotatorPhoto(null);
-            setAnnotatorUrl("");
           }
         }}
         photos={photos}
