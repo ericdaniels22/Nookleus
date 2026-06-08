@@ -13,6 +13,18 @@ import {
   hasPrev,
   indexAfterDelete,
 } from "@/lib/jobs/photo-viewer-navigation";
+import { mediaCapabilities } from "@/lib/jobs/photo-media-capabilities";
+import {
+  FIT,
+  ZOOM_STEP,
+  zoomBy,
+  zoomAbout,
+  doubleTap,
+  pan,
+  type Transform,
+  type ViewportContext,
+  type Focal,
+} from "@/lib/jobs/photo-zoom-transform";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +41,8 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -113,17 +127,197 @@ export default function PhotoViewer({
     };
   }, []);
 
-  // Touch swipe: a horizontal drag past the threshold steps between Photos —
-  // left for the next (older), right for the previous (newer).
-  const SWIPE_THRESHOLD = 50;
-  const touchStartX = useRef<number | null>(null);
+  // Zoom/pan state, applied on top of the image's object-contain fit. All the
+  // math lives in the pure zoom-transform module; this is just the live state
+  // plus the DOM measurements the gestures need. Each Photo opens at fit.
+  const [transform, setTransform] = useState<Transform>(FIT);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const isZoomed = transform.scale > 1;
+
+  // The transform reasons in pixels: the surface's measured size is the
+  // viewport, and the Photo's stored dimensions (falling back to the decoded
+  // image) are the source size. Null until something is measurable, so handlers
+  // no-op rather than divide by zero.
+  function viewportCtx(): ViewportContext | null {
+    const el = surfaceRef.current;
+    if (!el || !currentPhoto) return null;
+    const rect = el.getBoundingClientRect();
+    const imageW = currentPhoto.width ?? imgRef.current?.naturalWidth ?? rect.width;
+    const imageH = currentPhoto.height ?? imgRef.current?.naturalHeight ?? rect.height;
+    if (!rect.width || !rect.height || !imageW || !imageH) return null;
+    return { imageW, imageH, viewportW: rect.width, viewportH: rect.height };
+  }
+
+  // A client coordinate expressed relative to the surface (the focal point a
+  // gesture zooms about).
+  function focalFrom(clientX: number, clientY: number): Focal {
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+  }
+
+  const viewportCentre = (ctx: ViewportContext): Focal => ({
+    x: ctx.viewportW / 2,
+    y: ctx.viewportH / 2,
+  });
+
+  // ＋ / − buttons zoom a fixed step about the centre of the image.
+  function zoomStep(direction: 1 | -1) {
+    const ctx = viewportCtx();
+    if (!ctx) return;
+    const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+    setTransform((t) => zoomBy(t, factor, viewportCentre(ctx), ctx));
+  }
+
+  // Scroll-wheel / trackpad zoom about the cursor. The delta maps to a smooth
+  // multiplicative factor so a trackpad's fine deltas and a mouse wheel's coarse
+  // notches both feel even. preventDefault is best-effort (React's wheel
+  // listener is passive) — enough to stop the page jumping under the viewer.
+  function onWheel(e: React.WheelEvent) {
+    if (!caps.canZoom) return;
+    const ctx = viewportCtx();
+    if (!ctx) return;
+    e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const focal = focalFrom(e.clientX, e.clientY);
+    setTransform((t) => zoomBy(t, factor, focal, ctx));
+  }
+
+  // Double-click / double-tap snaps between fit and zoomed about the point.
+  function onDoubleClick(e: React.MouseEvent) {
+    if (!caps.canZoom) return;
+    const ctx = viewportCtx();
+    if (!ctx) return;
+    const focal = focalFrom(e.clientX, e.clientY);
+    setTransform((t) => doubleTap(t, focal, ctx));
+  }
+
+  // Mouse drag-to-pan (desktop). Only active while zoomed; each move pans by
+  // the delta since the last point and the pure module clamps it to the edges.
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  function onMouseDown(e: React.MouseEvent) {
+    if (!isZoomed) return;
+    dragOrigin.current = { x: e.clientX, y: e.clientY };
+  }
+  function onMouseMove(e: React.MouseEvent) {
+    const origin = dragOrigin.current;
+    if (!origin) return;
+    const ctx = viewportCtx();
+    if (!ctx) return;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
+    dragOrigin.current = { x: e.clientX, y: e.clientY };
+    setTransform((t) => pan(t, dx, dy, ctx));
+  }
+  function endDrag() {
+    dragOrigin.current = null;
+  }
+
+  // Touch gestures share the surface and are dispatched by finger count and
+  // zoom state: two fingers pinch-zoom; one finger pans when zoomed or swipes
+  // between Photos at fit; a quick double-tap toggles zoom. The pure module does
+  // every transform; these refs only hold the in-flight gesture's start state.
+  const SWIPE_THRESHOLD = 50; // px a one-finger swipe must travel to page
+  const TAP_MOVE = 10; // px under which a touch counts as a tap, not a drag
+  const DOUBLE_TAP_MS = 300; // window for a second tap to count as a double-tap
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const pinchStart = useRef<{ dist: number; transform: Transform } | null>(null);
+  const touchPanLast = useRef<{ x: number; y: number } | null>(null);
+  const lastTap = useRef<{ time: number; x: number; y: number } | null>(null);
+
+  const touchDistance = (t: React.TouchList) =>
+    Math.hypot(
+      (t[0]?.clientX ?? 0) - (t[1]?.clientX ?? 0),
+      (t[0]?.clientY ?? 0) - (t[1]?.clientY ?? 0),
+    );
+  const touchMidpoint = (t: React.TouchList): Focal =>
+    focalFrom(
+      ((t[0]?.clientX ?? 0) + (t[1]?.clientX ?? 0)) / 2,
+      ((t[0]?.clientY ?? 0) + (t[1]?.clientY ?? 0)) / 2,
+    );
+
   const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0]?.clientX ?? null;
+    if (e.touches.length >= 2) {
+      // Two fingers only ever mean pinch-zoom; ignore them where Zoom doesn't
+      // apply (video) so the transform stays at fit.
+      if (caps.canZoom) {
+        pinchStart.current = { dist: touchDistance(e.touches), transform };
+      }
+      touchStart.current = null;
+      touchPanLast.current = null;
+      return;
+    }
+    const t0 = e.touches[0];
+    const x = t0?.clientX ?? 0;
+    const y = t0?.clientY ?? 0;
+    touchStart.current = { x, y };
+    touchPanLast.current = isZoomed ? { x, y } : null;
   };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (pinchStart.current && e.touches.length >= 2) {
+      const ctx = viewportCtx();
+      if (!ctx) return;
+      const start = pinchStart.current;
+      const factor = touchDistance(e.touches) / start.dist;
+      const focal = touchMidpoint(e.touches);
+      setTransform(() =>
+        zoomAbout(start.transform, start.transform.scale * factor, focal, ctx),
+      );
+      return;
+    }
+    const last = touchPanLast.current;
+    if (last && e.touches.length === 1) {
+      const ctx = viewportCtx();
+      if (!ctx) return;
+      const t0 = e.touches[0];
+      const x = t0?.clientX ?? 0;
+      const y = t0?.clientY ?? 0;
+      const dx = x - last.x;
+      const dy = y - last.y;
+      touchPanLast.current = { x, y };
+      setTransform((t) => pan(t, dx, dy, ctx));
+    }
+  };
+
   const onTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
-    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
-    touchStartX.current = null;
+    const pinched = pinchStart.current !== null;
+    const panned = touchPanLast.current !== null;
+    const start = touchStart.current;
+    pinchStart.current = null;
+    touchPanLast.current = null;
+    touchStart.current = null;
+    if (pinched) return;
+
+    const end = e.changedTouches[0];
+    const ex = end?.clientX ?? 0;
+    const ey = end?.clientY ?? 0;
+    const dx = start ? ex - start.x : 0;
+    const moved = start ? Math.hypot(ex - start.x, ey - start.y) : 0;
+
+    // A near-stationary touch is a tap — a second one inside the window snaps
+    // zoom about the point (the touch equivalent of a double-click).
+    if (moved < TAP_MOVE) {
+      const now = Date.now();
+      const prev = lastTap.current;
+      if (
+        prev &&
+        now - prev.time < DOUBLE_TAP_MS &&
+        Math.hypot(ex - prev.x, ey - prev.y) < TAP_MOVE
+      ) {
+        lastTap.current = null;
+        const ctx = viewportCtx();
+        if (caps.canZoom && ctx) {
+          setTransform((t) => doubleTap(t, focalFrom(ex, ey), ctx));
+        }
+      } else {
+        lastTap.current = { time: now, x: ex, y: ey };
+      }
+      return;
+    }
+
+    // A drag: it already panned if zoomed; at fit it pages between Photos.
+    if (panned || isZoomed) return;
     if (dx <= -SWIPE_THRESHOLD) goNext();
     else if (dx >= SWIPE_THRESHOLD) goPrev();
   };
@@ -167,11 +361,13 @@ export default function PhotoViewer({
   }
 
   // Seed the editable fields from the opened Photo (re-seed if it changes).
+  // Each Photo opens at fit — a leftover zoom must not carry into the next one.
   useEffect(() => {
     if (currentPhoto) {
       setCaption(currentPhoto.caption || "");
       setBeforeAfterRole(currentPhoto.before_after_role);
       setConfirmDelete(false);
+      setTransform(FIT);
       fetchTags(currentPhoto.id);
       checkOriginalBackup(currentPhoto);
     }
@@ -424,6 +620,10 @@ export default function PhotoViewer({
 
   if (!open || !currentPhoto) return null;
 
+  // Zoom and Draw act on a still image; a video has neither (PRD #511). The
+  // pure rule decides, so the viewer hides those controls for video in one place.
+  const caps = mediaCapabilities(currentPhoto);
+
   const displayUrl = photoUrl(currentPhoto, supabaseUrl, "full");
   const toolbarBtn =
     "inline-flex items-center justify-center w-9 h-9 rounded-full bg-black/50 text-white transition-colors";
@@ -432,15 +632,56 @@ export default function PhotoViewer({
     <div className="fixed inset-0 z-[90] flex bg-black">
       {/* Photo, centered + letterboxed on black, with the action toolbar over it */}
       <div
+        ref={surfaceRef}
         className="flex-1 relative flex items-center justify-center overflow-hidden"
         onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onWheel={onWheel}
+        onDoubleClick={onDoubleClick}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        style={{ cursor: isZoomed ? "grab" : undefined }}
       >
         <img
+          ref={imgRef}
           src={displayUrl}
           alt={currentPhoto.caption || "Photo"}
           className="max-w-full max-h-full object-contain"
+          style={{
+            transform: `translate(${transform.offsetX}px, ${transform.offsetY}px) scale(${transform.scale})`,
+            transformOrigin: "center center",
+          }}
+          draggable={false}
         />
+
+        {/* Zoom controls (desktop) — scroll-wheel and double-click also zoom;
+            hidden for media that can't zoom (video). */}
+        {caps.canZoom && (
+          <div className="absolute bottom-3 left-3 flex flex-col gap-2">
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in"
+              onClick={() => zoomStep(1)}
+              className={cn(toolbarBtn, "hover:bg-black/70")}
+            >
+              <ZoomIn size={18} />
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              title="Zoom out"
+              onClick={() => zoomStep(-1)}
+              disabled={!isZoomed}
+              className={cn(toolbarBtn, "hover:bg-black/70 disabled:opacity-40")}
+            >
+              <ZoomOut size={18} />
+            </button>
+          </div>
+        )}
 
         {/* Prev / next — newest-first, continuous across the grid's date
             dividers, clamped at the ends (#515). */}
@@ -498,17 +739,21 @@ export default function PhotoViewer({
 
         {/* Toolbar over the photo */}
         <div className="absolute top-3 right-3 flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Edit"
-            title="Edit"
-            onClick={() =>
-              onAnnotate(currentPhoto, photoUrl(currentPhoto, supabaseUrl, "full"))
-            }
-            className={cn(toolbarBtn, "hover:bg-black/70")}
-          >
-            <Pencil size={18} />
-          </button>
+          {/* Edit hands off to the Annotator (drawing) — hidden for media that
+              can't be drawn on (video). */}
+          {caps.canDraw && (
+            <button
+              type="button"
+              aria-label="Edit"
+              title="Edit"
+              onClick={() =>
+                onAnnotate(currentPhoto, photoUrl(currentPhoto, supabaseUrl, "full"))
+              }
+              className={cn(toolbarBtn, "hover:bg-black/70")}
+            >
+              <Pencil size={18} />
+            </button>
+          )}
           <button
             type="button"
             aria-label="Download"
