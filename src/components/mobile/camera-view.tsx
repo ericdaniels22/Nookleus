@@ -23,6 +23,12 @@ import { useUploadQueue } from "@/lib/mobile/upload-queue-context";
 import { useViewportOrientation } from "@/lib/mobile/use-viewport-orientation";
 import { useCameraLifecycle } from "@/lib/mobile/use-camera-lifecycle";
 import {
+  visibleZoomFactors,
+  selectFactor,
+  revertFactor,
+  formatFactorLabel,
+} from "@/lib/mobile/lens-zoom";
+import {
   computeCameraLayout,
   type CameraLayout,
 } from "@/lib/mobile/compute-camera-layout";
@@ -89,6 +95,13 @@ export default function CameraView({
   const [flash, setFlash] = useState<FlashMode>("off");
   const [count, setCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [availableFactors, setAvailableFactors] = useState<number[]>([]);
+  const [selectedFactor, setSelectedFactor] = useState<number>(1);
+  const [confirmedFactor, setConfirmedFactor] = useState<number>(1);
+  const [isSwitchingLens, setIsSwitchingLens] = useState(false);
+  // `position` is declared above (line 88), so reading it here is safe. Drives
+  // the render-time reset in Step 4 (React "adjust state when a prop changes").
+  const [prevPosition, setPrevPosition] = useState(position);
   const [pendingTag, setPendingTag] = useState<{ captureId: string } | null>(
     null,
   );
@@ -121,7 +134,25 @@ export default function CameraView({
       const message = err instanceof Error ? err.message : String(err);
       setPermissionError(message);
     },
+    // Wrap the setter instead of passing it directly. The direct pass also
+    // typechecks (a setter accepting `number[] | updater` is assignable to a
+    // `(factors: number[]) => void` callback by parameter contravariance), but
+    // the explicit adapter documents the contract and avoids reviewer churn.
+    onZoomFactorsAvailable: (factors) => setAvailableFactors(factors),
   });
+
+  // Reset the toggle to 1× whenever `position` changes. The native session
+  // rebuild on flip (useCameraLifecycle stop()+start()) re-selects the wide
+  // lens at videoZoomFactor 1.0, so the UI must snap to 1× to stay in sync with
+  // the feed. This is React's render-time "adjust state when a prop changes"
+  // pattern — NOT a useEffect (see Step 1) — so it adds no
+  // `react-hooks/set-state-in-effect` violation. It runs at most once per flip:
+  // setPrevPosition makes the guard false on the immediate re-render.
+  if (position !== prevPosition) {
+    setPrevPosition(position);
+    setSelectedFactor(1);
+    setConfirmedFactor(1);
+  }
 
   const handleFlip = useCallback(async () => {
     if (busy) return;
@@ -134,6 +165,32 @@ export default function CameraView({
       // restart automatically because `position` changed.
     }
   }, [busy, position]);
+
+  const handleSetZoom = useCallback(
+    async (factor: number) => {
+      // Drop taps while a switch is in flight or the shutter is busy — two
+      // reconfigurations must never overlap (spec §5).
+      if (isSwitchingLens || busy) return;
+      const optimistic = selectFactor({ selectedFactor, confirmedFactor }, factor);
+      if (optimistic.selectedFactor === selectedFactor) return; // tap on active stop
+      setSelectedFactor(optimistic.selectedFactor);
+      setIsSwitchingLens(true);
+      try {
+        await CameraPreview.setZoom({ factor });
+        setConfirmedFactor(factor);
+      } catch {
+        // Native rejected (e.g. lens missing) — revert the optimistic highlight.
+        const reverted = revertFactor({
+          selectedFactor: optimistic.selectedFactor,
+          confirmedFactor,
+        });
+        setSelectedFactor(reverted.selectedFactor);
+      } finally {
+        setIsSwitchingLens(false);
+      }
+    },
+    [busy, confirmedFactor, isSwitchingLens, selectedFactor],
+  );
 
   const cycleFlash = useCallback(async () => {
     if (busy) return;
@@ -254,6 +311,41 @@ export default function CameraView({
   }
 
   const stacked = layout.mode === "stacked";
+
+  // Segmented lens toggle. Rendered only when more than one stop is available
+  // and on the rear camera (visibleZoomFactors enforces both). Disabled (but
+  // visible, dimmed) while a switch is in flight; taps are dropped, not queued.
+  const visibleFactors = visibleZoomFactors(availableFactors, position);
+  const lensPill =
+    visibleFactors.length > 1 ? (
+      <div
+        data-testid="camera-lens-pill"
+        className={cn(
+          "flex items-center gap-1 rounded-full border border-white/25 bg-black/40 p-1",
+          (isSwitchingLens || busy) && "opacity-50",
+        )}
+      >
+        {visibleFactors.map((factor) => {
+          const active = factor === selectedFactor;
+          return (
+            <button
+              key={factor}
+              type="button"
+              disabled={isSwitchingLens || busy}
+              onClick={() => handleSetZoom(factor)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition",
+                active ? "bg-white text-black" : "bg-transparent text-white",
+              )}
+              aria-pressed={active}
+              aria-label={`Zoom ${formatFactorLabel(factor)}`}
+            >
+              {formatFactorLabel(factor)}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
 
   // Stacked-only top strip: X cancel + four icons. In overlay mode the X
   // disappears and the four icons move into the floating top-right cluster.
@@ -466,6 +558,9 @@ export default function CameraView({
                   {count}
                 </div>
               )}
+              {lensPill && (
+                <div className="mb-3 flex justify-center">{lensPill}</div>
+              )}
               <div className="grid w-full grid-cols-3 items-center">
                 <div className="justify-self-center">{queueButton}</div>
                 <div className="justify-self-center">{shutterButton}</div>
@@ -531,6 +626,9 @@ export default function CameraView({
               >
                 {count}
               </div>
+            )}
+            {lensPill && (
+              <div style={{ filter: OVERLAY_ICON_SHADOW }}>{lensPill}</div>
             )}
             {shutterButton}
             {queueButton}
