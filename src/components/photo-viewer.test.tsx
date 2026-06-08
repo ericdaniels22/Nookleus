@@ -95,7 +95,16 @@ vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
 }));
 
+// The platform share/download plumbing is its own tested seam (#518); the
+// viewer's job is only to call it with the right version + filename + mode, so
+// mock it and assert the hand-off.
+vi.mock("@/lib/share/share-or-download", () => ({
+  shareOrDownloadFile: vi.fn(async () => {}),
+}));
+
 import { toast } from "sonner";
+import { shareOrDownloadFile } from "@/lib/share/share-or-download";
+import { exportVersion } from "@/lib/jobs/photo-export-version";
 import PhotoViewer from "./photo-viewer";
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
@@ -574,6 +583,84 @@ describe("PhotoViewer — Set as cover (⋯ More)", () => {
       name: /cover photo/i,
     }) as HTMLButtonElement;
     expect(entry.disabled).toBe(true);
+  });
+});
+
+describe("PhotoViewer — Share / Save to device (⋯ More)", () => {
+  it("Save to device hands the displayed version + filename to the plumbing in save mode", async () => {
+    const { photo } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /save to device/i }));
+    });
+
+    expect(shareOrDownloadFile).toHaveBeenCalledWith({
+      ...exportVersion(photo, SUPABASE_URL, "save"),
+      mode: "save",
+    });
+  });
+
+  it("Share opens the share sheet with the displayed version in share mode", async () => {
+    const { photo } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /share/i }));
+    });
+
+    expect(shareOrDownloadFile).toHaveBeenCalledWith({
+      ...exportVersion(photo, SUPABASE_URL, "share"),
+      mode: "share",
+    });
+  });
+
+  it("acts on the annotated render when the Photo has been drawn on", async () => {
+    const annotated = makePhoto({
+      annotated_path: "job-1/p1-annotated.png",
+      caption: "Roof",
+    });
+    renderViewer({ photos: [annotated] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /save to device/i }));
+    });
+
+    // The displayed version is the annotated copy: its URL, and a name carrying
+    // the render's .png extension.
+    const arg = vi.mocked(shareOrDownloadFile).mock.calls[0][0];
+    expect(arg.url).toBe(photoUrl(annotated, SUPABASE_URL, "full"));
+    expect(arg.filename).toBe("Roof.png");
+  });
+
+  it("closes the ⋯ menu after an export", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    expect(
+      screen.queryByRole("button", { name: /save to device/i }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /save to device/i }));
+    });
+
+    expect(
+      screen.queryByRole("button", { name: /save to device/i }),
+    ).toBeNull();
   });
 });
 

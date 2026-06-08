@@ -14,6 +14,8 @@ import {
   indexAfterDelete,
 } from "@/lib/jobs/photo-viewer-navigation";
 import { mediaCapabilities } from "@/lib/jobs/photo-media-capabilities";
+import { exportVersion } from "@/lib/jobs/photo-export-version";
+import { shareOrDownloadFile } from "@/lib/share/share-or-download";
 import {
   FIT,
   ZOOM_STEP,
@@ -38,6 +40,8 @@ import {
   RotateCcw,
   X,
   MoreHorizontal,
+  Share2,
+  ArrowDownToLine,
   Star,
   ChevronLeft,
   ChevronRight,
@@ -334,6 +338,9 @@ export default function PhotoViewer({
   const [hasOriginalBackup, setHasOriginalBackup] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [settingCover, setSettingCover] = useState(false);
+  // Which export, if any, is in flight — so the chosen ⋯ menu entry shows a
+  // spinner and both stay disabled until the share/download settles.
+  const [exporting, setExporting] = useState<null | "share" | "save">(null);
 
   async function fetchTags(photoId: string) {
     const supabase = createClient();
@@ -554,6 +561,25 @@ export default function PhotoViewer({
     }
     toast.success("Cover photo updated.");
     onUpdated();
+  }
+
+  // Share / Save to device act on the displayed version (annotated when drawn
+  // on, else the original) — the pure export-version rule picks the file + name,
+  // and the shared platform recipe opens the device share sheet or downloads,
+  // falling back to a download where the Web Share API isn't available.
+  async function handleExport(intent: "share" | "save") {
+    if (!currentPhoto) return;
+    setExporting(intent);
+    try {
+      const version = exportVersion(currentPhoto, supabaseUrl, intent);
+      await shareOrDownloadFile({ ...version, mode: intent });
+    } catch {
+      toast.error(
+        intent === "share" ? "Failed to share photo." : "Failed to save photo.",
+      );
+    }
+    setExporting(null);
+    setMoreOpen(false);
   }
 
   // Delete is deferred behind an Undo window (#515). Confirming hides the Photo
@@ -827,6 +853,32 @@ export default function PhotoViewer({
                 <Star size={14} />
               )}
               {isCover ? "Cover photo" : "Set as cover"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("share")}
+              disabled={exporting !== null}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+            >
+              {exporting === "share" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Share2 size={14} />
+              )}
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("save")}
+              disabled={exporting !== null}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+            >
+              {exporting === "save" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <ArrowDownToLine size={14} />
+              )}
+              Save to device
             </button>
           </div>
         )}
