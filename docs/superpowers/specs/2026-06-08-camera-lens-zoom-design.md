@@ -316,8 +316,12 @@ with the `OVERLAY_ICON_SHADOW` drop-shadow in overlay mode for legibility.
 **Visibility & concurrency:**
 - Render only when `visibleZoomFactors(...).length > 1` (§7 helper).
 - Hidden when `position === "front"`.
-- A `useEffect` watching `position` resets `selectedFactor` and `confirmedFactor`
-  to `1` on **any** position change (covers both flip directions in one place).
+- A render-time guard (`if (position !== prevPosition) { … }`, React's "adjust
+  state when a prop changes" pattern — **not** a `useEffect`) resets
+  `selectedFactor` and `confirmedFactor` to `1` on **any** position change
+  (covers both flip directions in one place). Render-time rather than an effect
+  so it adds no `react-hooks/set-state-in-effect` lint violation to
+  `camera-view.tsx`, which is currently clean of that rule.
 - While a `setZoom` is in flight, an `isSwitchingLens` flag (plus the existing
   `busy` shutter flag) **disables** the pill (visible, reduced opacity); taps
   during this window are **dropped, not queued**, so two reconfigurations can
@@ -373,6 +377,9 @@ export function selectFactor(
 export function revertFactor(
   state: { selectedFactor: number; confirmedFactor: number },
 ): { selectedFactor: number; confirmedFactor: number };
+
+/** Display label for a stop: 0.5 → "0.5×", 1 → "1×", 2 → "2×". */
+export function formatFactorLabel(factor: number): string;
 ```
 
 Test cases: `[]` available → hidden; `[1,2]` rear → `[1,2]`; `[0.5,1,2]` rear →
