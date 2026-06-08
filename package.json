@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:pg": "vitest run --config vitest.pg.config.ts"
+    "test:pg": "vitest run --config vitest.pg.config.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
@@ -96,7 +97,9 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "jsdom": "^29.1.1",
+    "patch-package": "^8.0.1",
     "pg": "^8.21.0",
+    "postinstall-postinstall": "^2.1.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.5"
