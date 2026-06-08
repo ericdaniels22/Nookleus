@@ -91,6 +91,7 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+import { toast } from "sonner";
 import PhotoViewer from "./photo-viewer";
 
 function makePhoto(overrides: Partial<Photo> = {}): Photo {
@@ -142,6 +143,7 @@ function renderViewer(
       initialPhotoIndex={0}
       allTags={[]}
       supabaseUrl={SUPABASE_URL}
+      coverPhotoId={null}
       onUpdated={onUpdated}
       onAnnotate={onAnnotate}
       {...props}
@@ -411,6 +413,82 @@ describe("PhotoViewer — close", () => {
     });
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("PhotoViewer — Set as cover (⋯ More)", () => {
+  it("Set as cover writes the Job's cover_photo_id to the current Photo", async () => {
+    const { photo } = renderViewer();
+    await act(async () => {});
+
+    // Open the ⋯ More menu, then choose Set as cover (the existing direct
+    // write the grid's star uses: jobs.cover_photo_id = this photo).
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /set as cover/i }));
+    });
+
+    expect(h.update).toHaveBeenCalledWith(
+      "jobs",
+      expect.objectContaining({ cover_photo_id: photo.id }),
+    );
+    expect(h.updateEq).toHaveBeenCalledWith("jobs", "id", photo.job_id);
+  });
+
+  it("refetches (onUpdated) so the grid reflects the new cover, and toasts success", async () => {
+    const { onUpdated } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /set as cover/i }));
+    });
+
+    expect(onUpdated).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(
+      expect.stringMatching(/cover/i),
+    );
+  });
+
+  it("reflects cover state: the menu entry is a disabled 'Cover photo', not an action", async () => {
+    const photo = makePhoto();
+    renderViewer({ photos: [photo], coverPhotoId: photo.id });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+
+    // It no longer offers to set the cover — it states the current one.
+    expect(
+      screen.queryByRole("button", { name: /set as cover/i }),
+    ).toBeNull();
+    const entry = screen.getByRole("button", {
+      name: /cover photo/i,
+    }) as HTMLButtonElement;
+    expect(entry.disabled).toBe(true);
+  });
+});
+
+describe("PhotoViewer — Cover indicator", () => {
+  it("shows a Cover badge when the current Photo is the Job's cover", async () => {
+    const photo = makePhoto();
+    renderViewer({ photos: [photo], coverPhotoId: photo.id });
+    await act(async () => {});
+
+    expect(screen.getByTitle(/current cover/i)).toBeTruthy();
+  });
+
+  it("hides the Cover badge when the current Photo is not the cover", async () => {
+    const photo = makePhoto();
+    renderViewer({ photos: [photo], coverPhotoId: "a-different-photo" });
+    await act(async () => {});
+
+    expect(screen.queryByTitle(/current cover/i)).toBeNull();
   });
 });
 
