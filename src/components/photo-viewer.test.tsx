@@ -706,6 +706,275 @@ describe("PhotoViewer — navigation across the Job's Photos", () => {
   });
 });
 
+describe("PhotoViewer — zoom", () => {
+  // jsdom gives every element a 0×0 rect; the zoom math needs a real viewport.
+  // Stub a 1000×800 surface (origin 0,0) so focal points equal clientX/clientY,
+  // and size the Photo 4000×3000 so fit spans the full width (fitW = 1000).
+  let rectSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 1000,
+      height: 800,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
+  afterEach(() => rectSpy.mockRestore());
+
+  const zoomPhoto = (overrides: Partial<Photo> = {}) =>
+    makePhoto({ width: 4000, height: 3000, ...overrides });
+
+  const img = () => screen.getByRole("img") as HTMLImageElement;
+  // The applied magnification, parsed out of the CSS transform on the image.
+  const scaleOf = (el: HTMLElement) => {
+    const m = /scale\(([\d.]+)\)/.exec(el.style.transform);
+    return m ? parseFloat(m[1]) : 1;
+  };
+  // The horizontal pan offset, parsed out of the CSS transform's translate().
+  const offsetXOf = (el: HTMLElement) => {
+    const m = /translate\((-?[\d.]+)px/.exec(el.style.transform);
+    return m ? parseFloat(m[1]) : 0;
+  };
+  const src = () => img().getAttribute("src");
+  const zoomIn = async () =>
+    act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    });
+
+  it("magnifies the Photo when the ＋ (zoom in) button is pressed", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+    expect(scaleOf(img())).toBe(1);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    });
+
+    expect(scaleOf(img())).toBeGreaterThan(1);
+  });
+
+  it("− (zoom out) is disabled at fit and brings a zoomed Photo back", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    const zoomOut = () => screen.getByRole("button", { name: /zoom out/i }) as HTMLButtonElement;
+    expect(zoomOut().disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    });
+    expect(zoomOut().disabled).toBe(false);
+    const zoomedIn = scaleOf(img());
+
+    await act(async () => {
+      fireEvent.click(zoomOut());
+    });
+    expect(scaleOf(img())).toBeLessThan(zoomedIn);
+  });
+
+  it("scroll-wheel up magnifies the Photo", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    await act(async () => {
+      // Negative deltaY = scroll up = zoom in, about the cursor.
+      fireEvent.wheel(img(), { deltaY: -200, clientX: 500, clientY: 400 });
+    });
+
+    expect(scaleOf(img())).toBeGreaterThan(1);
+  });
+
+  it("double-click snaps to zoomed, and again back to fit", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.doubleClick(img(), { clientX: 500, clientY: 400 });
+    });
+    expect(scaleOf(img())).toBe(2);
+
+    await act(async () => {
+      fireEvent.doubleClick(img(), { clientX: 500, clientY: 400 });
+    });
+    expect(scaleOf(img())).toBe(1);
+  });
+
+  it("resets to fit when paging to another Photo", async () => {
+    const a = zoomPhoto({ id: "a", storage_path: "job-1/a.jpg", created_at: "2026-05-02T10:00:00Z" });
+    const b = zoomPhoto({ id: "b", storage_path: "job-1/b.jpg", created_at: "2026-05-01T10:00:00Z" });
+    renderViewer({ photos: [a, b], initialPhotoIndex: 0 });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    });
+    expect(scaleOf(img())).toBeGreaterThan(1);
+
+    // Page to the next Photo — it should open at fit, not inherit the zoom.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    expect(scaleOf(img())).toBe(1);
+  });
+
+  it("drags to pan once zoomed, clamped within the image", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+    await zoomIn();
+    expect(offsetXOf(img())).toBe(0);
+
+    // Drag left by 100px → the image shifts left (negative offset).
+    await act(async () => {
+      fireEvent.mouseDown(img(), { clientX: 500, clientY: 400 });
+      fireEvent.mouseMove(img(), { clientX: 400, clientY: 400 });
+      fireEvent.mouseUp(img(), { clientX: 400, clientY: 400 });
+    });
+
+    expect(offsetXOf(img())).toBeLessThan(0);
+  });
+
+  it("does not pan at fit (a stray drag leaves the image centred)", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.mouseDown(img(), { clientX: 500, clientY: 400 });
+      fireEvent.mouseMove(img(), { clientX: 300, clientY: 400 });
+      fireEvent.mouseUp(img(), { clientX: 300, clientY: 400 });
+    });
+
+    expect(offsetXOf(img())).toBe(0);
+  });
+
+  it("suppresses swipe navigation while zoomed (the drag pans instead)", async () => {
+    const a = zoomPhoto({ id: "a", storage_path: "job-1/a.jpg", created_at: "2026-05-02T10:00:00Z" });
+    const b = zoomPhoto({ id: "b", storage_path: "job-1/b.jpg", created_at: "2026-05-01T10:00:00Z" });
+    renderViewer({ photos: [a, b], initialPhotoIndex: 0 });
+    await act(async () => {});
+    await zoomIn();
+    const before = src();
+
+    // A leftward one-finger swipe that would normally advance a Photo.
+    await act(async () => {
+      fireEvent.touchStart(img(), { touches: [{ clientX: 240, clientY: 400 }] });
+      fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 80, clientY: 400 }] });
+    });
+
+    // Still on the same Photo — paging was suppressed.
+    expect(src()).toBe(before);
+  });
+
+  it("pinching two fingers apart magnifies the Photo", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    await act(async () => {
+      // Two fingers 40px apart, then spread to 200px apart (5×), centred.
+      fireEvent.touchStart(img(), {
+        touches: [
+          { clientX: 480, clientY: 400 },
+          { clientX: 520, clientY: 400 },
+        ],
+      });
+      fireEvent.touchMove(img(), {
+        touches: [
+          { clientX: 400, clientY: 400 },
+          { clientX: 600, clientY: 400 },
+        ],
+      });
+      fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 400, clientY: 400 }] });
+    });
+
+    expect(scaleOf(img())).toBeGreaterThan(1);
+  });
+
+  it("double-tap (touch) snaps to zoomed", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+
+    const tap = () =>
+      act(async () => {
+        fireEvent.touchStart(img(), { touches: [{ clientX: 500, clientY: 400 }] });
+        fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 500, clientY: 400 }] });
+      });
+
+    await tap();
+    await tap();
+
+    expect(scaleOf(img())).toBe(2);
+  });
+
+  it("one-finger drag pans once zoomed (touch)", async () => {
+    renderViewer({ photos: [zoomPhoto()] });
+    await act(async () => {});
+    await zoomIn();
+
+    await act(async () => {
+      fireEvent.touchStart(img(), { touches: [{ clientX: 500, clientY: 400 }] });
+      fireEvent.touchMove(img(), { touches: [{ clientX: 400, clientY: 400 }] });
+      fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 400, clientY: 400 }] });
+    });
+
+    expect(offsetXOf(img())).toBeLessThan(0);
+  });
+
+  it("ignores a pinch on a video (Zoom doesn't apply)", async () => {
+    renderViewer({ photos: [zoomPhoto({ media_type: "video" })] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.touchStart(img(), {
+        touches: [
+          { clientX: 480, clientY: 400 },
+          { clientX: 520, clientY: 400 },
+        ],
+      });
+      fireEvent.touchMove(img(), {
+        touches: [
+          { clientX: 400, clientY: 400 },
+          { clientX: 600, clientY: 400 },
+        ],
+      });
+      fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 400, clientY: 400 }] });
+    });
+
+    expect(scaleOf(img())).toBe(1);
+  });
+});
+
+describe("PhotoViewer — media capabilities (video hides Zoom & Draw)", () => {
+  const video = () =>
+    makePhoto({ media_type: "video", storage_path: "job-1/clip.mp4" });
+
+  it("hides the Zoom controls for a video", async () => {
+    renderViewer({ photos: [video()] });
+    await act(async () => {});
+
+    expect(screen.queryByRole("button", { name: /zoom in/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /zoom out/i })).toBeNull();
+  });
+
+  it("hides the Edit (Draw) action for a video", async () => {
+    renderViewer({ photos: [video()] });
+    await act(async () => {});
+
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
+  });
+
+  it("still offers Zoom and Edit for a still photo", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    expect(screen.queryByRole("button", { name: /zoom in/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeTruthy();
+  });
+});
+
 describe("PhotoViewer — guard", () => {
   it("renders nothing when closed", () => {
     const { container } = renderViewer({ open: false });
