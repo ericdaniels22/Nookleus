@@ -1078,6 +1078,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         initialPhotoIndex={photos.findIndex((p) => p.id === selectedPhoto?.id)}
         allTags={tags}
         supabaseUrl={supabaseUrl}
+        coverPhotoId={job?.cover_photo_id ?? null}
         // Refetch only — the viewer stays open after a Save (the side panel is
         // always visible). Delete/Restore close themselves via onOpenChange.
         onUpdated={fetchData}

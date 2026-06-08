@@ -17,6 +17,8 @@ import {
   Pencil,
   RotateCcw,
   X,
+  MoreHorizontal,
+  Star,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -28,6 +30,7 @@ export default function PhotoViewer({
   initialPhotoIndex,
   allTags,
   supabaseUrl,
+  coverPhotoId,
   onUpdated,
   onAnnotate,
 }: {
@@ -37,10 +40,12 @@ export default function PhotoViewer({
   initialPhotoIndex: number;
   allTags: PhotoTag[];
   supabaseUrl: string;
+  coverPhotoId: string | null;
   onUpdated: () => void;
   onAnnotate: (photo: Photo, url: string) => void;
 }) {
   const currentPhoto = photos[initialPhotoIndex];
+  const isCover = !!currentPhoto && currentPhoto.id === coverPhotoId;
 
   const [caption, setCaption] = useState("");
   const [beforeAfterRole, setBeforeAfterRole] = useState<
@@ -53,6 +58,8 @@ export default function PhotoViewer({
   const [deleting, setDeleting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [hasOriginalBackup, setHasOriginalBackup] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [settingCover, setSettingCover] = useState(false);
 
   async function fetchTags(photoId: string) {
     const supabase = createClient();
@@ -236,6 +243,27 @@ export default function PhotoViewer({
     setDownloading(false);
   }
 
+  // Promote the current Photo to the Job's cover. Uses the existing direct
+  // write the grid's star uses (jobs.cover_photo_id), keyed off this Photo's
+  // job_id so the viewer stays self-contained.
+  async function handleSetCover() {
+    if (!currentPhoto) return;
+    setSettingCover(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("jobs")
+      .update({ cover_photo_id: currentPhoto.id })
+      .eq("id", currentPhoto.job_id);
+    setSettingCover(false);
+    setMoreOpen(false);
+    if (error) {
+      toast.error("Failed to set cover photo.");
+      return;
+    }
+    toast.success("Cover photo updated.");
+    onUpdated();
+  }
+
   // Permanent hard delete: remove the storage object and the photos row (which
   // cascades tag assignments + annotations), then close the viewer (1A — no
   // advance-to-next, no recycle bin). Gated behind the confirm step.
@@ -288,6 +316,18 @@ export default function PhotoViewer({
           <X size={18} />
         </button>
 
+        {/* Cover badge — mirrors the grid's gold "Cover" pill so the viewer
+            indicates when the current Photo is the Job's cover. */}
+        {isCover && (
+          <div
+            className="absolute top-3 left-14 flex items-center gap-1 h-9 px-2.5 rounded-full bg-[#F5A623] text-white text-xs font-semibold"
+            title="Current cover photo"
+          >
+            <Star size={13} fill="currentColor" />
+            Cover
+          </div>
+        )}
+
         {/* Toolbar over the photo */}
         <div className="absolute top-3 right-3 flex items-center gap-2">
           <button
@@ -319,12 +359,49 @@ export default function PhotoViewer({
             type="button"
             aria-label="Delete"
             title="Delete"
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => {
+              setConfirmDelete(true);
+              setMoreOpen(false);
+            }}
             className={cn(toolbarBtn, "hover:bg-[#C41E2A]")}
           >
             <Trash2 size={18} />
           </button>
+          <button
+            type="button"
+            aria-label="More"
+            title="More"
+            onClick={() => {
+              setMoreOpen((o) => !o);
+              setConfirmDelete(false);
+            }}
+            className={cn(toolbarBtn, "hover:bg-black/70")}
+          >
+            <MoreHorizontal size={18} />
+          </button>
         </div>
+
+        {/* ⋯ More menu — scaffolding for the less-frequent actions. Set as
+            cover lives here; later slices add Share, Save to device, Duplicate. */}
+        {moreOpen && (
+          <div className="absolute top-14 right-3 bg-white rounded-lg shadow-lg p-1.5 min-w-[180px] flex flex-col">
+            <button
+              type="button"
+              onClick={handleSetCover}
+              disabled={settingCover || isCover}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+            >
+              {settingCover ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : isCover ? (
+                <Check size={14} className="text-[#085041]" />
+              ) : (
+                <Star size={14} />
+              )}
+              {isCover ? "Cover photo" : "Set as cover"}
+            </button>
+          </div>
+        )}
 
         {/* Delete confirmation */}
         {confirmDelete && (
