@@ -1,0 +1,205 @@
+diff --git a/node_modules/@capacitor-community/camera-preview/dist/esm/definitions.d.ts b/node_modules/@capacitor-community/camera-preview/dist/esm/definitions.d.ts
+index af8b871..abf9c63 100644
+--- a/node_modules/@capacitor-community/camera-preview/dist/esm/definitions.d.ts
++++ b/node_modules/@capacitor-community/camera-preview/dist/esm/definitions.d.ts
+@@ -76,4 +76,6 @@ export interface CameraPreviewPlugin {
+     isCameraStarted(): Promise<{
+         value: boolean;
+     }>;
++    setZoom(options: { factor: number; }): Promise<void>;
++    getAvailableZoomFactors(): Promise<{ factors: number[]; }>;
+ }
+diff --git a/node_modules/@capacitor-community/camera-preview/dist/esm/web.d.ts b/node_modules/@capacitor-community/camera-preview/dist/esm/web.d.ts
+index e23f828..a031725 100644
+--- a/node_modules/@capacitor-community/camera-preview/dist/esm/web.d.ts
++++ b/node_modules/@capacitor-community/camera-preview/dist/esm/web.d.ts
+@@ -23,4 +23,6 @@ export declare class CameraPreviewWeb extends WebPlugin implements CameraPreview
+     isCameraStarted(): Promise<{
+         value: boolean;
+     }>;
++    setZoom(_options: { factor: number; }): Promise<void>;
++    getAvailableZoomFactors(): Promise<{ factors: number[]; }>;
+ }
+diff --git a/node_modules/@capacitor-community/camera-preview/dist/esm/web.js b/node_modules/@capacitor-community/camera-preview/dist/esm/web.js
+index a98694c..5e52247 100644
+--- a/node_modules/@capacitor-community/camera-preview/dist/esm/web.js
++++ b/node_modules/@capacitor-community/camera-preview/dist/esm/web.js
+@@ -134,5 +134,11 @@ export class CameraPreviewWeb extends WebPlugin {
+     async isCameraStarted() {
+         throw this.unimplemented('Not implemented on web.');
+     }
++    async setZoom(_options) {
++        throw this.unimplemented('Not implemented on web.');
++    }
++    async getAvailableZoomFactors() {
++        throw this.unimplemented('Not implemented on web.');
++    }
+ }
+ //# sourceMappingURL=web.js.map
+\ No newline at end of file
+diff --git a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
+index 6ec075a..fc059c3 100644
+--- a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
++++ b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraController.swift
+@@ -20,7 +20,9 @@ class CameraController: NSObject {
+     var dataOutput: AVCaptureVideoDataOutput?
+     var photoOutput: AVCapturePhotoOutput?
+ 
+-    var rearCamera: AVCaptureDevice?
++    var rearWideCamera: AVCaptureDevice?       // builtInWideAngleCamera, back
++    var rearUltraWideCamera: AVCaptureDevice?  // builtInUltraWideCamera, back (nil on SE etc.)
++    var rearCamera: AVCaptureDevice?           // == the lens currently feeding the session
+     var rearCameraInput: AVCaptureDeviceInput?
+ 
+     var previewLayer: AVCaptureVideoPreviewLayer?
+@@ -46,7 +48,7 @@ extension CameraController {
+ 
+         func configureCaptureDevices() throws {
+ 
+-            let session = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: AVMediaType.video, position: .unspecified)
++            let session = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera], mediaType: AVMediaType.video, position: .unspecified)
+ 
+             let cameras = session.devices.compactMap { $0 }
+             guard !cameras.isEmpty else { throw CameraControllerError.noCamerasAvailable }
+@@ -56,14 +58,27 @@ extension CameraController {
+                     self.frontCamera = camera
+                 }
+ 
++                // Two separate `if`s (NOT `else if`): each device is its own loop
++                // iteration and a device's position is front XOR back, so this is
++                // behaviorally identical to a chained `else if` — but leaving the
++                // front block untouched yields a smaller, lower-risk patch diff, and
++                // every rear lens (wide AND ultra-wide) independently enters this
++                // block to get its retained zoom reset to 1.0.
+                 if camera.position == .back {
+-                    self.rearCamera = camera
++                    if camera.deviceType == .builtInUltraWideCamera {
++                        self.rearUltraWideCamera = camera
++                    } else if camera.deviceType == .builtInWideAngleCamera {
++                        self.rearWideCamera = camera
++                    }
+ 
+                     try camera.lockForConfiguration()
+                     camera.focusMode = .continuousAutoFocus
++                    camera.videoZoomFactor = 1.0   // clear any zoom retained on the device singleton
+                     camera.unlockForConfiguration()
+                 }
+             }
++            self.rearCamera = self.rearWideCamera   // 1× / wide is always the start lens
++            self.zoomFactor = 1.0
+             if disableAudio == false {
+                 self.audioDevice = AVCaptureDevice.default(for: AVMediaType.audio)
+             }
+@@ -262,6 +277,72 @@ extension CameraController {
+         captureSession.commitConfiguration()
+     }
+ 
++    func setZoom(factor: CGFloat) throws {
++        guard currentCameraPosition == .rear,
++              let captureSession = self.captureSession, captureSession.isRunning,
++              let currentInput = self.rearCameraInput,
++              let activeRear = self.rearCamera else { throw CameraControllerError.invalidOperation }
++
++        // factor → (target device, digital zoom)
++        let targetDevice: AVCaptureDevice
++        let targetZoom: CGFloat
++        switch factor {
++        case 0.5:
++            guard let uw = rearUltraWideCamera else { throw CameraControllerError.invalidOperation }
++            targetDevice = uw; targetZoom = 1.0
++        case 2.0:
++            guard let w = rearWideCamera else { throw CameraControllerError.invalidOperation }
++            targetDevice = w; targetZoom = 2.0
++        default: // 1.0
++            guard let w = rearWideCamera else { throw CameraControllerError.invalidOperation }
++            targetDevice = w; targetZoom = 1.0
++        }
++
++        let lensChanges = targetDevice.uniqueID != activeRear.uniqueID
++
++        if lensChanges {
++            // Build the new input BEFORE beginConfiguration(): AVCaptureDeviceInput(device:)
++            // can throw, and throwing after beginConfiguration() would leave the session
++            // in an open, uncommitted configuration that breaks later camera operations.
++            let newInput = try AVCaptureDeviceInput(device: targetDevice)
++            captureSession.beginConfiguration()
++            // Remove-then-check matches switchCameras(): two simultaneous video
++            // inputs are an invalid config, so canAddInput(newInput) returns false
++            // while the old input is still attached. Roll back to the (known-valid)
++            // old input on failure and commit a consistent session before throwing.
++            captureSession.removeInput(currentInput)
++            guard captureSession.canAddInput(newInput) else {
++                if captureSession.canAddInput(currentInput) { captureSession.addInput(currentInput) }
++                captureSession.commitConfiguration()
++                throw CameraControllerError.invalidOperation
++            }
++            captureSession.addInput(newInput)
++            self.rearCameraInput = newInput
++            self.rearCamera = targetDevice
++            // Set zoom inside the same transaction so the swapped-in lens never
++            // shows a stale factor for a frame.
++            try targetDevice.lockForConfiguration()
++            targetDevice.videoZoomFactor = min(targetZoom, targetDevice.activeFormat.videoMaxZoomFactor)
++            targetDevice.unlockForConfiguration()
++            captureSession.commitConfiguration()
++        } else {
++            // Same lens (1×↔2×): just change the digital zoom, no reconfiguration.
++            try targetDevice.lockForConfiguration()
++            targetDevice.videoZoomFactor = min(targetZoom, targetDevice.activeFormat.videoMaxZoomFactor)
++            targetDevice.unlockForConfiguration()
++        }
++
++        self.zoomFactor = min(targetZoom, targetDevice.activeFormat.videoMaxZoomFactor) // pinch baseline
++    }
++
++    func availableZoomFactors() -> [CGFloat] {
++        var factors: [CGFloat] = []
++        if rearUltraWideCamera != nil { factors.append(0.5) }
++        factors.append(1.0)
++        factors.append(2.0)
++        return factors
++    }
++
+     func captureImage(completion: @escaping (UIImage?, Error?) -> Void) {
+         guard let captureSession = captureSession, captureSession.isRunning else { completion(nil, CameraControllerError.captureSessionIsMissing); return }
+         let settings = AVCapturePhotoSettings()
+diff --git a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
+index aa18ca7..9044eae 100644
+--- a/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
++++ b/node_modules/@capacitor-community/camera-preview/ios/Sources/CameraPreviewPlugin/CameraPreviewPlugin.swift
+@@ -22,7 +22,9 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+         CAPPluginMethod(name: "setFlashMode", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "startRecordVideo", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "stopRecordVideo", returnType: CAPPluginReturnPromise),
+-        CAPPluginMethod(name: "isCameraStarted", returnType: CAPPluginReturnPromise)
++        CAPPluginMethod(name: "isCameraStarted", returnType: CAPPluginReturnPromise),
++        CAPPluginMethod(name: "setZoom", returnType: CAPPluginReturnPromise),
++        CAPPluginMethod(name: "getAvailableZoomFactors", returnType: CAPPluginReturnPromise)
+     ]
+ 
+     var previewView: UIView!
+@@ -157,6 +159,24 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+         }
+     }
+ 
++    @objc func setZoom(_ call: CAPPluginCall) {
++        guard let factor = call.getDouble("factor") else {
++            call.reject("factor is required")
++            return
++        }
++        do {
++            try self.cameraController.setZoom(factor: CGFloat(factor))
++            call.resolve()
++        } catch {
++            call.reject("failed to set zoom")
++        }
++    }
++
++    @objc func getAvailableZoomFactors(_ call: CAPPluginCall) {
++        let factors = self.cameraController.availableZoomFactors().map { Double($0) }
++        call.resolve(["factors": factors])
++    }
++
+     @objc func stop(_ call: CAPPluginCall) {
+         DispatchQueue.main.async {
+             if self.cameraController.captureSession?.isRunning ?? false {
