@@ -42,6 +42,7 @@ import {
   MoreHorizontal,
   Share2,
   ArrowDownToLine,
+  Copy,
   Star,
   ChevronLeft,
   ChevronRight,
@@ -341,6 +342,7 @@ export default function PhotoViewer({
   // Which export, if any, is in flight — so the chosen ⋯ menu entry shows a
   // spinner and both stay disabled until the share/download settles.
   const [exporting, setExporting] = useState<null | "share" | "save">(null);
+  const [duplicating, setDuplicating] = useState(false);
 
   async function fetchTags(photoId: string) {
     const supabase = createClient();
@@ -579,6 +581,28 @@ export default function PhotoViewer({
       );
     }
     setExporting(null);
+    setMoreOpen(false);
+  }
+
+  // Duplicate makes a clean same-Job copy of the Photo (#519). The work — copy
+  // the clean original blob, insert the new row, re-link the tags — lives behind
+  // the duplicate endpoint + deep module (never the drawings); the viewer kicks
+  // it off and refetches so the fresh copy lands in the Job's grid.
+  async function handleDuplicate() {
+    if (!currentPhoto) return;
+    setDuplicating(true);
+    try {
+      const res = await fetch(
+        `/api/jobs/${currentPhoto.job_id}/photos/${currentPhoto.id}/duplicate`,
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error("duplicate failed");
+      toast.success("Photo duplicated.");
+      onUpdated();
+    } catch {
+      toast.error("Failed to duplicate photo.");
+    }
+    setDuplicating(false);
     setMoreOpen(false);
   }
 
@@ -879,6 +903,19 @@ export default function PhotoViewer({
                 <ArrowDownToLine size={14} />
               )}
               Save to device
+            </button>
+            <button
+              type="button"
+              onClick={handleDuplicate}
+              disabled={duplicating}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+            >
+              {duplicating ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Copy size={14} />
+              )}
+              Duplicate
             </button>
           </div>
         )}

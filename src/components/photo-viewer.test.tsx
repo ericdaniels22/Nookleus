@@ -664,6 +664,73 @@ describe("PhotoViewer — Share / Save to device (⋯ More)", () => {
   });
 });
 
+describe("PhotoViewer — Duplicate (⋯ More)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: "p2", job_id: "job-1" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts to the duplicate endpoint for the current Photo, then refetches and toasts", async () => {
+    const { photo, onUpdated } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /duplicate/i }));
+    });
+
+    // The clean same-Job copy is the endpoint's job (Storage copy + new row +
+    // tag re-link); the viewer only kicks it off for the current Photo.
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/jobs/${photo.job_id}/photos/${photo.id}/duplicate`,
+      expect.objectContaining({ method: "POST" }),
+    );
+    // The grid refetches so the new copy shows up, and the user is told.
+    expect(onUpdated).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/duplicat/i));
+    // The ⋯ menu closes after the action.
+    expect(screen.queryByRole("button", { name: /duplicate/i })).toBeNull();
+  });
+
+  it("is offered for a video too (it copies the original file)", async () => {
+    renderViewer({ photos: [makePhoto({ media_type: "video", storage_path: "job-1/clip.mp4" })] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+
+    expect(screen.queryByRole("button", { name: /duplicate/i })).toBeTruthy();
+  });
+
+  it("warns and does not refetch when the duplicate request fails", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: "nope" }) });
+    const { onUpdated } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /duplicate/i }));
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/duplicat/i));
+    expect(onUpdated).not.toHaveBeenCalled();
+  });
+});
+
 describe("PhotoViewer — Cover indicator", () => {
   it("shows a Cover badge when the current Photo is the Job's cover", async () => {
     const photo = makePhoto();
