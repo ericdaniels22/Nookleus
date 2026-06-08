@@ -620,11 +620,13 @@ export default function PhotoViewer({
 
   if (!open || !currentPhoto) return null;
 
-  // Zoom and Draw act on a still image; a video has neither (PRD #511). The
-  // pure rule decides, so the viewer hides those controls for video in one place.
-  const caps = mediaCapabilities(currentPhoto);
+  // Zoom and Draw act on a still image; a video has neither — it plays inline
+  // with a scrub bar (PRD #511). The pure rule decides photo-vs-video and
+  // supplies the media source, so the viewer branches in one place.
+  // caps.source is the uniform media URL — the <img> src for a still, the
+  // <video> src for a clip.
+  const caps = mediaCapabilities(currentPhoto, supabaseUrl);
 
-  const displayUrl = photoUrl(currentPhoto, supabaseUrl, "full");
   const toolbarBtn =
     "inline-flex items-center justify-center w-9 h-9 rounded-full bg-black/50 text-white transition-colors";
 
@@ -645,17 +647,30 @@ export default function PhotoViewer({
         onMouseLeave={endDrag}
         style={{ cursor: isZoomed ? "grab" : undefined }}
       >
-        <img
-          ref={imgRef}
-          src={displayUrl}
-          alt={currentPhoto.caption || "Photo"}
-          className="max-w-full max-h-full object-contain"
-          style={{
-            transform: `translate(${transform.offsetX}px, ${transform.offsetY}px) scale(${transform.scale})`,
-            transformOrigin: "center center",
-          }}
-          draggable={false}
-        />
+        {caps.isVideo ? (
+          /* A video plays inline with the browser's native scrub bar (controls).
+             Zoom/Draw don't apply, so it carries no zoom transform; playsInline
+             keeps it in the viewer on iOS rather than hijacking to fullscreen. */
+          <video
+            src={caps.source}
+            controls
+            playsInline
+            aria-label={currentPhoto.caption || "Video"}
+            className="max-w-full max-h-full object-contain"
+          />
+        ) : (
+          <img
+            ref={imgRef}
+            src={caps.source}
+            alt={currentPhoto.caption || "Photo"}
+            className="max-w-full max-h-full object-contain"
+            style={{
+              transform: `translate(${transform.offsetX}px, ${transform.offsetY}px) scale(${transform.scale})`,
+              transformOrigin: "center center",
+            }}
+            draggable={false}
+          />
+        )}
 
         {/* Zoom controls (desktop) — scroll-wheel and double-click also zoom;
             hidden for media that can't zoom (video). */}

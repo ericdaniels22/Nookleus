@@ -924,26 +924,32 @@ describe("PhotoViewer — zoom", () => {
   });
 
   it("ignores a pinch on a video (Zoom doesn't apply)", async () => {
-    renderViewer({ photos: [zoomPhoto({ media_type: "video" })] });
+    // A video plays inline via a <video>, not the zoomable <img>; the pinch
+    // gesture bubbles to the same surface but Zoom is disabled for video.
+    const { container } = renderViewer({
+      photos: [zoomPhoto({ media_type: "video" })],
+    });
     await act(async () => {});
+    const video = container.querySelector("video") as HTMLVideoElement;
 
     await act(async () => {
-      fireEvent.touchStart(img(), {
+      fireEvent.touchStart(video, {
         touches: [
           { clientX: 480, clientY: 400 },
           { clientX: 520, clientY: 400 },
         ],
       });
-      fireEvent.touchMove(img(), {
+      fireEvent.touchMove(video, {
         touches: [
           { clientX: 400, clientY: 400 },
           { clientX: 600, clientY: 400 },
         ],
       });
-      fireEvent.touchEnd(img(), { changedTouches: [{ clientX: 400, clientY: 400 }] });
+      fireEvent.touchEnd(video, { changedTouches: [{ clientX: 400, clientY: 400 }] });
     });
 
-    expect(scaleOf(img())).toBe(1);
+    // The video carries no zoom transform — the pinch was ignored.
+    expect(scaleOf(video)).toBe(1);
   });
 });
 
@@ -972,6 +978,63 @@ describe("PhotoViewer — media capabilities (video hides Zoom & Draw)", () => {
 
     expect(screen.queryByRole("button", { name: /zoom in/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^edit$/i })).toBeTruthy();
+  });
+});
+
+describe("PhotoViewer — video playback", () => {
+  const video = (overrides: Partial<Photo> = {}) =>
+    makePhoto({ media_type: "video", storage_path: "job-1/clip.mp4", ...overrides });
+
+  it("plays a video inline with a scrub bar (a <video controls> at the source)", async () => {
+    const photo = video();
+    const { container } = renderViewer({ photos: [photo] });
+    await act(async () => {});
+
+    const el = container.querySelector("video") as HTMLVideoElement | null;
+    expect(el).toBeTruthy();
+    // Native controls give the inline scrub bar.
+    expect(el!.hasAttribute("controls")).toBe(true);
+    // Loads the resolved media source (ADR 0008 routing).
+    expect(el!.getAttribute("src")).toBe(photoUrl(photo, SUPABASE_URL, "full"));
+  });
+
+  it("renders the video element instead of a still <img>", async () => {
+    const { container } = renderViewer({ photos: [video()] });
+    await act(async () => {});
+
+    expect(container.querySelector("video")).toBeTruthy();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("prev/next page across a video — it isn't special-cased out of navigation", async () => {
+    const vid = video({ id: "vid", created_at: "2026-05-02T10:00:00Z" });
+    const still = makePhoto({
+      id: "still",
+      storage_path: "job-1/still.jpg",
+      created_at: "2026-05-01T10:00:00Z",
+    });
+    // Newest-first ordering opens on the video; Next pages to the older still.
+    const { container } = renderViewer({
+      photos: [vid, still],
+      initialPhotoIndex: 0,
+    });
+    await act(async () => {});
+    expect(container.querySelector("video")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    // Advanced to the still: the <img> shows, the <video> is gone.
+    expect(container.querySelector("video")).toBeNull();
+    expect(
+      (screen.getByRole("img") as HTMLImageElement).getAttribute("src"),
+    ).toBe(photoUrl(still, SUPABASE_URL, "full"));
+
+    // Prev returns to the video.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /previous/i }));
+    });
+    expect(container.querySelector("video")).toBeTruthy();
   });
 });
 
