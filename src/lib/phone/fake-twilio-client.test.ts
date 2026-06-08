@@ -15,7 +15,9 @@
 import { describe, it, expect } from "vitest";
 import { createFakeTwilioClient } from "./fake-twilio-client";
 import {
+  buildBridgeTwiml,
   listAvailableLocalNumbers,
+  placeBridgeCall,
   provisionNumber,
   releaseNumber,
   sendSms,
@@ -100,5 +102,25 @@ describe("createFakeTwilioClient — incomingPhoneNumbers(sid).remove (release)"
     const client = createFakeTwilioClient();
 
     await expect(releaseNumber(client, "PNfake")).resolves.toBeUndefined();
+  });
+});
+
+describe("createFakeTwilioClient — calls.create (outbound bridge call, #314)", () => {
+  it("returns a CA-prefixed SID and 'queued' status", async () => {
+    const client = createFakeTwilioClient();
+
+    const result = await placeBridgeCall(client, {
+      from: "+15125550000",
+      to: "+15129990000",
+      twiml: buildBridgeTwiml({
+        customerE164: "+15551234567",
+        callerId: "+15125550000",
+      }),
+      statusCallback: "https://example.com/voice-status",
+    });
+
+    expect(result.sid).toMatch(/^CA/);
+    expect(result.sid.length).toBeGreaterThan(2);
+    expect(result.status).toBe("queued");
   });
 });

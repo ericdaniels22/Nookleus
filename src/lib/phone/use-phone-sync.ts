@@ -28,6 +28,22 @@ interface PhoneMessageRow {
   [key: string]: unknown;
 }
 
+// Slice 10 (#314) — a phone_calls row as it arrives over realtime. The
+// status-callback webhook UPDATEs status / duration_seconds / ended_at as
+// Twilio advances the call; a fresh call (placed elsewhere, or inbound) is
+// an INSERT. Shape is intentionally loose — callers read what they need.
+interface PhoneCallRow {
+  id: string;
+  organization_id: string;
+  conversation_id: string;
+  direction: "in" | "out";
+  status: string | null;
+  duration_seconds: number | null;
+  started_at: string;
+  ended_at: string | null;
+  [key: string]: unknown;
+}
+
 export interface UsePhoneSyncInput {
   supabase: SupabaseClient;
   // The active org. Null while loading or when the user is logged out;
@@ -40,28 +56,49 @@ export interface UsePhoneSyncInput {
   // caller, which only cares about new arrivals — so no UPDATE subscription
   // is registered there and its behavior is unchanged.
   onMessageUpdate?: (row: PhoneMessageRow) => void;
+  // Slice 10 (#314) — optional. When provided, the hook also subscribes to
+  // `phone_calls` INSERTs (a new call placed elsewhere or an inbound ring).
+  onNewCall?: (row: PhoneCallRow) => void;
+  // Slice 10 (#314) — optional. When provided, the hook also subscribes to
+  // `phone_calls` UPDATEs so the Phone-tab thread's in-flight call indicator
+  // advances live (queued → ringing → in_progress → completed) as the
+  // status-callback webhook stamps the row. Callers that pass neither call
+  // callback register no phone_calls subscription at all.
+  onCallUpdate?: (row: PhoneCallRow) => void;
 }
 
 export function usePhoneSync(input: UsePhoneSyncInput): void {
   const onNewMessageRef = useRef(input.onNewMessage);
   const onMessageUpdateRef = useRef(input.onMessageUpdate);
+  const onNewCallRef = useRef(input.onNewCall);
+  const onCallUpdateRef = useRef(input.onCallUpdate);
   // useLayoutEffect (or useEffect — either works since the effect runs
   // before the next event-loop tick that fires the subscription handler)
   // keeps the ref read-only during render, satisfying react-hooks/refs.
   useLayoutEffect(() => {
     onNewMessageRef.current = input.onNewMessage;
     onMessageUpdateRef.current = input.onMessageUpdate;
-  }, [input.onNewMessage, input.onMessageUpdate]);
+    onNewCallRef.current = input.onNewCall;
+    onCallUpdateRef.current = input.onCallUpdate;
+  }, [
+    input.onNewMessage,
+    input.onMessageUpdate,
+    input.onNewCall,
+    input.onCallUpdate,
+  ]);
 
   const { supabase, organizationId } = input;
-  // Whether to register the UPDATE subscription is decided once per
-  // (org) effect run; toggling the callback's presence is rare and a
+  // Whether to register each optional subscription is decided once per
+  // (org) effect run; toggling a callback's presence is rare and a
   // remount-worthy change, so it gates the effect rather than living
   // behind the ref.
   const wantsUpdates = input.onMessageUpdate != null;
+  const wantsCallInsert = input.onNewCall != null;
+  const wantsCallUpdate = input.onCallUpdate != null;
 
   useEffect(() => {
     if (!organizationId) return;
+    const orgFilter = `organization_id=eq.${organizationId}`;
     let channel = supabase
       .channel(`phone-messages-${organizationId}`)
       .on(
@@ -70,7 +107,7 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
           event: "INSERT",
           schema: "public",
           table: "phone_messages",
-          filter: `organization_id=eq.${organizationId}`,
+          filter: orgFilter,
         },
         (payload: { new: PhoneMessageRow }) => {
           onNewMessageRef.current(payload.new);
@@ -84,10 +121,42 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
           event: "UPDATE",
           schema: "public",
           table: "phone_messages",
-          filter: `organization_id=eq.${organizationId}`,
+          filter: orgFilter,
         },
         (payload: { new: PhoneMessageRow }) => {
           onMessageUpdateRef.current?.(payload.new);
+        },
+      );
+    }
+
+    // Slice 10 (#314) — outbound-call realtime. Same channel, additional
+    // postgres_changes registrations on `phone_calls`, only when wanted.
+    if (wantsCallInsert) {
+      channel = channel.on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "phone_calls",
+          filter: orgFilter,
+        },
+        (payload: { new: PhoneCallRow }) => {
+          onNewCallRef.current?.(payload.new);
+        },
+      );
+    }
+
+    if (wantsCallUpdate) {
+      channel = channel.on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "phone_calls",
+          filter: orgFilter,
+        },
+        (payload: { new: PhoneCallRow }) => {
+          onCallUpdateRef.current?.(payload.new);
         },
       );
     }
@@ -97,5 +166,11 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
     return () => {
       subscribed.unsubscribe();
     };
-  }, [supabase, organizationId, wantsUpdates]);
+  }, [
+    supabase,
+    organizationId,
+    wantsUpdates,
+    wantsCallInsert,
+    wantsCallUpdate,
+  ]);
 }

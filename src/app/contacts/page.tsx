@@ -6,6 +6,7 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Contact } from "@/lib/types";
 import { formatPhoneNumber, normalizePhoneToE164, phoneMatchesQuery } from "@/lib/phone";
 import { ClickToText } from "@/components/phone/click-to-text";
+import { ClickToCall } from "@/components/phone/click-to-call";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -373,6 +374,13 @@ export default function ContactsPage() {
                           e164={normalizePhoneToE164(contact.phone) ?? contact.phone}
                           className="text-[11px] text-[var(--brand-primary)] hover:underline"
                           label="Text"
+                        />
+                        {/* Slice 10 (#314) — Contact-card click-to-call.
+                            Untagged (re-tag after the fact); no A2P gate. */}
+                        <ClickToCall
+                          e164={normalizePhoneToE164(contact.phone) ?? contact.phone}
+                          sourceContext={{ kind: "contact" }}
+                          className="inline-flex items-center gap-1 text-[11px] text-[var(--brand-primary)] hover:underline disabled:opacity-50"
                         />
                       </span>
                     )}

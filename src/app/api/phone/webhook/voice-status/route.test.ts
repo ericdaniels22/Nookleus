@@ -149,6 +149,70 @@ describe("POST /api/phone/webhook/voice-status — signature + guards", () => {
   });
 });
 
+// Slice 10 (#314) — the OUTBOUND bridge call reuses this webhook unchanged.
+// The route keys updates on `twilio_call_sid` and never inspects direction,
+// so an outbound (direction:'out') row is advanced through the same state
+// machine. These tests document that reuse — no new webhook ships for #314.
+describe("POST /api/phone/webhook/voice-status — outbound bridge call (#314)", () => {
+  it("advances a direction:'out' row from ringing to in_progress to completed by CallSid", async () => {
+    // ringing → in_progress (non-terminal)
+    {
+      const { client, updates } = makeServiceClient({
+        phone_calls: [
+          {
+            id: "call-out",
+            twilio_call_sid: "CA-out",
+            direction: "out",
+            status: "ringing",
+          },
+        ],
+      });
+      createServiceClientMock.mockReturnValue(client);
+
+      const res = await POST(
+        callbackForm({ CallSid: "CA-out", CallStatus: "in-progress" }),
+      );
+
+      expect(res.status).toBe(200);
+      const upd = updates.find((u) => u.table === "phone_calls");
+      expect(upd!.filters).toMatchObject({ twilio_call_sid: "CA-out" });
+      expect(upd!.patch).toMatchObject({ status: "in_progress" });
+      expect(upd!.patch.ended_at).toBeUndefined();
+    }
+
+    // in_progress → completed (terminal — duration + ended_at)
+    {
+      const { client, updates } = makeServiceClient({
+        phone_calls: [
+          {
+            id: "call-out",
+            twilio_call_sid: "CA-out",
+            direction: "out",
+            status: "in_progress",
+          },
+        ],
+      });
+      createServiceClientMock.mockReturnValue(client);
+
+      const res = await POST(
+        callbackForm({
+          CallSid: "CA-out",
+          CallStatus: "completed",
+          CallDuration: "73",
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const upd = updates.find((u) => u.table === "phone_calls");
+      expect(upd!.patch).toMatchObject({
+        status: "completed",
+        duration_seconds: 73,
+      });
+      expect(upd!.patch.ended_at).toBeTruthy();
+    }
+  });
+});
+
 describe("POST /api/phone/webhook/voice-status — Twilio status vocabulary mapping", () => {
   it("maps hyphenated 'in-progress' to 'in_progress' without stamping ended_at (non-terminal)", async () => {
     const { client, updates } = makeServiceClient({
