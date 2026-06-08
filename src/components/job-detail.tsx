@@ -1097,6 +1097,9 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         allTags={tags}
         supabaseUrl={supabaseUrl}
         coverPhotoId={job?.cover_photo_id ?? null}
+        // The phone layout's top bar names the Job so the field user always
+        // knows which Job they're in (#520); mirrors the detail header's title.
+        jobName={contactName}
         // Refetch only — the viewer stays open after a Save (the side panel is
         // always visible). Delete/Restore close themselves via onOpenChange.
         onUpdated={fetchData}

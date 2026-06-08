@@ -1203,3 +1203,390 @@ describe("PhotoViewer — guard", () => {
     expect(container.firstChild).toBeNull();
   });
 });
+
+// Issue #520 — the phone layout. On a phone viewport the Photo is full-bleed and
+// the desktop side panel is gone; a top bar carries ✕ / Job name / ⓘ, the
+// uploader·date·caption sit inline at the bottom, and a bottom action row raises
+// a per-button safe-area-aware slide-up panel. The viewer chooses the layout at
+// runtime from the viewport width (jsdom defaults to 1024 → desktop), so these
+// tests force a phone-class width before rendering and restore it afterward.
+describe("PhotoViewer — phone layout", () => {
+  const ORIGINAL_WIDTH = window.innerWidth;
+  const ORIGINAL_HEIGHT = window.innerHeight;
+  function setViewport(width: number, height: number) {
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: height, configurable: true });
+  }
+  beforeEach(() => setViewport(390, 844)); // iPhone-class portrait
+  afterEach(() => setViewport(ORIGINAL_WIDTH, ORIGINAL_HEIGHT));
+
+  it("renders a full-bleed Photo without the desktop side panel", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    // The Photo still renders…
+    expect(screen.getByRole("img")).toBeTruthy();
+    // …but the desktop side panel's "Save Changes" is gone — phone persists each
+    // change from its own slide-up panel, not a single side-panel Save.
+    expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
+  });
+
+  it("shows a top bar with a close ✕, the Job name, and an info button", async () => {
+    renderViewer({ jobName: "Eleanor Whitfield" });
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: /close/i })).toBeTruthy();
+    expect(screen.getByText("Eleanor Whitfield")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /details/i })).toBeTruthy();
+  });
+
+  it("closes back to the Job when the top-bar ✕ is tapped", async () => {
+    const { onOpenChange } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows the Photo's assigned tags as view-only pills on the Photo", async () => {
+    h.tagAssignments = [{ tag_id: "tag-a" }];
+    renderViewer({
+      allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
+    });
+    // Let the mount-effect tag read resolve.
+    await act(async () => {});
+
+    // The assigned tag shows as a pill on the Photo…
+    expect(screen.getByText("Roof")).toBeTruthy();
+    // …view-only — it is not an interactive button (editing is in the Tags
+    // panel, so swiping never toggles a tag by accident).
+    expect(screen.queryByRole("button", { name: "Roof" })).toBeNull();
+    // …and an unassigned tag is not shown on the Photo.
+    expect(screen.queryByText("Water")).toBeNull();
+  });
+
+  it("shows the uploader, date, and caption inline along the bottom", async () => {
+    renderViewer({
+      photos: [
+        makePhoto({
+          taken_by: "Eric Daniels",
+          caption: "Roof damage to NE corner",
+        }),
+      ],
+    });
+    await act(async () => {});
+
+    expect(screen.getByText(/Eric Daniels/)).toBeTruthy();
+    // Date is shown; assert the year (timezone-stable, unlike day/hour).
+    expect(screen.getByText(/2026/)).toBeTruthy();
+    expect(screen.getByText(/Roof damage to NE corner/)).toBeTruthy();
+  });
+
+  it("shows a bottom action row — Tags, Draw, Before/After, and ⋯ More", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: /^tags$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^draw$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /before.*after/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /more/i })).toBeTruthy();
+  });
+
+  it("hides Draw for a video in the bottom action row (no still to draw on)", async () => {
+    renderViewer({
+      photos: [makePhoto({ media_type: "video", storage_path: "job-1/clip.mp4" })],
+    });
+    await act(async () => {});
+
+    expect(screen.queryByRole("button", { name: /^draw$/i })).toBeNull();
+    // The other actions still apply to a video.
+    expect(screen.getByRole("button", { name: /^tags$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /before.*after/i })).toBeTruthy();
+  });
+
+  it("Draw hands the still off to the Annotator with its display URL", async () => {
+    const { photo, onAnnotate } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^draw$/i }));
+    });
+
+    expect(onAnnotate).toHaveBeenCalledWith(
+      photo,
+      photoUrl(photo, SUPABASE_URL, "full"),
+    );
+  });
+
+  it("raises the Tags add/remove list when Tags is tapped", async () => {
+    renderViewer({
+      allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
+    });
+    await act(async () => {});
+
+    // Closed: the interactive tag toggles aren't on screen yet.
+    expect(screen.queryByRole("button", { name: "Roof" })).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^tags$/i }));
+    });
+
+    // The panel raises the add/remove list — each tag becomes a toggle.
+    expect(screen.getByRole("button", { name: "Roof" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Water" })).toBeTruthy();
+  });
+
+  it("pre-selects the Photo's existing tags in the Tags panel", async () => {
+    h.tagAssignments = [{ tag_id: "tag-a" }];
+    renderViewer({
+      allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^tags$/i }));
+    });
+
+    const selected = screen.getByRole("button", { name: "Roof" }) as HTMLElement;
+    const unselected = screen.getByRole("button", { name: "Water" }) as HTMLElement;
+    expect(selected.style.backgroundColor).toBeTruthy();
+    expect(unselected.style.backgroundColor).toBeFalsy();
+  });
+
+  it("adds/removes tags from the Tags panel and persists on Done", async () => {
+    const { photo } = renderViewer({
+      allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^tags$/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Roof" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
+    });
+
+    // Persisted with the same delete-all-then-insert the desktop Save uses.
+    expect(h.del).toHaveBeenCalledWith(
+      "photo_tag_assignments",
+      "photo_id",
+      photo.id,
+    );
+    expect(h.insert).toHaveBeenCalledWith(
+      "photo_tag_assignments",
+      expect.arrayContaining([
+        expect.objectContaining({
+          organization_id: "org-1",
+          photo_id: photo.id,
+          tag_id: "tag-a",
+        }),
+      ]),
+    );
+  });
+
+  it("raises the Before/After toggle when Before/After is tapped", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    // Closed: the role toggles aren't on screen.
+    expect(screen.queryByRole("button", { name: "After" })).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /before.*after/i }));
+    });
+
+    expect(screen.getByRole("button", { name: "Before" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "After" })).toBeTruthy();
+  });
+
+  it("sets the Before/After role from the panel and persists on Done", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /before.*after/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "After" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
+    });
+
+    expect(h.update).toHaveBeenCalledWith(
+      "photos",
+      expect.objectContaining({ before_after_role: "after" }),
+    );
+  });
+
+  it("clears the Before/After role from the panel and persists on Done", async () => {
+    renderViewer({ photos: [makePhoto({ before_after_role: "before" })] });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /before.*after/i }));
+    });
+    // Toggling the active role off clears it.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Before" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
+    });
+
+    expect(h.update).toHaveBeenCalledWith(
+      "photos",
+      expect.objectContaining({ before_after_role: null }),
+    );
+  });
+
+  it("offers Share, Duplicate, Set as cover, Save to device, and Delete in ⋯ More", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+
+    expect(screen.getByRole("button", { name: /share/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /duplicate/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /set as cover/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /save to device/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^delete$/i })).toBeTruthy();
+  });
+
+  it("Set as cover from ⋯ More writes the Job's cover to the current Photo", async () => {
+    const { photo } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /set as cover/i }));
+    });
+
+    expect(h.update).toHaveBeenCalledWith(
+      "jobs",
+      expect.objectContaining({ cover_photo_id: photo.id }),
+    );
+  });
+
+  it("Delete from ⋯ More confirms, then closes on the last Photo", async () => {
+    const { onOpenChange } = renderViewer();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /more/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    });
+    // Arming Delete does not delete yet — it asks to confirm.
+    expect(h.del).not.toHaveBeenCalledWith("photos", "id", expect.anything());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
+    });
+
+    // Deleting the only Photo closes the viewer (deferred hard delete + Undo).
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringMatching(/deleted/i),
+      expect.objectContaining({
+        action: expect.objectContaining({ label: expect.stringMatching(/undo/i) }),
+      }),
+    );
+  });
+
+  it("raises a details panel from the info (ⓘ) button with the file size", async () => {
+    renderViewer({
+      photos: [makePhoto({ taken_by: "Eric Daniels", file_size: 2_097_152 })],
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /details/i }));
+    });
+
+    // The info panel carries the fuller metadata — the file size, which the
+    // inline bottom strip omits.
+    expect(screen.getByText(/2\.0 MB/)).toBeTruthy();
+  });
+
+  it("offers Restore Original in the info panel for an annotated Photo", async () => {
+    renderViewer({
+      photos: [makePhoto({ annotated_path: "job-1/p1-annotated.png" })],
+    });
+    // Let the mount-effect backup probe resolve so the control appears.
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /details/i }));
+    });
+
+    expect(
+      screen.getByRole("button", { name: /restore original/i }),
+    ).toBeTruthy();
+  });
+
+  it("pads its slide-up panels past the iOS safe-area inset", async () => {
+    renderViewer({
+      allTags: [makeTag("tag-a", "Roof")],
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^tags$/i }));
+    });
+
+    // The open panel's scroll area pads its bottom past the home indicator.
+    const panel = screen.getByRole("dialog");
+    expect(
+      panel.querySelector('[class*="safe-area-inset-bottom"]'),
+    ).toBeTruthy();
+  });
+
+  it("pages between Photos on swipe", async () => {
+    const a = makePhoto({
+      id: "a",
+      storage_path: "job-1/a.jpg",
+      created_at: "2026-05-02T10:00:00Z",
+    });
+    const b = makePhoto({
+      id: "b",
+      storage_path: "job-1/b.jpg",
+      created_at: "2026-05-01T10:00:00Z",
+    });
+    renderViewer({ photos: [a, b], initialPhotoIndex: 0 });
+    await act(async () => {});
+
+    const src = () =>
+      (screen.getByRole("img") as HTMLImageElement).getAttribute("src");
+    const surface = screen.getByRole("img").parentElement as HTMLElement;
+    expect(src()).toBe(photoUrl(a, SUPABASE_URL, "full"));
+
+    // Finger travels right → left: advance to the next (older) Photo.
+    await act(async () => {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 240 }] });
+      fireEvent.touchEnd(surface, { changedTouches: [{ clientX: 80 }] });
+    });
+    expect(src()).toBe(photoUrl(b, SUPABASE_URL, "full"));
+  });
+
+  it("drops the desktop zoom buttons on a phone (pinch-to-zoom replaces them)", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    // The full-bleed phone surface zooms by pinch / double-tap, so the on-photo
+    // ＋ / − buttons (which would overlap the bottom action row) are not shown.
+    expect(screen.queryByRole("button", { name: /zoom in/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /zoom out/i })).toBeNull();
+  });
+});
