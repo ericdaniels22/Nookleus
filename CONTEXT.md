@@ -129,6 +129,29 @@ Files tab holds documents/attachments, which are a separate feature. When
 someone refers loosely to "the job's file" of pictures, they mean Photos.
 _Avoid_: image, attachment, media; "file" (that's the separate documents feature)
 
+**Photo viewer**:
+The full-screen surface for viewing and acting on a single Photo — a black
+letterbox backdrop with the Photo centered and prev/next moving across the
+whole Job's Photos. A Photo's caption, tags, and Before/After role are edited
+here, and its per-photo actions (share, duplicate, set as Cover photo, save,
+delete) live here. Replaces the older centered "Photo Details" modal and hands
+off to the **Annotator** for drawing. On a phone the side panel collapses; the
+tag pills stay visible on the Photo and each action raises its own panel.
+_Avoid_: photo details, photo modal, lightbox, gallery
+
+**Annotator**:
+The full-screen drawing surface for marking up a single Photo (arrows, text,
+shapes, freehand, crop), reached from the **Photo viewer**'s Edit action.
+Non-destructive — the original Photo is never altered; the markup is kept
+separately and saved as a separate annotated image. Distinct from the Photo
+viewer, which is for viewing and quick actions, not drawing.
+_Avoid_: editor, markup tool, draw mode, photo editor
+
+**Cover photo**:
+The single Photo chosen to represent a Job in its photo grid. Exactly one per
+Job; set from the grid or from the Photo viewer's More menu.
+_Avoid_: thumbnail, hero image, featured photo
+
 **Photo Report**:
 A document an Organization generates from a Job's Photos — Sections of
 write-up plus the photos that evidence them — and exports as a PDF to hand
@@ -250,3 +273,11 @@ _Avoid_: stage, pipeline status, partner status
 - "section" is used for two unrelated concepts: an **Estimate** Section (a group of priced line items) and a **Photo Report** Section (a heading + one-page write-up + photos). Resolved: both keep the word but are always qualified by their document ("Estimate section" vs "Photo Report section"); they share no table, type, or component.
 - "template" is likewise overloaded: an **Estimate** template (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)) and a **Photo Report** template. Resolved: always qualify by document. Note the older Photo-Report builder UI also called these "presets" — the canonical term is **Photo Report template**; "preset" is an alias to retire _there_.
 - "preset" and "layout" are overloaded across domains. On the **Photo Report** side both are words to avoid (canonical term: **Photo Report template**). On the **billing-PDF** side they are first-class and canonical — a **PDF preset** (reusable saved look) and a **PDF layout** (the look stuck to one Estimate/Invoice). Resolved the same way as "section"/"template": always qualify by document, so bare "preset"/"layout" never appear unqualified. The billing-PDF preset has lived in the code (`pdf_presets`) since before this was written; ADR 0007 explicitly left that system out of its scope.
+- "Photo Details" / "photo modal" named the centered single-photo dialog
+  (`src/components/photo-detail.tsx`). Issue #469 replaces it with the
+  full-screen **Photo viewer**; "Photo Details" / "photo modal" retire. Note
+  there are now **two** full-screen photo surfaces — the **Photo viewer**
+  (viewing + quick actions) and the **Annotator** (drawing) — kept deliberately
+  separate, with the viewer's Edit action handing off to the Annotator rather
+  than merging the two. "Annotate"/"draw mode" mean the Annotator, never the
+  viewer.
