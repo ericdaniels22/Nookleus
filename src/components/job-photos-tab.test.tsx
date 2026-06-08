@@ -261,4 +261,68 @@ describe("JobPhotosTab — New report entry point", () => {
     });
     expect(screen.getAllByText("Start from…")).toHaveLength(1);
   });
+
+  it("locks the in-flight state: one POST, button disabled and relabeled, menu closed", async () => {
+    // The anti-double-submit contract. With a create still in flight (a POST that
+    // never resolves), the user must have no second way to fire another: the
+    // button is disabled and shows "Creating…", the Start-from menu has closed so
+    // "Blank report" is gone, and exactly one report POST has been sent. This
+    // pins the observable guarantee that selection-free creates can't be
+    // double-submitted (button-disable + menu-close, with the creatingReport
+    // guard at job-photos-tab.tsx:301 as belt-and-suspenders behind them).
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(() =>
+      pending.then(() => ({
+        ok: true,
+        status: 201,
+        json: async () => ({ report: { id: "new-report-1" } }),
+      })),
+    );
+
+    renderTab();
+    await act(async () => {
+      fireEvent.click(
+        await screen.findByRole("button", { name: /new report/i }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Blank report"));
+    });
+
+    // The in-flight button is disabled and shows the working label…
+    const creating = screen.getByRole("button", {
+      name: /creating/i,
+    }) as HTMLButtonElement;
+    expect(creating.disabled).toBe(true);
+    // …the Start-from menu has closed (no second "Blank report" to click)…
+    expect(screen.queryByText("Blank report")).toBeNull();
+    expect(screen.queryByText("Start from…")).toBeNull();
+    // …and exactly one report POST was issued.
+    const reportPosts = fetchMock.mock.calls.filter(
+      (c) => c[0] === "/api/jobs/job-1/reports",
+    );
+    expect(reportPosts).toHaveLength(1);
+
+    // Let the in-flight request settle so no act() warning trails the test.
+    await act(async () => {
+      release();
+      await pending;
+    });
+  });
+
+  it("shows the empty-state hint when there are no templates", async () => {
+    // With no templates configured, opening the toolbar's Start-from menu loads
+    // the (empty) template list and surfaces the "add them in Settings" hint.
+    h.templates = [];
+    renderTab();
+    await act(async () => {
+      fireEvent.click(
+        await screen.findByRole("button", { name: /new report/i }),
+      );
+    });
+    expect(await screen.findByText(/No templates yet/i)).toBeTruthy();
+  });
 });
