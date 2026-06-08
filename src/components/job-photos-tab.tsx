@@ -20,7 +20,9 @@ interface JobPhotosTabProps {
   onPhotosAdded: () => void;
   onPhotoUpdated: () => void;
   onCoverPhotoChanged: () => void;
-  onSelectPhoto: (photo: Photo) => void;
+  // Hands up the clicked Photo plus the grid's full loaded list, so the viewer
+  // can navigate continuously across every Photo the grid shows (#515).
+  onSelectPhoto: (photo: Photo, orderedPhotos: Photo[]) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -616,7 +618,7 @@ export default function JobPhotosTab({
                           if (e.shiftKey || selectedIds.size > 0) {
                             toggleSelect(photo.id, e.shiftKey);
                           } else {
-                            onSelectPhoto(photo);
+                            onSelectPhoto(photo, photos);
                           }
                         }}
                         onContextMenu={(e) => {

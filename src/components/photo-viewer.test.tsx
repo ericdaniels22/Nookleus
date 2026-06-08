@@ -89,7 +89,11 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(async () => "org-1"),
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+// `toast` is both callable (the Undo toast: toast(msg, { action })) and a
+// namespace of variants (toast.success / .error).
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
+}));
 
 import { toast } from "sonner";
 import PhotoViewer from "./photo-viewer";
@@ -322,23 +326,6 @@ describe("PhotoViewer — toolbar actions", () => {
     expect(h.del).not.toHaveBeenCalledWith("photos", "id", expect.anything());
   });
 
-  it("Confirming Delete hard-deletes the Photo and closes the viewer", async () => {
-    const { photo, onUpdated, onOpenChange } = renderViewer();
-    await act(async () => {});
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
-    });
-
-    expect(h.remove).toHaveBeenCalledWith("photos", [photo.storage_path]);
-    expect(h.del).toHaveBeenCalledWith("photos", "id", photo.id);
-    expect(onUpdated).toHaveBeenCalled();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
   it("Edit hands off to the Annotator with the photo and its display URL", async () => {
     const { photo, onAnnotate } = renderViewer();
     await act(async () => {});
@@ -351,6 +338,122 @@ describe("PhotoViewer — toolbar actions", () => {
       photo,
       photoUrl(photo, SUPABASE_URL, "full"),
     );
+  });
+});
+
+describe("PhotoViewer — delete (deferred advance + Undo)", () => {
+  const UNDO_WINDOW_MS = 5000;
+
+  // Three Photos so "advance to the next" is observable.
+  const a = makePhoto({ id: "a", storage_path: "job-1/a.jpg", created_at: "2026-05-03T10:00:00Z" });
+  const b = makePhoto({ id: "b", storage_path: "job-1/b.jpg", created_at: "2026-05-02T10:00:00Z" });
+  const c = makePhoto({ id: "c", storage_path: "job-1/c.jpg", created_at: "2026-05-01T10:00:00Z" });
+  const trio = [a, b, c];
+
+  const src = () => (screen.getByRole("img") as HTMLImageElement).getAttribute("src");
+
+  async function confirmDelete() {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
+    });
+  }
+
+  // Pull the Undo handler out of the last toast(message, { action }) call.
+  function lastUndo(): () => void {
+    const call = (toast as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1);
+    const opts = call?.[1] as { action?: { label: string; onClick: () => void } };
+    return opts!.action!.onClick;
+  }
+
+  it("advances to the next Photo and shows an Undo toast, deferring the delete", async () => {
+    const { onOpenChange } = renderViewer({ photos: trio, initialPhotoIndex: 0 });
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(a, SUPABASE_URL, "full"));
+
+    await confirmDelete();
+
+    // Advanced to the next Photo, viewer stays open.
+    expect(src()).toBe(photoUrl(b, SUPABASE_URL, "full"));
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // An Undo toast was shown…
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringMatching(/deleted/i),
+      expect.objectContaining({
+        action: expect.objectContaining({ label: expect.stringMatching(/undo/i) }),
+      }),
+    );
+    // …and the hard delete has NOT fired yet (it waits out the window).
+    expect(h.del).not.toHaveBeenCalledWith("photos", "id", "a");
+    expect(h.remove).not.toHaveBeenCalled();
+  });
+
+  it("closes the viewer when the last remaining Photo is deleted", async () => {
+    const { onOpenChange } = renderViewer({ photos: [a], initialPhotoIndex: 0 });
+    await act(async () => {});
+
+    await confirmDelete();
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringMatching(/deleted/i),
+      expect.objectContaining({
+        action: expect.objectContaining({ label: expect.stringMatching(/undo/i) }),
+      }),
+    );
+  });
+
+  it("commits the hard delete once the Undo window elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const { onUpdated } = renderViewer({ photos: trio, initialPhotoIndex: 0 });
+      await act(async () => {});
+      await confirmDelete();
+
+      // Nothing committed mid-window.
+      expect(h.remove).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(UNDO_WINDOW_MS);
+      });
+      await act(async () => {}); // flush the commit's awaited writes
+
+      expect(h.remove).toHaveBeenCalledWith("photos", [a.storage_path]);
+      expect(h.del).toHaveBeenCalledWith("photos", "id", "a");
+      expect(onUpdated).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Undo cancels the commit and restores the Photo", async () => {
+    vi.useFakeTimers();
+    try {
+      renderViewer({ photos: trio, initialPhotoIndex: 0 });
+      await act(async () => {});
+      await confirmDelete();
+      expect(src()).toBe(photoUrl(b, SUPABASE_URL, "full"));
+
+      // Undo within the window.
+      await act(async () => {
+        lastUndo()();
+      });
+
+      // The deleted Photo is back…
+      expect(src()).toBe(photoUrl(a, SUPABASE_URL, "full"));
+
+      // …and the window elapsing never deletes it.
+      await act(async () => {
+        vi.advanceTimersByTime(UNDO_WINDOW_MS);
+      });
+      await act(async () => {});
+      expect(h.remove).not.toHaveBeenCalled();
+      expect(h.del).not.toHaveBeenCalledWith("photos", "id", "a");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -489,6 +592,117 @@ describe("PhotoViewer — Cover indicator", () => {
     await act(async () => {});
 
     expect(screen.queryByTitle(/current cover/i)).toBeNull();
+  });
+});
+
+describe("PhotoViewer — navigation across the Job's Photos", () => {
+  // Two days, deliberately out of order on input — the viewer orders them
+  // newest-first and walks one continuous run across the grid's date divider.
+  const newest = makePhoto({
+    id: "p-new",
+    storage_path: "job-1/new.jpg",
+    created_at: "2026-05-03T10:00:00Z",
+  });
+  const middle = makePhoto({
+    id: "p-mid",
+    storage_path: "job-1/mid.jpg",
+    created_at: "2026-05-02T10:00:00Z",
+  });
+  const oldest = makePhoto({
+    id: "p-old",
+    storage_path: "job-1/old.jpg",
+    created_at: "2026-05-01T10:00:00Z",
+  });
+  const shuffled = [middle, oldest, newest];
+
+  const src = () => (screen.getByRole("img") as HTMLImageElement).getAttribute("src");
+
+  it("Next advances to the next (older) Photo, continuous across dates", async () => {
+    // Open on the newest; one Next crosses the May 3 → May 2 divider.
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(newest) });
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(newest, SUPABASE_URL, "full"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    expect(src()).toBe(photoUrl(middle, SUPABASE_URL, "full"));
+  });
+
+  it("ArrowRight / ArrowLeft move between Photos", async () => {
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(newest) });
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+    });
+    expect(src()).toBe(photoUrl(middle, SUPABASE_URL, "full"));
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+    });
+    expect(src()).toBe(photoUrl(newest, SUPABASE_URL, "full"));
+  });
+
+  it("swiping left shows the next Photo, swiping right the previous", async () => {
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(newest) });
+    await act(async () => {});
+    const surface = screen.getByRole("img").parentElement as HTMLElement;
+
+    // Finger travels right → left: advance to the next (older) Photo.
+    await act(async () => {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 240 }] });
+      fireEvent.touchEnd(surface, { changedTouches: [{ clientX: 80 }] });
+    });
+    expect(src()).toBe(photoUrl(middle, SUPABASE_URL, "full"));
+
+    // Finger travels left → right: back to the previous (newer) Photo.
+    await act(async () => {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 80 }] });
+      fireEvent.touchEnd(surface, { changedTouches: [{ clientX: 240 }] });
+    });
+    expect(src()).toBe(photoUrl(newest, SUPABASE_URL, "full"));
+  });
+
+  it("ignores a tap that does not pass the swipe threshold", async () => {
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(newest) });
+    await act(async () => {});
+    const surface = screen.getByRole("img").parentElement as HTMLElement;
+
+    await act(async () => {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 200 }] });
+      fireEvent.touchEnd(surface, { changedTouches: [{ clientX: 188 }] });
+    });
+    expect(src()).toBe(photoUrl(newest, SUPABASE_URL, "full"));
+  });
+
+  it("Prev returns to the newer Photo", async () => {
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(middle) });
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(middle, SUPABASE_URL, "full"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /previous/i }));
+    });
+    expect(src()).toBe(photoUrl(newest, SUPABASE_URL, "full"));
+  });
+
+  it("hides Prev on the newest Photo and Next on the oldest (clamped)", async () => {
+    // On the newest: no Prev, but Next is available.
+    const { unmount } = renderViewer({
+      photos: shuffled,
+      initialPhotoIndex: shuffled.indexOf(newest),
+    });
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: /previous/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /next/i })).toBeTruthy();
+    unmount();
+
+    // On the oldest: no Next, but Prev is available.
+    renderViewer({ photos: shuffled, initialPhotoIndex: shuffled.indexOf(oldest) });
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: /next/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /previous/i })).toBeTruthy();
   });
 });
 
