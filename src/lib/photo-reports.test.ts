@@ -21,6 +21,12 @@ import { createPhotoReportDraft } from "./photo-reports";
 //   - photo_report_templates: the select chain ends in `.maybeSingle()`, which
 //     resolves to `opts.template` (or null when the id resolves to nothing —
 //     e.g. a deleted template or another Organization's id dropped by RLS).
+//   - company_settings: the select chain (key/value rows for the org) is awaited
+//     and resolves to `opts.companySettings` (the Organization's Report layout
+//     default, in key/value form); defaults to none set.
+//   - jobs: the select chain ends in `.maybeSingle()` and resolves the Job's
+//     `cover_photo_id` (`opts.jobCoverPhotoId`, default null) — the per-report
+//     cover photo's seed.
 // `inserted` exposes the captured insert payload so a test can assert exactly
 // what was written.
 function fakeSupabase(
@@ -28,6 +34,8 @@ function fakeSupabase(
   opts: {
     ownedPhotoIds?: string[];
     template?: Record<string, unknown> | null;
+    companySettings?: Array<{ key: string; value: string }>;
+    jobCoverPhotoId?: string | null;
   } = {},
 ) {
   let inserted: Record<string, unknown> | null = null;
@@ -50,17 +58,27 @@ function fakeSupabase(
         data: { id: "report-1", ...inserted },
         error: null,
       });
-      builder.maybeSingle = async () => ({
-        data:
-          table === "photo_report_templates" ? (opts.template ?? null) : null,
-        error: null,
-      });
+      builder.maybeSingle = async () => {
+        if (table === "photo_report_templates") {
+          return { data: opts.template ?? null, error: null };
+        }
+        if (table === "jobs") {
+          return {
+            data: { cover_photo_id: opts.jobCoverPhotoId ?? null },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      };
       builder.then = (resolve: (r: unknown) => void) => {
         if (table === "photos") {
           const owned = opts.ownedPhotoIds
             ? inIds.filter((id) => opts.ownedPhotoIds!.includes(id))
             : inIds;
           return resolve({ data: owned.map((id) => ({ id })), error: null });
+        }
+        if (table === "company_settings") {
+          return resolve({ data: opts.companySettings ?? [], error: null });
         }
         return resolve({ data: existing, error: null });
       };
@@ -386,5 +404,86 @@ describe("createPhotoReportDraft", () => {
 
     const sections = supabase.inserted?.sections as Array<{ id: string }>;
     expect(sections.map((s) => s.id)).toEqual(["sec-1", "sec-2", "sec-3"]);
+  });
+
+  it("snapshots the Organization's Report layout default into the new report's settings (#549)", async () => {
+    // ADR 0014: a new report COPIES the Organization's Report layout default at
+    // creation, then keeps its own copy. The snapshot is complete — fields the
+    // Organization left unset are filled with the hardcoded defaults — so a later
+    // edit to the Organization default can never reach back into this report.
+    const supabase = fakeSupabase([], {
+      companySettings: [
+        { key: "report_photos_per_page", value: "3" },
+        { key: "report_detail_captured_by", value: "false" },
+      ],
+    });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+    });
+
+    expect(supabase.inserted?.report_settings).toEqual({
+      photosPerPage: 3, // from the Org default
+      sectionTitlePages: true, // unset in the Org default → hardcoded on
+      photoNumbers: true,
+      capturedBy: false, // from the Org default
+      location: true,
+      dateCaptured: true,
+      photoTags: true,
+    });
+  });
+
+  it("snapshots the hardcoded defaults when the Organization has no Report layout default", async () => {
+    // With nothing configured, the report still freezes a complete snapshot
+    // (2-up, every toggle on) rather than a null that would re-read the Org
+    // default live — keeping the report's look stable from creation.
+    const supabase = fakeSupabase([]);
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+    });
+
+    expect(supabase.inserted?.report_settings).toEqual({
+      photosPerPage: 2,
+      sectionTitlePages: true,
+      photoNumbers: true,
+      capturedBy: true,
+      location: true,
+      dateCaptured: true,
+      photoTags: true,
+    });
+  });
+
+  it("seeds the report's cover photo from the Job's cover photo (#549)", async () => {
+    // ADR 0014: the per-report cover photo is seeded from the Job's at creation.
+    const supabase = fakeSupabase([], { jobCoverPhotoId: "job-cover-7" });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+    });
+
+    expect(supabase.inserted?.cover_photo_id).toBe("job-cover-7");
+  });
+
+  it("seeds a null cover photo when the Job has none", async () => {
+    const supabase = fakeSupabase([]);
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+    });
+
+    expect(supabase.inserted?.cover_photo_id).toBeNull();
   });
 });

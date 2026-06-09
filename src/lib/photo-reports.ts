@@ -17,6 +17,11 @@ import type { PhotoReport, PhotoReportTemplate } from "@/lib/types";
 import { nextReportNumber } from "./next-report-number";
 import { buildDefaultReportSections } from "./photo-report-builder";
 import { buildInitialSections, newSectionId } from "./build-initial-sections";
+import {
+  companySettingsToReportDefault,
+  resolveReportSettings,
+  type StoredReportSettingsJson,
+} from "./photo-report-settings";
 
 export interface CreatePhotoReportDraftInput {
   organizationId: string;
@@ -66,6 +71,18 @@ export async function createPhotoReportDraft(
   // blank, single-Photos-section start. `template_id` is provenance only.
   const template = await fetchTemplate(supabase, input.templateId);
 
+  // Snapshot the Organization's Report layout default into this report at
+  // creation (ADR 0014, #549): the report copies photos-per-page + the detail
+  // toggles, then keeps its own copy, so later edits to the Organization default
+  // never restyle a report that already exists (the per-document snapshot model
+  // of ADR 0012). The snapshot is complete — `resolveReportSettings` fills any
+  // field the Organization left unset with the hardcoded defaults — so it never
+  // re-reads the live Organization default. The per-report cover photo is seeded
+  // from the Job's cover photo (overridable later); cover-block visibility is
+  // left unset (NULL reads as "all blocks on") since it has no Organization seed.
+  const reportSettings = await seedReportSettings(supabase, input.organizationId);
+  const coverPhotoId = await fetchJobCoverPhotoId(supabase, input.jobId);
+
   const sections = template
     ? // Start from the template's boilerplate Sections (heading + write-up, no
       // photos), then append the user's selection as a separate Photos section
@@ -103,6 +120,8 @@ export async function createPhotoReportDraft(
         created_by: input.preparerName,
         sections,
         status: "draft",
+        report_settings: reportSettings,
+        cover_photo_id: coverPhotoId,
       })
       .select("*")
       .single<PhotoReport>();
@@ -141,6 +160,54 @@ async function nextReportNumberForJob(
     .map((row) => (row as { report_number: number | null }).report_number)
     .filter((n): n is number => typeof n === "number");
   return nextReportNumber(existingNumbers);
+}
+
+/**
+ * Build the complete Report Settings snapshot for a new report from the
+ * Organization's Report layout default (ADR 0014). Reads the Organization's
+ * `company_settings` key/value rows under the caller's RLS, resolves them
+ * through the shared precedence resolver (so every field is concrete, never
+ * "no look"), and flattens to the stored `report_settings` JSONB shape.
+ */
+async function seedReportSettings(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<StoredReportSettingsJson> {
+  const { data, error } = await supabase
+    .from("company_settings")
+    .select("key, value")
+    .eq("organization_id", organizationId);
+  if (error) throw new Error(error.message);
+
+  const settings: Record<string, string> = {};
+  for (const row of (data ?? []) as Array<{ key: string; value: string | null }>) {
+    settings[row.key] = row.value ?? "";
+  }
+
+  const resolved = resolveReportSettings(
+    null,
+    companySettingsToReportDefault(settings),
+  );
+  return { photosPerPage: resolved.photosPerPage, ...resolved.details };
+}
+
+/**
+ * Read a Job's cover photo id (the per-report cover photo's seed, ADR 0014), or
+ * null. Runs under the caller's RLS. A Job with no cover, or that resolves to
+ * nothing, yields null — the report starts with no per-report cover and falls
+ * back to the Job's at render time.
+ */
+async function fetchJobCoverPhotoId(
+  supabase: SupabaseClient,
+  jobId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("cover_photo_id")
+    .eq("id", jobId)
+    .maybeSingle<{ cover_photo_id: string | null }>();
+  if (error) throw new Error(error.message);
+  return data?.cover_photo_id ?? null;
 }
 
 /**

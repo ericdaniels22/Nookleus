@@ -119,6 +119,13 @@ CREATE TABLE photo_reports (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,                      -- soft-delete for the recoverable trash (#402); NULL = not deleted
+  -- Per-report SNAPSHOT of how the report looks (ADR 0014, #549). All three are
+  -- read-tolerant: NULL report_settings reads as the Organization default, NULL
+  -- cover_config reads as "all cover blocks on", NULL cover_photo_id falls back
+  -- to the Job's cover photo. Resolved in src/lib/photo-report-settings.ts.
+  report_settings jsonb,                       -- { photosPerPage, sectionTitlePages, photoNumbers, capturedBy, location, dateCaptured, photoTags }
+  cover_config jsonb,                          -- { logo, customer, propertyAddress, pointOfContact, insurance }
+  cover_photo_id uuid REFERENCES photos(id) ON DELETE SET NULL,  -- per-report cover photo; seeded from the Job's, overridable (#549)
   organization_id uuid NOT NULL REFERENCES organizations(id)
 );
 

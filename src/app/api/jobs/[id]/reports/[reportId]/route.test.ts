@@ -112,6 +112,47 @@ describe("PUT /api/jobs/[id]/reports/[reportId]", () => {
     );
   });
 
+  it("persists per-report Report Settings / Cover config / cover photo (ADR 0014, #549)", async () => {
+    // The builder's autosave also flushes the per-report layout snapshot: the
+    // Report Settings JSONB (photos-per-page + detail toggles), the Cover Page
+    // block-visibility config, and the chosen cover photo. These ride the same
+    // keepalive PUT and must be whitelisted through to the update payload.
+    const client = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "member",
+        grants: ["edit_jobs"],
+        extraTables: {
+          photo_reports: [{ id: "r-1", job_id: "job-1", deleted_at: null }],
+        },
+      }),
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await PUT(
+      putRequest({
+        report_settings: { photosPerPage: 3, photoNumbers: false },
+        cover_config: { logo: false, insurance: true },
+        cover_photo_id: "photo-9",
+      }),
+      paramsFor("job-1", "r-1"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(client.__mutations).toContainEqual(
+      expect.objectContaining({
+        table: "photo_reports",
+        op: "update",
+        payload: {
+          report_settings: { photosPerPage: 3, photoNumbers: false },
+          cover_config: { logo: false, insurance: true },
+          cover_photo_id: "photo-9",
+        },
+      }),
+    );
+  });
+
   it("rejects a cross-tenant write (report reached through the wrong Job) with 404", async () => {
     // The report exists, but it belongs to a different Job — a caller must not be
     // able to write to it by guessing its id through their own Job. The

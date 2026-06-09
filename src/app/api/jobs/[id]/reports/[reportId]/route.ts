@@ -21,6 +21,14 @@ interface UpdatePayload {
   title?: string;
   report_date?: string;
   sections?: unknown[];
+  // Per-report layout snapshot (ADR 0014, #549): the Report Settings JSONB
+  // (photos-per-page + detail toggles), the Cover Page block-visibility config,
+  // and the chosen cover photo. The shapes are validated by the resolver in
+  // src/lib/photo-report-settings.ts on read (read-tolerant), so the write path
+  // only needs to whitelist them through.
+  report_settings?: unknown;
+  cover_config?: unknown;
+  cover_photo_id?: string | null;
 }
 
 export const PUT = withRequestContext(
@@ -33,11 +41,20 @@ export const PUT = withRequestContext(
     const { id: jobId, reportId } = await params;
     const body = (await request.json()) as UpdatePayload;
 
-    // Whitelist the three editable content columns; only keys actually present
-    // in the body are written, so a partial flush never clobbers a field the
-    // client didn't send.
+    // Whitelist the editable content columns; only keys actually present in the
+    // body are written, so a partial flush never clobbers a field the client
+    // didn't send. Beyond the original title/report_date/sections, ADR 0014
+    // (#549) adds the per-report layout snapshot: report_settings, cover_config,
+    // and cover_photo_id.
     const update: Record<string, unknown> = {};
-    for (const k of ["title", "report_date", "sections"] as const) {
+    for (const k of [
+      "title",
+      "report_date",
+      "sections",
+      "report_settings",
+      "cover_config",
+      "cover_photo_id",
+    ] as const) {
       if (k in body && body[k] !== undefined) update[k] = body[k];
     }
 

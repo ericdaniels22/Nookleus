@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  measureWriteupFit,
-  WRITEUP_CHARACTER_LIMIT,
-} from "./section-writeup-fit";
+import { measureWriteupFit, writeupLimitFor } from "./section-writeup-fit";
 
 describe("measureWriteupFit", () => {
   it("counts the visible characters of a simple write-up", () => {
@@ -134,8 +131,29 @@ describe("measureWriteupFit", () => {
     expect(over.remaining).toBe(-1);
   });
 
-  it("exposes a positive default one-page character limit in the result", () => {
-    expect(WRITEUP_CHARACTER_LIMIT).toBeGreaterThan(0);
-    expect(measureWriteupFit("<p>x</p>").limit).toBe(WRITEUP_CHARACTER_LIMIT);
+  it("defaults the limit to the 2-per-page write-up cap (ADR 0014)", () => {
+    // The single 1500-char budget is gone; measureWriteupFit with no explicit
+    // limit now uses the 2-per-page cap, the densest write-up a 2-up page allows.
+    expect(measureWriteupFit("<p>x</p>").limit).toBe(writeupLimitFor(2));
+  });
+});
+
+describe("writeupLimitFor", () => {
+  it("returns the per-layout write-up cap for each photos-per-page layout", () => {
+    // Per ADR 0014: a 2-up page leaves the most room for prose, a 4-up the least.
+    expect(writeupLimitFor(2)).toBe(750);
+    expect(writeupLimitFor(3)).toBe(400);
+    expect(writeupLimitFor(4)).toBe(260);
+  });
+
+  it("is exercised through measureWriteupFit as the limit it measures against", () => {
+    // The cap a layout imposes is the same number measureWriteupFit checks the
+    // visible-character count against — the builder passes writeupLimitFor(N) in.
+    const body = `<p>${"a".repeat(401)}</p>`;
+    const at3 = measureWriteupFit(body, writeupLimitFor(3));
+    expect(at3.limit).toBe(400);
+    expect(at3.fits).toBe(false); // 401 visible chars over the 3-up cap of 400
+    const at2 = measureWriteupFit(body, writeupLimitFor(2));
+    expect(at2.fits).toBe(true); // same body fits under the looser 2-up cap of 750
   });
 });

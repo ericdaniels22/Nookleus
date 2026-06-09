@@ -1,3 +1,8 @@
+import type {
+  CoverBlockVisibility,
+  StoredReportSettingsJson,
+} from "./photo-report-settings";
+
 export interface Contact {
   id: string;
   /** Owning Organization. NOT NULL in the DB and enforced by RLS. */
@@ -230,6 +235,13 @@ export interface PhotoReportTemplate {
   updated_at: string;
 }
 
+/**
+ * Photos per Photo Page for a report's Report Settings (ADR 0014, #549). The
+ * legacy 1-per-page layout is dropped; reports/orgs previously on 1 fall back to
+ * 2. Widened from the old 1|2|4 to 2|3|4 (a new 3-up Photo Page is added).
+ */
+export type ReportPhotosPerPage = 2 | 3 | 4;
+
 export interface PhotoReport {
   id: string;
   /** Owning Organization. NOT NULL in the DB and enforced by RLS (#400). */
@@ -248,6 +260,22 @@ export interface PhotoReport {
   updated_at: string;
   /** Soft-delete timestamp for the recoverable trash (#402). Null = not deleted. */
   deleted_at: string | null;
+  /**
+   * Per-report snapshot of the Report Settings (photos-per-page + the six detail
+   * toggles), seeded from the Organization default at creation (ADR 0014, #549).
+   * Null on pre-0014 rows — read-tolerant, resolves to the Organization default.
+   */
+  report_settings: StoredReportSettingsJson | null;
+  /**
+   * Per-report Cover Page block visibility (logo/customer/property/contact/
+   * insurance). Null on pre-0014 rows — read-tolerant, resolves to all-on.
+   */
+  cover_config: Partial<CoverBlockVisibility> | null;
+  /**
+   * The report's own cover photo (ADR 0014). Null falls back to the Job's cover
+   * photo at resolve time. FK to `photos`, ON DELETE SET NULL.
+   */
+  cover_photo_id: string | null;
 }
 
 export interface EmailAddress {
