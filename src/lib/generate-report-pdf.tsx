@@ -3,6 +3,10 @@
 import { pdf } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase";
 import ReportPDFDocument from "@/components/report-pdf-document";
+import {
+  buildReportDocument,
+  type LayoutEnginePhoto,
+} from "@/lib/build-report-document";
 import { resolveCoverPageData } from "@/lib/cover-page-data";
 import type { CompanySettings } from "@/lib/types";
 
@@ -138,38 +142,54 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     ? `${supabaseUrl}/storage/v1/object/public/photos/${coverPhotoPath}`
     : null;
 
-  // 6. Collect body photos (body unchanged in slice 1)
+  // 6. Collect body photos
   const allPhotoIds = new Set<string>();
   sections.forEach((s) => s.photo_ids.forEach((id) => allPhotoIds.add(id)));
 
   const { data: photoData } = await supabase
     .from("photos")
-    .select("id, storage_path, annotated_path, caption, before_after_role, taken_at")
+    .select(
+      "id, storage_path, annotated_path, caption, before_after_role, taken_at, taken_by, width, height",
+    )
     .in("id", Array.from(allPhotoIds));
 
-  const photos: Record<
+  const photoRenderData: Record<
     string,
-    {
-      id: string;
-      url: string;
-      caption: string | null;
-      before_after_role: "before" | "after" | null;
-      taken_at: string | null;
-    }
+    { url: string; before_after_role: "before" | "after" | null }
   > = {};
+  const enginePhotos: Record<string, LayoutEnginePhoto> = {};
 
   for (const p of photoData || []) {
     const path = p.annotated_path || p.storage_path;
-    photos[p.id] = {
-      id: p.id,
+    photoRenderData[p.id] = {
       url: `${supabaseUrl}/storage/v1/object/public/photos/${path}`,
-      caption: p.caption,
       before_after_role: p.before_after_role,
-      taken_at: p.taken_at,
+    };
+    enginePhotos[p.id] = {
+      id: p.id,
+      caption: p.caption,
+      takenAt: p.taken_at,
+      takenBy: p.taken_by ?? null,
+      width: p.width,
+      height: p.height,
     };
   }
 
-  // 7. Render PDF
+  // 7. Layout engine — produces the typed page list that drives rendering.
+  const documentPages = buildReportDocument({
+    job: {
+      property_address: job.property_address,
+      insurance_company: job.insurance_company,
+      claim_number: job.claim_number,
+      contact: job.contact ? { full_name: job.contact.full_name ?? "" } : null,
+    },
+    companySettings,
+    sections,
+    photos: enginePhotos,
+    photosPerPage,
+  });
+
+  // 8. Render PDF
   const blob = await pdf(
     <ReportPDFDocument
       title={report.title}
@@ -177,12 +197,12 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       coverPhotoUrl={coverPhotoUrl}
       logoUrl={logoUrl}
       sections={sections}
-      photos={photos}
-      photosPerPage={photosPerPage}
+      photoRenderData={photoRenderData}
+      documentPages={documentPages}
     />,
   ).toBlob();
 
-  // 8. Upload PDF to Supabase Storage
+  // 9. Upload PDF to Supabase Storage
   const pdfPath = `${job.job_number}/${reportId}.pdf`;
   const { error: uploadErr } = await supabase.storage
     .from("reports")
@@ -195,7 +215,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     throw new Error(`Failed to upload PDF: ${uploadErr.message}`);
   }
 
-  // 9. Update report record
+  // 10. Update report record
   const { error: updateErr } = await supabase
     .from("photo_reports")
     .update({

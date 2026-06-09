@@ -10,16 +10,14 @@ import {
 } from "@react-pdf/renderer";
 
 import CoverPage from "@/components/report-pdf/cover-page";
+import type { DocumentPage } from "@/lib/build-report-document";
 import type { CoverPageData } from "@/lib/cover-page-data";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface ReportPhoto {
-  id: string;
+interface ReportPhotoRenderData {
   url: string;
-  caption: string | null;
   before_after_role: "before" | "after" | null;
-  taken_at: string | null;
 }
 
 interface ReportSection {
@@ -34,8 +32,8 @@ interface ReportPDFProps {
   coverPhotoUrl: string | null;
   logoUrl: string | null;
   sections: ReportSection[];
-  photos: Record<string, ReportPhoto>;
-  photosPerPage: number;
+  photoRenderData: Record<string, ReportPhotoRenderData>;
+  documentPages: DocumentPage[];
 }
 
 // ─── Styles (body only — cover lives in CoverPage) ───────────────────────────
@@ -139,60 +137,8 @@ const styles = StyleSheet.create({
   },
 });
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
-}
-
-function getPhotoHeight(photosPerPage: number): number {
-  switch (photosPerPage) {
-    case 1:
-      return 480;
-    case 2:
-      return 230;
-    case 4:
-      return 210;
-    case 6:
-      return 140;
-    default:
-      return 230;
-  }
-}
-
-function getGridCols(photosPerPage: number): number {
-  switch (photosPerPage) {
-    case 1:
-      return 1;
-    case 2:
-      return 1;
-    case 4:
-      return 2;
-    case 6:
-      return 2;
-    default:
-      return 1;
-  }
-}
-
-function getRowsPerPage(photosPerPage: number): number {
-  switch (photosPerPage) {
-    case 1:
-      return 1;
-    case 2:
-      return 2;
-    case 4:
-      return 2;
-    case 6:
-      return 3;
-    default:
-      return 2;
-  }
-}
+// Slot height at photosPerPage=2 — matches prior layout.
+const PHOTO_SLOT_HEIGHT = 230;
 
 // ─── Components ──────────────────────────────────────────────────────────────
 
@@ -213,32 +159,34 @@ function PageFooter({ title }: { title: string }) {
 }
 
 function PhotoCard({
-  photo,
-  height,
+  url,
+  caption,
+  beforeAfterRole,
 }: {
-  photo: ReportPhoto;
-  height: number;
+  url: string;
+  caption: string | null;
+  beforeAfterRole: "before" | "after" | null;
 }) {
   return (
     <View style={styles.photoContainer}>
-      <Image src={photo.url} style={[styles.photoImage, { height }]} />
+      <Image src={url} style={[styles.photoImage, { height: PHOTO_SLOT_HEIGHT }]} />
       <View style={styles.photoCaption}>
-        {photo.caption && (
-          <Text style={styles.photoCaptionText}>{photo.caption}</Text>
+        {caption && (
+          <Text style={styles.photoCaptionText}>{caption}</Text>
         )}
-        {photo.before_after_role && (
+        {beforeAfterRole && (
           <Text
             style={[
               styles.photoBadge,
-              photo.before_after_role === "before"
+              beforeAfterRole === "before"
                 ? styles.beforeBadge
                 : styles.afterBadge,
             ]}
           >
-            {photo.before_after_role === "before" ? "BEFORE" : "AFTER"}
+            {beforeAfterRole === "before" ? "BEFORE" : "AFTER"}
           </Text>
         )}
-        {!photo.caption && !photo.before_after_role && (
+        {!caption && !beforeAfterRole && (
           <Text style={[styles.photoCaptionText, { color: colors.light }]}>
             No caption
           </Text>
@@ -256,67 +204,79 @@ export default function ReportPDFDocument({
   coverPhotoUrl,
   logoUrl,
   sections,
-  photos,
-  photosPerPage,
+  photoRenderData,
+  documentPages,
 }: ReportPDFProps) {
-  const photoHeight = getPhotoHeight(photosPerPage);
-  const gridCols = getGridCols(photosPerPage);
+  const descriptionByTitle = new Map<string, string>();
+  for (const s of sections) {
+    if (!descriptionByTitle.has(s.title)) {
+      descriptionByTitle.set(s.title, s.description);
+    }
+  }
+
+  // Section numbering: increment when sectionTitle changes between
+  // consecutive photoPage entries. Mirrors the old "1. Section" treatment.
+  let previousSectionTitle: string | null = null;
+  let sectionCounter = 0;
+
+  const pageElements: React.ReactNode[] = [];
+  documentPages.forEach((page, index) => {
+    if (page.kind === "cover") {
+      pageElements.push(
+        <CoverPage
+          key={`cover-${index}`}
+          data={coverPageData}
+          title={title}
+          coverPhotoUrl={coverPhotoUrl}
+          logoUrl={logoUrl}
+        />,
+      );
+      return;
+    }
+
+    const isFirstOfSection = page.sectionTitle !== previousSectionTitle;
+    if (isFirstOfSection) {
+      sectionCounter += 1;
+    }
+    previousSectionTitle = page.sectionTitle;
+
+    pageElements.push(
+      <Page key={`pp-${index}`} size="LETTER" style={styles.page}>
+        {isFirstOfSection && (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {sectionCounter}. {page.sectionTitle}
+            </Text>
+            {descriptionByTitle.get(page.sectionTitle) && (
+              <Text style={styles.sectionDescription}>
+                {descriptionByTitle.get(page.sectionTitle)}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {page.slots.map((slot) => {
+          const render = photoRenderData[slot.photoId];
+          if (!render) return null;
+          return (
+            <View key={slot.photoId} style={styles.photoRow}>
+              <PhotoCard
+                url={render.url}
+                caption={slot.caption}
+                beforeAfterRole={render.before_after_role}
+              />
+            </View>
+          );
+        })}
+
+        <PageFooter title={title} />
+      </Page>,
+    );
+  });
 
   return (
     <Document title={title} author="AAA Disaster Recovery">
-      <CoverPage
-        data={coverPageData}
-        title={title}
-        coverPhotoUrl={coverPhotoUrl}
-        logoUrl={logoUrl}
-      />
-
-      {sections.map((section, si) => {
-        const sectionPhotos = section.photo_ids
-          .map((id) => photos[id])
-          .filter(Boolean);
-
-        if (sectionPhotos.length === 0) return null;
-
-        const rows = chunkArray(sectionPhotos, gridCols);
-        const rowsPerPage = getRowsPerPage(photosPerPage);
-        const pages = chunkArray(rows, rowsPerPage);
-
-        return pages.map((pageRows, pi) => (
-          <Page key={`s${si}-p${pi}`} size="LETTER" style={styles.page}>
-            {pi === 0 && (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>
-                  {si + 1}. {section.title}
-                </Text>
-                {section.description && (
-                  <Text style={styles.sectionDescription}>
-                    {section.description}
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {pageRows.map((row, ri) => (
-              <View key={ri} style={styles.photoRow}>
-                {row.map((photo) => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    height={photoHeight}
-                  />
-                ))}
-                {row.length < gridCols &&
-                  Array.from({ length: gridCols - row.length }).map((_, i) => (
-                    <View key={`empty-${i}`} style={{ flex: 1 }} />
-                  ))}
-              </View>
-            ))}
-
-            <PageFooter title={title} />
-          </Page>
-        ));
-      })}
+      {pageElements}
     </Document>
   );
 }
