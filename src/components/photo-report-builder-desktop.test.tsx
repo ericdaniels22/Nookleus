@@ -28,6 +28,9 @@ import type { Photo, PhotoReport } from "@/lib/types";
 
 const h = vi.hoisted(() => ({
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
+  // When set, the auto-save write resolves with an error so a test can exercise
+  // the failed-flush path (#441: a failed flush must not yield a render).
+  errorOnSave: false,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -35,7 +38,12 @@ vi.mock("@/lib/supabase", () => ({
     from: () => ({
       update: (payload: Record<string, unknown>) => {
         h.updateMock(payload);
-        return { eq: () => Promise.resolve({ error: null }) };
+        return {
+          eq: () =>
+            Promise.resolve({
+              error: h.errorOnSave ? { message: "save failed" } : null,
+            }),
+        };
       },
     }),
   }),
@@ -45,6 +53,20 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock("@/lib/generate-report-pdf", () => ({
   generateReportPDF: vi.fn(async () => "job-1/report-1.pdf"),
+  renderReportPdfBlob: vi.fn(
+    async () => new Blob(["%PDF"], { type: "application/pdf" }),
+  ),
+}));
+
+// The on-demand Preview pane (#554) feeds the shared producer's blob into the
+// in-app react-pdf viewer (PdfPreviewFrame). That island can't run in jsdom
+// (react-pdf evaluates pdfjs-dist at import), so stand in a stub echoing the
+// src/title the builder hands it — the frame's own pass-through is unit-tested
+// in pdf-preview-frame.test.tsx.
+vi.mock("@/components/documents/pdf-preview-frame", () => ({
+  PdfPreviewFrame: ({ src, title }: { src: string; title: string }) => (
+    <div data-testid="report-preview-frame" data-src={src} data-title={title} />
+  ),
 }));
 
 vi.mock("@/components/tiptap-editor", () => ({
@@ -106,7 +128,9 @@ vi.mock("@dnd-kit/sortable", async () => {
 });
 
 import React from "react";
+import { toast } from "sonner";
 import PhotoReportBuilder from "./photo-report-builder";
+import { renderReportPdfBlob } from "@/lib/generate-report-pdf";
 
 function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   return {
@@ -156,14 +180,33 @@ function renderBuilder(report = makeReport(), photos: Photo[] = []) {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+// jsdom ships no Blob URL machinery, but the Preview pane (#554) turns the
+// rendered PDF blob into an object URL. Stand in deterministic blob: URLs so a
+// test can assert the viewer was fed one (and, later, that stale ones are
+// revoked). Restored after each test to keep the worker hermetic.
+const realCreateObjectURL = globalThis.URL.createObjectURL;
+const realRevokeObjectURL = globalThis.URL.revokeObjectURL;
+const createObjectURL = vi.fn<(blob: Blob) => string>();
+const revokeObjectURL = vi.fn<(url: string) => void>();
+let objectUrlSeq = 0;
+
 beforeEach(() => {
   h.updateMock.mockClear();
+  h.errorOnSave = false;
+  vi.mocked(renderReportPdfBlob).mockClear();
+  vi.mocked(toast.error).mockClear();
   capturedOnDragEnd = null;
   capturedSortableIds = [];
   fetchMock = vi.fn(() =>
     Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response),
   );
   vi.stubGlobal("fetch", fetchMock);
+
+  objectUrlSeq = 0;
+  createObjectURL.mockReset().mockImplementation(() => `blob:mock/${++objectUrlSeq}`);
+  revokeObjectURL.mockReset();
+  globalThis.URL.createObjectURL = createObjectURL;
+  globalThis.URL.revokeObjectURL = revokeObjectURL;
 });
 
 afterEach(() => {
@@ -171,6 +214,8 @@ afterEach(() => {
   // (#443) hits the inert mock (see photo-report-builder.test.tsx).
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.URL.createObjectURL = realCreateObjectURL;
+  globalThis.URL.revokeObjectURL = realRevokeObjectURL;
 });
 
 function getRail() {
@@ -375,13 +420,13 @@ describe("PhotoReportBuilder — rail selection stays keyboard-reachable (#548)"
   });
 });
 
-describe("PhotoReportBuilder — desktop top-bar placeholders (#548)", () => {
-  it("offers desktop-only gear and Preview controls while Generate stays the one real action", () => {
+describe("PhotoReportBuilder — desktop top-bar controls (#548, #554)", () => {
+  it("offers desktop-only gear, Preview, and the single Generate action", () => {
     renderBuilder();
 
     // Both are desktop-only (hidden on phone, shown at lg). #550 wired the gear
-    // up to open Report Settings, so it is now a real action; Preview is still a
-    // disabled placeholder a later slice fills in.
+    // up to open Report Settings; #554 wired Preview up to render the on-demand
+    // pane — neither is a disabled placeholder any longer.
     const gear = screen.getByRole("button", { name: "Report settings" });
     const preview = screen.getByRole("button", { name: "Preview" });
     for (const el of [gear, preview]) {
@@ -390,7 +435,7 @@ describe("PhotoReportBuilder — desktop top-bar placeholders (#548)", () => {
       expect(t).toContain("lg:inline-flex");
     }
     expect((gear as HTMLButtonElement).disabled).toBe(false);
-    expect((preview as HTMLButtonElement).disabled).toBe(true);
+    expect((preview as HTMLButtonElement).disabled).toBe(false);
 
     // Generate keeps today's behavior — one button, both surfaces share it.
     expect(
@@ -675,5 +720,183 @@ describe("PhotoReportBuilder — within-Section photo reorder (#552)", () => {
       sections: Array<{ photo_ids: string[] }>;
     };
     expect(payload.sections[0].photo_ids).toEqual(["p2", "p3", "p1"]);
+  });
+});
+
+describe("PhotoReportBuilder — on-demand Preview pane (#554)", () => {
+  it("renders the real report PDF in a pane when Preview is clicked", async () => {
+    renderBuilder();
+
+    // On demand, not live: nothing renders until the author asks for it.
+    expect(screen.queryByTestId("report-preview-frame")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+
+    // The shared no-drift producer rendered THIS report; its blob is handed to
+    // the in-app viewer as a blob: URL — byte-identical to what Generate uploads.
+    const frame = await screen.findByTestId("report-preview-frame");
+    expect(vi.mocked(renderReportPdfBlob)).toHaveBeenCalledWith("report-1");
+    expect(frame.getAttribute("data-src")).toMatch(/^blob:/);
+  });
+
+  it("refreshes only on click — an edit never re-renders, the Refresh control does", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+    const frame = await screen.findByTestId("report-preview-frame");
+    expect(vi.mocked(renderReportPdfBlob)).toHaveBeenCalledTimes(1);
+    const firstSrc = frame.getAttribute("data-src");
+
+    // Editing the report leaves the open pane untouched — preview is on demand,
+    // not a live re-render on every keystroke (criterion b).
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Edited title" },
+      });
+    });
+    expect(vi.mocked(renderReportPdfBlob)).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByTestId("report-preview-frame").getAttribute("data-src"),
+    ).toBe(firstSrc);
+
+    // The pane's Refresh control re-renders with the latest report, on demand.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+    });
+    expect(vi.mocked(renderReportPdfBlob)).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByTestId("report-preview-frame").getAttribute("data-src"),
+    ).not.toBe(firstSrc);
+  });
+
+  it("flushes a pending edit before rendering, so the preview reflects it (#441)", async () => {
+    renderBuilder();
+
+    // Edit the title but don't let the 2s auto-save debounce elapse.
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+    await screen.findByTestId("report-preview-frame");
+
+    // The producer re-reads the persisted row, so the edit was written first…
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Latest title" }),
+    );
+    // …BEFORE the producer ran — Preview == Generate, never a stale render (#441).
+    expect(h.updateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(renderReportPdfBlob).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not render a preview when flushing the pending edit fails (#441)", async () => {
+    h.errorOnSave = true;
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Report title"), {
+        target: { value: "Latest title" },
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+
+    // The flush failed; the producer (which would render the older persisted row)
+    // must not run — better no preview than a stale one. The pane stays closed.
+    expect(vi.mocked(renderReportPdfBlob)).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("report-preview-frame")).toBeNull();
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
+  });
+
+  it("refreshing revokes the stale object URL before showing the new render", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+    const firstSrc = (
+      await screen.findByTestId("report-preview-frame")
+    ).getAttribute("data-src");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+    });
+
+    // The new render mints a fresh blob URL and the one it replaced is revoked,
+    // so stale renders don't pile up in memory while the pane stays open.
+    const nextSrc = screen
+      .getByTestId("report-preview-frame")
+      .getAttribute("data-src");
+    expect(nextSrc).not.toBe(firstSrc);
+    expect(revokeObjectURL).toHaveBeenCalledWith(firstSrc);
+  });
+
+  it("closing the pane clears it and revokes its object URL (no leak)", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+    const frame = await screen.findByTestId("report-preview-frame");
+    const openSrc = frame.getAttribute("data-src");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    });
+
+    // The pane is gone and the blob URL it held is revoked — the browser frees
+    // the rendered PDF rather than leaking it for the tab's lifetime.
+    expect(screen.queryByTestId("report-preview-frame")).toBeNull();
+    expect(revokeObjectURL).toHaveBeenCalledWith(openSrc);
+  });
+
+  it("opens as a slide-over: a fixed right-anchored panel over a dimmed backdrop", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+
+    // Option B: the pane overlays the editor (criterion d) instead of reflowing
+    // the page — a fixed panel pinned to the right, identical at every width.
+    const dialog = await screen.findByRole("dialog", {
+      name: "Report preview",
+    });
+    expect(dialog.className).toContain("fixed");
+    expect(dialog.className).toContain("right-0");
+
+    // A dimmed backdrop sits behind it, separating the slide-over from the editor.
+    expect(screen.getByTestId("preview-backdrop")).toBeTruthy();
+  });
+
+  it("dismisses the slide-over when the dimmed backdrop is clicked", async () => {
+    renderBuilder();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    });
+    const openSrc = (
+      await screen.findByTestId("report-preview-frame")
+    ).getAttribute("data-src");
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("preview-backdrop"));
+    });
+
+    // Tapping outside the panel dismisses it, just like the ✕ — and frees the blob.
+    expect(screen.queryByTestId("report-preview-frame")).toBeNull();
+    expect(revokeObjectURL).toHaveBeenCalledWith(openSrc);
   });
 });
