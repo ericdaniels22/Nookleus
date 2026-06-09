@@ -43,6 +43,10 @@ function noteInput(): HTMLInputElement {
   return screen.getByPlaceholderText("Note (optional)") as HTMLInputElement;
 }
 
+function unitPriceInput(): HTMLInputElement {
+  return screen.getByPlaceholderText("0.00") as HTMLInputElement;
+}
+
 describe("LineItemRow — note field (#382)", () => {
   it("seeds the note input from item.note", () => {
     renderRow({ ...baseItem, note: "Use low-VOC primer" }, vi.fn());
@@ -76,5 +80,46 @@ describe("LineItemRow — note field (#382)", () => {
     fireEvent.blur(noteInput());
 
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("LineItemRow — unit cost MoneyInput (#542)", () => {
+  it("shows a $ adornment on the unit-cost field", () => {
+    renderRow(baseItem, vi.fn());
+    expect(screen.getByText("$")).toBeDefined();
+  });
+
+  it("seeds the unit-cost field from item.unit_price", () => {
+    renderRow({ ...baseItem, unit_price: 42.5 }, vi.fn());
+    expect(unitPriceInput().value).toBe("42.5");
+  });
+
+  it("commits a new unit price on blur via onChange", () => {
+    const onChange = vi.fn();
+    renderRow(baseItem, onChange);
+
+    fireEvent.change(unitPriceInput(), { target: { value: "25" } });
+    fireEvent.blur(unitPriceInput());
+
+    expect(onChange).toHaveBeenCalledWith({ unit_price: 25 });
+  });
+
+  it("does not fire onChange when the unit price is unchanged", () => {
+    const onChange = vi.fn();
+    renderRow(baseItem, onChange);
+
+    fireEvent.blur(unitPriceInput());
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("ticks the line total live as the unit price is typed (before blur)", () => {
+    // qty 2 × $10 = $20.00 initially; typing 20 → 2 × $20 = $40.00 immediately.
+    renderRow({ ...baseItem, quantity: 2, unit_price: 10 }, vi.fn());
+    expect(screen.getByText("$20.00")).toBeDefined();
+
+    fireEvent.change(unitPriceInput(), { target: { value: "20" } });
+
+    expect(screen.getByText("$40.00")).toBeDefined();
   });
 });
