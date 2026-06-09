@@ -13,6 +13,8 @@ function makeLayout(overrides: Partial<DocumentPdfLayout> = {}): DocumentPdfLayo
     document_title: "Estimate",
     show_document_title: true,
     show_markup: true,
+    show_overhead: false, // #576 — field default
+    show_profit: false,
     show_discount: true,
     show_tax: true,
     show_opening_statement: true,

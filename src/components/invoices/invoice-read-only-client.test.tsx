@@ -53,6 +53,8 @@ const LAYOUT: DocumentPdfLayout = {
   document_title: "Invoice",
   show_document_title: true,
   show_markup: false,
+  show_overhead: false, // #576 — field default; inert on invoices
+  show_profit: false,
   show_discount: true,
   show_tax: true,
   show_opening_statement: true,

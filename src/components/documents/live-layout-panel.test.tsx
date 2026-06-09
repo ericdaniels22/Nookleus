@@ -36,6 +36,8 @@ const EFFECTIVE_LAYOUT: DocumentPdfLayout = {
   document_title: "Estimate",
   show_document_title: true,
   show_markup: true,
+  show_overhead: false, // #576 — defaults hidden, unlike the other toggles
+  show_profit: false,
   show_discount: true,
   show_tax: true,
   show_opening_statement: true,
@@ -45,11 +47,13 @@ const EFFECTIVE_LAYOUT: DocumentPdfLayout = {
   show_item_notes: true,
 };
 
-// The nine show/hide toggles, in panel order, each paired with the accessible
+// The eleven show/hide toggles, in panel order, each paired with the accessible
 // name its Label gives the switch — drives the it.each render/save matrices.
 const TOGGLES: { key: keyof DocumentPdfLayout; name: RegExp }[] = [
   { key: "show_document_title", name: /show document title/i },
   { key: "show_markup", name: /show markup row in totals/i },
+  { key: "show_overhead", name: /show overhead row in totals/i },
+  { key: "show_profit", name: /show profit row in totals/i },
   { key: "show_discount", name: /show discount row in totals/i },
   { key: "show_tax", name: /show tax row in totals/i },
   { key: "show_opening_statement", name: /show opening statement/i },
@@ -59,7 +63,7 @@ const TOGGLES: { key: keyof DocumentPdfLayout; name: RegExp }[] = [
   { key: "show_item_notes", name: /show item notes/i },
 ];
 
-// A saved org preset (#486). A preset carries the eight shared toggles + the
+// A saved org preset (#486). A preset carries the ten shared toggles + the
 // title, but no `show_document_title` — deliberately the opposite of the
 // EFFECTIVE_LAYOUT toggles so a test can tell "the preset's choices were copied"
 // apart from "the document's own look was kept".
@@ -71,6 +75,8 @@ function makePreset(over: Partial<PdfPreset> = {}): PdfPreset {
     document_type: "estimate",
     document_title: "Quote",
     show_markup: false,
+    show_overhead: true, // opposite of EFFECTIVE_LAYOUT's false (#576)
+    show_profit: true,
     show_discount: false,
     show_tax: false,
     show_opening_statement: false,
@@ -138,7 +144,21 @@ describe("LiveLayoutPanel", () => {
     },
   );
 
-  it("renders one switch for every layout toggle (all nine present)", () => {
+  // #576 — overhead/profit live on estimates only (#575 kept the invoice's
+  // single Markup), so the Invoice View panel must not offer two inert switches.
+  it("hides the overhead/profit toggles on an invoice document", () => {
+    renderPanel({ documentType: "invoice", documentId: "inv-1" });
+
+    expect(
+      screen.queryByRole("switch", { name: /show overhead row in totals/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: /show profit row in totals/i }),
+    ).toBeNull();
+    expect(screen.getAllByRole("switch")).toHaveLength(TOGGLES.length - 2);
+  });
+
+  it("renders one switch for every layout toggle (all eleven present)", () => {
     renderPanel();
     expect(screen.getAllByRole("switch")).toHaveLength(TOGGLES.length);
   });
@@ -508,6 +528,8 @@ describe("LiveLayoutPanel", () => {
       document_title: preset.document_title,
       show_document_title: false, // preserved from the document, not the preset
       show_markup: preset.show_markup,
+      show_overhead: preset.show_overhead, // #576 — copied like the rest
+      show_profit: preset.show_profit,
       show_discount: preset.show_discount,
       show_tax: preset.show_tax,
       show_opening_statement: preset.show_opening_statement,
@@ -587,7 +609,7 @@ describe("LiveLayoutPanel", () => {
     });
 
     // One POST to the existing presets endpoint, carrying the current layout's
-    // eight shared toggles + title. It is an explicit action — NOT debounced.
+    // ten shared toggles + title. It is an explicit action — NOT debounced.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/pdf-presets");
@@ -598,6 +620,8 @@ describe("LiveLayoutPanel", () => {
       document_type: "estimate",
       document_title: "Final Proposal",
       show_markup: false,
+      show_overhead: EFFECTIVE_LAYOUT.show_overhead, // #576 — rides along
+      show_profit: EFFECTIVE_LAYOUT.show_profit,
       show_discount: EFFECTIVE_LAYOUT.show_discount,
       show_tax: EFFECTIVE_LAYOUT.show_tax,
       show_opening_statement: EFFECTIVE_LAYOUT.show_opening_statement,

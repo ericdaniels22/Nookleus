@@ -16,6 +16,8 @@ interface Props { initial: PdfPreset; }
 
 const TOGGLES: { key: keyof PdfPreset; label: string; help?: string }[] = [
   { key: "show_markup", label: "Show markup row in totals" },
+  { key: "show_overhead", label: "Show overhead row in totals" },
+  { key: "show_profit", label: "Show profit row in totals" },
   { key: "show_discount", label: "Show discount row in totals" },
   { key: "show_tax", label: "Show tax row in totals" },
   { key: "show_opening_statement", label: "Show opening statement" },
@@ -24,6 +26,13 @@ const TOGGLES: { key: keyof PdfPreset; label: string; help?: string }[] = [
   { key: "show_code_column", label: "Show Code column" },
   { key: "show_item_notes", label: "Show item notes", help: "Renders each line item's note as an italic sub-line under the item" },
 ];
+
+// #576 — overhead/profit rows exist on estimates only (invoices keep their
+// single Markup, #575), so an invoice preset hides these switches entirely.
+const ESTIMATE_ONLY_TOGGLES: ReadonlySet<keyof PdfPreset> = new Set([
+  "show_overhead",
+  "show_profit",
+]);
 
 export default function PresetEditClient({ initial }: Props) {
   const [preset, setPreset] = useState<PdfPreset>(initial);
@@ -46,6 +55,8 @@ export default function PresetEditClient({ initial }: Props) {
         document_title: preset.document_title,
         is_default: preset.is_default,
         show_markup: preset.show_markup,
+        show_overhead: preset.show_overhead,
+        show_profit: preset.show_profit,
         show_discount: preset.show_discount,
         show_tax: preset.show_tax,
         show_opening_statement: preset.show_opening_statement,
@@ -115,7 +126,10 @@ export default function PresetEditClient({ initial }: Props) {
       <div className="mt-8">
         <h2 className="text-lg font-medium mb-3">Display options</h2>
         <div className="space-y-3">
-          {TOGGLES.map((t) => (
+          {(preset.document_type === "estimate"
+            ? TOGGLES
+            : TOGGLES.filter((t) => !ESTIMATE_ONLY_TOGGLES.has(t.key))
+          ).map((t) => (
             <div key={t.key} className="flex items-start gap-3">
               <Switch
                 id={t.key as string}

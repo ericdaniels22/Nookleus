@@ -77,6 +77,9 @@ export const POST = withRequestContext(
       document_type: body.document_type,
       document_title: documentTitle,
       show_markup: asBool(body.show_markup, true),
+      // #576 — overhead/profit rows default hidden so legacy presets keep their look.
+      show_overhead: asBool(body.show_overhead, false),
+      show_profit: asBool(body.show_profit, false),
       show_discount: asBool(body.show_discount, true),
       show_tax: asBool(body.show_tax, true),
       show_opening_statement: asBool(body.show_opening_statement, true),

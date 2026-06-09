@@ -787,6 +787,10 @@ export interface PdfPreset {
   document_type: DocumentType;
   document_title: string;
   show_markup: boolean;
+  // #576 — Overhead & Profit visibility, parallel to the layout's toggles.
+  // DB columns default false so existing presets keep their look.
+  show_overhead: boolean;
+  show_profit: boolean;
   show_discount: boolean;
   show_tax: boolean;
   show_opening_statement: boolean;
@@ -804,7 +808,7 @@ export interface PdfPreset {
 export type PdfPresetCreatePayload = Pick<
   PdfPreset,
   | "name" | "document_type" | "document_title"
-  | "show_markup" | "show_discount" | "show_tax"
+  | "show_markup" | "show_overhead" | "show_profit" | "show_discount" | "show_tax"
   | "show_opening_statement" | "show_closing_statement"
   | "show_category_subtotals" | "show_code_column" | "show_item_notes"
   | "is_default"
@@ -829,6 +833,11 @@ export interface DocumentPdfLayout {
   document_title: string;
   show_document_title: boolean;
   show_markup: boolean;
+  // #576 — Overhead & Profit (the #572 markup split) get their own totals rows,
+  // each behind its own toggle. Default HIDDEN, unlike every other toggle, so
+  // documents that predate the toggles don't sprout two new lines.
+  show_overhead: boolean;
+  show_profit: boolean;
   show_discount: boolean;
   show_tax: boolean;
   show_opening_statement: boolean;

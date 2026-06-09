@@ -14,6 +14,8 @@ type BoolKeys = {
 
 const BOOL_FIELDS: BoolKeys[] = [
   "show_markup",
+  "show_overhead",
+  "show_profit",
   "show_discount",
   "show_tax",
   "show_opening_statement",
