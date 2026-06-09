@@ -49,6 +49,10 @@ import {
   type ReportSection,
   type StoredReportSection,
 } from "@/lib/build-initial-sections";
+import {
+  resolveReportSettings,
+  type CoverBlockVisibility,
+} from "@/lib/photo-report-settings";
 import type { Photo, PhotoReport } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the
@@ -56,6 +60,18 @@ import type { Photo, PhotoReport } from "@/lib/types";
 const DEBOUNCE_MS = 2000;
 
 type SaveStatus = "idle" | "saving" | "saved" | "error" | "blocked";
+
+// The five identifying blocks the Cover Page editor can show or hide, in print
+// order, paired with their user-facing label (#551). The canonical set and
+// order come from ADR 0014 / CONTEXT.md ("logo, customer, property address,
+// point of contact, insurance").
+const COVER_BLOCKS: { field: keyof CoverBlockVisibility; label: string }[] = [
+  { field: "logo", label: "Logo" },
+  { field: "customer", label: "Customer" },
+  { field: "propertyAddress", label: "Property address" },
+  { field: "pointOfContact", label: "Point of contact" },
+  { field: "insurance", label: "Insurance" },
+];
 
 // A report can't be persisted while any Section's write-up overflows its
 // one-page intro (issue #404). Every save path gates on this one rule — the
@@ -73,8 +89,19 @@ function snapshotOf(state: PhotoReportBuilderState) {
     title: state.title,
     reportDate: state.reportDate,
     sections: state.sections,
+    cover: state.cover,
     revision: state.revision,
   };
+}
+
+// Split the in-memory resolved cover back into the two persisted columns: the
+// five identifying-block flags go to `cover_config`, the chosen photo to
+// `cover_photo_id`. Writing both on every save materializes the report's own
+// cover snapshot — including the Job-cover fallback the builder seeded — on the
+// first edit (ADR 0014 "freeze on first edit", #551).
+function coverColumns(cover: PhotoReportBuilderState["cover"]) {
+  const { coverPhotoId, ...blocks } = cover;
+  return { cover_config: blocks, cover_photo_id: coverPhotoId };
 }
 
 interface PhotoReportBuilderProps {
@@ -83,6 +110,13 @@ interface PhotoReportBuilderProps {
   /** All of the Job's photos, so any can be added to the report (#401). */
   photos: Photo[];
   supabaseUrl: string;
+  /**
+   * The Job's own cover photo, used as the fallback when the report has not
+   * chosen its own (ADR 0014, #551). Optional and defaults to null so existing
+   * call sites and tests that don't supply it still seed an all-on, no-photo
+   * cover.
+   */
+  jobCoverPhotoId?: string | null;
 }
 
 export default function PhotoReportBuilder({
@@ -90,6 +124,7 @@ export default function PhotoReportBuilder({
   report,
   photos,
   supabaseUrl,
+  jobCoverPhotoId = null,
 }: PhotoReportBuilderProps) {
   const [state, dispatch] = useReducer(
     photoReportBuilderReducer,
@@ -97,6 +132,19 @@ export default function PhotoReportBuilder({
       title: report.title,
       report_date: report.report_date,
       sections: report.sections as StoredReportSection[],
+      // Seed the Cover Page editor with the report's fully-resolved cover: its
+      // own snapshot if any, else the Job's cover photo, else all-on/no-photo.
+      // The builder then persists whatever is in state, so the first edit
+      // freezes this resolved cover into the report's own copy (#551).
+      cover: resolveReportSettings(
+        {
+          report_settings: report.report_settings,
+          cover_config: report.cover_config,
+          cover_photo_id: report.cover_photo_id,
+        },
+        null,
+        jobCoverPhotoId,
+      ).cover,
     },
     initBuilderState,
   );
@@ -145,6 +193,7 @@ export default function PhotoReportBuilder({
           title: snapshot.title,
           report_date: snapshot.reportDate,
           sections: snapshot.sections,
+          ...coverColumns(snapshot.cover),
         })
         .eq("id", report.id);
       if (error) {
@@ -212,6 +261,7 @@ export default function PhotoReportBuilder({
         title: state.title,
         report_date: state.reportDate,
         sections: state.sections,
+        ...coverColumns(state.cover),
       }),
       keepalive: true,
     });
@@ -477,6 +527,82 @@ export default function PhotoReportBuilder({
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </label>
+
+              {/* Cover photo — pick one of the Job's photos to print on the
+                  cover. Seeded with the report's resolved cover (Job-cover
+                  fallback included); the chosen photo persists on the report's
+                  own snapshot (#551). */}
+              <div>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Cover photo
+                </span>
+                {photos.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    This job has no photos to use as a cover.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
+                    {photos.map((photo) => {
+                      const selected = state.cover.coverPhotoId === photo.id;
+                      return (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={`Use ${
+                            photo.caption || "this photo"
+                          } as cover photo`}
+                          onClick={() =>
+                            dispatch({
+                              type: "setCoverPhoto",
+                              photoId: photo.id,
+                            })
+                          }
+                          className={cn(
+                            "aspect-square overflow-hidden rounded-lg ring-2 transition-shadow",
+                            selected
+                              ? "ring-primary"
+                              : "ring-transparent hover:ring-border",
+                          )}
+                        >
+                          <img
+                            src={photoUrl(photo, supabaseUrl, "grid")}
+                            alt={photo.caption || "Photo"}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Identifying blocks — show/hide each on the cover (#551). All
+                  default on; the canonical set is logo, customer, property
+                  address, point of contact, insurance (ADR 0014). */}
+              <div>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Show on cover
+                </span>
+                <div className="space-y-1.5">
+                  {COVER_BLOCKS.map(({ field, label }) => (
+                    <label
+                      key={field}
+                      className="flex items-center gap-2 text-sm text-foreground"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={state.cover[field]}
+                        onChange={() =>
+                          dispatch({ type: "toggleCoverField", field })
+                        }
+                        className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/*
