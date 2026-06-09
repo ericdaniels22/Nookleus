@@ -3,17 +3,8 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot } from "@/lib/builder-shared";
-
-type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "converted" | "voided";
-
-const VALID_TRANSITIONS: Record<EstimateStatus, EstimateStatus[]> = {
-  draft:     ["sent", "voided"],
-  sent:      ["approved", "rejected", "voided"],
-  approved:  ["voided"], // Convert path goes through /convert RPC, not /status
-  rejected:  [], // terminal
-  converted: [], // terminal — CHECK constraint also blocks → voided
-  voided:    [],
-};
+import { canTransitionEstimate } from "@/lib/estimate-status";
+import type { EstimateStatus } from "@/lib/types";
 
 interface PutBody {
   status: EstimateStatus;
@@ -53,7 +44,7 @@ export const PUT = withRequestContext(
         );
       }
 
-      if (!VALID_TRANSITIONS[cur.status].includes(body.status)) {
+      if (!canTransitionEstimate(cur.status, body.status)) {
         return NextResponse.json(
           { error: "invalid_transition", from: cur.status, to: body.status },
           { status: 400 },
@@ -62,8 +53,6 @@ export const PUT = withRequestContext(
 
       const patch: Record<string, unknown> = { status: body.status, updated_at: new Date().toISOString() };
       if (body.status === "sent") patch.sent_at = new Date().toISOString();
-      if (body.status === "approved") patch.approved_at = new Date().toISOString();
-      if (body.status === "rejected") patch.rejected_at = new Date().toISOString();
       if (body.status === "voided") {
         patch.voided_at = new Date().toISOString();
         patch.void_reason = body.reason ?? null;

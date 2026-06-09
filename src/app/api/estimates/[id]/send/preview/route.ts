@@ -1,7 +1,7 @@
 // Build 67c2 — GET /api/estimates/[id]/send/preview
 // Returns the resolved-template subject + body (HTML→text) for the send modal.
 //
-// Status-based blocks (voided / converted / rejected) do NOT block this route.
+// Status-based blocks (voided / converted) do NOT block this route.
 // The Send button in the read-only view is the UI gate; this route just
 // answers "what would this email look like."
 

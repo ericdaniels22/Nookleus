@@ -11,8 +11,6 @@ export type EntityKind = "estimate" | "invoice";
 export const ESTIMATE_STATUS_BADGE_CLASSES: Record<EstimateStatus, string> = {
   draft:     "bg-zinc-100 text-zinc-700",
   sent:      "bg-blue-100 text-blue-700",
-  approved:  "bg-emerald-100 text-emerald-700",
-  rejected:  "bg-rose-100 text-rose-700",
   converted: "bg-indigo-100 text-indigo-700",
   voided:    "bg-zinc-200 text-zinc-500 line-through",
 };
@@ -25,14 +23,36 @@ export const INVOICE_STATUS_BADGE_CLASSES: Record<InvoiceStatus, string> = {
   voided:  "bg-zinc-200 text-zinc-500 line-through",
 };
 
-// Back-compat alias — 67a callers import this directly.
-export const STATUS_BADGE_CLASSES = ESTIMATE_STATUS_BADGE_CLASSES;
-
 export function getStatusBadgeClasses(kind: EntityKind, status: string): string {
   if (kind === "invoice") {
     return INVOICE_STATUS_BADGE_CLASSES[status as InvoiceStatus] ?? "bg-zinc-100 text-zinc-700";
   }
   return ESTIMATE_STATUS_BADGE_CLASSES[status as EstimateStatus] ?? "bg-zinc-100 text-zinc-700";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estimate status transitions (#567) — the pure state-machine, extracted out of
+// the PUT /api/estimates/[id]/status route so it can be unit-tested in isolation
+// and shared. The workflow is exactly draft → sent → converted / voided, per
+// ADR 0007; the old approved/rejected step is gone. Convert is its own action
+// (POST /convert) that flips the row to `converted`, so it is NOT a status
+// transition here and nothing leads *to* `converted`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ESTIMATE_STATUS_TRANSITIONS: Partial<
+  Record<EstimateStatus, readonly EstimateStatus[]>
+> = {
+  draft: ["sent", "voided"],
+  sent: ["voided"],
+  converted: [], // terminal
+  voided: [], // terminal
+};
+
+// True iff `to` is a legal next status from `from`. An unknown `from` (e.g. a
+// legacy `approved`/`rejected` row that predates the #567 migration) is treated
+// as terminal rather than throwing.
+export function canTransitionEstimate(from: EstimateStatus, to: EstimateStatus): boolean {
+  return (ESTIMATE_STATUS_TRANSITIONS[from] ?? []).includes(to);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -4,7 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ConversionErrorCode =
   | "estimate_not_found"
-  | "estimate_not_approved"
   | "estimate_already_converted"
   | "internal";
 
@@ -41,9 +40,6 @@ export async function convertEstimateToInvoice(
   const msg = error.message ?? "";
   if (msg.includes("estimate_not_found")) {
     return { ok: false, code: "estimate_not_found" };
-  }
-  if (msg.includes("estimate_not_approved")) {
-    return { ok: false, code: "estimate_not_approved" };
   }
   if (msg.includes("estimate_already_converted:")) {
     // Format: estimate_already_converted:<uuid>

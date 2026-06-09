@@ -63,8 +63,6 @@ describe("isLayoutLocked — estimate freeze boundary (#482)", () => {
   const ALL_ESTIMATE_STATUSES: EstimateStatus[] = [
     "draft",
     "sent",
-    "approved",
-    "rejected",
     "converted",
     "voided",
   ];

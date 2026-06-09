@@ -55,7 +55,7 @@ CREATE TABLE estimates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid,
   status text NOT NULL DEFAULT 'draft'
-    CHECK (status IN ('draft', 'sent', 'approved', 'rejected', 'converted', 'voided')),
+    CHECK (status IN ('draft', 'sent', 'converted', 'voided')),
   opening_statement text,
   closing_statement text,
   subtotal numeric(10,2) NOT NULL DEFAULT 0,
