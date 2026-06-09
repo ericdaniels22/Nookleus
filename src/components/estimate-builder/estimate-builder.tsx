@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertOctagon, Plus } from "lucide-react";
 import { toast } from "sonner";
-import TemplateBanner from "@/components/template-applicator/template-banner";
 import type {
   AdjustmentType,
   BuilderEntity,
@@ -1733,9 +1732,9 @@ export function EstimateBuilder({
 
   if (state.entity.kind === "invoice") {
     // ── Invoice-mode JSX (Task 43) ─────────────────────────────────────────
-    // Mirrors estimate-mode shape but strips: TemplateBanner,
-    // ConvertConfirmModal, Convert button (HeaderCard handles per-kind action
-    // buttons — Mark as Sent / Mark as Paid / Send Payment Request / Void).
+    // Mirrors estimate-mode shape but strips: ConvertConfirmModal, Convert
+    // button (HeaderCard handles per-kind action buttons — Mark as Sent /
+    // Mark as Paid / Send Payment Request / Void).
     const invoiceEntity = state.entity; // narrowed
     const invoice = invoiceEntity.data;
     const invSections = invoice.sections;
@@ -1962,7 +1961,7 @@ export function EstimateBuilder({
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: the dates row (HeaderCard shows
     // none for templates; TemplateMetaBar covers name/description/tags),
-    // CustomerCard, the totals bar, TemplateBanner, voided banner, Convert modal.
+    // CustomerCard, the totals bar, voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
     const tmplSections = template.sections;
@@ -2182,20 +2181,6 @@ export function EstimateBuilder({
     ? findLineItem(sections, lineSelection.selectedId)
     : null;
 
-  // ── Task 36: Apply Template banner gating ────────────────────────────────
-  // Banner is hidden once the user has applied a template (even if zero
-  // sections came in — e.g. statements-only template) OR once they've
-  // manually added any section. Template-banner sets the localStorage flag
-  // on successful apply.
-  const appliedFlag =
-    typeof window !== "undefined"
-      ? localStorage.getItem(`nookleus.template-applied.${estimate.id}`) === "1"
-      : false;
-  const showTemplateBanner =
-    state.entity.kind === "estimate" &&
-    sections.length === 0 &&
-    !appliedFlag;
-
   return (
     <div className="relative min-h-screen bg-background">
       {/* Voided banner */}
@@ -2255,17 +2240,6 @@ export function EstimateBuilder({
           onIssuedDateChange={onIssuedDateChange}
           onValidUntilChange={onValidUntilChange}
         />
-
-        {/* ── Task 36: Apply Template banner ───────────────────────────────── */}
-        {showTemplateBanner && (
-          <TemplateBanner
-            estimateId={estimate.id}
-            jobDamageType={job?.damage_type ?? null}
-            onApplied={() => {
-              router.refresh();
-            }}
-          />
-        )}
 
         {/* ── SLOT 3: CustomerCard ────────────────────────────────────────── */}
         {job && <CustomerCard job={job} mode={mode} />}

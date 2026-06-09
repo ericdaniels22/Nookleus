@@ -249,44 +249,9 @@ function makeEstimateEntity(): BuilderEntity {
   return { kind: "estimate", data: estimate };
 }
 
-// Node 25's experimental global `localStorage` shadows jsdom's with a
-// non-functional stub in this runner (the documented known-red artifact). The
-// estimate branch reads localStorage on mount (the template-applied flag), so
-// install a working in-memory store on both `window` and `globalThis` to let
-// the builder mount. Mirrors line-item-editor-panel.integration.test.tsx.
-function installLocalStorage() {
-  const store = new Map<string, string>();
-  const stub = {
-    getItem: (k: string) => (store.has(k) ? (store.get(k) as string) : null),
-    setItem: (k: string, v: string) => {
-      store.set(k, String(v));
-    },
-    removeItem: (k: string) => {
-      store.delete(k);
-    },
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size;
-    },
-  };
-  for (const target of [globalThis, window]) {
-    try {
-      Object.defineProperty(target, "localStorage", {
-        configurable: true,
-        writable: true,
-        value: stub,
-      });
-    } catch {
-      // Non-configurable in some runtimes — best-effort.
-    }
-  }
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  installLocalStorage();
   capturedRootOnDragEnd = null;
   listeners = [];
   saveLineItemsReorderMock.mockClear();
