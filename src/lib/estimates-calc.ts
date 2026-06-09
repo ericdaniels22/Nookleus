@@ -1,7 +1,7 @@
 // Pure client-side calculation helpers — mirrors the server's recalculateTotals
 // math from src/lib/estimates.ts (lines 148–166). No Supabase imports.
 //
-// These are used by the EstimateBuilder to update TotalsPanel live as the user
+// These are used by the EstimateBuilder to update the totals bar live as the user
 // edits markup / discount / tax fields, and when line-item qty/price changes.
 
 import type { AdjustmentType } from "@/lib/types";

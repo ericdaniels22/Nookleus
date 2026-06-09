@@ -39,7 +39,7 @@ import {
   resolveLineItemDropTarget,
 } from "./move-line-item";
 import { HeaderBar } from "./header-bar";
-import { TotalsPanel } from "./totals-panel";
+import { TotalsBar } from "./totals-bar";
 import { MetadataBar } from "./metadata-bar";
 import { CustomerBlock } from "./customer-block";
 import { StatementEditor } from "./statement-editor";
@@ -499,7 +499,7 @@ export function EstimateBuilder({
   // ── Task 27: markup / discount / tax callbacks ─────────────────────────
   // Estimate: live local recompute via computeEstimateTotals. Invoice: optimistic
   // local field update only; the server's recalculateInvoiceTotals on the next
-  // root PUT settles the panel values (TotalsPanel may briefly show stale totals).
+  // root PUT settles the values (the totals bar may briefly show stale totals).
 
   function onMarkupChange(type: AdjustmentType, value: number) {
     setState((prev) => {
@@ -1007,7 +1007,7 @@ export function EstimateBuilder({
       }
       if (prev.entity.kind === "invoice") {
         // Invoice mode: optimistic local removal + local totals recompute so
-        // TotalsPanel updates instantly. Server reconciles authoritative values
+        // the totals bar updates instantly. Server reconciles authoritative values
         // via recalculateInvoiceTotals on the DELETE route + next root PUT.
         const sections_after = prev.entity.data.sections.map((s) => ({
           ...s,
@@ -1123,7 +1123,7 @@ export function EstimateBuilder({
         // Cast partial to invoice-shaped Partial inside the invoice narrowing —
         // the editable subset (description, code, quantity, unit, unit_price)
         // is name-compatible across both kinds. Recompute totals locally so
-        // TotalsPanel updates instantly; server reconciles via the line-item
+        // the totals bar updates instantly; server reconciles via the line-item
         // PUT's recalculateInvoiceTotals.
         const invoicePartial = partial as Partial<import("@/lib/types").InvoiceLineItem>;
         const sections_after = prev.entity.data.sections.map((sec) => ({
@@ -1221,8 +1221,8 @@ export function EstimateBuilder({
       }
       if (prev.entity.kind === "invoice") {
         // POST returns InvoiceLineItem (now wrapped via Task 1's C1 fix); cast
-        // inside the invoice narrowing. Recompute totals locally so TotalsPanel
-        // updates instantly; server reconciles via the POST's recalculateInvoiceTotals.
+        // inside the invoice narrowing. Recompute totals locally so the totals
+        // bar updates instantly; server reconciles via the POST's recalculateInvoiceTotals.
         const invoiceItem = newItem as import("@/lib/types").InvoiceLineItem;
         const sections_after = prev.entity.data.sections.map((sec) => {
           if (sec.id === invoiceItem.section_id) {
@@ -1660,10 +1660,20 @@ export function EstimateBuilder({
           </div>
         )}
 
-        {/* Builder document — full-width shell (#543). The floating TotalsPanel
-            stays a sibling below; BuilderLayout's totals slot is reserved/empty
-            this slice. */}
-        <BuilderLayout>
+        {/* Builder document — full-width shell with the pinned bottom totals
+            bar in BuilderLayout's totals slot (#545). */}
+        <BuilderLayout
+          totalsSlot={
+            <TotalsBar
+              entity={invoiceEntity}
+              onMarkupChange={onMarkupChange}
+              onDiscountChange={onDiscountChange}
+              onTaxRateChange={onTaxRateChange}
+              readOnly={isVoided}
+              mode={invMode}
+            />
+          }
+        >
           {/* ── HeaderBar — Mark as Sent / Mark as Paid / Send Payment / Void ── */}
           <HeaderBar
             entity={invoiceEntity}
@@ -1813,16 +1823,6 @@ export function EstimateBuilder({
           />
         </BuilderLayout>
 
-        {/* ── TotalsPanel (sticky bottom-right) ─────────────────────────── */}
-        <TotalsPanel
-          entity={invoiceEntity}
-          onMarkupChange={onMarkupChange}
-          onDiscountChange={onDiscountChange}
-          onTaxRateChange={onTaxRateChange}
-          readOnly={isVoided}
-          mode={invMode}
-        />
-
         {/* ── AddItemDialog ─────────────────────────────────────────────── */}
         <AddItemDialog
           open={addItemTarget !== null}
@@ -1840,7 +1840,7 @@ export function EstimateBuilder({
   if (state.entity.kind === "template") {
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: MetadataBar (replaced by
-    // TemplateMetaBar), CustomerBlock, TotalsPanel, TemplateBanner,
+    // TemplateMetaBar), CustomerBlock, the totals bar, TemplateBanner,
     // voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
@@ -1849,9 +1849,9 @@ export function EstimateBuilder({
 
     return (
       <div className="relative min-h-screen bg-background">
-        {/* Builder document — full-width shell (#543). Templates have no
-            TotalsPanel; BuilderLayout's editor/totals slots stay reserved/empty
-            this slice. */}
+        {/* Builder document — full-width shell. Templates have no totals bar
+            (hidden in Template mode), so BuilderLayout's totals slot is left
+            empty here. */}
         <BuilderLayout>
           {/* ── HeaderBar — Save Template / Cancel-edit per spec §4.1 ── */}
           <HeaderBar
@@ -2044,10 +2044,20 @@ export function EstimateBuilder({
         </div>
       )}
 
-      {/* Builder document — full-width shell (#543). The floating TotalsPanel
-          stays a sibling below; BuilderLayout's totals slot is reserved/empty
-          this slice. */}
-      <BuilderLayout>
+      {/* Builder document — full-width shell with the pinned bottom totals
+          bar in BuilderLayout's totals slot (#545). */}
+      <BuilderLayout
+        totalsSlot={
+          <TotalsBar
+            entity={estimateEntity}
+            onMarkupChange={onMarkupChange}
+            onDiscountChange={onDiscountChange}
+            onTaxRateChange={onTaxRateChange}
+            readOnly={isVoided}
+            mode={mode}
+          />
+        }
+      >
 
         {/* ── SLOT 1: HeaderBar ────────────────────────────────────────────── */}
         <HeaderBar
@@ -2209,16 +2219,6 @@ export function EstimateBuilder({
           mode={mode}
         />
       </BuilderLayout>
-
-      {/* ── SLOT 7: TotalsPanel (sticky bottom-right) ─────────────────────── */}
-      <TotalsPanel
-        entity={estimateEntity}
-        onMarkupChange={onMarkupChange}
-        onDiscountChange={onDiscountChange}
-        onTaxRateChange={onTaxRateChange}
-        readOnly={isVoided}
-        mode={mode}
-      />
 
       {/* ── Task 26: AddItemDialog ────────────────────────────────────────── */}
       <AddItemDialog

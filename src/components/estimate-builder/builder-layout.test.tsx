@@ -77,9 +77,8 @@ describe("BuilderLayout — totals bar slot", () => {
     expect(screen.getByText("Totals bar content")).not.toBeNull();
   });
 
-  it("renders no totals bar when the totalsSlot is empty (this slice)", () => {
-    // The totals-bar slot is reserved but stays EMPTY in this slice; the
-    // existing floating TotalsPanel is left untouched.
+  it("renders no totals bar when no totalsSlot is provided (e.g. Template mode)", () => {
+    // Templates pass no totalsSlot, so the bottom totals bar is omitted.
     render(
       <BuilderLayout>
         <p>doc</p>
