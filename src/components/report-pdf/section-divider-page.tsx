@@ -3,7 +3,6 @@
 import { Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import PageFooter from "./page-footer";
-import PageHeader from "./page-header";
 import { htmlToPdfNodes } from "@/lib/pdf-renderer/html-to-pdf";
 import { normalizeSectionWriteup } from "@/lib/section-writeup";
 
@@ -15,7 +14,7 @@ const styles = StyleSheet.create({
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
-    paddingTop: 56,
+    paddingTop: 40,
     paddingBottom: 56,
     paddingHorizontal: 40,
     color: colors.text,
@@ -57,8 +56,6 @@ const styles = StyleSheet.create({
 interface SectionDividerPageProps {
   title: string;
   description: string | null;
-  customerName: string;
-  reportDate: string;
   pageNumber?: number;
   totalPages?: number;
 }
@@ -66,8 +63,6 @@ interface SectionDividerPageProps {
 export default function SectionDividerPage({
   title,
   description,
-  customerName,
-  reportDate,
   pageNumber,
   totalPages,
 }: SectionDividerPageProps) {
@@ -80,7 +75,6 @@ export default function SectionDividerPage({
 
   return (
     <Page size="LETTER" style={styles.page}>
-      <PageHeader customerName={customerName} reportDate={reportDate} />
       <View
         style={[styles.body, hasWriteup ? styles.bodyWithWriteup : styles.bodyCentered]}
       >
@@ -89,7 +83,6 @@ export default function SectionDividerPage({
       </View>
       <PageFooter
         sectionTitle={title}
-        customerName={customerName}
         pageNumber={pageNumber}
         totalPages={totalPages}
       />
