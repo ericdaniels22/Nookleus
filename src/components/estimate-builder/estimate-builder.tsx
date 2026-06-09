@@ -39,7 +39,7 @@ import {
   resolveLineItemDropTarget,
 } from "./move-line-item";
 import { HeaderBar } from "./header-bar";
-import { TotalsBar } from "./totals-bar";
+import { TotalsCard } from "./totals-card";
 import { MetadataBar } from "./metadata-bar";
 import { CustomerBlock } from "./customer-block";
 import { StatementEditor } from "./statement-editor";
@@ -1724,17 +1724,19 @@ export function EstimateBuilder({
         )}
 
         {/* Builder document — full-width shell. The editor panel docks in
-            BuilderLayout's editor slot (#544); the pinned bottom totals bar
-            lives in the totals slot (#545). */}
+            BuilderLayout's editor slot (#544); the floating totals card lives
+            in the totals slot (#545, #569) and auto-collapses to a pill while
+            the editor is open. */}
         <BuilderLayout
           totalsSlot={
-            <TotalsBar
+            <TotalsCard
               entity={invoiceEntity}
               onMarkupChange={onMarkupChange}
               onDiscountChange={onDiscountChange}
               onTaxRateChange={onTaxRateChange}
               readOnly={isVoided}
               mode={invMode}
+              editorOpen={selectedInvoiceItem != null}
             />
           }
           editorSlot={
@@ -2166,17 +2168,19 @@ export function EstimateBuilder({
       )}
 
       {/* Builder document — full-width shell. The editor panel docks in
-          BuilderLayout's editor slot (#544); the pinned bottom totals bar
-          lives in the totals slot (#545). */}
+          BuilderLayout's editor slot (#544); the floating totals card lives in
+          the totals slot (#545, #569) and auto-collapses to a pill while the
+          editor is open. */}
       <BuilderLayout
         totalsSlot={
-          <TotalsBar
+          <TotalsCard
             entity={estimateEntity}
             onMarkupChange={onMarkupChange}
             onDiscountChange={onDiscountChange}
             onTaxRateChange={onTaxRateChange}
             readOnly={isVoided}
             mode={mode}
+            editorOpen={selectedItem != null}
           />
         }
         editorSlot={
