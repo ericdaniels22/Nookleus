@@ -38,9 +38,8 @@ import {
   moveLineItemAcrossContainers,
   resolveLineItemDropTarget,
 } from "./move-line-item";
-import { HeaderBar } from "./header-bar";
+import { HeaderCard } from "./header-card";
 import { TotalsCard } from "./totals-card";
-import { MetadataBar } from "./metadata-bar";
 import { CustomerCard } from "./customer-card";
 import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
@@ -1692,7 +1691,7 @@ export function EstimateBuilder({
   if (state.entity.kind === "invoice") {
     // ── Invoice-mode JSX (Task 43) ─────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: TemplateBanner,
-    // ConvertConfirmModal, Convert button (HeaderBar handles per-kind action
+    // ConvertConfirmModal, Convert button (HeaderCard handles per-kind action
     // buttons — Mark as Sent / Mark as Paid / Send Payment Request / Void).
     const invoiceEntity = state.entity; // narrowed
     const invoice = invoiceEntity.data;
@@ -1754,24 +1753,18 @@ export function EstimateBuilder({
           }
           onBackgroundClick={lineSelection.clear}
         >
-          {/* ── HeaderBar — Mark as Sent / Mark as Paid / Send Payment / Void ── */}
-          <HeaderBar
+          {/* ── HeaderCard — identity + dates/PO in one card (#574) ── */}
+          <HeaderCard
             entity={invoiceEntity}
             onTitleChange={onTitleChange}
             onVoid={onVoid}
             saveStatus={saveStatus}
             lastSavedAt={lastSavedAt}
             isVoiding={isVoiding}
-          />
-
-          {/* ── MetadataBar — Issued + Due + PO + converted-from-link ── */}
-          <MetadataBar
-            entity={invoice}
             onIssuedDateChange={onIssuedDateChange}
             onValidUntilChange={onValidUntilChange}
             onDueDateChange={onDueDateChange}
             onPoNumberChange={onPoNumberChange}
-            mode={invMode}
           />
 
           {/* ── CustomerCard ── */}
@@ -1922,9 +1915,9 @@ export function EstimateBuilder({
 
   if (state.entity.kind === "template") {
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
-    // Mirrors estimate-mode shape but strips: MetadataBar (replaced by
-    // TemplateMetaBar), CustomerCard, the totals bar, TemplateBanner,
-    // voided banner, Convert modal.
+    // Mirrors estimate-mode shape but strips: the dates row (HeaderCard shows
+    // none for templates; TemplateMetaBar covers name/description/tags),
+    // CustomerCard, the totals bar, TemplateBanner, voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
     const tmplSections = template.sections;
@@ -1964,8 +1957,8 @@ export function EstimateBuilder({
           }
           onBackgroundClick={lineSelection.clear}
         >
-          {/* ── HeaderBar — Save Template / Cancel-edit per spec §4.1 ── */}
-          <HeaderBar
+          {/* ── HeaderCard — Save Template / Cancel-edit per spec §4.1 ── */}
+          <HeaderCard
             entity={templateEntity}
             onTitleChange={onTitleChange}
             onVoid={() => {
@@ -1974,6 +1967,12 @@ export function EstimateBuilder({
             saveStatus={saveStatus}
             lastSavedAt={lastSavedAt}
             isVoiding={false}
+            onIssuedDateChange={() => {
+              /* templates have no dates */
+            }}
+            onValidUntilChange={() => {
+              /* templates have no dates */
+            }}
           />
 
           {/* ── TemplateMetaBar — name, description, damage_type_tags ── */}
@@ -2197,8 +2196,8 @@ export function EstimateBuilder({
         onBackgroundClick={lineSelection.clear}
       >
 
-        {/* ── SLOT 1: HeaderBar ────────────────────────────────────────────── */}
-        <HeaderBar
+        {/* ── SLOT 1: HeaderCard — identity + dates in one card (#574) ────── */}
+        <HeaderCard
           entity={estimateEntity}
           onTitleChange={onTitleChange}
           onVoid={onVoid}
@@ -2206,14 +2205,8 @@ export function EstimateBuilder({
           lastSavedAt={lastSavedAt}
           isVoiding={isVoiding}
           onConvertClick={() => setConvertOpen(true)}
-        />
-
-        {/* ── SLOT 2: MetadataBar ──────────────────────────────────────────── */}
-        <MetadataBar
-          entity={estimate}
           onIssuedDateChange={onIssuedDateChange}
           onValidUntilChange={onValidUntilChange}
-          mode={mode}
         />
 
         {/* ── Task 36: Apply Template banner ───────────────────────────────── */}
