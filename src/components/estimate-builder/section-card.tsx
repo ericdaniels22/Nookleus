@@ -88,6 +88,10 @@ export interface SectionCardProps {
   mode?: BuilderMode;
   /** Task 36: index of this section in the parent sections array; used to build DOM ids for scroll-to-item. */
   sectionIdx?: number;
+  /** #544: id of the line currently open in the editor panel (highlights its row). */
+  selectedLineItemId?: string | null;
+  /** #544: select a line (opens the editor panel on it). */
+  onSelectLineItem?: (id: string) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,6 +237,8 @@ export function SectionCard({
   readOnly = false,
   mode = "estimate",
   sectionIdx,
+  selectedLineItemId,
+  onSelectLineItem,
 }: SectionCardProps) {
   const {
     attributes,
@@ -439,6 +445,8 @@ export function SectionCard({
                     mode={mode}
                     sectionIdx={sectionIdx}
                     subsectionIdx={subIdx}
+                    selectedLineItemId={selectedLineItemId}
+                    onSelectLineItem={onSelectLineItem}
                   />
                 ))}
               </ul>
@@ -469,6 +477,8 @@ export function SectionCard({
                     ? `line-item-s${sectionIdx}-i${iIdx}`
                     : undefined
                 }
+                selected={selectedLineItemId === item.id}
+                onSelect={() => onSelectLineItem?.(item.id)}
               />
             ))}
           </div>

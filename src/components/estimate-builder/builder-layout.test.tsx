@@ -10,8 +10,8 @@
 // (children / editorSlot / totalsSlot) so the internal markup can be
 // refactored freely.
 
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { BuilderLayout } from "./builder-layout";
 
 describe("BuilderLayout — document body", () => {
@@ -86,5 +86,23 @@ describe("BuilderLayout — totals bar slot", () => {
     );
 
     expect(screen.queryByTestId("builder-totals-bar")).toBeNull();
+  });
+});
+
+describe("BuilderLayout — document background click (#544)", () => {
+  it("fires onBackgroundClick when the document surface is clicked", () => {
+    // Clicking empty document space clears the editor selection (#544). The
+    // handler lives on the document surface; rows stop propagation so a click
+    // ON a row selects instead of clearing.
+    const onBackgroundClick = vi.fn();
+    render(
+      <BuilderLayout onBackgroundClick={onBackgroundClick}>
+        <p>doc</p>
+      </BuilderLayout>,
+    );
+
+    fireEvent.click(screen.getByTestId("builder-document"));
+
+    expect(onBackgroundClick).toHaveBeenCalledTimes(1);
   });
 });

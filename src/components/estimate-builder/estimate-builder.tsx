@@ -46,6 +46,9 @@ import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
 import { AddItemDialog } from "./add-item-dialog";
 import { BuilderLayout } from "./builder-layout";
+import { LineItemEditorPanel } from "./line-item-editor-panel";
+import { useLineItemSelection } from "./use-line-item-selection";
+import type { BuilderLineItem } from "./line-item-row";
 import TemplateMetaBar from "./template-meta-bar";
 import ConvertConfirmModal from "@/components/conversion/convert-confirm-modal";
 import { Button } from "@/components/ui/button";
@@ -164,6 +167,48 @@ function applyInvoiceTotals<T extends {
 } {
   const { total, ...rest } = computeEstimateTotals(invoice);
   return { ...invoice, ...rest, total_amount: total };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Line-item selection helpers (#544)
+// Flatten the section tree to the live ordered list of line-item ids (used to
+// drive useLineItemSelection's auto-select / auto-clear), and resolve a single
+// id back to its line. Both walk direct items + one level of subsection items,
+// covering all three entity kinds (estimate / invoice / template) structurally.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type SelectableSection = {
+  items: ReadonlyArray<{ id: string }>;
+  subsections?: ReadonlyArray<{ items: ReadonlyArray<{ id: string }> }>;
+};
+
+function collectLineItemIds(
+  sections: ReadonlyArray<SelectableSection>,
+): string[] {
+  const ids: string[] = [];
+  for (const sec of sections) {
+    for (const item of sec.items) ids.push(item.id);
+    for (const sub of sec.subsections ?? []) {
+      for (const item of sub.items) ids.push(item.id);
+    }
+  }
+  return ids;
+}
+
+function findLineItem<T extends { id: string }>(
+  sections: ReadonlyArray<{
+    items: readonly T[];
+    subsections?: ReadonlyArray<{ items: readonly T[] }>;
+  }>,
+  id: string,
+): T | null {
+  for (const sec of sections) {
+    for (const item of sec.items) if (item.id === id) return item;
+    for (const sub of sec.subsections ?? []) {
+      for (const item of sub.items) if (item.id === id) return item;
+    }
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -293,6 +338,14 @@ export function EstimateBuilder({
   const [alreadyConvertedTo, setAlreadyConvertedTo] = useState<
     { id: string; number: string } | null
   >(null);
+
+  // ── #544: line-item selection (drives the editor panel) ────────────────
+  // Fed the live, flattened id list so the controller can auto-select a freshly
+  // added line and auto-clear when the selected line is deleted. Called
+  // unconditionally before any render branch so hook order stays stable.
+  const lineSelection = useLineItemSelection(
+    collectLineItemIds(state.entity.data.sections),
+  );
 
   async function handleConvertConfirm() {
     if (state.entity.kind !== "estimate") return;
@@ -1645,6 +1698,11 @@ export function EstimateBuilder({
     const invSections = invoice.sections;
     const invMode = invoiceEntity.kind;
 
+    // #544: the line currently open in the editor panel (null when none).
+    const selectedInvoiceItem = lineSelection.selectedId
+      ? findLineItem(invSections, lineSelection.selectedId)
+      : null;
+
     return (
       <div className="relative min-h-screen bg-background">
         {/* Voided banner */}
@@ -1660,8 +1718,9 @@ export function EstimateBuilder({
           </div>
         )}
 
-        {/* Builder document — full-width shell with the pinned bottom totals
-            bar in BuilderLayout's totals slot (#545). */}
+        {/* Builder document — full-width shell. The editor panel docks in
+            BuilderLayout's editor slot (#544); the pinned bottom totals bar
+            lives in the totals slot (#545). */}
         <BuilderLayout
           totalsSlot={
             <TotalsBar
@@ -1673,6 +1732,21 @@ export function EstimateBuilder({
               mode={invMode}
             />
           }
+          editorSlot={
+            selectedInvoiceItem && (
+              <LineItemEditorPanel
+                key={selectedInvoiceItem.id}
+                item={selectedInvoiceItem}
+                onChange={(partial) =>
+                  onLineItemChange(selectedInvoiceItem.id, partial)
+                }
+                onClose={lineSelection.clear}
+                readOnly={isVoided}
+                mode={invMode}
+              />
+            )
+          }
+          onBackgroundClick={lineSelection.clear}
         >
           {/* ── HeaderBar — Mark as Sent / Mark as Paid / Send Payment / Void ── */}
           <HeaderBar
@@ -1750,6 +1824,8 @@ export function EstimateBuilder({
                       readOnly={isVoided}
                       mode={invMode}
                       sectionIdx={sIdx}
+                      selectedLineItemId={lineSelection.selectedId}
+                      onSelectLineItem={lineSelection.select}
                     />
                   ))}
                 </ul>
@@ -1847,12 +1923,36 @@ export function EstimateBuilder({
     const tmplSections = template.sections;
     const tmplMode = templateEntity.kind;
 
+    // #544: the line currently open in the editor panel (null when none).
+    // Template line items carry the fields the panel reads (name/code/quantity/
+    // unit/description/note/unit_price) but not the full estimate/invoice scalar
+    // set, so the panel's BuilderLineItem prop is satisfied via a cast — the same
+    // structural shortcut the SectionCard `section={sec as any}` below uses.
+    const selectedTemplateItem = lineSelection.selectedId
+      ? findLineItem(tmplSections, lineSelection.selectedId)
+      : null;
+
     return (
       <div className="relative min-h-screen bg-background">
-        {/* Builder document — full-width shell. Templates have no totals bar
-            (hidden in Template mode), so BuilderLayout's totals slot is left
-            empty here. */}
-        <BuilderLayout>
+        {/* Builder document — full-width shell. The editor panel docks in
+            BuilderLayout's editor slot (#544); templates have no totals bar
+            (hidden in Template mode), so the totals slot is left empty. */}
+        <BuilderLayout
+          editorSlot={
+            selectedTemplateItem && (
+              <LineItemEditorPanel
+                key={selectedTemplateItem.id}
+                item={selectedTemplateItem as BuilderLineItem}
+                onChange={(partial) =>
+                  onLineItemChange(selectedTemplateItem.id, partial)
+                }
+                onClose={lineSelection.clear}
+                mode={tmplMode}
+              />
+            )
+          }
+          onBackgroundClick={lineSelection.clear}
+        >
           {/* ── HeaderBar — Save Template / Cancel-edit per spec §4.1 ── */}
           <HeaderBar
             entity={templateEntity}
@@ -1924,6 +2024,8 @@ export function EstimateBuilder({
                       onSubsectionLineItemDelete={onLineItemDelete}
                       mode={tmplMode}
                       sectionIdx={sIdx}
+                      selectedLineItemId={lineSelection.selectedId}
+                      onSelectLineItem={lineSelection.select}
                     />
                   ))}
                 </ul>
@@ -2015,6 +2117,11 @@ export function EstimateBuilder({
   const sections = estimate.sections;
   const mode = estimateEntity.kind;
 
+  // #544: the line currently open in the editor panel (null when none selected).
+  const selectedItem = lineSelection.selectedId
+    ? findLineItem(sections, lineSelection.selectedId)
+    : null;
+
   // ── Task 36: Apply Template banner gating ────────────────────────────────
   // Banner is hidden once the user has applied a template (even if zero
   // sections came in — e.g. statements-only template) OR once they've
@@ -2044,8 +2151,9 @@ export function EstimateBuilder({
         </div>
       )}
 
-      {/* Builder document — full-width shell with the pinned bottom totals
-          bar in BuilderLayout's totals slot (#545). */}
+      {/* Builder document — full-width shell. The editor panel docks in
+          BuilderLayout's editor slot (#544); the pinned bottom totals bar
+          lives in the totals slot (#545). */}
       <BuilderLayout
         totalsSlot={
           <TotalsBar
@@ -2057,6 +2165,19 @@ export function EstimateBuilder({
             mode={mode}
           />
         }
+        editorSlot={
+          selectedItem && (
+            <LineItemEditorPanel
+              key={selectedItem.id}
+              item={selectedItem}
+              onChange={(partial) => onLineItemChange(selectedItem.id, partial)}
+              onClose={lineSelection.clear}
+              readOnly={isVoided}
+              mode={mode}
+            />
+          )
+        }
+        onBackgroundClick={lineSelection.clear}
       >
 
         {/* ── SLOT 1: HeaderBar ────────────────────────────────────────────── */}
@@ -2148,6 +2269,8 @@ export function EstimateBuilder({
                     readOnly={isVoided}
                     mode={mode}
                     sectionIdx={sIdx}
+                    selectedLineItemId={lineSelection.selectedId}
+                    onSelectLineItem={lineSelection.select}
                   />
                 ))}
               </ul>
