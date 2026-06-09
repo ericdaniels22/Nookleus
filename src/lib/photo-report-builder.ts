@@ -21,6 +21,12 @@ import {
   type ReportSection,
   type StoredReportSection,
 } from "./build-initial-sections";
+import {
+  resolveReportSettings,
+  type ReportDetailToggles,
+  type StoredReportSettingsJson,
+} from "./photo-report-settings";
+import type { ReportPhotosPerPage } from "./types";
 
 /** Heading the lone starter Section gets until the user renames it. */
 const DEFAULT_SECTION_TITLE = "Photos";
@@ -53,6 +59,14 @@ export interface PhotoReportBuilderState {
   /** Editable report date, a `YYYY-MM-DD` calendar date. */
   reportDate: string;
   sections: ReportSection[];
+  /**
+   * The report's chosen Photo Page density (ADR 0014, #549/#550). Drives both
+   * the PDF layout and the per-layout write-up character budget the live
+   * counter reads ({@link writeupLimitFor}).
+   */
+  photosPerPage: ReportPhotosPerPage;
+  /** The six per-report detail toggles (ADR 0014). All default on. */
+  details: ReportDetailToggles;
   /** True once an edit has happened that has not yet been persisted. */
   dirty: boolean;
   /**
@@ -77,6 +91,12 @@ export interface LoadedPhotoReport {
    * always fully identified.
    */
   sections: StoredReportSection[];
+  /**
+   * The report's own settings snapshot (ADR 0014, #549). Absent on a pre-0014
+   * row, in which case `initBuilderState` resolves to the hardcoded defaults
+   * (2-per-page, every detail toggle on).
+   */
+  report_settings?: StoredReportSettingsJson | null;
 }
 
 export type PhotoReportBuilderAction =
@@ -89,6 +109,8 @@ export type PhotoReportBuilderAction =
   | { type: "reorderSection"; from: number; to: number }
   | { type: "assignPhotoToSection"; photoId: string; sectionIndex: number }
   | { type: "removePhotoFromReport"; photoId: string }
+  | { type: "setPhotosPerPage"; photosPerPage: ReportPhotosPerPage }
+  | { type: "toggleReportField"; field: keyof ReportDetailToggles }
   | { type: "markSaved"; revision: number };
 
 /**
@@ -98,10 +120,23 @@ export type PhotoReportBuilderAction =
 export function initBuilderState(
   report: LoadedPhotoReport,
 ): PhotoReportBuilderState {
+  // Resolve the report's look from its own snapshot, falling through to the
+  // hardcoded defaults (2-per-page, all detail toggles on) when absent. The
+  // Organization default is not threaded here (hence `null` below): a report is
+  // seeded with its own snapshot at creation (#549, ADR 0014). That snapshot is
+  // a one-way copy — later edits to the org default never propagate to existing
+  // reports, only to ones created after the change — so the builder never needs
+  // the org default as a live fallback.
+  const { photosPerPage, details } = resolveReportSettings(
+    { report_settings: report.report_settings ?? null },
+    null,
+  );
   return {
     title: report.title,
     reportDate: report.report_date,
     sections: ensureSectionIds(report.sections),
+    photosPerPage,
+    details,
     dirty: false,
     revision: 0,
   };
@@ -254,6 +289,26 @@ export function photoReportBuilderReducer(
         revision: state.revision + 1,
       };
     }
+    case "setPhotosPerPage":
+      // No-op when the layout is unchanged so re-picking the current density
+      // does not needlessly dirty the report (mirrors the photo no-ops above).
+      if (action.photosPerPage === state.photosPerPage) return state;
+      return {
+        ...state,
+        photosPerPage: action.photosPerPage,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "toggleReportField":
+      return {
+        ...state,
+        details: {
+          ...state.details,
+          [action.field]: !state.details[action.field],
+        },
+        dirty: true,
+        revision: state.revision + 1,
+      };
     case "markSaved":
       // Only clear dirty if the write that just landed was for the *current*
       // revision. If an edit happened while the save was in flight, the state

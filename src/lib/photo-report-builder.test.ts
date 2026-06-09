@@ -104,6 +104,84 @@ describe("photoReportBuilderReducer", () => {
     expect(next.dirty).toBe(true);
   });
 
+  it("changing photos-per-page updates it and marks the report dirty", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "setPhotosPerPage",
+      photosPerPage: 4,
+    });
+    expect(next.photosPerPage).toBe(4);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBeGreaterThan(before.revision);
+  });
+
+  it("treats re-picking the current photos-per-page as a no-op", () => {
+    // loaded() resolves to the 2-per-page default; re-selecting 2 must change
+    // nothing — same state object back, not dirtied (mirrors the photo no-ops).
+    const before = loaded();
+    expect(before.photosPerPage).toBe(2);
+    const next = photoReportBuilderReducer(before, {
+      type: "setPhotosPerPage",
+      photosPerPage: 2,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("toggling a detail field flips it, leaving the others, and marks dirty", () => {
+    const before = loaded();
+    // loaded() resolves to all detail toggles on.
+    expect(before.details.photoNumbers).toBe(true);
+    expect(before.details.location).toBe(true);
+    const next = photoReportBuilderReducer(before, {
+      type: "toggleReportField",
+      field: "photoNumbers",
+    });
+    expect(next.details.photoNumbers).toBe(false);
+    expect(next.details.location).toBe(true);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBeGreaterThan(before.revision);
+  });
+
+  it("toggling a detail field twice returns it to its starting value", () => {
+    const before = loaded();
+    const once = photoReportBuilderReducer(before, {
+      type: "toggleReportField",
+      field: "sectionTitlePages",
+    });
+    const twice = photoReportBuilderReducer(once, {
+      type: "toggleReportField",
+      field: "sectionTitlePages",
+    });
+    expect(once.details.sectionTitlePages).toBe(false);
+    expect(twice.details.sectionTitlePages).toBe(true);
+  });
+
+  it("seeds photos-per-page and detail toggles from the loaded report's snapshot", () => {
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [{ title: "Photos", description: "", photo_ids: [] }],
+      report_settings: { photosPerPage: 4, photoTags: false },
+    });
+    expect(state.photosPerPage).toBe(4);
+    expect(state.details.photoTags).toBe(false);
+    // Fields the snapshot omits fall through to the all-on default.
+    expect(state.details.location).toBe(true);
+  });
+
+  it("defaults a settings-less report to 2-per-page with every detail toggle on", () => {
+    const state = loaded();
+    expect(state.photosPerPage).toBe(2);
+    expect(state.details).toEqual({
+      sectionTitlePages: true,
+      photoNumbers: true,
+      capturedBy: true,
+      location: true,
+      dateCaptured: true,
+      photoTags: true,
+    });
+  });
+
   it("marking saved clears the dirty flag once the current revision lands", () => {
     const edited = photoReportBuilderReducer(loaded(), {
       type: "setTitle",
