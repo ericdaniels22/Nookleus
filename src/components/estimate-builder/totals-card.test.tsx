@@ -1,8 +1,8 @@
-// TotalsBar (#545) — the pinned bottom totals bar that replaces the floating
-// TotalsPanel card. Same computed values and inline Markup / Discount / Tax
-// controls as before (this is a presentation/placement refactor, not a
-// totals-math change): a full-width bar that is compact + tap-to-expand on
-// phones and hidden in Template mode.
+// TotalsCard (#545, #569) — the totals component carrying the computed values
+// and inline Markup / Discount / Tax controls. Same totals math as the retired
+// TotalsPanel/TotalsBar (this lineage has been a series of presentation/
+// placement refactors): compact + tap-to-expand on phones and hidden in
+// Template mode.
 //
 // Query strategy mirrors the retired totals-panel.test.tsx: MoneyInput is a
 // text box (role "textbox"); the plain number Input is a number box; the %/$/—
@@ -12,7 +12,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-import { TotalsBar } from "./totals-bar";
+import { TotalsCard } from "./totals-card";
 import type {
   AdjustmentType,
   BuilderEntity,
@@ -137,7 +137,7 @@ function renderBar(
   }> = {},
 ) {
   return render(
-    <TotalsBar
+    <TotalsCard
       entity={entity}
       onMarkupChange={handlers.onMarkupChange ?? vi.fn()}
       onDiscountChange={handlers.onDiscountChange ?? vi.fn()}
@@ -148,7 +148,7 @@ function renderBar(
   );
 }
 
-describe("TotalsBar (#545)", () => {
+describe("TotalsCard (#545)", () => {
   it("renders the Subtotal and the grand Total", () => {
     renderBar(makeEstimate({ subtotal: 100, total: 125 }));
 

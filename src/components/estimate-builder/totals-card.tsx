@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "./money-input";
 import type { AdjustmentType, BuilderEntity, BuilderMode } from "@/lib/types";
 
-interface TotalsBarProps {
+interface TotalsCardProps {
   entity: BuilderEntity;
   onMarkupChange: (type: AdjustmentType, value: number) => void;
   onDiscountChange: (type: AdjustmentType, value: number) => void;
@@ -157,14 +157,14 @@ function AdjustmentRow({
   );
 }
 
-export function TotalsBar({
+export function TotalsCard({
   entity,
   onMarkupChange,
   onDiscountChange,
   onTaxRateChange,
   readOnly = false,
   mode = "estimate",
-}: TotalsBarProps) {
+}: TotalsCardProps) {
   // Phone: the bar is compact (grand Total only) and taps open to reveal the
   // breakdown so it never covers the document lines. Desktop always shows the
   // full row (the `lg:` classes below force it regardless of this state).

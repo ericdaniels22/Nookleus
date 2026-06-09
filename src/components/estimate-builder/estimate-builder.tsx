@@ -39,7 +39,7 @@ import {
   resolveLineItemDropTarget,
 } from "./move-line-item";
 import { HeaderBar } from "./header-bar";
-import { TotalsBar } from "./totals-bar";
+import { TotalsCard } from "./totals-card";
 import { MetadataBar } from "./metadata-bar";
 import { CustomerBlock } from "./customer-block";
 import { StatementEditor } from "./statement-editor";
@@ -1723,7 +1723,7 @@ export function EstimateBuilder({
             lives in the totals slot (#545). */}
         <BuilderLayout
           totalsSlot={
-            <TotalsBar
+            <TotalsCard
               entity={invoiceEntity}
               onMarkupChange={onMarkupChange}
               onDiscountChange={onDiscountChange}
@@ -2154,7 +2154,7 @@ export function EstimateBuilder({
           lives in the totals slot (#545). */}
       <BuilderLayout
         totalsSlot={
-          <TotalsBar
+          <TotalsCard
             entity={estimateEntity}
             onMarkupChange={onMarkupChange}
             onDiscountChange={onDiscountChange}
