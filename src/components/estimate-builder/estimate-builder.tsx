@@ -45,6 +45,7 @@ import { CustomerBlock } from "./customer-block";
 import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
 import { AddItemDialog } from "./add-item-dialog";
+import { BuilderLayout } from "./builder-layout";
 import TemplateMetaBar from "./template-meta-bar";
 import ConvertConfirmModal from "@/components/conversion/convert-confirm-modal";
 import { Button } from "@/components/ui/button";
@@ -1659,7 +1660,10 @@ export function EstimateBuilder({
           </div>
         )}
 
-        <main className="max-w-4xl mx-auto px-4 py-6 pb-24 space-y-4">
+        {/* Builder document — full-width shell (#543). The floating TotalsPanel
+            stays a sibling below; BuilderLayout's totals slot is reserved/empty
+            this slice. */}
+        <BuilderLayout>
           {/* ── HeaderBar — Mark as Sent / Mark as Paid / Send Payment / Void ── */}
           <HeaderBar
             entity={invoiceEntity}
@@ -1807,7 +1811,7 @@ export function EstimateBuilder({
             readOnly={isVoided}
             mode={invMode}
           />
-        </main>
+        </BuilderLayout>
 
         {/* ── TotalsPanel (sticky bottom-right) ─────────────────────────── */}
         <TotalsPanel
@@ -1845,7 +1849,10 @@ export function EstimateBuilder({
 
     return (
       <div className="relative min-h-screen bg-background">
-        <main className="max-w-4xl mx-auto px-4 py-6 pb-24 space-y-4">
+        {/* Builder document — full-width shell (#543). Templates have no
+            TotalsPanel; BuilderLayout's editor/totals slots stay reserved/empty
+            this slice. */}
+        <BuilderLayout>
           {/* ── HeaderBar — Save Template / Cancel-edit per spec §4.1 ── */}
           <HeaderBar
             entity={templateEntity}
@@ -1986,7 +1993,7 @@ export function EstimateBuilder({
             defaultText=""
             mode={tmplMode}
           />
-        </main>
+        </BuilderLayout>
 
         {/* ── AddItemDialog — template-aware per Task 32 ── */}
         <AddItemDialog
@@ -2037,9 +2044,10 @@ export function EstimateBuilder({
         </div>
       )}
 
-      {/* Main content column. TotalsPanel — fixed bottom-right at desktop widths.
-          Post-67a: responsive layout for mobile (overlap is expected on narrow viewports). */}
-      <main className="max-w-4xl mx-auto px-4 py-6 pb-24 space-y-4">
+      {/* Builder document — full-width shell (#543). The floating TotalsPanel
+          stays a sibling below; BuilderLayout's totals slot is reserved/empty
+          this slice. */}
+      <BuilderLayout>
 
         {/* ── SLOT 1: HeaderBar ────────────────────────────────────────────── */}
         <HeaderBar
@@ -2200,7 +2208,7 @@ export function EstimateBuilder({
           readOnly={isVoided}
           mode={mode}
         />
-      </main>
+      </BuilderLayout>
 
       {/* ── SLOT 7: TotalsPanel (sticky bottom-right) ─────────────────────── */}
       <TotalsPanel

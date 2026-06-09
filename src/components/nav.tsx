@@ -14,12 +14,30 @@ import { useNavOrder } from "@/lib/nav-order-context";
 import { useSidebarCollapse } from "@/lib/sidebar-collapse-context";
 import { Tooltip } from "@base-ui/react/tooltip";
 
-export default function Sidebar() {
+export default function Sidebar({
+  forceCollapsed,
+  onToggleRail,
+}: {
+  /** When set, overrides the persisted collapsed state for display — used by
+   *  the builder's slim rail without touching the global preference. */
+  forceCollapsed?: boolean;
+  /** Click handler for the rail toggle while in the builder; when provided it
+   *  replaces the persisted context toggle so no localStorage write happens. */
+  onToggleRail?: () => void;
+} = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { profile, signOut, hasPermission } = useAuth();
   const { order } = useNavOrder();
-  const { collapsed, toggle } = useSidebarCollapse();
+  const { collapsed: persistedCollapsed, toggle } = useSidebarCollapse();
+  // The builder passes forceCollapsed to render the slim rail without mutating
+  // the persisted global preference. Outside the builder it is undefined and
+  // the persisted value drives the display exactly as before.
+  const collapsed = forceCollapsed ?? persistedCollapsed;
+  // In the builder the toggle is ephemeral (onToggleRail) so it never writes
+  // the persisted "sidebar-collapsed" key. Everywhere else it falls back to the
+  // persisting context toggle.
+  const handleToggle = onToggleRail ?? toggle;
 
   // Filter by membership role + required permission, then sort by DB
   // sort_order. Items missing from the DB fall to the bottom in code-
@@ -211,7 +229,7 @@ export default function Sidebar() {
               <NotificationBell />
               <button
                 type="button"
-                onClick={toggle}
+                onClick={handleToggle}
                 aria-label="Expand sidebar"
                 aria-expanded={false}
                 className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
@@ -240,7 +258,7 @@ export default function Sidebar() {
               <NotificationBell />
               <button
                 type="button"
-                onClick={toggle}
+                onClick={handleToggle}
                 aria-label="Collapse sidebar"
                 aria-expanded={true}
                 className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
