@@ -17,10 +17,9 @@ function fmt(n: number): string {
 export function TotalsBlock({ document: doc, layout }: Props) {
   const subtotal = Number(doc.subtotal);
   const markupAmt = Number(doc.markup_amount);
-  // #576 — the #572 split lives on estimates only; an invoice has no
-  // overhead/profit columns, so its rows simply never render.
-  const overheadAmt = "overhead_amount" in doc ? Number(doc.overhead_amount) : 0;
-  const profitAmt = "profit_amount" in doc ? Number(doc.profit_amount) : 0;
+  // #576 — the #572/#575 Overhead + Profit split; both document types carry it.
+  const overheadAmt = Number(doc.overhead_amount);
+  const profitAmt = Number(doc.profit_amount);
   const discountAmt = Number(doc.discount_amount);
   const adjusted = Number(doc.adjusted_subtotal);
   const taxRate = Number(doc.tax_rate);

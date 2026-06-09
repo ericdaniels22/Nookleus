@@ -1,7 +1,6 @@
 // Component test for the settings preset editor — the #576 overhead/profit
-// toggles. An estimate preset edits them like any other switch and Save sends
-// them in the PUT body; an invoice preset hides them entirely (invoices keep
-// their single Markup row, #575 — the switches would be inert noise there).
+// toggles. Both preset types edit them like any other switch (#575 carried the
+// split onto invoices) and Save sends them in the PUT body.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -84,9 +83,9 @@ describe("PresetEditClient — overhead/profit toggles (#576)", () => {
     expect(body.show_profit).toBe(false);
   });
 
-  // Same decision as the live layout panel: invoices have no overhead/profit
-  // columns, so an invoice preset never shows the two switches.
-  it("hides both toggles on an invoice preset", () => {
+  // Same decision as the live layout panel: #575 carried the overhead/profit
+  // split onto invoices, so an invoice preset offers the two switches too.
+  it("offers both toggles on an invoice preset too", () => {
     render(
       <PresetEditClient
         initial={makePreset({ document_type: "invoice", document_title: "Invoice" })}
@@ -94,12 +93,11 @@ describe("PresetEditClient — overhead/profit toggles (#576)", () => {
     );
 
     expect(
-      screen.queryByRole("switch", { name: /show overhead row in totals/i }),
-    ).toBeNull();
+      screen.getByRole("switch", { name: /show overhead row in totals/i }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("switch", { name: /show profit row in totals/i }),
-    ).toBeNull();
-    // The shared switches are untouched — markup is still there.
+      screen.getByRole("switch", { name: /show profit row in totals/i }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("switch", { name: /show markup row in totals/i }),
     ).toBeTruthy();

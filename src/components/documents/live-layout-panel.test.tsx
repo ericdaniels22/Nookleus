@@ -1,5 +1,5 @@
 // Component test for the shared live PDF layout panel (Estimate View #483/#484,
-// Invoice View #485). The panel renders nine show/hide switches + an editable
+// Invoice View #485). The panel renders eleven show/hide switches + an editable
 // title over a live PDF preview: flipping a switch optimistically updates,
 // debounce-saves the *complete* layout snapshot (ADR 0012) to PATCH
 // /api/{estimates|invoices}/[id]/layout, and on success reloads the preview
@@ -144,18 +144,18 @@ describe("LiveLayoutPanel", () => {
     },
   );
 
-  // #576 — overhead/profit live on estimates only (#575 kept the invoice's
-  // single Markup), so the Invoice View panel must not offer two inert switches.
-  it("hides the overhead/profit toggles on an invoice document", () => {
+  // #576 — #575 carried the overhead/profit split onto invoices, so the Invoice
+  // View panel offers the same two switches as the Estimate View.
+  it("offers the overhead/profit toggles on an invoice document too", () => {
     renderPanel({ documentType: "invoice", documentId: "inv-1" });
 
     expect(
-      screen.queryByRole("switch", { name: /show overhead row in totals/i }),
-    ).toBeNull();
+      screen.getByRole("switch", { name: /show overhead row in totals/i }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("switch", { name: /show profit row in totals/i }),
-    ).toBeNull();
-    expect(screen.getAllByRole("switch")).toHaveLength(TOGGLES.length - 2);
+      screen.getByRole("switch", { name: /show profit row in totals/i }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("switch")).toHaveLength(TOGGLES.length);
   });
 
   it("renders one switch for every layout toggle (all eleven present)", () => {

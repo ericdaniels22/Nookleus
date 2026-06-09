@@ -49,15 +49,6 @@ const TOGGLES: { key: ToggleKey; label: string; help?: string }[] = [
   },
 ];
 
-// #576 lives on estimates only — #575 kept the invoice's single Markup, so an
-// invoice has no overhead/profit amounts and its panel must not offer two inert
-// switches. (The fields still ride along in the invoice's layout snapshot; the
-// totals block just never reads them there.)
-const ESTIMATE_ONLY_TOGGLES: ReadonlySet<ToggleKey> = new Set([
-  "show_overhead",
-  "show_profit",
-]);
-
 interface LayoutControlsProps {
   /**
    * Namespaces every control's `id` so the desktop rail and the mobile sheet —
@@ -67,8 +58,6 @@ interface LayoutControlsProps {
    * input (a11y). The two instances share parent state, so they stay in sync.
    */
   idPrefix: string;
-  /** The toggles this document kind offers (estimate-only ones filtered out). */
-  toggles: typeof TOGGLES;
   layout: DocumentPdfLayout;
   readOnly: boolean;
   presets: PdfPreset[];
@@ -89,7 +78,6 @@ interface LayoutControlsProps {
 // lives in exactly one place and both surfaces are driven by the same state.
 function LayoutControls({
   idPrefix,
-  toggles,
   layout,
   readOnly,
   presets,
@@ -136,7 +124,7 @@ function LayoutControls({
             onChange={(e) => onTitleChange(e.target.value)}
           />
         </div>
-        {toggles.map((t) => (
+        {TOGGLES.map((t) => (
           <div key={t.key} className="flex items-start gap-3">
             <Switch
               id={`${idPrefix}${t.key}`}
@@ -411,10 +399,6 @@ export function LiveLayoutPanel({
   // the same LayoutControls against one parent state, so a toggle in the sheet
   // and the same toggle in the rail are the very same value.
   const controlsProps = {
-    toggles:
-      documentType === "estimate"
-        ? TOGGLES
-        : TOGGLES.filter((t) => !ESTIMATE_ONLY_TOGGLES.has(t.key)),
     layout,
     readOnly,
     presets,

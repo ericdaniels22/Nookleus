@@ -95,18 +95,24 @@ describe("TotalsBlock — Overhead & Profit rows (#576)", () => {
     expect(collectText(tree)).toContain("Adjusted Subtotal");
   });
 
-  // Invoices keep their single Markup (#575) — they have no overhead/profit
-  // columns, so the toggles are inert there rather than rendering blank rows.
-  it("renders neither line for an invoice, even with both toggles on", () => {
+  // #575 carried the Overhead/Profit split onto invoices so a converted
+  // invoice prices exactly as its estimate did — the rows render there under
+  // the same toggle + non-zero gates.
+  it("renders Overhead and Profit on an invoice when toggled on and non-zero", () => {
     const tree = expandTree(
       <TotalsBlock
-        document={buildSampleInvoice("org-1").document}
+        document={{
+          ...buildSampleInvoice("org-1").document,
+          overhead_amount: 120,
+          profit_amount: 60,
+        }}
         layout={makeLayout({ show_overhead: true, show_profit: true })}
       />,
     );
     const text = collectText(tree);
-    expect(text).not.toContain("Overhead");
-    expect(text).not.toContain("Profit");
-    expect(text).toContain("Markup"); // the invoice's own row still renders
+    expect(text).toContain("Overhead");
+    expect(text).toContain("$120.00");
+    expect(text).toContain("Profit");
+    expect(text).toContain("$60.00");
   });
 });
