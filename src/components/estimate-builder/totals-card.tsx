@@ -10,7 +10,12 @@ import type { AdjustmentType, BuilderEntity, BuilderMode } from "@/lib/types";
 
 interface TotalsCardProps {
   entity: BuilderEntity;
+  /** Invoice-only: the single Markup leg (estimates use overhead/profit). */
   onMarkupChange: (type: AdjustmentType, value: number) => void;
+  /** Estimate-only: the Overhead leg of the split Markup (#572). */
+  onOverheadChange: (type: AdjustmentType, value: number) => void;
+  /** Estimate-only: the Profit leg of the split Markup (#572). */
+  onProfitChange: (type: AdjustmentType, value: number) => void;
   onDiscountChange: (type: AdjustmentType, value: number) => void;
   onTaxRateChange: (rate: number) => void;
   readOnly?: boolean;
@@ -166,6 +171,8 @@ function AdjustmentRow({
 export function TotalsCard({
   entity,
   onMarkupChange,
+  onOverheadChange,
+  onProfitChange,
   onDiscountChange,
   onTaxRateChange,
   readOnly = false,
@@ -179,15 +186,14 @@ export function TotalsCard({
 
   if (mode === "template" || entity.kind === "template") return null;
 
-  // Narrow on entity.kind to read total vs total_amount; every other monetary
-  // field shares its name across Estimate and Invoice.
+  // Narrow on entity.kind to read total vs total_amount; the discount/tax
+  // fields share their names across Estimate and Invoice. The Markup area
+  // differs (invoice = single Markup; estimate = Overhead + Profit) and is read
+  // inline from entity.data inside the narrowed JSX below.
   const totals =
     entity.kind === "invoice"
       ? {
           subtotal: entity.data.subtotal,
-          markup_type: entity.data.markup_type,
-          markup_value: entity.data.markup_value,
-          markup_amount: entity.data.markup_amount,
           discount_type: entity.data.discount_type,
           discount_value: entity.data.discount_value,
           discount_amount: entity.data.discount_amount,
@@ -198,9 +204,6 @@ export function TotalsCard({
         }
       : {
           subtotal: entity.data.subtotal,
-          markup_type: entity.data.markup_type,
-          markup_value: entity.data.markup_value,
-          markup_amount: entity.data.markup_amount,
           discount_type: entity.data.discount_type,
           discount_value: entity.data.discount_value,
           discount_amount: entity.data.discount_amount,
@@ -229,14 +232,37 @@ export function TotalsCard({
         {showExpanded && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <SummaryLine label="Subtotal" amount={totals.subtotal} />
-            <AdjustmentRow
-              label="Markup"
-              type={totals.markup_type}
-              value={totals.markup_value}
-              amount={totals.markup_amount}
-              onChange={onMarkupChange}
-              readOnly={readOnly}
-            />
+            {entity.kind === "invoice" ? (
+              <AdjustmentRow
+                label="Markup"
+                type={entity.data.markup_type}
+                value={entity.data.markup_value}
+                amount={entity.data.markup_amount}
+                onChange={onMarkupChange}
+                readOnly={readOnly}
+              />
+            ) : (
+              <>
+                {/* #572 — the estimate's Markup is two independent uplifts,
+                    Overhead and Profit, each off the raw Subtotal. */}
+                <AdjustmentRow
+                  label="Overhead"
+                  type={entity.data.overhead_type}
+                  value={entity.data.overhead_value}
+                  amount={entity.data.overhead_amount}
+                  onChange={onOverheadChange}
+                  readOnly={readOnly}
+                />
+                <AdjustmentRow
+                  label="Profit"
+                  type={entity.data.profit_type}
+                  value={entity.data.profit_value}
+                  amount={entity.data.profit_amount}
+                  onChange={onProfitChange}
+                  readOnly={readOnly}
+                />
+              </>
+            )}
             <AdjustmentRow
               label="Discount"
               type={totals.discount_type}

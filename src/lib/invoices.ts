@@ -165,9 +165,13 @@ export async function recalculateInvoiceTotals(
 
   const { data: items } = await supabase
     .from("invoice_line_items").select("amount").eq("invoice_id", invoiceId);
+  // Invoices keep a single markup (#572's Overhead/Profit split is estimate-only
+  // until #575). Map it onto the waterfall's overhead leg with profit = none, so
+  // markup_amount (= overhead_amount + 0) stays byte-identical to before.
   const totals = computeWaterfall({
     lineItemCharges: (items ?? []).map((li) => Number(li.amount) || 0),
-    markup: { type: inv.markup_type as "percent" | "amount" | "none", value: Number(inv.markup_value) || 0 },
+    overhead: { type: inv.markup_type as "percent" | "amount" | "none", value: Number(inv.markup_value) || 0 },
+    profit: { type: "none", value: 0 },
     discount: { type: inv.discount_type as "percent" | "amount" | "none", value: Number(inv.discount_value) || 0 },
     taxRatePercent: Number(inv.tax_rate) || 0,
   });
