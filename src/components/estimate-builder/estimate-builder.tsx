@@ -44,6 +44,7 @@ import { MetadataBar } from "./metadata-bar";
 import { CustomerBlock } from "./customer-block";
 import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
+import { buildNumberIndex } from "./number-section-tree";
 import { AddItemDialog } from "./add-item-dialog";
 import { BuilderLayout } from "./builder-layout";
 import { LineItemEditorPanel } from "./line-item-editor-panel";
@@ -1698,6 +1699,10 @@ export function EstimateBuilder({
     const invSections = invoice.sections;
     const invMode = invoiceEntity.kind;
 
+    // #568: derived positional numbers (read-model, never persisted). Recomputed
+    // each render so add / remove / drag-reorder renumber for free.
+    const invNumbering = buildNumberIndex(invSections);
+
     // #544: the line currently open in the editor panel (null when none).
     const selectedInvoiceItem = lineSelection.selectedId
       ? findLineItem(invSections, lineSelection.selectedId)
@@ -1825,6 +1830,7 @@ export function EstimateBuilder({
                       sectionIdx={sIdx}
                       selectedLineItemId={lineSelection.selectedId}
                       onSelectLineItem={lineSelection.select}
+                      numbering={invNumbering}
                     />
                   ))}
                 </ul>
@@ -1921,6 +1927,11 @@ export function EstimateBuilder({
     const template = templateEntity.data;
     const tmplSections = template.sections;
     const tmplMode = templateEntity.kind;
+
+    // #568: derived positional numbers (read-model, never persisted). Template
+    // sections are structurally compatible with the numbering generic (they carry
+    // id / sort_order / items / subsections) — the same shape SectionCard reads.
+    const tmplNumbering = buildNumberIndex(tmplSections);
 
     // #544: the line currently open in the editor panel (null when none).
     // Template line items carry the fields the panel reads (name/code/quantity/
@@ -2024,6 +2035,7 @@ export function EstimateBuilder({
                       sectionIdx={sIdx}
                       selectedLineItemId={lineSelection.selectedId}
                       onSelectLineItem={lineSelection.select}
+                      numbering={tmplNumbering}
                     />
                   ))}
                 </ul>
@@ -2114,6 +2126,10 @@ export function EstimateBuilder({
   const estimate = estimateEntity.data;
   const sections = estimate.sections;
   const mode = estimateEntity.kind;
+
+  // #568: derived positional numbers (read-model, never persisted). Recomputed
+  // each render so add / remove / drag-reorder renumber for free.
+  const numbering = buildNumberIndex(sections);
 
   // #544: the line currently open in the editor panel (null when none selected).
   const selectedItem = lineSelection.selectedId
@@ -2268,6 +2284,7 @@ export function EstimateBuilder({
                     sectionIdx={sIdx}
                     selectedLineItemId={lineSelection.selectedId}
                     onSelectLineItem={lineSelection.select}
+                    numbering={numbering}
                   />
                 ))}
               </ul>

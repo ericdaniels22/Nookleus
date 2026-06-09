@@ -92,6 +92,13 @@ export interface SectionCardProps {
   selectedLineItemId?: string | null;
   /** #544: select a line (opens the editor panel on it). */
   onSelectLineItem?: (id: string) => void;
+  /**
+   * #568: derived `id → positional number` read-model spanning this section, its
+   * subsections, and all items (e.g. "2", "2.1", "2.1.3"). Computed by
+   * buildNumberIndex over the whole tree — never persisted. Threaded down to
+   * SubsectionCard / LineItemRow. Omitted → no numbers are shown.
+   */
+  numbering?: Map<string, string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +246,7 @@ export function SectionCard({
   sectionIdx,
   selectedLineItemId,
   onSelectLineItem,
+  numbering,
 }: SectionCardProps) {
   const {
     attributes,
@@ -304,6 +312,9 @@ export function SectionCard({
     (a, b) => a.sort_order - b.sort_order
   );
 
+  // ── Derived positional number (#568) — read-model, never persisted. ───────
+  const sectionNumber = numbering?.get(section.id);
+
   // ── Item counts for delete dialog ────────────────────────────────────────
 
   const subsectionItemCount = section.subsections.reduce(
@@ -331,6 +342,13 @@ export function SectionCard({
           >
             <GripVertical size={16} />
           </button>
+        )}
+
+        {/* Derived positional number (#568) — read-model, never persisted. */}
+        {sectionNumber && (
+          <span className="shrink-0 text-sm font-mono font-semibold tabular-nums text-muted-foreground">
+            {sectionNumber}
+          </span>
         )}
 
         {!readOnly && editingTitle ? (
@@ -447,6 +465,7 @@ export function SectionCard({
                     subsectionIdx={subIdx}
                     selectedLineItemId={selectedLineItemId}
                     onSelectLineItem={onSelectLineItem}
+                    numbering={numbering}
                   />
                 ))}
               </ul>
@@ -479,6 +498,7 @@ export function SectionCard({
                 }
                 selected={selectedLineItemId === item.id}
                 onSelect={() => onSelectLineItem?.(item.id)}
+                number={numbering?.get(item.id)}
               />
             ))}
           </div>

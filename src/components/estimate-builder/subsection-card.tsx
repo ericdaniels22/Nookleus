@@ -70,6 +70,12 @@ export interface SubsectionCardProps {
   selectedLineItemId?: string | null;
   /** #544: select a line (opens the editor panel on it). */
   onSelectLineItem?: (id: string) => void;
+  /**
+   * #568: derived `id → positional number` read-model for this subsection and
+   * its items (e.g. "2.1" for the subsection, "2.1.3" for an item). Computed by
+   * buildNumberIndex over the whole tree — never persisted. Omitted → no numbers.
+   */
+  numbering?: Map<string, string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +143,7 @@ export function SubsectionCard({
   subsectionIdx,
   selectedLineItemId,
   onSelectLineItem,
+  numbering,
 }: SubsectionCardProps) {
   const {
     attributes,
@@ -202,6 +209,9 @@ export function SubsectionCard({
 
   const sortedItems = [...subsection.items].sort((a, b) => a.sort_order - b.sort_order);
 
+  // ── Derived positional number (#568) — read-model, never persisted. ───────
+  const subsectionNumber = numbering?.get(subsection.id);
+
   return (
     <li
       ref={setNodeRef}
@@ -222,6 +232,13 @@ export function SubsectionCard({
           >
             <GripVertical size={14} />
           </button>
+        )}
+
+        {/* Derived positional number (#568) — read-model, never persisted. */}
+        {subsectionNumber && (
+          <span className="shrink-0 text-xs font-mono tabular-nums text-muted-foreground">
+            {subsectionNumber}
+          </span>
         )}
 
         {!readOnly && editingTitle ? (
@@ -326,6 +343,7 @@ export function SubsectionCard({
               }
               selected={selectedLineItemId === item.id}
               onSelect={() => onSelectLineItem?.(item.id)}
+              number={numbering?.get(item.id)}
             />
           ))}
         </SortableContext>
