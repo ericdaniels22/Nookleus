@@ -2,7 +2,7 @@
 
 import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
-import type { CoverPageData } from "@/lib/cover-page-data";
+import type { RenderCover } from "@/lib/report-render-model";
 import { formatPreparedBy } from "@/lib/report-prepared-by";
 import { PHOTO_CORNER_RADIUS } from "./photo-page";
 
@@ -115,42 +115,53 @@ const styles = StyleSheet.create({
 });
 
 interface CoverPageProps {
-  data: CoverPageData;
-  title: string;
-  coverPhotoUrl: string | null;
+  /**
+   * The resolved Cover Page model: hidden blocks are already nulled out and the
+   * cover photo / title are resolved upstream (report → Job fallback). This
+   * component renders exactly what survives, never raw Job data.
+   */
+  cover: RenderCover;
+  /** Signed URL for an image logo; ignored for a text logo. */
   logoUrl: string | null;
   /** The report's creator name; renders the "Prepared by {name}" line (#400). */
   preparedBy?: string | null;
 }
 
 export default function CoverPage({
-  data,
-  title,
-  coverPhotoUrl,
+  cover,
   logoUrl,
   preparedBy,
 }: CoverPageProps) {
-  const { logo, customerName, propertyAddress, pointOfContact, insurance } =
-    data;
+  const {
+    title,
+    logo,
+    customerName,
+    propertyAddress,
+    pointOfContact,
+    insurance,
+    coverPhotoUrl,
+  } = cover;
   const preparedByLine = formatPreparedBy(preparedBy);
 
   return (
     <Page size="LETTER" style={styles.page}>
-      <View style={styles.logoRow}>
-        {logo.kind === "image" && logoUrl ? (
-          <Image src={logoUrl} style={styles.logoImage} />
-        ) : (
-          <Text style={styles.logoText}>
-            {logo.kind === "text" ? logo.name : ""}
-          </Text>
-        )}
-      </View>
+      {logo != null ? (
+        <View style={styles.logoRow}>
+          {logo.kind === "image" && logoUrl ? (
+            <Image src={logoUrl} style={styles.logoImage} />
+          ) : (
+            <Text style={styles.logoText}>
+              {logo.kind === "text" ? logo.name : ""}
+            </Text>
+          )}
+        </View>
+      ) : null}
 
       <Text style={styles.title}>{title.trim() ? title : "Photo Report"}</Text>
 
-      {preparedByLine && (
+      {preparedByLine ? (
         <Text style={styles.preparedBy}>{preparedByLine}</Text>
-      )}
+      ) : null}
 
       {coverPhotoUrl ? (
         <Image src={coverPhotoUrl} style={styles.coverPhoto} />
@@ -162,27 +173,35 @@ export default function CoverPage({
 
       <View style={styles.twoColumn}>
         <View style={styles.column}>
-          <Text style={styles.blockLabel}>Customer</Text>
-          <Text style={styles.blockValue}>{customerName || "—"}</Text>
-          <Text style={styles.blockLabel}>Property</Text>
-          <Text style={styles.blockLine}>{propertyAddress || "—"}</Text>
+          {customerName != null ? (
+            <>
+              <Text style={styles.blockLabel}>Customer</Text>
+              <Text style={styles.blockValue}>{customerName}</Text>
+            </>
+          ) : null}
+          {propertyAddress != null ? (
+            <>
+              <Text style={styles.blockLabel}>Property</Text>
+              <Text style={styles.blockLine}>{propertyAddress}</Text>
+            </>
+          ) : null}
         </View>
 
-        <View style={styles.column}>
-          <Text style={styles.blockLabel}>Point of contact</Text>
-          <Text style={styles.blockValue}>
-            {pointOfContact.companyName || ""}
-          </Text>
-          {pointOfContact.phone !== null && (
-            <Text style={styles.blockLine}>{pointOfContact.phone}</Text>
-          )}
-          {pointOfContact.email !== null && (
-            <Text style={styles.blockLine}>{pointOfContact.email}</Text>
-          )}
-        </View>
+        {pointOfContact != null ? (
+          <View style={styles.column}>
+            <Text style={styles.blockLabel}>Point of contact</Text>
+            <Text style={styles.blockValue}>{pointOfContact.companyName}</Text>
+            {pointOfContact.phone !== null ? (
+              <Text style={styles.blockLine}>{pointOfContact.phone}</Text>
+            ) : null}
+            {pointOfContact.email !== null ? (
+              <Text style={styles.blockLine}>{pointOfContact.email}</Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
-      {insurance.visible && (
+      {insurance != null && insurance.visible ? (
         <View style={styles.insuranceBlock}>
           <Text style={styles.insuranceLine}>
             Insurance Carrier: {insurance.carrier || "—"}
@@ -191,7 +210,7 @@ export default function CoverPage({
             Claim Number: {insurance.claimNumber || "—"}
           </Text>
         </View>
-      )}
+      ) : null}
     </Page>
   );
 }

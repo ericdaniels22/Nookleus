@@ -1,18 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import SectionDividerPage from "./section-divider-page";
-import { collectText, expandTree, findAll } from "./test-helpers";
-
-function flattenStyle(style: unknown): Record<string, unknown> {
-  if (Array.isArray(style)) {
-    return style.reduce<Record<string, unknown>>(
-      (acc, s) => ({ ...acc, ...flattenStyle(s) }),
-      {},
-    );
-  }
-  if (style && typeof style === "object") return style as Record<string, unknown>;
-  return {};
-}
+import { collectText, expandTree, findAll, flattenStyle } from "./test-helpers";
 
 describe("SectionDividerPage", () => {
   it("renders the section title large and centered", () => {
@@ -20,8 +9,6 @@ describe("SectionDividerPage", () => {
       <SectionDividerPage
         title="Living Room"
         description={null}
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
@@ -51,8 +38,6 @@ describe("SectionDividerPage", () => {
       <SectionDividerPage
         title="Living Room"
         description="Buckled flooring after water loss."
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
@@ -67,41 +52,32 @@ describe("SectionDividerPage", () => {
         <SectionDividerPage
           title="Living Room"
           description={description}
-          customerName="Jane Doe"
-          reportDate="2026-05-19"
           pageNumber={2}
           totalPages={9}
         />,
       );
 
       const text = collectText(tree);
-      // No stray bullet/dash characters where the description would go.
       expect(text).toContain("Living Room");
       expect(text).not.toContain("undefined");
       expect(text).not.toContain("null");
     }
   });
 
-  it("renders the page header and footer (section name in footer-left, page counter, customer)", () => {
+  it("drops the top header and keeps the section footer + 'Page X of Y'", () => {
     const tree = expandTree(
       <SectionDividerPage
         title="Living Room"
         description={null}
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={5}
       />,
     );
 
     const text = collectText(tree);
-    // Header
-    expect(text).toContain("Jane Doe");
-    expect(text).toContain("Photo Report");
-    expect(text).toContain("May 19, 2026");
-    // Footer: section identifier left, page counter center, customer right
+    expect(text).not.toContain("Photo Report");
     expect(text).toContain("Living Room");
-    expect(text).toContain("2 / 5");
+    expect(text).toContain("Page 2 of 5");
   });
 
   // ── The write-up is rich text (issue #403) ─────────────────────────────────
@@ -114,18 +90,14 @@ describe("SectionDividerPage", () => {
       <SectionDividerPage
         title="Findings"
         description="<ul><li>Buckled flooring</li><li>Standing water</li></ul>"
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
     );
 
     const text = collectText(tree);
-    // Bullet glyph + item text, emitted by htmlToPdfNodes.
     expect(text).toContain("• Buckled flooring");
     expect(text).toContain("• Standing water");
-    // The raw list tags must not leak into the rendered text.
     expect(text).not.toContain("<ul>");
     expect(text).not.toContain("<li>");
   });
@@ -135,8 +107,6 @@ describe("SectionDividerPage", () => {
       <SectionDividerPage
         title="Work performed"
         description="<ol><li>Extracted standing water</li><li>Set air movers</li></ol>"
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={3}
         totalPages={9}
       />,
@@ -153,8 +123,6 @@ describe("SectionDividerPage", () => {
       <SectionDividerPage
         title="Findings"
         description="<p>Severe <strong>structural</strong> and <em>cosmetic</em> damage.</p>"
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
@@ -180,15 +148,11 @@ describe("SectionDividerPage", () => {
   });
 
   it("renders heading-only (no block) for a TipTap-empty write-up", () => {
-    // TipTap serialises a blank editor as `<p></p>`; a stray space saves as
-    // `<p> </p>`. Neither must produce a write-up block on the intro page.
     for (const description of ["<p></p>", "<p>   </p>"]) {
       const tree = expandTree(
         <SectionDividerPage
           title="Just photos"
           description={description}
-          customerName="Jane Doe"
-          reportDate="2026-05-19"
           pageNumber={2}
           totalPages={9}
         />,
@@ -197,20 +161,15 @@ describe("SectionDividerPage", () => {
       const text = collectText(tree);
       expect(text).toContain("Just photos");
       expect(text).not.toContain("<p>");
-      // No bullet or list markers where an empty write-up would have rendered.
       expect(text).not.toContain("•");
     }
   });
 
   it("renders a heading-in-write-up as clean text, never the raw <h2> source", () => {
-    // The bare-StarterKit editor lets a user produce a heading (e.g. "## ").
-    // The intro page must show its text, not leak `h2>` or the literal tag.
     const tree = expandTree(
       <SectionDividerPage
         title="Findings"
         description="<h2>Demo Findings</h2><p>Water intrusion along the north wall.</p>"
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
@@ -224,14 +183,10 @@ describe("SectionDividerPage", () => {
   });
 
   it("renders heading-only when the write-up is an emptied list (no stray bullet block)", () => {
-    // A user who starts a bullet then clears it can leave an empty list behind;
-    // that is still an empty write-up — heading only, no blank bullet.
     const tree = expandTree(
       <SectionDividerPage
         title="Just photos"
         description="<ul><li><p></p></li></ul>"
-        customerName="Jane Doe"
-        reportDate="2026-05-19"
         pageNumber={2}
         totalPages={9}
       />,
