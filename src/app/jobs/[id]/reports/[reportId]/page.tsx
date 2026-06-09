@@ -65,6 +65,15 @@ export default async function PhotoReportBuilderPage({
     .returns<Photo[]>();
   const photos: Photo[] = photoData ?? [];
 
+  // The Job's own cover photo seeds the report's Cover Page when the report has
+  // not chosen its own (ADR 0014, #551). Read it here so the builder can resolve
+  // the fallback without a second round-trip.
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("cover_photo_id")
+    .eq("id", jobId)
+    .maybeSingle<{ cover_photo_id: string | null }>();
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
   return (
@@ -73,6 +82,7 @@ export default async function PhotoReportBuilderPage({
       report={report}
       photos={photos}
       supabaseUrl={supabaseUrl}
+      jobCoverPhotoId={job?.cover_photo_id ?? null}
     />
   );
 }

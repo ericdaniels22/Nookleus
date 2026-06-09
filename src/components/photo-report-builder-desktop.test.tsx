@@ -127,6 +127,9 @@ function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
     created_at: "2026-06-04T00:00:00Z",
     updated_at: "2026-06-04T00:00:00Z",
     deleted_at: null,
+    report_settings: null,
+    cover_config: null,
+    cover_photo_id: null,
     ...overrides,
   };
 }

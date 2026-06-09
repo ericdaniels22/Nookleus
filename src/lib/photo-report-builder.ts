@@ -21,6 +21,26 @@ import {
   type ReportSection,
   type StoredReportSection,
 } from "./build-initial-sections";
+import type {
+  CoverBlockVisibility,
+  ResolvedCoverConfig,
+} from "./photo-report-settings";
+
+/**
+ * The cover config a freshly loaded report falls back to when none is supplied:
+ * every identifying block on, no cover photo (ADR 0014). The component normally
+ * hands `initBuilderState` a fully-resolved cover (which already applies the
+ * Job-cover-photo fallback); this is the read-tolerant default for callers — and
+ * tests — that pass none.
+ */
+const DEFAULT_COVER: ResolvedCoverConfig = {
+  logo: true,
+  customer: true,
+  propertyAddress: true,
+  pointOfContact: true,
+  insurance: true,
+  coverPhotoId: null,
+};
 
 /** Heading the lone starter Section gets until the user renames it. */
 const DEFAULT_SECTION_TITLE = "Photos";
@@ -53,6 +73,14 @@ export interface PhotoReportBuilderState {
   /** Editable report date, a `YYYY-MM-DD` calendar date. */
   reportDate: string;
   sections: ReportSection[];
+  /**
+   * The per-report Cover Page config: which identifying blocks show and the
+   * chosen cover photo (#551). Seeded from the report's resolved cover (already
+   * carrying the Job-cover-photo fallback) and edited via `setCoverPhoto` /
+   * `toggleCoverField`. Persisted by splitting back into `cover_photo_id` and
+   * the five `cover_config` block flags.
+   */
+  cover: ResolvedCoverConfig;
   /** True once an edit has happened that has not yet been persisted. */
   dirty: boolean;
   /**
@@ -77,6 +105,13 @@ export interface LoadedPhotoReport {
    * always fully identified.
    */
   sections: StoredReportSection[];
+  /**
+   * The report's fully-resolved Cover Page config — the component resolves this
+   * (report snapshot → Job cover photo → defaults) before seeding the builder.
+   * Optional and read-tolerant: a caller that passes none gets the all-on,
+   * no-photo {@link DEFAULT_COVER}.
+   */
+  cover?: ResolvedCoverConfig;
 }
 
 export type PhotoReportBuilderAction =
@@ -96,6 +131,8 @@ export type PhotoReportBuilderAction =
       to: number;
     }
   | { type: "removePhotoFromReport"; photoId: string }
+  | { type: "setCoverPhoto"; photoId: string | null }
+  | { type: "toggleCoverField"; field: keyof CoverBlockVisibility }
   | { type: "markSaved"; revision: number };
 
 /**
@@ -109,6 +146,7 @@ export function initBuilderState(
     title: report.title,
     reportDate: report.report_date,
     sections: ensureSectionIds(report.sections),
+    cover: report.cover ?? DEFAULT_COVER,
     dirty: false,
     revision: 0,
   };
@@ -316,6 +354,29 @@ export function photoReportBuilderReducer(
         revision: state.revision + 1,
       };
     }
+    case "setCoverPhoto":
+      // Choose (or clear) the report's own cover photo. A no-op when it already
+      // matches — leave state untouched so an idle re-pick does not dirty the
+      // report (mirrors the photo-assignment no-op guards).
+      if (action.photoId === state.cover.coverPhotoId) return state;
+      return {
+        ...state,
+        cover: { ...state.cover, coverPhotoId: action.photoId },
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "toggleCoverField":
+      // Flip one identifying block on/off. Toggling always changes the value, so
+      // there is no no-op case — every dispatch dirties the report.
+      return {
+        ...state,
+        cover: {
+          ...state.cover,
+          [action.field]: !state.cover[action.field],
+        },
+        dirty: true,
+        revision: state.revision + 1,
+      };
     case "markSaved":
       // Only clear dirty if the write that just landed was for the *current*
       // revision. If an edit happened while the save was in flight, the state
