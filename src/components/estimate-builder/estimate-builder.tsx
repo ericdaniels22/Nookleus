@@ -1735,7 +1735,6 @@ export function EstimateBuilder({
           editorSlot={
             selectedInvoiceItem && (
               <LineItemEditorPanel
-                key={selectedInvoiceItem.id}
                 item={selectedInvoiceItem}
                 onChange={(partial) =>
                   onLineItemChange(selectedInvoiceItem.id, partial)
@@ -1941,7 +1940,6 @@ export function EstimateBuilder({
           editorSlot={
             selectedTemplateItem && (
               <LineItemEditorPanel
-                key={selectedTemplateItem.id}
                 item={selectedTemplateItem as BuilderLineItem}
                 onChange={(partial) =>
                   onLineItemChange(selectedTemplateItem.id, partial)
@@ -2168,7 +2166,6 @@ export function EstimateBuilder({
         editorSlot={
           selectedItem && (
             <LineItemEditorPanel
-              key={selectedItem.id}
               item={selectedItem}
               onChange={(partial) => onLineItemChange(selectedItem.id, partial)}
               onClose={lineSelection.clear}
