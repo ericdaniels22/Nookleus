@@ -4,7 +4,6 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import {
   DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
   useDraggable,
@@ -45,6 +44,7 @@ import {
   type PhotoReportBuilderState,
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
+import { photoReportCollisionDetection } from "@/lib/photo-report-collision";
 import { AddPhotosDialog } from "@/components/photo-report-add-photos-dialog";
 import { measureWriteupFit, writeupLimitFor } from "@/lib/section-writeup-fit";
 import {
@@ -420,7 +420,7 @@ export default function PhotoReportBuilder({
           onDragEnd. */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={photoReportCollisionDetection}
         onDragEnd={handleDragEnd}
       >
         <div className="lg:flex lg:items-start lg:gap-6 lg:px-4 lg:py-6">
@@ -606,11 +606,11 @@ export default function PhotoReportBuilder({
               Slice-2b drag wiring. Sections are keyed (React key + dnd-kit
               sortable id) off their stable `id` (#467), so editing a Section then
               reordering it keeps input focus/caret pinned to that Section and the
-              reorder animates smoothly. One known low-severity follow-up remains,
-              left for a later slice: closestCenter targets the nearest section
-              *center*, so on very tall section cards a photo dropped near an edge
-              can land in the neighbouring section; a pointer-based strategy would
-              be more precise.
+              reorder animates smoothly. Drop targeting uses
+              photoReportCollisionDetection (#584): pointerWithin first, so a
+              photo dropped anywhere within a Section card's bounds — including
+              near the edge of a very tall card — lands in *that* Section, with
+              closestCenter as the keyboard-drag fallback.
             */}
             {/* Sections */}
             <SortableContext
