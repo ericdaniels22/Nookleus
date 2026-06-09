@@ -21,16 +21,19 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeft,
+  Eye,
   FileDown,
   GripVertical,
   Loader2,
   Plus,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { generateReportPDF } from "@/lib/generate-report-pdf";
 import TiptapEditor from "@/components/tiptap-editor";
@@ -104,6 +107,16 @@ export default function PhotoReportBuilder({
   // PDF generated in an earlier session is retrievable on load without
   // regenerating.
   const [pdfPath, setPdfPath] = useState<string | null>(report.pdf_path);
+  // Which pane the desktop rail has selected for the center editor (#548).
+  // `null` means the pinned Cover Page. Purely ephemeral UI state — never in
+  // the reducer, never persisted. Resolved against the live sections below so
+  // a selection left dangling by a removed Section falls back to the cover.
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
+    null,
+  );
+  const selectedId = state.sections.some((s) => s.id === selectedSectionId)
+    ? selectedSectionId
+    : null;
 
   // The latest edit revision, mirrored into a ref so the async save tail can
   // tell whether a newer edit landed while it was in flight (its own captured
@@ -281,7 +294,10 @@ export default function PhotoReportBuilder({
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    // The builder sits inside the normal AppShell chrome (#548 restored the
+    // nav — the route is a BUILDER_ROUTE_PATTERNS entry now), so it flows with
+    // the page instead of owning the viewport (the old full-screen h-dvh).
+    <div className="bg-background">
       {/* Header bar */}
       <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-3">
         <Link
@@ -305,6 +321,25 @@ export default function PhotoReportBuilder({
           {saveStatus === "error" && "Save failed"}
           {saveStatus === "blocked" && "Can't save — write-up too long"}
         </span>
+        {/* Desktop-only placeholders (#548): the gear opens Report Settings and
+            Preview shows the rendered PDF in later slices (#549+). Shipped
+            disabled so the top bar's final shape is in place from the start. */}
+        <button
+          type="button"
+          aria-label="Report settings"
+          disabled
+          className="hidden lg:inline-flex items-center rounded-lg border border-border p-2 text-muted-foreground opacity-60"
+        >
+          <Settings size={16} />
+        </button>
+        <button
+          type="button"
+          disabled
+          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-1.5 text-sm font-semibold text-muted-foreground opacity-60"
+        >
+          <Eye size={14} />
+          Preview
+        </button>
         <button
           type="button"
           onClick={handleGenerate}
@@ -331,64 +366,129 @@ export default function PhotoReportBuilder({
         )}
       </header>
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
-          {/* Report meta */}
-          <div className="space-y-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                Report title
-              </span>
-              <input
-                type="text"
-                aria-label="Report title"
-                value={state.title}
-                onChange={(e) =>
-                  dispatch({ type: "setTitle", title: e.target.value })
-                }
-                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-lg font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </label>
-            <label className="block w-48">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                Report date
-              </span>
-              <input
-                type="date"
-                aria-label="Report date"
-                value={state.reportDate}
-                onChange={(e) => {
-                  // Native date inputs can be cleared to "". report_date is a
-                  // NOT NULL column, so never persist an empty date — ignore the
-                  // change and keep the last valid one.
-                  if (e.target.value) {
-                    dispatch({
-                      type: "setReportDate",
-                      reportDate: e.target.value,
-                    });
-                  }
-                }}
-                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </label>
-          </div>
-
-          {/*
-            Slice-2b drag wiring. Sections are keyed (React key + dnd-kit
-            sortable id) off their stable `id` (#467), so editing a Section then
-            reordering it keeps input focus/caret pinned to that Section and the
-            reorder animates smoothly. One known low-severity follow-up remains,
-            left for a later slice: closestCenter targets the nearest section
-            *center*, so on very tall section cards a photo dropped near an edge
-            can land in the neighbouring section; a pointer-based strategy would
-            be more precise.
-          */}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
+      {/* Body — on desktop (lg+) a multi-pane shell: the left rail beside the
+          center editor. Below lg the rail is display-hidden and the original
+          single-column phone builder flows unchanged. Both surfaces share one
+          DndContext so rail drags and photo drags resolve through the same
+          onDragEnd. */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="lg:flex lg:items-start lg:gap-6 lg:px-4 lg:py-6">
+          {/* Left rail (#548): Cover Page pinned, then the Sections. */}
+          <aside
+            data-testid="report-rail"
+            className="hidden lg:block w-56 shrink-0 space-y-1"
           >
+            <button
+              type="button"
+              aria-current={selectedId === null ? "true" : undefined}
+              onClick={() => setSelectedSectionId(null)}
+              className={cn(
+                "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors",
+                // Primary-tinted like the Section rows, so selected stays
+                // distinguishable from a merely-hovered entry.
+                selectedId === null
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground hover:bg-muted",
+              )}
+            >
+              Cover Page
+            </button>
+            {/* Rail items are sortable under `rail-`-prefixed ids: they share
+                the one DndContext with the center cards (dnd-kit forbids
+                duplicate ids), and resolvePhotoReportDragEnd reads only
+                data.current, so a rail drag resolves to the same
+                reorderSection a center-card drag does. */}
+            <SortableContext
+              items={state.sections.map((s) => `rail-${s.id}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              {state.sections.map((section, index) => (
+                <RailSectionItem
+                  key={section.id}
+                  section={section}
+                  index={index}
+                  selected={selectedId === section.id}
+                  onSelect={() => setSelectedSectionId(section.id)}
+                />
+              ))}
+            </SortableContext>
+            <button
+              type="button"
+              onClick={() => {
+                // Add and jump straight into the new Section: the rail
+                // highlight and the center editor both move onto it, so the
+                // author can start typing immediately.
+                const id = newSectionId();
+                dispatch({ type: "addSection", id });
+                setSelectedSectionId(id);
+              }}
+              className="inline-flex w-full items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+            >
+              <Plus size={15} />
+              New Section
+            </button>
+          </aside>
+
+          <div className="mx-auto max-w-3xl px-4 py-6 space-y-6 lg:mx-0 lg:flex-1 lg:min-w-0 lg:p-0">
+            {/* Report meta — the Cover Page's center pane (#548). On desktop it
+                shows only while the pinned Cover Page is selected; below lg the
+                class is inert, so the phone builder always renders it. */}
+            <div
+              data-testid="report-meta"
+              className={cn("space-y-3", selectedId !== null && "lg:hidden")}
+            >
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Report title
+                </span>
+                <input
+                  type="text"
+                  aria-label="Report title"
+                  value={state.title}
+                  onChange={(e) =>
+                    dispatch({ type: "setTitle", title: e.target.value })
+                  }
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-lg font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <label className="block w-48">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Report date
+                </span>
+                <input
+                  type="date"
+                  aria-label="Report date"
+                  value={state.reportDate}
+                  onChange={(e) => {
+                    // Native date inputs can be cleared to "". report_date is a
+                    // NOT NULL column, so never persist an empty date — ignore the
+                    // change and keep the last valid one.
+                    if (e.target.value) {
+                      dispatch({
+                        type: "setReportDate",
+                        reportDate: e.target.value,
+                      });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+            </div>
+
+            {/*
+              Slice-2b drag wiring. Sections are keyed (React key + dnd-kit
+              sortable id) off their stable `id` (#467), so editing a Section then
+              reordering it keeps input focus/caret pinned to that Section and the
+              reorder animates smoothly. One known low-severity follow-up remains,
+              left for a later slice: closestCenter targets the nearest section
+              *center*, so on very tall section cards a photo dropped near an edge
+              can land in the neighbouring section; a pointer-based strategy would
+              be more precise.
+            */}
             {/* Sections */}
             <SortableContext
               items={state.sections.map((s) => s.id)}
@@ -403,6 +503,7 @@ export default function PhotoReportBuilder({
                     photosById={photosById}
                     supabaseUrl={supabaseUrl}
                     dispatch={dispatch}
+                    desktopSelected={selectedId === section.id}
                   />
                 ))}
               </div>
@@ -411,7 +512,9 @@ export default function PhotoReportBuilder({
             <button
               type="button"
               onClick={() => dispatch({ type: "addSection", id: newSectionId() })}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+              // The phone surface's add affordance; on desktop the rail's
+              // "+ New Section" covers it (#548), so it hides at lg+.
+              className="lg:hidden inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
             >
               <Plus size={15} />
               Add section
@@ -419,9 +522,88 @@ export default function PhotoReportBuilder({
 
             {/* Photos not yet in the report — drag into a Section to add. */}
             <PhotoTray photos={availablePhotos} supabaseUrl={supabaseUrl} />
-          </DndContext>
+          </div>
         </div>
-      </div>
+      </DndContext>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RailSectionItem — a Section's entry in the desktop rail (#548): click the
+// label to select it as the center pane, drag the grip to reorder. Select and
+// drag are SEPARATE controls (the same split as the center cards'): dnd-kit's
+// KeyboardSensor activates on Enter/Space through the sortable listeners and
+// preventDefault()s the keydown, so fusing both onto one button would leave
+// keyboard users unable to ever select a Section.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RailSectionItem({
+  section,
+  index,
+  selected,
+  onSelect,
+}: {
+  section: ReportSection;
+  index: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    // Namespaced so the id can't collide with this Section's center card,
+    // which registers under the bare `section.id` in the same DndContext.
+    id: `rail-${section.id}`,
+    data: { type: "section", index },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "group flex w-full items-center rounded-lg transition-colors",
+        // Selected is primary-tinted so it stays distinguishable from a
+        // merely-hovered row (hover uses the muted background).
+        selected ? "bg-primary/10" : "hover:bg-muted",
+      )}
+    >
+      <button
+        type="button"
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+        className={cn(
+          "min-w-0 flex-1 truncate py-2 pl-3 text-left text-sm",
+          selected
+            ? "font-medium text-primary"
+            : "text-muted-foreground group-hover:text-foreground",
+        )}
+      >
+        {section.title || "Untitled section"}
+      </button>
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        aria-label="Drag to reorder section"
+        className="cursor-grab touch-none px-2 py-2 text-muted-foreground/60 hover:text-foreground"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={14} />
+      </button>
     </div>
   );
 }
@@ -437,6 +619,7 @@ function SortableSection({
   photosById,
   supabaseUrl,
   dispatch,
+  desktopSelected,
 }: {
   index: number;
   section: ReportSection;
@@ -445,6 +628,12 @@ function SortableSection({
   dispatch: React.Dispatch<
     Parameters<typeof photoReportBuilderReducer>[1]
   >;
+  /**
+   * Whether the desktop rail has this Section selected (#548). The center
+   * editor shows one pane at a time, so an unselected card is `lg:hidden` —
+   * inert below lg, where the phone builder still renders every Section.
+   */
+  desktopSelected: boolean;
 }) {
   const {
     attributes,
@@ -488,7 +677,10 @@ function SortableSection({
     <section
       ref={setNodeRef}
       style={style}
-      className="rounded-xl border border-border bg-card p-4 space-y-3"
+      className={cn(
+        "rounded-xl border border-border bg-card p-4 space-y-3",
+        !desktopSelected && "lg:hidden",
+      )}
     >
       <div className="flex items-center gap-2">
         <button
