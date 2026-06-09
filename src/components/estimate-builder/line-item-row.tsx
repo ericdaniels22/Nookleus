@@ -35,9 +35,9 @@ export interface LineItemRowProps {
   /**
    * Retained for caller compatibility but no longer consumed: as of #546 the
    * row is display-only and all edits flow through the editor panel. Callers
-   * (section-card / subsection-card) still pass it harmlessly.
+   * still pass it harmlessly.
    */
-  onChange: (next: Partial<BuilderLineItem>) => void;
+  onChange?: (next: Partial<BuilderLineItem>) => void;
   onDelete: () => void;
   readOnly?: boolean;
   /** Retained for caller compatibility; no longer consumed by the row (#546). */
@@ -45,7 +45,7 @@ export interface LineItemRowProps {
   /**
    * Optional DOM id for scroll-to-item helpers.
    * Format: `line-item-s${sIdx}-i${iIdx}` or `line-item-s${sIdx}-i${iIdx}-sub${subIdx}`.
-   * Constructed by parents (section-card / subsection-card) which know the indices.
+   * Constructed by parents which know the indices.
    */
   domId?: string;
   /** #544: whether this row is the line currently open in the editor panel. */
@@ -58,6 +58,9 @@ export interface LineItemRowProps {
    * by numberSectionTree — never persisted. Omitted → no number is shown.
    */
   number?: string;
+  /** #573: row checkbox affordance. Rendered only when onCheckedChange is given. */
+  checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +76,8 @@ export function LineItemRow({
   selected = false,
   onSelect,
   number,
+  checked = false,
+  onCheckedChange,
 }: LineItemRowProps) {
   // ── dnd-kit sortable ──────────────────────────────────────────────────────
   const {
@@ -136,6 +141,19 @@ export function LineItemRow({
       )}
       {/* Spacer when readOnly to keep alignment consistent */}
       {readOnly && <span className="w-5 shrink-0" />}
+
+      {/* Row checkbox (#573) — checking is not selecting, so the click must
+          not bubble to the row's select handler. */}
+      {onCheckedChange && (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onCheckedChange(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 shrink-0 size-3.5 accent-primary cursor-pointer"
+          aria-label={`Select ${item.name}`}
+        />
+      )}
 
       {/* Derived positional number (#568) — read-model, never persisted. */}
       {number && (

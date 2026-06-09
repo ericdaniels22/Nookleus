@@ -94,10 +94,16 @@ async function resolveCoverPhotoUrl(
 }
 
 /**
- * Generate a PDF for a photo report, upload to Supabase storage,
- * and update the report record with the pdf_path and status.
+ * The shared PDF producer behind both Preview and Generate. Fetches the report,
+ * its Job, company settings, and photos; resolves the report's effective look;
+ * assembles the complete render model; and renders it to a PDF blob. It performs
+ * NO writes — Preview consumes the blob directly, Generate uploads it — so both
+ * paths render from one identical model and cannot drift (#554). Returns the
+ * Job's number alongside the blob, which Generate needs for the storage path.
  */
-export async function generateReportPDF(reportId: string): Promise<string> {
+async function assembleReportPdf(
+  reportId: string,
+): Promise<{ blob: Blob; jobNumber: string }> {
   const supabase = createClient();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
@@ -243,8 +249,30 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     />,
   ).toBlob();
 
+  return { blob, jobNumber: job.job_number };
+}
+
+/**
+ * Render a photo report to a PDF blob without persisting anything — the
+ * on-demand Preview pane (#554) feeds this blob straight into the viewer. Shares
+ * one producer with {@link generateReportPDF}, so Preview renders byte-identical
+ * to Generate.
+ */
+export async function renderReportPdfBlob(reportId: string): Promise<Blob> {
+  const { blob } = await assembleReportPdf(reportId);
+  return blob;
+}
+
+/**
+ * Generate a PDF for a photo report, upload to Supabase storage,
+ * and update the report record with the pdf_path and status.
+ */
+export async function generateReportPDF(reportId: string): Promise<string> {
+  const supabase = createClient();
+  const { blob, jobNumber } = await assembleReportPdf(reportId);
+
   // 8. Upload PDF to Supabase Storage
-  const pdfPath = `${job.job_number}/${reportId}.pdf`;
+  const pdfPath = `${jobNumber}/${reportId}.pdf`;
   const { error: uploadErr } = await supabase.storage
     .from("reports")
     .upload(pdfPath, blob, {

@@ -27,6 +27,7 @@ import {
   GripVertical,
   Loader2,
   Plus,
+  RefreshCw,
   Settings,
   Trash2,
   X,
@@ -36,9 +37,10 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { photoUrl } from "@/lib/jobs/photo-url";
-import { generateReportPDF } from "@/lib/generate-report-pdf";
+import { generateReportPDF, renderReportPdfBlob } from "@/lib/generate-report-pdf";
 import TiptapEditor from "@/components/tiptap-editor";
 import ReportSettingsPanel from "@/components/report-settings-panel";
+import { PdfPreviewFrame } from "@/components/documents/pdf-preview-frame";
 import {
   initBuilderState,
   photoReportBuilderReducer,
@@ -163,6 +165,12 @@ export default function PhotoReportBuilder({
   // PDF generated in an earlier session is retrievable on load without
   // regenerating.
   const [pdfPath, setPdfPath] = useState<string | null>(report.pdf_path);
+  // The on-demand Preview pane (#554): the object URL of the most recently
+  // rendered PDF blob while the pane is open, or null when closed. It changes
+  // only when the author asks — a Preview/refresh click, never a keystroke — so
+  // the pane shows the real report on demand, not a live re-render. See
+  // handlePreview.
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   // Which pane the desktop rail has selected for the center editor (#548).
   // `null` means the pinned Cover Page. Purely ephemeral UI state — never in
   // the reducer, never persisted. Resolved against the live sections below so
@@ -317,22 +325,36 @@ export default function PhotoReportBuilder({
   const assignedIds = new Set(state.sections.flatMap((s) => s.photo_ids));
   const availablePhotos = photos.filter((p) => !assignedIds.has(p.id));
 
+  // Both Generate and Preview render from the *persisted* row, but auto-save is
+  // debounced — so a just-made edit may not be on disk yet. Flush it first
+  // (cancelling the pending debounce) so the output reflects what is on screen.
+  // Returns false — with a message already shown — when the flush failed, so the
+  // caller bails rather than render a stale row. (issue #441)
+  const flushPendingEdits = async (): Promise<boolean> => {
+    if (!state.dirty) return true;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const saved = await writeReport(snapshotOf(state));
+    if (!saved) {
+      toast.error("Couldn't save your latest edits — try again.");
+      return false;
+    }
+    return true;
+  };
+
+  // Swap the preview to a freshly-rendered blob, or clear it (null). Always
+  // revokes the object URL it replaces so the browser frees the stale blob
+  // instead of leaking it for the tab's lifetime.
+  const swapPreview = (blob: Blob | null) => {
+    setPreviewSrc((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return blob ? URL.createObjectURL(blob) : null;
+    });
+  };
+
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      // The PDF is rendered from the persisted row and auto-save is debounced,
-      // so a just-made edit may not be on disk yet. Flush it first (cancelling
-      // the pending debounce) so the PDF reflects what is on screen. (issue #441)
-      if (state.dirty) {
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        const saved = await writeReport(snapshotOf(state));
-        // If the flush failed, the persisted row is still the old one. Better to
-        // produce no PDF than a stale one — bail with a message. (issue #441)
-        if (!saved) {
-          toast.error("Couldn't save your latest edits — try again.");
-          return;
-        }
-      }
+      if (!(await flushPendingEdits())) return;
       const generatedPath = await generateReportPDF(report.id);
       setPdfPath(generatedPath);
       toast.success("PDF generated.");
@@ -342,6 +364,24 @@ export default function PhotoReportBuilder({
       setGenerating(false);
     }
   };
+
+  // Open (or refresh) the on-demand Preview pane (#554). Renders the report to a
+  // PDF blob through the SAME shared producer Generate uses — so the preview is
+  // byte-identical to the generated PDF — and feeds it to the in-app viewer as
+  // an object URL. Fires only on an explicit click, never on edits.
+  const handlePreview = async () => {
+    try {
+      if (!(await flushPendingEdits())) return;
+      const blob = await renderReportPdfBlob(report.id);
+      swapPreview(blob);
+    } catch {
+      toast.error("Failed to render preview.");
+    }
+  };
+
+  // Dismiss the pane and revoke its object URL — the rendered PDF is freed
+  // rather than held until the tab closes.
+  const handleClosePreview = () => swapPreview(null);
 
   return (
     // The builder sits inside the normal AppShell chrome (#548 restored the
@@ -369,8 +409,8 @@ export default function PhotoReportBuilder({
           {saveStatus === "error" && "Save failed"}
         </span>
         {/* The gear opens the in-builder Report Settings panel (#550): photos
-            per page + the six detail toggles. Preview (still a placeholder)
-            shows the rendered PDF in a later slice. */}
+            per page + the six detail toggles. Preview (#554) renders the real
+            report PDF on demand in a slide-over pane. */}
         <button
           type="button"
           aria-label="Report settings"
@@ -381,8 +421,8 @@ export default function PhotoReportBuilder({
         </button>
         <button
           type="button"
-          disabled
-          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-1.5 text-sm font-semibold text-muted-foreground opacity-60"
+          onClick={handlePreview}
+          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-1.5 text-sm font-semibold text-foreground hover:border-foreground/40 transition-colors"
         >
           <Eye size={14} />
           Preview
@@ -660,6 +700,53 @@ export default function PhotoReportBuilder({
           dispatch={dispatch}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+      {/* On-demand Preview pane (#554): the real report PDF — byte-identical to
+          Generate — rendered in the in-app viewer. Option B slide-over: a fixed
+          right-anchored panel over a dimmed backdrop, identical at every width,
+          overlaying the editor rather than reflowing it. Refresh re-runs the
+          shared producer with the latest edits; the pane never re-renders on its
+          own; the backdrop or ✕ dismisses it. */}
+      {previewSrc && (
+        <>
+          <div
+            data-testid="preview-backdrop"
+            aria-hidden="true"
+            onClick={handleClosePreview}
+            className="fixed inset-0 z-40 bg-foreground/40"
+          />
+          <div
+            role="dialog"
+            aria-label="Report preview"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col bg-card shadow-2xl"
+          >
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <span className="text-sm font-semibold text-foreground">
+                Preview
+              </span>
+              <div className="flex-1" />
+              <button
+                type="button"
+                aria-label="Refresh preview"
+                onClick={handlePreview}
+                className="inline-flex items-center rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+              >
+                <RefreshCw size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label="Close preview"
+                onClick={handleClosePreview}
+                className="inline-flex items-center rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <PdfPreviewFrame src={previewSrc} title={state.title} />
+            </div>
+          </div>
+        </>
       )}
       {/* The "+ Add Photos" picker (#552): adds a multi-selection of the Job's
           photos into the Section whose button opened it. */}

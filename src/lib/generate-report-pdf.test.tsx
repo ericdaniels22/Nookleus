@@ -172,11 +172,21 @@ vi.mock("@/lib/report-render-model", () => ({
   })),
 }));
 
-import { generateReportPDF } from "./generate-report-pdf";
+import { generateReportPDF, renderReportPdfBlob } from "./generate-report-pdf";
 import { buildReportRenderModel } from "@/lib/report-render-model";
 
 function modelArg() {
   return vi.mocked(buildReportRenderModel).mock.calls[0][0];
+}
+
+function resetState() {
+  vi.clearAllMocks();
+  h.state.companySettingsValue = "4";
+  h.state.fromTables = [];
+  h.state.companySettingsKeys = [];
+  h.state.uploads = [];
+  h.state.templateQueried = false;
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
 }
 
 describe("generateReportPDF — render-model wiring", () => {
@@ -256,5 +266,31 @@ describe("generateReportPDF — render-model wiring", () => {
     expect(h.state.uploads).toEqual([
       { bucket: "reports", path: `${h.JOB_NUMBER}/${h.REPORT_ID}.pdf` },
     ]);
+  });
+});
+
+describe("renderReportPdfBlob — shared no-drift producer (#554)", () => {
+  beforeEach(resetState);
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("returns a PDF blob without uploading or updating the report row", async () => {
+    const blob = await renderReportPdfBlob(h.REPORT_ID);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/pdf");
+    // Pure render: the Preview path must not touch storage or the report row.
+    expect(h.state.uploads).toEqual([]);
+  });
+
+  it("feeds buildReportRenderModel the exact same args Generate does (no drift)", async () => {
+    await renderReportPdfBlob(h.REPORT_ID);
+    const previewArgs = modelArg();
+
+    vi.mocked(buildReportRenderModel).mockClear();
+    await generateReportPDF(h.REPORT_ID);
+    const generateArgs = vi.mocked(buildReportRenderModel).mock.calls[0][0];
+
+    // Identical render-model input => identical PDF. Preview == Generate.
+    expect(previewArgs).toEqual(generateArgs);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertOctagon, Plus } from "lucide-react";
+import { AlertOctagon } from "lucide-react";
 import { toast } from "sonner";
 import type {
   AdjustmentType,
@@ -28,8 +28,6 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
-  SortableContext,
-  verticalListSortingStrategy,
   sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
@@ -41,8 +39,10 @@ import { HeaderCard } from "./header-card";
 import { TotalsCard } from "./totals-card";
 import { CustomerCard } from "./customer-card";
 import { StatementEditor } from "./statement-editor";
-import { SectionCard } from "./section-card";
-import { buildNumberIndex } from "./number-section-tree";
+import {
+  GroupedLineItemTable,
+  type GroupedSection,
+} from "./grouped-line-item-table";
 import { AddItemDialog } from "./add-item-dialog";
 import { BuilderLayout } from "./builder-layout";
 import { LineItemEditorPanel } from "./line-item-editor-panel";
@@ -50,8 +50,6 @@ import { useLineItemSelection } from "./use-line-item-selection";
 import type { BuilderLineItem } from "./line-item-row";
 import TemplateMetaBar from "./template-meta-bar";
 import ConvertConfirmModal from "@/components/conversion/convert-confirm-modal";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Estimate-level root-PUT serializer (moved from use-auto-save.ts in Task 7)
@@ -98,8 +96,12 @@ const INVOICE_FIELDS = [
   "issued_date",
   "due_date",
   "po_number",
-  "markup_type",
-  "markup_value",
+  // #575 — invoices carry the Overhead + Profit legs like estimates; legacy
+  // markup_type/markup_value are write-dead and no longer sent from the builder.
+  "overhead_type",
+  "overhead_value",
+  "profit_type",
+  "profit_value",
   "discount_type",
   "discount_value",
   "tax_rate",
@@ -158,33 +160,25 @@ function applyEstimateTotals<T extends {
 
 function applyInvoiceTotals<T extends {
   subtotal: number;
-  markup_type: AdjustmentType;
-  markup_value: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
   discount_type: AdjustmentType;
   discount_value: number;
   tax_rate: number;
 }>(invoice: T): T & {
+  overhead_amount: number;
+  profit_amount: number;
   markup_amount: number;
   discount_amount: number;
   adjusted_subtotal: number;
   tax_amount: number;
   total_amount: number;
 } {
-  // Invoices keep their single Markup until #575. Map it onto the waterfall's
-  // Overhead leg with Profit = none, so markup_amount (= overhead_amount + 0)
-  // stays byte-identical; the estimate-only overhead/profit amounts are dropped.
-  const { total, overhead_amount, profit_amount, ...rest } = computeEstimateTotals({
-    subtotal: invoice.subtotal,
-    overhead_type: invoice.markup_type,
-    overhead_value: invoice.markup_value,
-    profit_type: "none",
-    profit_value: 0,
-    discount_type: invoice.discount_type,
-    discount_value: invoice.discount_value,
-    tax_rate: invoice.tax_rate,
-  });
-  void overhead_amount;
-  void profit_amount;
+  // #575 — invoices carry the Overhead + Profit legs natively, so the math is
+  // the estimate's verbatim; only the grand-total field name differs.
+  const { total, ...rest } = computeEstimateTotals(invoice);
   return { ...invoice, ...rest, total_amount: total };
 }
 
@@ -345,12 +339,13 @@ export function EstimateBuilder({
   // Separate transient flag — not part of BuilderState because it's purely UI.
   const [isVoiding, setIsVoiding] = useState(false);
 
-  // ── Task 26: AddItemDialog state ───────────────────────────────────────
-  const [addItemTarget, setAddItemTarget] = useState<{ sectionId: string } | null>(null);
-
-  // ── Slot 5: Add-section inline input state ─────────────────────────────
-  const [showAddSection, setShowAddSection] = useState(false);
-  const [newSectionTitle, setNewSectionTitle] = useState("");
+  // ── Task 26 / #573: AddItemDialog state — which container the new item
+  // lands in, and which tab the dialog opens on ("From price list" vs
+  // "New item" in the table's + Add menu).
+  const [addItemTarget, setAddItemTarget] = useState<{
+    sectionId: string;
+    initialTab: "library" | "custom";
+  } | null>(null);
 
   // ── Task 38: Convert modal state ───────────────────────────────────────
   const [convertOpen, setConvertOpen] = useState(false);
@@ -568,27 +563,11 @@ export function EstimateBuilder({
   const isVoided =
     state.entity.kind !== "template" && state.entity.data.status === "voided";
 
-  // ── Task 27: markup / discount / tax callbacks ─────────────────────────
-  // Estimate: live local recompute via computeEstimateTotals. Invoice: optimistic
-  // local field update only; the server's recalculateInvoiceTotals on the next
-  // root PUT settles the values (the totals bar may briefly show stale totals).
-
-  // Invoices keep a single Markup; an estimate's Markup is the Overhead + Profit
-  // legs (onOverheadChange / onProfitChange below). So onMarkupChange is now
-  // invoice-only — the estimate UI never renders a combined Markup control.
-  function onMarkupChange(type: AdjustmentType, value: number) {
-    setState((prev) => {
-      if (prev.entity.kind === "invoice") {
-        const next_invoice = applyInvoiceTotals({
-          ...prev.entity.data,
-          markup_type: type,
-          markup_value: value,
-        });
-        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
-      }
-      return prev;
-    });
-  }
+  // ── Task 27: overhead / profit / discount / tax callbacks ──────────────
+  // Both kinds recompute locally through the shared waterfall; the server's
+  // recalc on the next root PUT settles the persisted values. The Markup is the
+  // Overhead + Profit legs on estimates AND invoices (#572/#575) — there is no
+  // combined Markup control anymore.
 
   function onOverheadChange(type: AdjustmentType, value: number) {
     setState((prev) => {
@@ -599,6 +578,14 @@ export function EstimateBuilder({
           overhead_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      if (prev.entity.kind === "invoice") {
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          overhead_type: type,
+          overhead_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -613,6 +600,14 @@ export function EstimateBuilder({
           profit_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      if (prev.entity.kind === "invoice") {
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          profit_type: type,
+          profit_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -691,8 +686,6 @@ export function EstimateBuilder({
           },
         } as BuilderEntity,
       }));
-      setShowAddSection(false);
-      setNewSectionTitle("");
       return;
     }
     // Estimate or invoice: HTTP path with entityBase substituted.
@@ -726,8 +719,6 @@ export function EstimateBuilder({
           } as BuilderEntity,
         };
       });
-      setShowAddSection(false);
-      setNewSectionTitle("");
     } catch {
       toast.error("Network error — could not add section");
     }
@@ -1249,8 +1240,11 @@ export function EstimateBuilder({
     // Task 28 auto-save will pick this up.
   }
 
-  function onAddLineItem(sectionId: string) {
-    setAddItemTarget({ sectionId });
+  function onAddLineItem(
+    sectionId: string,
+    initialTab: "library" | "custom" = "library",
+  ) {
+    setAddItemTarget({ sectionId, initialTab });
   }
 
   function onLineItemAdded(
@@ -1740,10 +1734,6 @@ export function EstimateBuilder({
     const invSections = invoice.sections;
     const invMode = invoiceEntity.kind;
 
-    // #568: derived positional numbers (read-model, never persisted). Recomputed
-    // each render so add / remove / drag-reorder renumber for free.
-    const invNumbering = buildNumberIndex(invSections);
-
     // #544: the line currently open in the editor panel (null when none).
     const selectedInvoiceItem = lineSelection.selectedId
       ? findLineItem(invSections, lineSelection.selectedId)
@@ -1772,7 +1762,6 @@ export function EstimateBuilder({
           totalsSlot={
             <TotalsCard
               entity={invoiceEntity}
-              onMarkupChange={onMarkupChange}
               onOverheadChange={onOverheadChange}
               onProfitChange={onProfitChange}
               onDiscountChange={onDiscountChange}
@@ -1824,112 +1813,26 @@ export function EstimateBuilder({
             mode={invMode}
           />
 
-          {/* ── Sections list ── */}
+          {/* ── Sections list — one grouped table (#573) ── */}
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            {invSections.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-border bg-card p-12 flex flex-col items-center gap-4 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Add a section to get started
-                </p>
-                <Button
-                  onClick={() => setShowAddSection(true)}
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={isVoided}
-                >
-                  <Plus size={14} />
-                  New Section
-                </Button>
-              </div>
-            ) : (
-              <SortableContext
-                items={invSections.map((s) => s.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <ul className="space-y-3">
-                  {invSections.map((sec, sIdx) => (
-                    <SectionCard
-                      key={sec.id}
-                      section={sec}
-                      onRename={onSectionRename}
-                      onDelete={onSectionDelete}
-                      onAddSubsection={onSubsectionAdd}
-                      onAddLineItem={onAddLineItem}
-                      onLineItemDelete={onLineItemDelete}
-                      onLineItemChange={onLineItemChange}
-                      onSubsectionRename={onSubsectionRename}
-                      onSubsectionDelete={onSubsectionDelete}
-                      onSubsectionLineItemDelete={onLineItemDelete}
-                      readOnly={isVoided}
-                      mode={invMode}
-                      sectionIdx={sIdx}
-                      selectedLineItemId={lineSelection.selectedId}
-                      onSelectLineItem={lineSelection.select}
-                      numbering={invNumbering}
-                    />
-                  ))}
-                </ul>
-              </SortableContext>
-            )}
-
-            {/* Add Section inline input */}
-            <div className="mt-3 pt-3 border-t border-border">
-              {showAddSection ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    autoFocus
-                    value={newSectionTitle}
-                    maxLength={200}
-                    placeholder="Section name"
-                    onChange={(e) => setNewSectionTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newSectionTitle.trim()) {
-                        void onAddSection(newSectionTitle.trim());
-                      }
-                      if (e.key === "Escape") {
-                        setShowAddSection(false);
-                        setNewSectionTitle("");
-                      }
-                    }}
-                    className="h-8 text-sm flex-1"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (newSectionTitle.trim()) {
-                        void onAddSection(newSectionTitle.trim());
-                      }
-                    }}
-                    disabled={!newSectionTitle.trim()}
-                  >
-                    Add
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setShowAddSection(false);
-                      setNewSectionTitle("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAddSection(true)}
-                  disabled={isVoided}
-                  className="flex items-center gap-1.5 px-3 py-2 w-full rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border border-dashed border-border disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Plus size={13} />
-                  Add Section
-                </button>
-              )}
-            </div>
+            <GroupedLineItemTable
+              sections={invSections}
+              onSelectLineItem={lineSelection.select}
+              selectedLineItemId={lineSelection.selectedId}
+              onDeleteLineItem={onLineItemDelete}
+              onAddLineItem={onAddLineItem}
+              onAddSection={(title) => void onAddSection(title)}
+              onRenameSection={onSectionRename}
+              onAddSubsection={onSubsectionAdd}
+              onDeleteSection={onSectionDelete}
+              onRenameSubsection={onSubsectionRename}
+              onDeleteSubsection={onSubsectionDelete}
+              readOnly={isVoided}
+            />
           </DndContext>
 
           {/* ── Closing statement ── */}
@@ -1949,6 +1852,7 @@ export function EstimateBuilder({
           onOpenChange={(open) => !open && setAddItemTarget(null)}
           estimateId={invoice.id}
           sectionId={addItemTarget?.sectionId ?? ""}
+          initialTab={addItemTarget?.initialTab}
           jobDamageType={job?.damage_type}
           onAdded={onLineItemAdded}
           mode={invMode}
@@ -1967,16 +1871,11 @@ export function EstimateBuilder({
     const tmplSections = template.sections;
     const tmplMode = templateEntity.kind;
 
-    // #568: derived positional numbers (read-model, never persisted). Template
-    // sections are structurally compatible with the numbering generic (they carry
-    // id / sort_order / items / subsections) — the same shape SectionCard reads.
-    const tmplNumbering = buildNumberIndex(tmplSections);
-
     // #544: the line currently open in the editor panel (null when none).
     // Template line items carry the fields the panel reads (name/code/quantity/
     // unit/description/note/unit_price) but not the full estimate/invoice scalar
     // set, so the panel's BuilderLineItem prop is satisfied via a cast — the same
-    // structural shortcut the SectionCard `section={sec as any}` below uses.
+    // structural shortcut the GroupedLineItemTable sections cast below uses.
     const selectedTemplateItem = lineSelection.selectedId
       ? findLineItem(tmplSections, lineSelection.selectedId)
       : null;
@@ -2031,115 +1930,29 @@ export function EstimateBuilder({
             mode={tmplMode}
           />
 
-          {/* ── Sections list ── */}
+          {/* ── Sections list — one grouped table (#573) ── */}
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            {tmplSections.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-border bg-card p-12 flex flex-col items-center gap-4 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Add a section to get started
-                </p>
-                <Button
-                  onClick={() => setShowAddSection(true)}
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <Plus size={14} />
-                  New Section
-                </Button>
-              </div>
-            ) : (
-              <SortableContext
-                items={tmplSections.map((s) => s.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <ul className="space-y-3">
-                  {tmplSections.map((sec, sIdx) => (
-                    <SectionCard
-                      key={sec.id}
-                      // Template sections have a structurally compatible
-                      // shape but lack the EstimateSection scalar fields
-                      // (organization_id, estimate_id, created_at,
-                      // updated_at). Cast through unknown — SectionCard
-                      // only reads id/title/sort_order/items/subsections.
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      section={sec as any}
-                      onRename={onSectionRename}
-                      onDelete={onSectionDelete}
-                      onAddSubsection={onSubsectionAdd}
-                      onAddLineItem={onAddLineItem}
-                      onLineItemDelete={onLineItemDelete}
-                      onLineItemChange={onLineItemChange}
-                      onSubsectionRename={onSubsectionRename}
-                      onSubsectionDelete={onSubsectionDelete}
-                      onSubsectionLineItemDelete={onLineItemDelete}
-                      mode={tmplMode}
-                      sectionIdx={sIdx}
-                      selectedLineItemId={lineSelection.selectedId}
-                      onSelectLineItem={lineSelection.select}
-                      numbering={tmplNumbering}
-                    />
-                  ))}
-                </ul>
-              </SortableContext>
-            )}
-
-            {/* Add Section inline input */}
-            <div className="mt-3 pt-3 border-t border-border">
-              {showAddSection ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    autoFocus
-                    value={newSectionTitle}
-                    maxLength={200}
-                    placeholder="Section name"
-                    onChange={(e) => setNewSectionTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newSectionTitle.trim()) {
-                        void onAddSection(newSectionTitle.trim());
-                      }
-                      if (e.key === "Escape") {
-                        setShowAddSection(false);
-                        setNewSectionTitle("");
-                      }
-                    }}
-                    className="h-8 text-sm flex-1"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (newSectionTitle.trim()) {
-                        void onAddSection(newSectionTitle.trim());
-                      }
-                    }}
-                    disabled={!newSectionTitle.trim()}
-                  >
-                    Add
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setShowAddSection(false);
-                      setNewSectionTitle("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAddSection(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 w-full rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border border-dashed border-border"
-                >
-                  <Plus size={13} />
-                  Add Section
-                </button>
-              )}
-            </div>
+            <GroupedLineItemTable
+              // Template sections have a structurally compatible shape but
+              // lack the EstimateSection scalar fields (organization_id,
+              // estimate_id, created_at, updated_at). Cast through unknown —
+              // the table only reads id/title/items/subsections.
+              sections={tmplSections as unknown as GroupedSection[]}
+              onSelectLineItem={lineSelection.select}
+              selectedLineItemId={lineSelection.selectedId}
+              onDeleteLineItem={onLineItemDelete}
+              onAddLineItem={onAddLineItem}
+              onAddSection={(title) => void onAddSection(title)}
+              onRenameSection={onSectionRename}
+              onAddSubsection={onSubsectionAdd}
+              onDeleteSection={onSectionDelete}
+              onRenameSubsection={onSubsectionRename}
+              onDeleteSubsection={onSubsectionDelete}
+            />
           </DndContext>
 
           {/* ── Closing statement ── */}
@@ -2158,6 +1971,7 @@ export function EstimateBuilder({
           onOpenChange={(open) => !open && setAddItemTarget(null)}
           estimateId={template.id}
           sectionId={addItemTarget?.sectionId ?? ""}
+          initialTab={addItemTarget?.initialTab}
           onAdded={onLineItemAdded}
           mode={tmplMode}
         />
@@ -2171,10 +1985,6 @@ export function EstimateBuilder({
   const estimate = estimateEntity.data;
   const sections = estimate.sections;
   const mode = estimateEntity.kind;
-
-  // #568: derived positional numbers (read-model, never persisted). Recomputed
-  // each render so add / remove / drag-reorder renumber for free.
-  const numbering = buildNumberIndex(sections);
 
   // #544: the line currently open in the editor panel (null when none selected).
   const selectedItem = lineSelection.selectedId
@@ -2204,7 +2014,6 @@ export function EstimateBuilder({
         totalsSlot={
           <TotalsCard
             entity={estimateEntity}
-            onMarkupChange={onMarkupChange}
             onOverheadChange={onOverheadChange}
             onProfitChange={onProfitChange}
             onDiscountChange={onDiscountChange}
@@ -2254,114 +2063,29 @@ export function EstimateBuilder({
           mode={mode}
         />
 
-        {/* ── SLOT 5: Sections list (Task 24) ──────────────────────────────── */}
-        {/* DndContext wraps the entire sections list. Each SectionCard contains
-            its own inner SortableContexts for subsections and direct items,
-            providing the drag-constraint boundaries described in spec §5.1. */}
+        {/* ── SLOT 5: Sections list — one grouped table (#573) ─────────────── */}
+        {/* DndContext wraps the table. The table scopes its own inner
+            SortableContexts per container (sections / subsections / items),
+            preserving the drag-constraint boundaries described in spec §5.1. */}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          {sections.length === 0 ? (
-            /* Empty state — spec §10 */
-            <div className="rounded-xl border-2 border-dashed border-border bg-card p-12 flex flex-col items-center gap-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                Add a section to get started
-              </p>
-              <Button
-                onClick={() => setShowAddSection(true)}
-                size="sm"
-                className="gap-1.5"
-              >
-                <Plus size={14} />
-                New Section
-              </Button>
-            </div>
-          ) : (
-            <SortableContext
-              items={sections.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <ul className="space-y-3">
-                {sections.map((sec, sIdx) => (
-                  <SectionCard
-                    key={sec.id}
-                    section={sec}
-                    onRename={onSectionRename}
-                    onDelete={onSectionDelete}
-                    onAddSubsection={onSubsectionAdd}
-                    onAddLineItem={onAddLineItem}
-                    onLineItemDelete={onLineItemDelete}
-                    onLineItemChange={onLineItemChange}
-                    onSubsectionRename={onSubsectionRename}
-                    onSubsectionDelete={onSubsectionDelete}
-                    onSubsectionLineItemDelete={onLineItemDelete}
-                    readOnly={isVoided}
-                    mode={mode}
-                    sectionIdx={sIdx}
-                    selectedLineItemId={lineSelection.selectedId}
-                    onSelectLineItem={lineSelection.select}
-                    numbering={numbering}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
-          )}
-
-          {/* Add Section inline input — shown below the list */}
-          <div className="mt-3 pt-3 border-t border-border">
-            {showAddSection ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  autoFocus
-                  value={newSectionTitle}
-                  maxLength={200}
-                  placeholder="Section name"
-                  onChange={(e) => setNewSectionTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newSectionTitle.trim()) {
-                      void onAddSection(newSectionTitle.trim());
-                    }
-                    if (e.key === "Escape") {
-                      setShowAddSection(false);
-                      setNewSectionTitle("");
-                    }
-                  }}
-                  className="h-8 text-sm flex-1"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (newSectionTitle.trim()) {
-                      void onAddSection(newSectionTitle.trim());
-                    }
-                  }}
-                  disabled={!newSectionTitle.trim()}
-                >
-                  Add
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setShowAddSection(false);
-                    setNewSectionTitle("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowAddSection(true)}
-                className="flex items-center gap-1.5 px-3 py-2 w-full rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border border-dashed border-border"
-              >
-                <Plus size={13} />
-                Add Section
-              </button>
-            )}
-          </div>
+          <GroupedLineItemTable
+            sections={sections}
+            onSelectLineItem={lineSelection.select}
+            selectedLineItemId={lineSelection.selectedId}
+            onDeleteLineItem={onLineItemDelete}
+            onAddLineItem={onAddLineItem}
+            onAddSection={(title) => void onAddSection(title)}
+            onRenameSection={onSectionRename}
+            onAddSubsection={onSubsectionAdd}
+            onDeleteSection={onSectionDelete}
+            onRenameSubsection={onSubsectionRename}
+            onDeleteSubsection={onSubsectionDelete}
+            readOnly={isVoided}
+          />
         </DndContext>
 
         {/* ── SLOT 6: Closing statement ────────────────────────────────────── */}
@@ -2381,6 +2105,7 @@ export function EstimateBuilder({
         onOpenChange={(open) => !open && setAddItemTarget(null)}
         estimateId={estimate.id}
         sectionId={addItemTarget?.sectionId ?? ""}
+        initialTab={addItemTarget?.initialTab}
         jobDamageType={job?.damage_type}
         onAdded={onLineItemAdded}
         mode={mode}

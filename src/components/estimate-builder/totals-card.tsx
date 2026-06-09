@@ -10,11 +10,9 @@ import type { AdjustmentType, BuilderEntity, BuilderMode } from "@/lib/types";
 
 interface TotalsCardProps {
   entity: BuilderEntity;
-  /** Invoice-only: the single Markup leg (estimates use overhead/profit). */
-  onMarkupChange: (type: AdjustmentType, value: number) => void;
-  /** Estimate-only: the Overhead leg of the split Markup (#572). */
+  /** The Overhead leg of the split Markup (#572; invoices since #575). */
   onOverheadChange: (type: AdjustmentType, value: number) => void;
-  /** Estimate-only: the Profit leg of the split Markup (#572). */
+  /** The Profit leg of the split Markup (#572; invoices since #575). */
   onProfitChange: (type: AdjustmentType, value: number) => void;
   onDiscountChange: (type: AdjustmentType, value: number) => void;
   onTaxRateChange: (rate: number) => void;
@@ -170,7 +168,6 @@ function AdjustmentRow({
 
 export function TotalsCard({
   entity,
-  onMarkupChange,
   onOverheadChange,
   onProfitChange,
   onDiscountChange,
@@ -186,14 +183,19 @@ export function TotalsCard({
 
   if (mode === "template" || entity.kind === "template") return null;
 
-  // Narrow on entity.kind to read total vs total_amount; the discount/tax
-  // fields share their names across Estimate and Invoice. The Markup area
-  // differs (invoice = single Markup; estimate = Overhead + Profit) and is read
-  // inline from entity.data inside the narrowed JSX below.
+  // Narrow on entity.kind to read total vs total_amount; every other money
+  // field — overhead/profit/discount/tax — shares its name across Estimate and
+  // Invoice (#575 carried the Overhead/Profit split onto invoices).
   const totals =
     entity.kind === "invoice"
       ? {
           subtotal: entity.data.subtotal,
+          overhead_type: entity.data.overhead_type,
+          overhead_value: entity.data.overhead_value,
+          overhead_amount: entity.data.overhead_amount,
+          profit_type: entity.data.profit_type,
+          profit_value: entity.data.profit_value,
+          profit_amount: entity.data.profit_amount,
           discount_type: entity.data.discount_type,
           discount_value: entity.data.discount_value,
           discount_amount: entity.data.discount_amount,
@@ -204,6 +206,12 @@ export function TotalsCard({
         }
       : {
           subtotal: entity.data.subtotal,
+          overhead_type: entity.data.overhead_type,
+          overhead_value: entity.data.overhead_value,
+          overhead_amount: entity.data.overhead_amount,
+          profit_type: entity.data.profit_type,
+          profit_value: entity.data.profit_value,
+          profit_amount: entity.data.profit_amount,
           discount_type: entity.data.discount_type,
           discount_value: entity.data.discount_value,
           discount_amount: entity.data.discount_amount,
@@ -232,37 +240,24 @@ export function TotalsCard({
         {showExpanded && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <SummaryLine label="Subtotal" amount={totals.subtotal} />
-            {entity.kind === "invoice" ? (
-              <AdjustmentRow
-                label="Markup"
-                type={entity.data.markup_type}
-                value={entity.data.markup_value}
-                amount={entity.data.markup_amount}
-                onChange={onMarkupChange}
-                readOnly={readOnly}
-              />
-            ) : (
-              <>
-                {/* #572 — the estimate's Markup is two independent uplifts,
-                    Overhead and Profit, each off the raw Subtotal. */}
-                <AdjustmentRow
-                  label="Overhead"
-                  type={entity.data.overhead_type}
-                  value={entity.data.overhead_value}
-                  amount={entity.data.overhead_amount}
-                  onChange={onOverheadChange}
-                  readOnly={readOnly}
-                />
-                <AdjustmentRow
-                  label="Profit"
-                  type={entity.data.profit_type}
-                  value={entity.data.profit_value}
-                  amount={entity.data.profit_amount}
-                  onChange={onProfitChange}
-                  readOnly={readOnly}
-                />
-              </>
-            )}
+            {/* #572/#575 — the Markup is two independent uplifts, Overhead and
+                Profit, each off the raw Subtotal — on estimates AND invoices. */}
+            <AdjustmentRow
+              label="Overhead"
+              type={totals.overhead_type}
+              value={totals.overhead_value}
+              amount={totals.overhead_amount}
+              onChange={onOverheadChange}
+              readOnly={readOnly}
+            />
+            <AdjustmentRow
+              label="Profit"
+              type={totals.profit_type}
+              value={totals.profit_value}
+              amount={totals.profit_amount}
+              onChange={onProfitChange}
+              readOnly={readOnly}
+            />
             <AdjustmentRow
               label="Discount"
               type={totals.discount_type}

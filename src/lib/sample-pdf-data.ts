@@ -156,6 +156,15 @@ export function buildSampleInvoice(orgId: string): {
     markup_type: "percent",
     markup_value: 15,
     markup_amount: 180,
+    // #575 — invoices carry the Overhead + Profit split too. Like the sample
+    // estimate above, everything rides the Overhead leg (15% of 1200 = 180),
+    // Profit none, so markup_amount and the downstream totals are unchanged.
+    overhead_type: "percent",
+    overhead_value: 15,
+    overhead_amount: 180,
+    profit_type: "none",
+    profit_value: 0,
+    profit_amount: 0,
     discount_type: "amount",
     discount_value: 50,
     discount_amount: 50,
