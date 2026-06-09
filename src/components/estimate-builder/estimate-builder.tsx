@@ -1719,8 +1719,9 @@ export function EstimateBuilder({
         )}
 
         {/* Builder document — full-width shell. The editor panel docks in
-            BuilderLayout's editor slot (#544); the pinned bottom totals bar
-            lives in the totals slot (#545). */}
+            BuilderLayout's editor slot (#544); the floating totals card lives
+            in the totals slot (#545, #569) and auto-collapses to a pill while
+            the editor is open. */}
         <BuilderLayout
           totalsSlot={
             <TotalsCard
@@ -1730,6 +1731,7 @@ export function EstimateBuilder({
               onTaxRateChange={onTaxRateChange}
               readOnly={isVoided}
               mode={invMode}
+              editorOpen={selectedInvoiceItem != null}
             />
           }
           editorSlot={
@@ -2150,8 +2152,9 @@ export function EstimateBuilder({
       )}
 
       {/* Builder document — full-width shell. The editor panel docks in
-          BuilderLayout's editor slot (#544); the pinned bottom totals bar
-          lives in the totals slot (#545). */}
+          BuilderLayout's editor slot (#544); the floating totals card lives in
+          the totals slot (#545, #569) and auto-collapses to a pill while the
+          editor is open. */}
       <BuilderLayout
         totalsSlot={
           <TotalsCard
@@ -2161,6 +2164,7 @@ export function EstimateBuilder({
             onTaxRateChange={onTaxRateChange}
             readOnly={isVoided}
             mode={mode}
+            editorOpen={selectedItem != null}
           />
         }
         editorSlot={

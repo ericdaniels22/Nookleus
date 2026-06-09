@@ -134,6 +134,7 @@ function renderBar(
     onTaxRateChange: (n: number) => void;
     readOnly: boolean;
     mode: BuilderEntity["kind"] | "template";
+    editorOpen: boolean;
   }> = {},
 ) {
   return render(
@@ -144,6 +145,7 @@ function renderBar(
       onTaxRateChange={handlers.onTaxRateChange ?? vi.fn()}
       readOnly={handlers.readOnly}
       mode={handlers.mode as BuilderMode | undefined}
+      editorOpen={handlers.editorOpen}
     />,
   );
 }
@@ -274,19 +276,133 @@ describe("TotalsCard (#545)", () => {
     );
   });
 
-  it("is a compact tap-to-expand bar: collapsed by default, toggles on tap", () => {
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #569 — floating totals card. The pinned bottom bar becomes a floating card
+// that tracks the viewport on scroll, defaults to the full breakdown, and
+// collapses to a total-only PILL (breakdown removed from the DOM, not merely
+// CSS-hidden). It also auto-collapses to a pill while the side line-item editor
+// is open (driven by the `editorOpen` signal) and restores the prior state when
+// the editor closes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("TotalsCard floating card (#569)", () => {
+  it("renders as a floating card pinned to the viewport (fixed), not an inline bar", () => {
     renderBar(makeEstimate({ total: 125 }));
 
-    const toggle = screen.getByRole("button", { name: /totals/i });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    // The grand total always stays visible in the compact summary.
+    const card = screen.getByTestId("totals-card");
+    expect(card.className).toContain("fixed");
+    // It must keep the grand Total in view.
     expect(screen.getByText("$125.00")).toBeTruthy();
+  });
 
-    fireEvent.click(toggle);
+  it("defaults to the full breakdown expanded (not the pill)", () => {
+    renderBar(makeEstimate({ subtotal: 100, total: 125 }));
+
+    const toggle = screen.getByRole("button", { name: /totals/i });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Subtotal")).toBeTruthy();
+  });
 
+  it("collapses to a total-only pill: breakdown removed from the DOM, Total stays", () => {
+    renderBar(makeEstimate({ subtotal: 100, total: 125 }));
+
+    const toggle = screen.getByRole("button", { name: /totals/i });
     fireEvent.click(toggle);
+
+    // Pill: the whole breakdown is gone from the DOM (not merely CSS-hidden).
+    expect(screen.queryByText("Subtotal")).toBeNull();
+    expect(screen.queryByText("Markup")).toBeNull();
+    expect(screen.queryByText("Tax")).toBeNull();
+
+    // ...but the grand Total — the reason the pill exists — stays in view.
+    expect(screen.getByText("Total")).toBeTruthy();
+    expect(screen.getByText("$125.00")).toBeTruthy();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("auto-collapses to a pill while the line-item editor is open", () => {
+    // Even though the card defaults to expanded, an open editor forces the pill
+    // so the floating card never overlaps the side editor panel.
+    renderBar(makeEstimate({ subtotal: 100, total: 125 }), { editorOpen: true });
+
+    expect(screen.queryByText("Subtotal")).toBeNull();
+    expect(screen.getByText("Total")).toBeTruthy();
+    expect(screen.getByText("$125.00")).toBeTruthy();
+  });
+
+  it("hides the expand toggle while the editor is open (can't re-expand over it)", () => {
+    renderBar(makeEstimate({ total: 125 }), { editorOpen: true });
+
+    expect(screen.queryByRole("button", { name: /totals/i })).toBeNull();
+  });
+
+  // The editor toggling open/closed must not clobber the user's expand/collapse
+  // choice — `editorOpen` only suppresses the breakdown, never rewrites it.
+  const card = (entity: BuilderEntity, editorOpen: boolean) => (
+    <TotalsCard
+      entity={entity}
+      onMarkupChange={vi.fn()}
+      onDiscountChange={vi.fn()}
+      onTaxRateChange={vi.fn()}
+      editorOpen={editorOpen}
+    />
+  );
+
+  it("restores the expanded breakdown after the editor closes", () => {
+    const entity = makeEstimate({ subtotal: 100, total: 125 });
+    const { rerender } = render(card(entity, false));
+
+    expect(screen.getByText("Subtotal")).toBeTruthy(); // expanded by default
+
+    rerender(card(entity, true));
+    expect(screen.queryByText("Subtotal")).toBeNull(); // pill while editor open
+
+    rerender(card(entity, false));
+    expect(screen.getByText("Subtotal")).toBeTruthy(); // restored to expanded
+  });
+
+  it("keeps the card a pill after the editor closes if the user had collapsed it", () => {
+    const entity = makeEstimate({ subtotal: 100, total: 125 });
+    const { rerender } = render(card(entity, false));
+
+    // User collapses to a pill before the editor ever opens.
+    fireEvent.click(screen.getByRole("button", { name: /totals/i }));
+    expect(screen.queryByText("Subtotal")).toBeNull();
+
+    // Editor opens, then closes.
+    rerender(card(entity, true));
+    rerender(card(entity, false));
+
+    // Still a pill — the editor must not silently re-expand the card.
+    expect(screen.queryByText("Subtotal")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /totals/i })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
+
+  it("keeps a negative Total visibly flagged even when collapsed to a pill", () => {
+    renderBar(
+      makeEstimate({
+        subtotal: 100,
+        discount_type: "amount",
+        discount_value: 150,
+        discount_amount: 150,
+        adjusted_subtotal: -50,
+        total: -50,
+      }),
+      { editorOpen: true },
+    );
+
+    // Pill: the breakdown is gone...
+    expect(screen.queryByText("Subtotal")).toBeNull();
+
+    // ...but the negative warning and the destructive-styled Total persist.
+    expect(screen.getByText("Negative total")).toBeTruthy();
+    const total = screen.getByText("-$50.00");
+    expect(total.className).toContain("text-destructive");
   });
 });

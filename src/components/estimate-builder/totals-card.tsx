@@ -15,6 +15,12 @@ interface TotalsCardProps {
   onTaxRateChange: (rate: number) => void;
   readOnly?: boolean;
   mode?: BuilderMode;
+  /**
+   * True while the side line-item editor panel is open. The card auto-collapses
+   * to its total-only pill so it never overlaps the editor, and restores the
+   * user's prior expand/collapse choice once the editor closes.
+   */
+  editorOpen?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,11 +170,12 @@ export function TotalsCard({
   onTaxRateChange,
   readOnly = false,
   mode = "estimate",
+  editorOpen = false,
 }: TotalsCardProps) {
-  // Phone: the bar is compact (grand Total only) and taps open to reveal the
-  // breakdown so it never covers the document lines. Desktop always shows the
-  // full row (the `lg:` classes below force it regardless of this state).
-  const [expanded, setExpanded] = useState(false);
+  // The floating card defaults to the full breakdown and can be collapsed to a
+  // total-only pill (the pill removes the breakdown from the DOM rather than
+  // CSS-hiding it, so it never covers the document lines).
+  const [expanded, setExpanded] = useState(true);
 
   if (mode === "template" || entity.kind === "template") return null;
 
@@ -205,73 +212,89 @@ export function TotalsCard({
 
   const isNegative = totals.total < 0;
 
+  // Derived at render: the card shows its full breakdown only when the user
+  // has it expanded AND the side line-item editor is closed. This makes the
+  // editor-open auto-collapse (and the restore-on-close) fall out for free —
+  // `expanded` is never mutated by the editor, so closing it returns the card
+  // to whatever the user last chose.
+  const showExpanded = expanded && !editorOpen;
+
   return (
-    <div className="sticky bottom-0 z-20 w-full border-t border-border bg-card shadow-[0_-1px_3px_rgba(0,0,0,0.06)]">
-      <div className="flex flex-col gap-2 px-4 py-2 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
-        {/* Breakdown — collapsible on phone, always inline on desktop. */}
-        <div
-          className={`${
-            expanded ? "grid" : "hidden"
-          } grid-cols-2 gap-x-4 gap-y-2 lg:flex lg:flex-1 lg:flex-wrap lg:items-end lg:gap-x-6 lg:gap-y-2`}
-        >
-          <SummaryLine label="Subtotal" amount={totals.subtotal} />
-          <AdjustmentRow
-            label="Markup"
-            type={totals.markup_type}
-            value={totals.markup_value}
-            amount={totals.markup_amount}
-            onChange={onMarkupChange}
-            readOnly={readOnly}
-          />
-          <AdjustmentRow
-            label="Discount"
-            type={totals.discount_type}
-            value={totals.discount_value}
-            amount={totals.discount_amount}
-            onChange={onDiscountChange}
-            readOnly={readOnly}
-            isDiscount
-          />
-          <SummaryLine label="Adjusted subtotal" amount={totals.adjusted_subtotal} />
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Tax</span>
-              <span className="text-xs font-mono text-foreground">
-                {formatCurrency(totals.tax_amount)}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={0.01}
-                value={totals.tax_rate}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const n = parseFloat(e.target.value);
-                  if (!isNaN(n)) onTaxRateChange(n);
-                }}
-                className="h-6 text-xs px-1.5 w-16 flex-none"
-                placeholder="0"
-              />
-              <span className="text-xs text-muted-foreground">%</span>
+    <div
+      data-testid="totals-card"
+      className="fixed bottom-4 right-4 z-30 w-[calc(100%-2rem)] max-w-sm rounded-xl border border-border bg-card shadow-lg"
+    >
+      <div className="flex flex-col gap-2 px-4 py-3">
+        {/* Breakdown — present only when expanded (pill removes it from DOM). */}
+        {showExpanded && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <SummaryLine label="Subtotal" amount={totals.subtotal} />
+            <AdjustmentRow
+              label="Markup"
+              type={totals.markup_type}
+              value={totals.markup_value}
+              amount={totals.markup_amount}
+              onChange={onMarkupChange}
+              readOnly={readOnly}
+            />
+            <AdjustmentRow
+              label="Discount"
+              type={totals.discount_type}
+              value={totals.discount_value}
+              amount={totals.discount_amount}
+              onChange={onDiscountChange}
+              readOnly={readOnly}
+              isDiscount
+            />
+            <SummaryLine
+              label="Adjusted subtotal"
+              amount={totals.adjusted_subtotal}
+            />
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs text-muted-foreground">Tax</span>
+                <span className="text-xs font-mono text-foreground">
+                  {formatCurrency(totals.tax_amount)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  value={totals.tax_rate}
+                  disabled={readOnly}
+                  onChange={(e) => {
+                    const n = parseFloat(e.target.value);
+                    if (!isNaN(n)) onTaxRateChange(n);
+                  }}
+                  className="h-6 text-xs px-1.5 w-16 flex-none"
+                  placeholder="0"
+                />
+                <span className="text-xs text-muted-foreground">%</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Compact summary — always visible: phone expand toggle + grand Total. */}
-        <div className="flex items-center justify-between gap-3 lg:justify-end">
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label="Totals breakdown"
-            onClick={() => setExpanded((v) => !v)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground lg:hidden"
-          >
-            {expanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            <span>Details</span>
-          </button>
+        {/* Compact summary — always shows the grand Total. The expand toggle is
+            withheld while the editor is open, so the card stays a pill. */}
+        <div className="flex items-center justify-between gap-3">
+          {editorOpen ? (
+            <span />
+          ) : (
+            <button
+              type="button"
+              aria-expanded={showExpanded}
+              aria-label="Totals breakdown"
+              onClick={() => setExpanded((v) => !v)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {showExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              <span>{showExpanded ? "Hide" : "Details"}</span>
+            </button>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Total</span>
             <span
