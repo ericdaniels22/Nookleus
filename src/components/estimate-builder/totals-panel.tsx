@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "./money-input";
 import type { AdjustmentType, BuilderEntity, BuilderMode } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,19 +115,32 @@ function AdjustmentRow({
           onChange={onChange}
           disabled={readOnly}
         />
-        <Input
-          type="number"
-          min={0}
-          step={0.01}
-          value={isNone ? "" : value}
-          disabled={readOnly || isNone}
-          onChange={(e) => {
-            const n = parseFloat(e.target.value);
-            if (!isNaN(n) && n >= 0) onChange(type, n);
-          }}
-          className="h-6 text-xs px-1.5 flex-1 min-w-0"
-          placeholder={isNone ? "—" : type === "percent" ? "0" : "0.00"}
-        />
+        {type === "amount" ? (
+          // Fixed-dollar adjustment — $-prefixed MoneyInput (#542). Commits on
+          // blur; parses at the edge so it never reformats mid-type.
+          <MoneyInput
+            value={value}
+            onCommit={(n) => onChange("amount", n)}
+            readOnly={readOnly}
+            placeholder="0.00"
+            className="h-6 flex-1 min-w-0 rounded-lg border border-input px-1.5 text-xs focus-within:border-primary"
+          />
+        ) : (
+          // Percent (or disabled "none") — plain number box; Tax keeps its own % box.
+          <Input
+            type="number"
+            min={0}
+            step={0.01}
+            value={isNone ? "" : value}
+            disabled={readOnly || isNone}
+            onChange={(e) => {
+              const n = parseFloat(e.target.value);
+              if (!isNaN(n) && n >= 0) onChange(type, n);
+            }}
+            className="h-6 text-xs px-1.5 flex-1 min-w-0"
+            placeholder={isNone ? "—" : type === "percent" ? "0" : "0.00"}
+          />
+        )}
       </div>
     </div>
   );

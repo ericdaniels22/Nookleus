@@ -15,6 +15,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
+import { MoneyInput } from "./money-input";
 import type { BuilderMode, EstimateLineItem, InvoiceLineItem } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +84,10 @@ export function LineItemRow({
   const [code, setCode] = useState(item.code ?? "");
   const [quantity, setQuantity] = useState(String(item.quantity));
   const [unit, setUnit] = useState(item.unit ?? "");
-  const [unitPrice, setUnitPrice] = useState(String(item.unit_price));
+  // Unit price now lives inside MoneyInput, which owns its own draft string.
+  // The row keeps only a numeric mirror so the line total can tick live as the
+  // user types (fed via MoneyInput's onValueChange).
+  const [unitPriceDraft, setUnitPriceDraft] = useState(item.unit_price);
 
   // Sync from props when item changes from outside (e.g. server reconcile)
   useEffect(() => {
@@ -93,12 +97,12 @@ export function LineItemRow({
     setCode(item.code ?? "");
     setQuantity(String(item.quantity));
     setUnit(item.unit ?? "");
-    setUnitPrice(String(item.unit_price));
+    setUnitPriceDraft(item.unit_price);
   }, [item.name, item.description, item.note, item.code, item.quantity, item.unit, item.unit_price]);
 
   // ── Live total (uses local editing values) ────────────────────────────────
   const localQty = Number(quantity);
-  const localUnitPrice = Number(unitPrice);
+  const localUnitPrice = unitPriceDraft;
   const liveTotal =
     Number.isFinite(localQty) && Number.isFinite(localUnitPrice)
       ? localQty * localUnitPrice
@@ -160,18 +164,6 @@ export function LineItemRow({
     const val = unit.trim() || null;
     if (val !== item.unit) {
       onChange({ unit: val });
-    }
-  }
-
-  function commitUnitPrice() {
-    const parsed = Number(unitPrice);
-    if (!unitPrice.trim() || !Number.isFinite(parsed)) {
-      // Revert on empty or NaN
-      setUnitPrice(String(item.unit_price));
-      return;
-    }
-    if (parsed !== item.unit_price) {
-      onChange({ unit_price: parsed });
     }
   }
 
@@ -314,22 +306,20 @@ export function LineItemRow({
         )}
       />
 
-      {/* Unit price */}
-      <input
-        type="number"
-        value={unitPrice}
-        disabled={readOnly}
-        onChange={(e) => setUnitPrice(e.target.value)}
-        onBlur={commitUnitPrice}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+      {/* Unit price — $-prefixed MoneyInput (#542). Commits on blur; feeds the
+          live total via onValueChange so it ticks while typing. */}
+      <MoneyInput
+        value={item.unit_price}
+        onValueChange={(raw) => setUnitPriceDraft(Number(raw))}
+        onCommit={(n) => {
+          if (n !== item.unit_price) onChange({ unit_price: n });
         }}
+        readOnly={readOnly}
         placeholder="0.00"
         className={cn(
-          "w-24 shrink-0 mt-0.5 bg-transparent border-0 outline-none ring-0 text-sm text-foreground tabular-nums text-right placeholder:text-muted-foreground/50",
-          "focus:bg-muted/40 focus:rounded px-1 py-0.5 transition-colors",
-          "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-          "disabled:cursor-default disabled:opacity-60"
+          "w-24 shrink-0 mt-0.5 px-1 py-0.5 text-sm text-foreground transition-colors",
+          "focus-within:bg-muted/40 focus-within:rounded",
+          readOnly && "opacity-60"
         )}
       />
 
