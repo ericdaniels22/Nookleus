@@ -41,7 +41,7 @@ import {
 import { HeaderBar } from "./header-bar";
 import { TotalsCard } from "./totals-card";
 import { MetadataBar } from "./metadata-bar";
-import { CustomerBlock } from "./customer-block";
+import { CustomerCard } from "./customer-card";
 import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
 import { buildNumberIndex } from "./number-section-tree";
@@ -1774,8 +1774,8 @@ export function EstimateBuilder({
             mode={invMode}
           />
 
-          {/* ── CustomerBlock ── */}
-          {job && <CustomerBlock job={job} mode={invMode} />}
+          {/* ── CustomerCard ── */}
+          {job && <CustomerCard job={job} mode={invMode} />}
 
           {/* ── Opening statement ── */}
           <StatementEditor
@@ -1923,7 +1923,7 @@ export function EstimateBuilder({
   if (state.entity.kind === "template") {
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: MetadataBar (replaced by
-    // TemplateMetaBar), CustomerBlock, the totals bar, TemplateBanner,
+    // TemplateMetaBar), CustomerCard, the totals bar, TemplateBanner,
     // voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
@@ -2227,8 +2227,8 @@ export function EstimateBuilder({
           />
         )}
 
-        {/* ── SLOT 3: CustomerBlock ────────────────────────────────────────── */}
-        {job && <CustomerBlock job={job} mode={mode} />}
+        {/* ── SLOT 3: CustomerCard ────────────────────────────────────────── */}
+        {job && <CustomerCard job={job} mode={mode} />}
 
         {/* ── SLOT 4: Opening statement ────────────────────────────────────── */}
         <StatementEditor
