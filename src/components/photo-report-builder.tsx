@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -43,6 +44,7 @@ import {
   type PhotoReportBuilderState,
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
+import { AddPhotosDialog } from "@/components/photo-report-add-photos-dialog";
 import { measureWriteupFit } from "@/lib/section-writeup-fit";
 import {
   newSectionId,
@@ -117,6 +119,12 @@ export default function PhotoReportBuilder({
   const selectedId = state.sections.some((s) => s.id === selectedSectionId)
     ? selectedSectionId
     : null;
+  // Which Section the "+ Add Photos" picker is adding into (#552), or null
+  // while closed. Like selectedSectionId, purely ephemeral UI state. The dialog
+  // mounts only while open, so every open starts with a fresh, empty selection.
+  const [pickerSectionIndex, setPickerSectionIndex] = useState<number | null>(
+    null,
+  );
 
   // The latest edit revision, mirrored into a ref so the async save tail can
   // tell whether a newer edit landed while it was in flight (its own captured
@@ -504,6 +512,7 @@ export default function PhotoReportBuilder({
                     supabaseUrl={supabaseUrl}
                     dispatch={dispatch}
                     desktopSelected={selectedId === section.id}
+                    onOpenPicker={() => setPickerSectionIndex(index)}
                   />
                 ))}
               </div>
@@ -520,11 +529,36 @@ export default function PhotoReportBuilder({
               Add section
             </button>
 
-            {/* Photos not yet in the report — drag into a Section to add. */}
+            {/* Photos not yet in the report — drag into a Section to add.
+                Phone-only (#552): on desktop the "+ Add Photos" picker replaces
+                the always-visible tray. */}
             <PhotoTray photos={availablePhotos} supabaseUrl={supabaseUrl} />
           </div>
         </div>
       </DndContext>
+
+      {/* The "+ Add Photos" picker (#552): adds a multi-selection of the Job's
+          photos into the Section whose button opened it. */}
+      {pickerSectionIndex !== null && (
+        <AddPhotosDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPickerSectionIndex(null);
+          }}
+          photos={photos}
+          sections={state.sections}
+          sectionIndex={pickerSectionIndex}
+          supabaseUrl={supabaseUrl}
+          onAdd={(photoIds) => {
+            dispatch({
+              type: "addPhotosToSection",
+              photoIds,
+              sectionIndex: pickerSectionIndex,
+            });
+            setPickerSectionIndex(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -620,6 +654,7 @@ function SortableSection({
   supabaseUrl,
   dispatch,
   desktopSelected,
+  onOpenPicker,
 }: {
   index: number;
   section: ReportSection;
@@ -634,6 +669,8 @@ function SortableSection({
    * inert below lg, where the phone builder still renders every Section.
    */
   desktopSelected: boolean;
+  /** Open the "+ Add Photos" picker targeting this Section (#552). */
+  onOpenPicker: () => void;
 }) {
   const {
     attributes,
@@ -742,55 +779,81 @@ function SortableSection({
         {!fit.fits && ` · ${-fit.remaining} over the limit`}
       </p>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-        {section.photo_ids.map((photoId) => {
-          const photo = photosById.get(photoId);
-          if (!photo) return null;
-          return (
-            <DraggablePhoto
-              key={photoId}
-              photo={photo}
-              sectionIndex={index}
-              supabaseUrl={supabaseUrl}
-              dispatch={dispatch}
-            />
-          );
-        })}
+      {/* Photos are sortable within their Section (#552): the items are the
+          raw photo_ids (a dangling id still occupies its index, so photoIndex
+          stays aligned with the reducer's photo_ids positions). rect strategy:
+          this is a wrapping grid, not a vertical list. */}
+      <SortableContext items={section.photo_ids} strategy={rectSortingStrategy}>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+          {section.photo_ids.map((photoId, photoIndex) => {
+            const photo = photosById.get(photoId);
+            if (!photo) return null;
+            return (
+              <DraggablePhoto
+                key={photoId}
+                photo={photo}
+                sectionIndex={index}
+                photoIndex={photoIndex}
+                supabaseUrl={supabaseUrl}
+                dispatch={dispatch}
+              />
+            );
+          })}
+        </div>
+      </SortableContext>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {visibleCount} photo{visibleCount === 1 ? "" : "s"}
+          {/* The drag-here hint only makes sense where the tray exists (phone);
+              on desktop the picker is the add affordance (#552). */}
+          <span className="lg:hidden"> — drag photos here to add them</span>
+        </p>
+        <button
+          type="button"
+          onClick={onOpenPicker}
+          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+        >
+          <Plus size={14} />
+          Add Photos
+        </button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {visibleCount} photo{visibleCount === 1 ? "" : "s"} — drag photos here to
-        add them
-      </p>
     </section>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DraggablePhoto — a photo inside a Section: drag it to another Section, or
-// remove it from the report.
+// DraggablePhoto — a photo inside a Section: drag it within its Section to
+// reorder (#552), drag it to another Section to move it, or remove it from the
+// report. Sortable (so it is also a drop target), unlike the tray's photos —
+// its id can't collide with a tray photo's because a photo is never in a
+// Section and the tray at once.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DraggablePhoto({
   photo,
   sectionIndex,
+  photoIndex,
   supabaseUrl,
   dispatch,
 }: {
   photo: Photo;
   sectionIndex: number;
+  /** This photo's position in its Section's photo_ids. */
+  photoIndex: number;
   supabaseUrl: string;
   dispatch: React.Dispatch<
     Parameters<typeof photoReportBuilderReducer>[1]
   >;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({
       id: photo.id,
-      data: { type: "photo", photoId: photo.id, sectionIndex },
+      data: { type: "photo", photoId: photo.id, sectionIndex, photoIndex },
     });
 
   const style = {
-    transform: CSS.Translate.toString(transform),
+    transform: CSS.Transform.toString(transform),
+    transition,
     opacity: isDragging ? 0.4 : 1,
   };
 
@@ -823,7 +886,8 @@ function DraggablePhoto({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PhotoTray — the Job's photos that are not yet in the report; drag one into a
-// Section to add it.
+// Section to add it. Phone-only (#552): on desktop the "+ Add Photos" picker is
+// the add affordance, so the tray hides at lg+.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PhotoTray({
@@ -834,7 +898,7 @@ function PhotoTray({
   supabaseUrl: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-4">
+    <div className="lg:hidden rounded-xl border border-border bg-muted/30 p-4">
       <h2 className="mb-2 text-xs font-medium text-muted-foreground">
         Photos not in the report
       </h2>

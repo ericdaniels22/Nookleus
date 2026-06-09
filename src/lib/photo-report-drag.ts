@@ -6,11 +6,12 @@
 // testable without React. Mirrors estimate-builder/move-line-item.ts.
 //
 // The builder attaches a `data.current` descriptor to each node:
-//   - a Section container (the only drop target): { type: "section", index }
-//   - a Photo (a drag source only): { type: "photo", photoId, sectionIndex? }
-//     A photo already in a Section carries its sectionIndex; a photo in the "not
-//     in the report" tray carries none. Photos are draggable but not droppable,
-//     so a drop's `over` is always a Section (or null).
+//   - a Section container: { type: "section", index }
+//   - a Photo: { type: "photo", photoId, sectionIndex?, photoIndex? }
+//     A photo already in a Section carries its sectionIndex and its position
+//     within that Section's photo_ids (#552 made in-Section photos sortable, so
+//     they are drop targets too); a photo in the phone-only "not in the report"
+//     tray carries neither, and the tray itself is not a drop target.
 
 import type { PhotoReportBuilderAction } from "./photo-report-builder";
 
@@ -35,31 +36,55 @@ export function resolvePhotoReportDragEnd(
 
   if (activeData.type === "section") {
     const from = numberOrNull(activeData.index);
-    const to = overData.type === "section" ? numberOrNull(overData.index) : null;
+    const to = dropTargetSectionIndex(overData);
     if (from === null || to === null || from === to) return null;
     return { type: "reorderSection", from, to };
   }
 
   if (activeData.type === "photo") {
     const photoId = typeof activeData.photoId === "string" ? activeData.photoId : null;
+    if (photoId === null) return null;
+    const fromSection = numberOrNull(activeData.sectionIndex);
+
+    // A photo dropped onto another photo in its own Section reorders within it
+    // (#552): the dragged photo lands at the target's position, dnd-kit's
+    // arrayMove semantics.
+    if (
+      overData.type === "photo" &&
+      fromSection !== null &&
+      numberOrNull(overData.sectionIndex) === fromSection
+    ) {
+      const from = numberOrNull(activeData.photoIndex);
+      const to = numberOrNull(overData.photoIndex);
+      if (from === null || to === null || from === to) return null;
+      return {
+        type: "reorderPhotoWithinSection",
+        sectionIndex: fromSection,
+        from,
+        to,
+      };
+    }
+
     const sectionIndex = dropTargetSectionIndex(overData);
-    if (photoId === null || sectionIndex === null) return null;
-    // A photo dropped back onto the Section it already belongs to is a no-op (no
-    // within-section reordering this slice). Tray photos carry no sectionIndex,
-    // so they always assign.
-    if (numberOrNull(activeData.sectionIndex) === sectionIndex) return null;
+    if (sectionIndex === null) return null;
+    // A photo dropped back onto its own Section's container changes nothing —
+    // assigning would surprise the user by jumping the photo to the end.
+    if (fromSection === sectionIndex) return null;
     return { type: "assignPhotoToSection", photoId, sectionIndex };
   }
 
   return null;
 }
 
-// The Section index a drop lands in. Sections are the only drop targets (photos
-// are draggable but not droppable), so a drop's `over` is always a Section.
+// The Section index a drop lands in: the Section container itself, or — since
+// in-Section photos are sortable and therefore droppable (#552) — a photo that
+// lives in a Section, which stands in for its Section. Tray photos carry no
+// sectionIndex and resolve to null (the tray is not a drop target).
 function dropTargetSectionIndex(
   overData: Record<string, unknown>,
 ): number | null {
   if (overData.type === "section") return numberOrNull(overData.index);
+  if (overData.type === "photo") return numberOrNull(overData.sectionIndex);
   return null;
 }
 
