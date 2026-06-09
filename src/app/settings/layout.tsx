@@ -6,6 +6,11 @@ import { settingsNavItems } from "@/lib/settings-nav";
 import { cn } from "@/lib/utils";
 import { Settings, ChevronDown } from "lucide-react";
 
+// The template editor (#543) renders in the full-width BuilderLayout shell, so
+// it must escape the settings chrome (header + max-w-6xl column + sub-nav) and
+// render bare — exactly as the estimate/invoice builders do outside /settings.
+const BUILDER_ROUTE = /^\/settings\/estimate-templates\/[^/]+\/edit(\/|$)/;
+
 export default function SettingsLayout({
   children,
 }: {
@@ -13,6 +18,10 @@ export default function SettingsLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  if (BUILDER_ROUTE.test(pathname)) {
+    return <>{children}</>;
+  }
 
   const currentItem = settingsNavItems.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/")
