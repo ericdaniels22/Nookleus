@@ -360,19 +360,21 @@ function makeVoidedEstimateEntity(): BuilderEntity {
   return e;
 }
 
-// Click the inline row whose name field shows `name`. Scoped to the document
-// surface so it never accidentally matches the editor panel's own name field.
+// Click the inline row whose static name text reads `name`. Scoped to the
+// document surface so it never accidentally matches the editor panel's own
+// name field (the panel is a sibling of builder-document, not inside it).
 function selectRowByName(name: string) {
   const doc = screen.getByTestId("builder-document");
-  fireEvent.click(within(doc).getByDisplayValue(name));
+  fireEvent.click(within(doc).getByText(name));
 }
 
-// Click the row CONTAINER (not an input). Needed when fields are disabled —
-// disabled inputs don't dispatch clicks, but the row div still does.
+// Click the row CONTAINER explicitly (vs. its text). Rows are display-only
+// since #546, so a text click already bubbles to select — but read-only modes
+// keep this for clarity about what is being clicked.
 function clickRowContainer(name: string) {
   const doc = screen.getByTestId("builder-document");
   const row = within(doc)
-    .getByDisplayValue(name)
+    .getByText(name)
     .closest('[data-testid="line-item-row"]') as HTMLElement;
   fireEvent.click(row);
 }
@@ -436,14 +438,14 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     render(<EstimateBuilder entity={makeEstimateEntity()} />);
 
     const doc = screen.getByTestId("builder-document");
-    const rowInput = within(doc).getByDisplayValue("Tear-off");
-    const row = rowInput.closest('[data-testid="line-item-row"]');
+    const rowName = within(doc).getByText("Tear-off");
+    const row = rowName.closest('[data-testid="line-item-row"]');
     expect(row).not.toBeNull();
 
     // Not highlighted until selected.
     expect((row as HTMLElement).getAttribute("data-selected")).toBeNull();
 
-    fireEvent.click(rowInput);
+    fireEvent.click(rowName);
 
     expect((row as HTMLElement).getAttribute("data-selected")).toBe("true");
   });
@@ -488,10 +490,12 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     fireEvent.blur(panelCost);
 
     // The INLINE row (inside the document, not the panel) now shows the new
-    // unit cost and recomputed total — both surfaces share one model.
+    // unit cost and recomputed total as static currency — both surfaces share
+    // one model. With qty 1, the unit-price cell and the total cell both read
+    // $250.00, and the old $100.00 is gone from the row.
     const doc = screen.getByTestId("builder-document");
-    expect(within(doc).getByDisplayValue("250")).toBeDefined();
-    expect(within(doc).getByText("$250.00")).toBeDefined();
+    expect(within(doc).getAllByText("$250.00").length).toBe(2);
+    expect(within(doc).queryByText("$100.00")).toBeNull();
   });
 
   it("renders the editor docked on desktop (no scrim)", () => {
@@ -593,7 +597,7 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
 
     const doc = screen.getByTestId("builder-document");
     const rowA = within(doc)
-      .getByDisplayValue("Tear-off")
+      .getByText("Tear-off")
       .closest('[data-testid="line-item-row"]') as HTMLElement;
     fireEvent.click(
       within(rowA).getByRole("button", { name: /delete line item/i }),
@@ -621,7 +625,7 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     // Delete the OTHER line (X, in the subsection) via its delete button.
     const doc = screen.getByTestId("builder-document");
     const rowX = within(doc)
-      .getByDisplayValue("Step flashing")
+      .getByText("Step flashing")
       .closest('[data-testid="line-item-row"]') as HTMLElement;
     fireEvent.click(
       within(rowX).getByRole("button", { name: /delete line item/i }),
@@ -636,17 +640,21 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the inline row editable (the panel is additive)", () => {
+  it("makes the row display-only — selecting it is the sole path to edit (#546)", () => {
     render(<EstimateBuilder entity={makeEstimateEntity()} />);
     const doc = screen.getByTestId("builder-document");
 
-    // Edit and commit directly on the inline row — no panel needed.
-    const inlineName = within(doc).getByDisplayValue("Tear-off");
-    fireEvent.change(inlineName, { target: { value: "Tear-off & haul" } });
-    fireEvent.blur(inlineName);
+    // The row carries no inline inputs anymore — every field is static text.
+    const rowA = within(doc)
+      .getByText("Tear-off")
+      .closest('[data-testid="line-item-row"]') as HTMLElement;
+    expect(within(rowA).queryByRole("textbox")).toBeNull();
+    expect(within(rowA).queryByRole("spinbutton")).toBeNull();
 
-    // The committed value persists on the inline row.
-    expect(within(doc).getByDisplayValue("Tear-off & haul")).toBeDefined();
+    // Editing is reached only by selecting the row, which opens the panel.
+    expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
+    fireEvent.click(within(doc).getByText("Tear-off"));
+    expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
   });
 
   it("opens the panel with disabled fields on a voided (read-only) estimate", () => {

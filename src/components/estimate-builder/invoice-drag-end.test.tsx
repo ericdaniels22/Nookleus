@@ -258,7 +258,7 @@ describe("EstimateBuilder invoice drag-end", () => {
   it("moves a Line item from a Subsection into its parent Section's direct items and persists every item in both containers", async () => {
     render(<EstimateBuilder entity={makeInvoiceEntity()} />);
 
-    expect(screen.getByDisplayValue("Step flashing")).toBeDefined();
+    expect(screen.getByText("Step flashing")).toBeDefined();
 
     dispatchDragEnd(
       makeDragEndEvent({
@@ -269,7 +269,7 @@ describe("EstimateBuilder invoice drag-end", () => {
       }),
     );
 
-    expect(screen.getByDisplayValue("Step flashing")).toBeDefined();
+    expect(screen.getByText("Step flashing")).toBeDefined();
     expect(screen.getByText("No items yet.")).toBeDefined();
 
     expect(saveLineItemsReorderMock).toHaveBeenCalledTimes(1);
@@ -320,7 +320,7 @@ describe("EstimateBuilder invoice drag-end", () => {
     const sub1Card = sub1Heading.closest("li");
     expect(sub1Card).not.toBeNull();
     expect(
-      within(sub1Card as HTMLElement).getByDisplayValue("Step flashing"),
+      within(sub1Card as HTMLElement).getByText("Step flashing"),
     ).toBeDefined();
 
     await act(async () => {
@@ -336,7 +336,7 @@ describe("EstimateBuilder invoice drag-end", () => {
     });
 
     expect(
-      within(sub1Card as HTMLElement).getByDisplayValue("Step flashing"),
+      within(sub1Card as HTMLElement).getByText("Step flashing"),
     ).toBeDefined();
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to save line item order");
   });
@@ -377,8 +377,8 @@ describe("EstimateBuilder invoice drag-end", () => {
       }),
     );
 
-    expect(screen.getByDisplayValue("Tear-off")).toBeDefined();
-    expect(screen.getByDisplayValue("Underlayment")).toBeDefined();
+    expect(screen.getByText("Tear-off")).toBeDefined();
+    expect(screen.getByText("Underlayment")).toBeDefined();
 
     expect(saveLineItemsReorderMock).toHaveBeenCalledTimes(1);
     const payload = saveLineItemsReorderMock.mock.calls[0][0];
