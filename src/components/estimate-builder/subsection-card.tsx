@@ -66,6 +66,10 @@ export interface SubsectionCardProps {
   sectionIdx?: number;
   /** Task 36: this subsection's index in the parent section's subsections array. */
   subsectionIdx?: number;
+  /** #544: id of the line currently open in the editor panel (highlights its row). */
+  selectedLineItemId?: string | null;
+  /** #544: select a line (opens the editor panel on it). */
+  onSelectLineItem?: (id: string) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +135,8 @@ export function SubsectionCard({
   mode = "estimate",
   sectionIdx,
   subsectionIdx,
+  selectedLineItemId,
+  onSelectLineItem,
 }: SubsectionCardProps) {
   const {
     attributes,
@@ -318,6 +324,8 @@ export function SubsectionCard({
                   ? `line-item-s${sectionIdx}-i${iIdx}-sub${subsectionIdx}`
                   : undefined
               }
+              selected={selectedLineItemId === item.id}
+              onSelect={() => onSelectLineItem?.(item.id)}
             />
           ))}
         </SortableContext>

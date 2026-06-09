@@ -42,6 +42,10 @@ export interface LineItemRowProps {
    * Constructed by parents (section-card / subsection-card) which know the indices.
    */
   domId?: string;
+  /** #544: whether this row is the line currently open in the editor panel. */
+  selected?: boolean;
+  /** #544: select this row (opens the editor panel on it). */
+  onSelect?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +60,8 @@ export function LineItemRow({
   readOnly = false,
   mode = "estimate",
   domId,
+  selected = false,
+  onSelect,
 }: LineItemRowProps) {
   // ── dnd-kit sortable ──────────────────────────────────────────────────────
   const {
@@ -173,9 +179,22 @@ export function LineItemRow({
     <div
       ref={setNodeRef}
       id={domId}
+      data-testid="line-item-row"
+      data-selected={selected ? "true" : undefined}
+      onClick={(e) => {
+        // Clicking anywhere on the row selects it (opens the editor panel).
+        // Stop here so the bubbling click doesn't reach the document
+        // background handler, which clears the selection.
+        if (onSelect) {
+          e.stopPropagation();
+          onSelect();
+        }
+      }}
       style={style}
       className={cn(
         "group flex items-start gap-1 px-2 py-1.5 rounded-md border border-border bg-card text-sm",
+        "transition-shadow cursor-pointer",
+        selected && "border-primary ring-2 ring-primary/50",
         isDragging && "ring-2 ring-primary/30 shadow-md",
         readOnly && "opacity-75"
       )}
@@ -331,7 +350,12 @@ export function LineItemRow({
       {/* Delete button */}
       {!readOnly ? (
         <button
-          onClick={onDelete}
+          onClick={(e) => {
+            // Don't let the delete bubble to the row's select handler — deleting
+            // a non-selected line must not first select it (#544).
+            e.stopPropagation();
+            onDelete();
+          }}
           className="opacity-0 group-hover:opacity-100 transition-opacity p-1 mt-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
           aria-label="Delete line item"
         >
