@@ -193,7 +193,7 @@ describe("EstimateBuilder template drag-end", () => {
     render(<EstimateBuilder entity={makeTemplateEntity()} />);
 
     // Sanity: X is rendered initially (Subsection is expanded by default).
-    expect(screen.getByDisplayValue("Step flashing")).toBeDefined();
+    expect(screen.getByText("Step flashing")).toBeDefined();
 
     dispatchDragEnd(
       makeDragEndEvent({
@@ -206,7 +206,7 @@ describe("EstimateBuilder template drag-end", () => {
 
     // After the drop, X still exists on screen — semantics are that the same
     // row moved containers. Source Subsection should now be empty.
-    expect(screen.getByDisplayValue("Step flashing")).toBeDefined();
+    expect(screen.getByText("Step flashing")).toBeDefined();
     // Empty subsection placeholder appears.
     expect(screen.getByText("No items yet.")).toBeDefined();
   });
@@ -284,7 +284,7 @@ describe("EstimateBuilder template drag-end", () => {
     );
 
     // Both items still rendered.
-    expect(screen.getByDisplayValue("Tear-off")).toBeDefined();
-    expect(screen.getByDisplayValue("Underlayment")).toBeDefined();
+    expect(screen.getByText("Tear-off")).toBeDefined();
+    expect(screen.getByText("Underlayment")).toBeDefined();
   });
 });

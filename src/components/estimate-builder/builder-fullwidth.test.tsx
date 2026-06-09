@@ -308,7 +308,7 @@ describe("EstimateBuilder — full-width shell across modes (#543)", () => {
 
     // Letterhead title + nested Section structure remain visible/intact.
     expect(screen.getByText("Full-width test estimate")).toBeDefined();
-    expect(screen.getByDisplayValue("Step flashing")).toBeDefined();
+    expect(screen.getByText("Step flashing")).toBeDefined();
 
     // The document lives in the full-width shell …
     expect(screen.getByTestId("builder-document")).toBeDefined();
@@ -321,7 +321,7 @@ describe("EstimateBuilder — full-width shell across modes (#543)", () => {
 
     // Letterhead title + nested Section structure remain visible/intact.
     expect(screen.getByText("Full-width test invoice")).toBeDefined();
-    expect(screen.getByDisplayValue("Invoice step flashing")).toBeDefined();
+    expect(screen.getByText("Invoice step flashing")).toBeDefined();
 
     // The document lives in the full-width shell …
     expect(screen.getByTestId("builder-document")).toBeDefined();
@@ -336,7 +336,7 @@ describe("EstimateBuilder — full-width shell across modes (#543)", () => {
     // The name surfaces in both the HeaderBar and the TemplateMetaBar, so just
     // assert it is present (at least once) — the letterhead survived the shell.
     expect(screen.getAllByText("Full-width test template").length).toBeGreaterThan(0);
-    expect(screen.getByDisplayValue("Template step flashing")).toBeDefined();
+    expect(screen.getByText("Template step flashing")).toBeDefined();
 
     // The document lives in the full-width shell …
     expect(screen.getByTestId("builder-document")).toBeDefined();
