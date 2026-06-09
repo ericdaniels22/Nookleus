@@ -646,7 +646,10 @@ export const EMAIL_PROVIDERS: Record<string, { label: string; imap_host: string;
 // Build 67a — Estimates & Invoices
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type EstimateStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'converted' | 'voided';
+// #567 — the Estimate workflow is exactly draft → sent → converted / voided
+// (ADR 0007). The retired `approved`/`rejected` states are gone; the
+// `approved_at`/`rejected_at` columns below are kept nullable but never written.
+export type EstimateStatus = 'draft' | 'sent' | 'converted' | 'voided';
 export type AdjustmentType = 'percent' | 'amount' | 'none';
 export type ItemCategory = 'labor' | 'equipment' | 'materials' | 'services' | 'other';
 
