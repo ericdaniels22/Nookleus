@@ -6,12 +6,17 @@
 // Money contracts:
 // - discount is computed from the RAW subtotal, not the marked-up one
 // - tax is adjusted_subtotal × taxRatePercent / 100 — taxRatePercent is a
-//   whole-number percent (8.25 = 8.25%) matching the tax_rate numeric(6,4)
-//   column, NOT a fraction
+//   whole-number percent (8.25 = 8.25%) matching the tax_rate columns
+//   (numeric(5,2) on estimates, numeric(6,4) on invoices), NOT a fraction
 // - each leg is rounded to cents independently
 //
-// The PL/pgSQL convert-to-invoice copy still duplicates this math; it gets
-// folded in when Overhead & Profit lands (#564).
+// Two PL/pgSQL copies of this math are still live (latest bodies in
+// migration-382b): convert_estimate_to_invoice and apply_template_to_estimate.
+// Their formulas match but their rounding doesn't — Postgres round(numeric,2)
+// is exact half-away-from-zero while round2 is float Math.round, so a leg
+// landing on an exact half cent can differ by a penny (e.g. $2.90 at 5%
+// markup → 0.15 SQL vs 0.14 here). Both get reworked with Overhead & Profit
+// (#564; see #572/#575).
 
 import type { AdjustmentType } from "@/lib/types";
 import { round2 } from "@/lib/format";
@@ -27,8 +32,13 @@ export type WaterfallInput = {
   /** Whole-number percent, e.g. 8.25 = 8.25%. */
   taxRatePercent: number;
 } & (
-  | { lineItemCharges: number[] }
-  | { subtotal: number } // precomputed, e.g. the builder's summed sections
+  // The `?: never` members keep the two forms mutually exclusive — without
+  // them an object carrying BOTH keys would typecheck and `subtotal` would
+  // silently win (the implementation checks "subtotal" in input first).
+  | { lineItemCharges: number[]; subtotal?: never }
+  // Precomputed (e.g. the builder's summed sections); re-rounded to cents
+  // before the legs are computed.
+  | { subtotal: number; lineItemCharges?: never }
 );
 
 export interface WaterfallResult {

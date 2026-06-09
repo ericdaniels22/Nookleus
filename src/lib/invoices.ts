@@ -214,10 +214,16 @@ export async function touchInvoice(
 }
 
 // =============================================================================
-// Compat helpers — kept routes (mark-sent, pdf, send, void) still call these
+// Legacy helpers
 // =============================================================================
 
-/** computeTotals retained for kept-route compatibility. New routes use computeWaterfall. */
+/**
+ * Dead code — no caller anywhere as of #577 (the kept routes this section once
+ * served now read persisted totals or use computeWaterfall). Kept only to
+ * avoid churn; delete in a follow-up rather than reuse. WARNING: unlike the
+ * waterfall, taxRate here is a FRACTION (0.0825), not a whole-number percent —
+ * feeding it a DB tax_rate produces 100× tax.
+ */
 export function computeTotals(
   items: InvoiceLineItemInput[],
   taxRate: number,

@@ -1,12 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { computeWaterfall } from "./waterfall";
+import { computeWaterfall, type Adjustment, type WaterfallInput } from "./waterfall";
 
 // #566 — the pricing waterfall (subtotal → +markup → −discount → adjusted
 // subtotal → +tax → total) is a single pure function shared by the server
 // recalc paths and the builder's live totals. These tests pin the money
 // contracts: discount comes off the RAW subtotal, tax is
 // adjusted_subtotal × taxRatePercent / 100 (whole-number percent, matching
-// the tax_rate numeric(6,4) column), and every leg rounds to cents on its own.
+// the tax_rate columns — numeric(5,2) on estimates, numeric(6,4) on
+// invoices), and every leg rounds to cents on its own.
+//
+// NB: keep `$` and `%%` out of the it.each title templates — vitest treats
+// `$1` as positional-arg injection, so a literal like "$1,000" renders as
+// garbage in test output.
 
 describe("computeWaterfall", () => {
   it.each([
@@ -14,7 +19,7 @@ describe("computeWaterfall", () => {
     ["amount", 250, 250], // flat $250
     ["none", 10, 0], // value is ignored when type is none
   ] as const)(
-    "markup %s %s on a $1,000 subtotal adds $%s",
+    "markup %s %s on a 1000 subtotal adds %s",
     (type, value, expected) => {
       const result = computeWaterfall({
         lineItemCharges: [600, 400],
@@ -35,7 +40,7 @@ describe("computeWaterfall", () => {
     ["amount", 75, 75],
     ["none", 10, 0],
   ] as const)(
-    "discount %s %s comes off the raw subtotal, after a 20%% markup",
+    "discount %s %s takes %s off the raw 1000 subtotal, not the 1200 marked-up one",
     (type, value, expected) => {
       const result = computeWaterfall({
         lineItemCharges: [1000],
@@ -92,6 +97,50 @@ describe("computeWaterfall", () => {
 
     expect(result.subtotal).toBe(0.3);
     expect(result.total).toBe(0.3);
+  });
+
+  it("rounds a precomputed subtotal to cents before computing the legs", () => {
+    // Pins the { subtotal } branch's round2 — a mutation-test survivor in the
+    // original suite (the parity test below feeds a clean 2-decimal literal,
+    // which can't tell rounded from unrounded).
+    const result = computeWaterfall({
+      subtotal: 0.1 + 0.2, // 0.30000000000000004 in IEEE 754
+      markup: { type: "none", value: 0 },
+      discount: { type: "none", value: 0 },
+      taxRatePercent: 0,
+    });
+
+    expect(result.subtotal).toBe(0.3);
+    expect(result.total).toBe(0.3);
+  });
+
+  it("coerces string line charges — Supabase numeric columns can arrive as strings", () => {
+    const result = computeWaterfall({
+      lineItemCharges: ["600", "400"] as unknown as number[],
+      markup: { type: "none", value: 0 },
+      discount: { type: "none", value: 0 },
+      taxRatePercent: 0,
+    });
+
+    expect(result.subtotal).toBe(1000); // not string concatenation
+  });
+
+  it("rejects an input carrying both line charges and a precomputed subtotal", () => {
+    const markup: Adjustment = { type: "none", value: 0 };
+    const discount: Adjustment = { type: "none", value: 0 };
+    // @ts-expect-error — WaterfallInput forbids supplying both forms at once;
+    // if the `?: never` exclusion is ever dropped, this directive turns into
+    // an "unused @ts-expect-error" tsc failure.
+    const both: WaterfallInput = {
+      lineItemCharges: [100, 200],
+      subtotal: 999999,
+      markup,
+      discount,
+      taxRatePercent: 0,
+    };
+
+    // And if the types are bypassed with a cast anyway, subtotal wins:
+    expect(computeWaterfall(both).subtotal).toBe(999999);
   });
 
   it("accepts a precomputed subtotal (the builder's live path) and matches the line-charges path exactly", () => {
