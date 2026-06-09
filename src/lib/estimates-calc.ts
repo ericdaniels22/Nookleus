@@ -38,9 +38,9 @@ export function computeEstimateTotals(input: {
     discount: { type: input.discount_type, value: Number(input.discount_value) },
     taxRatePercent: Number(input.tax_rate),
   });
-  // Callers spread this into row state — keep the historical shape (no subtotal).
-  // Invoices read only markup_amount (their single-markup leg); estimates read
-  // overhead_amount/profit_amount too.
+  // Callers spread this into row state — keep the historical shape (no
+  // subtotal). Estimates and invoices (#575) both read all three markup
+  // amounts: the overhead/profit legs plus their markup_amount sum.
   return {
     overhead_amount: t.overhead_amount,
     profit_amount: t.profit_amount,

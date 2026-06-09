@@ -121,9 +121,19 @@ export interface Invoice {
   opening_statement: string | null;
   closing_statement: string | null;
   subtotal: number;
+  // #575 — invoices carry the same split Markup as estimates (#572): Overhead
+  // + Profit, each applied to the raw subtotal. markup_amount is kept as their
+  // sum so existing readers keep working; markup_type/markup_value stay
+  // (NOT NULL, default none/0) but are write-dead.
   markup_type: "percent" | "amount" | "none";
   markup_value: number;
   markup_amount: number;
+  overhead_type: "percent" | "amount" | "none";
+  overhead_value: number;
+  overhead_amount: number;
+  profit_type: "percent" | "amount" | "none";
+  profit_value: number;
+  profit_amount: number;
   discount_type: "percent" | "amount" | "none";
   discount_value: number;
   discount_amount: number;

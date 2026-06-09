@@ -96,8 +96,12 @@ const INVOICE_FIELDS = [
   "issued_date",
   "due_date",
   "po_number",
-  "markup_type",
-  "markup_value",
+  // #575 — invoices carry the Overhead + Profit legs like estimates; legacy
+  // markup_type/markup_value are write-dead and no longer sent from the builder.
+  "overhead_type",
+  "overhead_value",
+  "profit_type",
+  "profit_value",
   "discount_type",
   "discount_value",
   "tax_rate",
@@ -156,33 +160,25 @@ function applyEstimateTotals<T extends {
 
 function applyInvoiceTotals<T extends {
   subtotal: number;
-  markup_type: AdjustmentType;
-  markup_value: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
   discount_type: AdjustmentType;
   discount_value: number;
   tax_rate: number;
 }>(invoice: T): T & {
+  overhead_amount: number;
+  profit_amount: number;
   markup_amount: number;
   discount_amount: number;
   adjusted_subtotal: number;
   tax_amount: number;
   total_amount: number;
 } {
-  // Invoices keep their single Markup until #575. Map it onto the waterfall's
-  // Overhead leg with Profit = none, so markup_amount (= overhead_amount + 0)
-  // stays byte-identical; the estimate-only overhead/profit amounts are dropped.
-  const { total, overhead_amount, profit_amount, ...rest } = computeEstimateTotals({
-    subtotal: invoice.subtotal,
-    overhead_type: invoice.markup_type,
-    overhead_value: invoice.markup_value,
-    profit_type: "none",
-    profit_value: 0,
-    discount_type: invoice.discount_type,
-    discount_value: invoice.discount_value,
-    tax_rate: invoice.tax_rate,
-  });
-  void overhead_amount;
-  void profit_amount;
+  // #575 — invoices carry the Overhead + Profit legs natively, so the math is
+  // the estimate's verbatim; only the grand-total field name differs.
+  const { total, ...rest } = computeEstimateTotals(invoice);
   return { ...invoice, ...rest, total_amount: total };
 }
 
@@ -567,27 +563,11 @@ export function EstimateBuilder({
   const isVoided =
     state.entity.kind !== "template" && state.entity.data.status === "voided";
 
-  // ── Task 27: markup / discount / tax callbacks ─────────────────────────
-  // Estimate: live local recompute via computeEstimateTotals. Invoice: optimistic
-  // local field update only; the server's recalculateInvoiceTotals on the next
-  // root PUT settles the values (the totals bar may briefly show stale totals).
-
-  // Invoices keep a single Markup; an estimate's Markup is the Overhead + Profit
-  // legs (onOverheadChange / onProfitChange below). So onMarkupChange is now
-  // invoice-only — the estimate UI never renders a combined Markup control.
-  function onMarkupChange(type: AdjustmentType, value: number) {
-    setState((prev) => {
-      if (prev.entity.kind === "invoice") {
-        const next_invoice = applyInvoiceTotals({
-          ...prev.entity.data,
-          markup_type: type,
-          markup_value: value,
-        });
-        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
-      }
-      return prev;
-    });
-  }
+  // ── Task 27: overhead / profit / discount / tax callbacks ──────────────
+  // Both kinds recompute locally through the shared waterfall; the server's
+  // recalc on the next root PUT settles the persisted values. The Markup is the
+  // Overhead + Profit legs on estimates AND invoices (#572/#575) — there is no
+  // combined Markup control anymore.
 
   function onOverheadChange(type: AdjustmentType, value: number) {
     setState((prev) => {
@@ -598,6 +578,14 @@ export function EstimateBuilder({
           overhead_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      if (prev.entity.kind === "invoice") {
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          overhead_type: type,
+          overhead_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -612,6 +600,14 @@ export function EstimateBuilder({
           profit_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      if (prev.entity.kind === "invoice") {
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          profit_type: type,
+          profit_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       }
       return prev;
     });
@@ -1766,7 +1762,6 @@ export function EstimateBuilder({
           totalsSlot={
             <TotalsCard
               entity={invoiceEntity}
-              onMarkupChange={onMarkupChange}
               onOverheadChange={onOverheadChange}
               onProfitChange={onProfitChange}
               onDiscountChange={onDiscountChange}
@@ -2019,7 +2014,6 @@ export function EstimateBuilder({
         totalsSlot={
           <TotalsCard
             entity={estimateEntity}
-            onMarkupChange={onMarkupChange}
             onOverheadChange={onOverheadChange}
             onProfitChange={onProfitChange}
             onDiscountChange={onDiscountChange}

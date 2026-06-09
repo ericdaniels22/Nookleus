@@ -139,8 +139,8 @@ export async function createInvoice(
       issued_date: issued,
       due_date: due,
       tax_rate: 0,
-      markup_type: "none",
-      markup_value: 0,
+      // #575: legacy markup_type/markup_value are write-dead; the overhead/
+      // profit/markup triplets all default to none/0 in the DB.
       discount_type: "none",
       discount_value: 0,
     })
@@ -153,10 +153,12 @@ export async function recalculateInvoiceTotals(
   supabase: SupabaseClient,
   invoiceId: string,
 ): Promise<void> {
-  const { data: inv } = await supabase.from("invoices").select("markup_type,markup_value,discount_type,discount_value,tax_rate")
+  const { data: inv } = await supabase.from("invoices").select("overhead_type,overhead_value,profit_type,profit_value,discount_type,discount_value,tax_rate")
     .eq("id", invoiceId).maybeSingle<{
-      markup_type: string;
-      markup_value: number;
+      overhead_type: string;
+      overhead_value: number;
+      profit_type: string;
+      profit_value: number;
       discount_type: string;
       discount_value: number;
       tax_rate: number;
@@ -165,19 +167,20 @@ export async function recalculateInvoiceTotals(
 
   const { data: items } = await supabase
     .from("invoice_line_items").select("amount").eq("invoice_id", invoiceId);
-  // Invoices keep a single markup (#572's Overhead/Profit split is estimate-only
-  // until #575). Map it onto the waterfall's overhead leg with profit = none, so
-  // markup_amount (= overhead_amount + 0) stays byte-identical to before.
+  // #575: invoices carry both Overhead and Profit legs like estimates (#572).
+  // markup_amount stays maintained as their sum for every existing reader.
   const totals = computeWaterfall({
     lineItemCharges: (items ?? []).map((li) => Number(li.amount) || 0),
-    overhead: { type: inv.markup_type as "percent" | "amount" | "none", value: Number(inv.markup_value) || 0 },
-    profit: { type: "none", value: 0 },
+    overhead: { type: inv.overhead_type as "percent" | "amount" | "none", value: Number(inv.overhead_value) || 0 },
+    profit: { type: inv.profit_type as "percent" | "amount" | "none", value: Number(inv.profit_value) || 0 },
     discount: { type: inv.discount_type as "percent" | "amount" | "none", value: Number(inv.discount_value) || 0 },
     taxRatePercent: Number(inv.tax_rate) || 0,
   });
 
   const { error } = await supabase.from("invoices").update({
     subtotal: totals.subtotal,
+    overhead_amount: totals.overhead_amount,
+    profit_amount: totals.profit_amount,
     markup_amount: totals.markup_amount,
     discount_amount: totals.discount_amount,
     adjusted_subtotal: totals.adjusted_subtotal,
