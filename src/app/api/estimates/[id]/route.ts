@@ -13,8 +13,10 @@ interface UpdatePayload {
   closing_statement?: string | null;
   issued_date?: string | null;
   valid_until?: string | null;
-  markup_type?: "percent" | "amount" | "none";
-  markup_value?: number;
+  overhead_type?: "percent" | "amount" | "none";
+  overhead_value?: number;
+  profit_type?: "percent" | "amount" | "none";
+  profit_value?: number;
   discount_type?: "percent" | "amount" | "none";
   discount_value?: number;
   tax_rate?: number;
@@ -55,8 +57,12 @@ export const PUT = withRequestContext(
     }
 
     const update: Record<string, unknown> = {};
+    // #572: Markup is split into the Overhead + Profit legs; the legacy
+    // markup_type/markup_value are write-dead (not accepted here). The shared
+    // waterfall in recalculateTotals keeps markup_amount = overhead + profit.
     for (const k of ["title","opening_statement","closing_statement","issued_date","valid_until",
-                      "markup_type","markup_value","discount_type","discount_value","tax_rate","status"] as const) {
+                      "overhead_type","overhead_value","profit_type","profit_value",
+                      "discount_type","discount_value","tax_rate","status"] as const) {
       if (k in body && body[k] !== undefined) update[k] = body[k];
     }
     if (body.tax_rate !== undefined) {

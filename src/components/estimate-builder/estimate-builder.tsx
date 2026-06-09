@@ -65,8 +65,12 @@ const ESTIMATE_FIELDS = [
   "closing_statement",
   "issued_date",
   "valid_until",
-  "markup_type",
-  "markup_value",
+  // #572 — the Markup is now the Overhead + Profit legs; legacy markup_type/
+  // markup_value are write-dead and no longer sent from the builder.
+  "overhead_type",
+  "overhead_value",
+  "profit_type",
+  "profit_value",
   "discount_type",
   "discount_value",
   "tax_rate",
@@ -142,8 +146,10 @@ function serializeTemplateRootPut(template: TemplateWithContents) {
 
 function applyEstimateTotals<T extends {
   subtotal: number;
-  markup_type: AdjustmentType;
-  markup_value: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
   discount_type: AdjustmentType;
   discount_value: number;
   tax_rate: number;
@@ -166,7 +172,21 @@ function applyInvoiceTotals<T extends {
   tax_amount: number;
   total_amount: number;
 } {
-  const { total, ...rest } = computeEstimateTotals(invoice);
+  // Invoices keep their single Markup until #575. Map it onto the waterfall's
+  // Overhead leg with Profit = none, so markup_amount (= overhead_amount + 0)
+  // stays byte-identical; the estimate-only overhead/profit amounts are dropped.
+  const { total, overhead_amount, profit_amount, ...rest } = computeEstimateTotals({
+    subtotal: invoice.subtotal,
+    overhead_type: invoice.markup_type,
+    overhead_value: invoice.markup_value,
+    profit_type: "none",
+    profit_value: 0,
+    discount_type: invoice.discount_type,
+    discount_value: invoice.discount_value,
+    tax_rate: invoice.tax_rate,
+  });
+  void overhead_amount;
+  void profit_amount;
   return { ...invoice, ...rest, total_amount: total };
 }
 
@@ -555,16 +575,11 @@ export function EstimateBuilder({
   // local field update only; the server's recalculateInvoiceTotals on the next
   // root PUT settles the values (the totals bar may briefly show stale totals).
 
+  // Invoices keep a single Markup; an estimate's Markup is the Overhead + Profit
+  // legs (onOverheadChange / onProfitChange below). So onMarkupChange is now
+  // invoice-only — the estimate UI never renders a combined Markup control.
   function onMarkupChange(type: AdjustmentType, value: number) {
     setState((prev) => {
-      if (prev.entity.kind === "estimate") {
-        const next_estimate = applyEstimateTotals({
-          ...prev.entity.data,
-          markup_type: type,
-          markup_value: value,
-        });
-        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
-      }
       if (prev.entity.kind === "invoice") {
         const next_invoice = applyInvoiceTotals({
           ...prev.entity.data,
@@ -572,6 +587,34 @@ export function EstimateBuilder({
           markup_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_invoice } };
+      }
+      return prev;
+    });
+  }
+
+  function onOverheadChange(type: AdjustmentType, value: number) {
+    setState((prev) => {
+      if (prev.entity.kind === "estimate") {
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          overhead_type: type,
+          overhead_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      return prev;
+    });
+  }
+
+  function onProfitChange(type: AdjustmentType, value: number) {
+    setState((prev) => {
+      if (prev.entity.kind === "estimate") {
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          profit_type: type,
+          profit_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       }
       return prev;
     });
@@ -1732,6 +1775,8 @@ export function EstimateBuilder({
             <TotalsCard
               entity={invoiceEntity}
               onMarkupChange={onMarkupChange}
+              onOverheadChange={onOverheadChange}
+              onProfitChange={onProfitChange}
               onDiscountChange={onDiscountChange}
               onTaxRateChange={onTaxRateChange}
               readOnly={isVoided}
@@ -2176,6 +2221,8 @@ export function EstimateBuilder({
           <TotalsCard
             entity={estimateEntity}
             onMarkupChange={onMarkupChange}
+            onOverheadChange={onOverheadChange}
+            onProfitChange={onProfitChange}
             onDiscountChange={onDiscountChange}
             onTaxRateChange={onTaxRateChange}
             readOnly={isVoided}
