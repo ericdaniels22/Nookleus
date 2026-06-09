@@ -10,44 +10,8 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export interface MonetaryInput {
-  lineItemTotals: number[]; // already-computed per-line totals
-  markup_type: "percent" | "amount" | "none";
-  markup_value: number;
-  discount_type: "percent" | "amount" | "none";
-  discount_value: number;
-  tax_rate: number;
-}
-
-export interface MonetaryResult {
-  subtotal: number;
-  markup_amount: number;
-  discount_amount: number;
-  adjusted_subtotal: number;
-  tax_amount: number;
-  total: number;
-}
-
-/** Pure calc — no DB. Used by both estimate and invoice recalc paths. */
-export function recalculateMonetary(input: MonetaryInput): MonetaryResult {
-  const subtotal = roundMoney(input.lineItemTotals.reduce((a, b) => a + b, 0));
-  const markup_amount =
-    input.markup_type === "percent"
-      ? roundMoney((subtotal * input.markup_value) / 100)
-      : input.markup_type === "amount"
-        ? roundMoney(input.markup_value)
-        : 0;
-  const discount_amount =
-    input.discount_type === "percent"
-      ? roundMoney((subtotal * input.discount_value) / 100)
-      : input.discount_type === "amount"
-        ? roundMoney(input.discount_value)
-        : 0;
-  const adjusted_subtotal = roundMoney(subtotal + markup_amount - discount_amount);
-  const tax_amount = roundMoney((adjusted_subtotal * input.tax_rate) / 100);
-  const total = roundMoney(adjusted_subtotal + tax_amount);
-  return { subtotal, markup_amount, discount_amount, adjusted_subtotal, tax_amount, total };
-}
+// The pricing-waterfall calc that used to live here (recalculateMonetary) is
+// now computeWaterfall in @/lib/waterfall — shared with the client builder.
 
 /** Bumps `updated_at` on a parent estimate or invoice. Used after child-table writes
  *  so the next snapshot read sees the change (lesson from 67a I2 closure). */

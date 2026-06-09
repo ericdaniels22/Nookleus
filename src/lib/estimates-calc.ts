@@ -1,14 +1,16 @@
-// Pure client-side calculation helpers — mirrors the server's recalculateTotals
-// math from src/lib/estimates.ts (lines 148–166). No Supabase imports.
+// Pure client-side calculation helpers. No Supabase imports.
 //
 // These are used by the EstimateBuilder to update the totals bar live as the user
 // edits markup / discount / tax fields, and when line-item qty/price changes.
 
 import type { AdjustmentType } from "@/lib/types";
 import { round2 } from "@/lib/format";
+import { computeWaterfall } from "@/lib/waterfall";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// computeEstimateTotals
+// computeEstimateTotals — maps an estimate/invoice row's flat adjustment
+// fields onto the shared pricing waterfall, so the builder's live totals are
+// computed by the exact same function as the server-persisted ones.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function computeEstimateTotals(input: {
@@ -25,28 +27,20 @@ export function computeEstimateTotals(input: {
   tax_amount: number;
   total: number;
 } {
-  const { subtotal, markup_type, markup_value, discount_type, discount_value, tax_rate } = input;
-
-  // Markup
-  let markup_amount = 0;
-  if (markup_type === "amount") markup_amount = round2(Number(markup_value));
-  else if (markup_type === "percent") markup_amount = round2(subtotal * Number(markup_value) / 100);
-
-  // Discount
-  let discount_amount = 0;
-  if (discount_type === "amount") discount_amount = round2(Number(discount_value));
-  else if (discount_type === "percent") discount_amount = round2(subtotal * Number(discount_value) / 100);
-
-  // Adjusted subtotal
-  const adjusted_subtotal = round2(subtotal + markup_amount - discount_amount);
-
-  // Tax
-  const tax_amount = round2(adjusted_subtotal * Number(tax_rate) / 100);
-
-  // Total
-  const total = round2(adjusted_subtotal + tax_amount);
-
-  return { markup_amount, discount_amount, adjusted_subtotal, tax_amount, total };
+  const t = computeWaterfall({
+    subtotal: input.subtotal,
+    markup: { type: input.markup_type, value: Number(input.markup_value) },
+    discount: { type: input.discount_type, value: Number(input.discount_value) },
+    taxRatePercent: Number(input.tax_rate),
+  });
+  // Callers spread this into row state — keep the historical shape (no subtotal).
+  return {
+    markup_amount: t.markup_amount,
+    discount_amount: t.discount_amount,
+    adjusted_subtotal: t.adjusted_subtotal,
+    tax_amount: t.tax_amount,
+    total: t.total,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

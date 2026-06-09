@@ -3,12 +3,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  recalculateMonetary,
   roundMoney,
   touchEntity,
   checkSnapshot,
   type SnapshotCheck,
 } from "@/lib/builder-shared";
+import { computeWaterfall } from "@/lib/waterfall";
 import type {
   Invoice,
   InvoiceWithContents,
@@ -165,13 +165,11 @@ export async function recalculateInvoiceTotals(
 
   const { data: items } = await supabase
     .from("invoice_line_items").select("amount").eq("invoice_id", invoiceId);
-  const totals = recalculateMonetary({
-    lineItemTotals: (items ?? []).map((li) => Number(li.amount) || 0),
-    markup_type: inv.markup_type as "percent" | "amount" | "none",
-    markup_value: Number(inv.markup_value) || 0,
-    discount_type: inv.discount_type as "percent" | "amount" | "none",
-    discount_value: Number(inv.discount_value) || 0,
-    tax_rate: Number(inv.tax_rate) || 0,
+  const totals = computeWaterfall({
+    lineItemCharges: (items ?? []).map((li) => Number(li.amount) || 0),
+    markup: { type: inv.markup_type as "percent" | "amount" | "none", value: Number(inv.markup_value) || 0 },
+    discount: { type: inv.discount_type as "percent" | "amount" | "none", value: Number(inv.discount_value) || 0 },
+    taxRatePercent: Number(inv.tax_rate) || 0,
   });
 
   const { error } = await supabase.from("invoices").update({
@@ -219,7 +217,7 @@ export async function touchInvoice(
 // Compat helpers — kept routes (mark-sent, pdf, send, void) still call these
 // =============================================================================
 
-/** computeTotals retained for kept-route compatibility. New routes use recalculateMonetary. */
+/** computeTotals retained for kept-route compatibility. New routes use computeWaterfall. */
 export function computeTotals(
   items: InvoiceLineItemInput[],
   taxRate: number,

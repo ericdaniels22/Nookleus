@@ -7,7 +7,8 @@ import type {
   EstimateWithContents,
 } from "@/lib/types";
 import { round2 } from "@/lib/format";
-import { recalculateMonetary, touchEntity, checkSnapshot as checkSnapshotGeneric } from "@/lib/builder-shared";
+import { touchEntity, checkSnapshot as checkSnapshotGeneric } from "@/lib/builder-shared";
+import { computeWaterfall } from "@/lib/waterfall";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Numbering — atomic per-job sequence via RPC (uses SELECT FOR UPDATE in SQL)
@@ -145,15 +146,13 @@ export async function recalculateTotals(
   const lineItemTotals = ((items ?? []) as Array<{ quantity: number; unit_price: number }>)
     .map((li) => round2(Number(li.quantity) * Number(li.unit_price)));
 
-  // 5. Delegate pure monetary calc to shared helper
+  // 5. Delegate pure monetary calc to the shared waterfall
   const { subtotal, markup_amount, discount_amount, adjusted_subtotal, tax_amount, total } =
-    recalculateMonetary({
-      lineItemTotals,
-      markup_type: est.markup_type,
-      markup_value: Number(est.markup_value),
-      discount_type: est.discount_type,
-      discount_value: Number(est.discount_value),
-      tax_rate: Number(est.tax_rate),
+    computeWaterfall({
+      lineItemCharges: lineItemTotals,
+      markup: { type: est.markup_type, value: Number(est.markup_value) },
+      discount: { type: est.discount_type, value: Number(est.discount_value) },
+      taxRatePercent: Number(est.tax_rate),
     });
 
   // 6. Write back
