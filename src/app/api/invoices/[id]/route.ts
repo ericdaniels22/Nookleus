@@ -1,5 +1,5 @@
 // GET /api/invoices/[id]    — invoice + sections + items + job summary
-// PUT /api/invoices/[id]    — entity-level edit (title, statements, markup, discount, tax, dates)
+// PUT /api/invoices/[id]    — entity-level edit (title, statements, overhead/profit, discount, tax, dates)
 // DELETE /api/invoices/[id] — hard-purge (67d; soft-delete lives at POST /api/invoices/[id]/delete)
 
 import { NextResponse } from "next/server";
@@ -37,8 +37,14 @@ interface PutBody {
   po_number?: string | null;
   memo?: string | null;
   notes?: string | null;
-  markup_type?: "percent" | "amount" | "none";
-  markup_value?: number;
+  // #575: invoices carry the split Overhead + Profit uplifts like estimates
+  // (#572). The legacy markup_type/markup_value are write-dead — not accepted
+  // here; markup_amount is maintained as overhead_amount + profit_amount by
+  // the recalc.
+  overhead_type?: "percent" | "amount" | "none";
+  overhead_value?: number;
+  profit_type?: "percent" | "amount" | "none";
+  profit_value?: number;
   discount_type?: "percent" | "amount" | "none";
   discount_value?: number;
   tax_rate?: number;
@@ -79,8 +85,10 @@ export const PUT = withRequestContext(
       if (body.po_number !== undefined) patch.po_number = body.po_number;
       if (body.memo !== undefined) patch.memo = body.memo;
       if (body.notes !== undefined) patch.notes = body.notes;
-      if (body.markup_type !== undefined) patch.markup_type = body.markup_type;
-      if (body.markup_value !== undefined) patch.markup_value = Number(body.markup_value);
+      if (body.overhead_type !== undefined) patch.overhead_type = body.overhead_type;
+      if (body.overhead_value !== undefined) patch.overhead_value = Number(body.overhead_value);
+      if (body.profit_type !== undefined) patch.profit_type = body.profit_type;
+      if (body.profit_value !== undefined) patch.profit_value = Number(body.profit_value);
       if (body.discount_type !== undefined) patch.discount_type = body.discount_type;
       if (body.discount_value !== undefined) patch.discount_value = Number(body.discount_value);
       if (body.tax_rate !== undefined) {
@@ -94,7 +102,8 @@ export const PUT = withRequestContext(
       const { data, error } = await supabase.from("invoices").update(patch).eq("id", id).select().single();
       if (error) throw error;
 
-      const adjustmentTouched = body.markup_type !== undefined || body.markup_value !== undefined
+      const adjustmentTouched = body.overhead_type !== undefined || body.overhead_value !== undefined
+        || body.profit_type !== undefined || body.profit_value !== undefined
         || body.discount_type !== undefined || body.discount_value !== undefined
         || body.tax_rate !== undefined;
       if (adjustmentTouched) await recalculateInvoiceTotals(supabase, id);

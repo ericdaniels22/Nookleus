@@ -6,9 +6,9 @@
 // #572 split the single Markup into two independent uplifts — Overhead and
 // Profit ("10 & 10") — each applied to the RAW subtotal. markup_amount is kept
 // as their sum (overhead_amount + profit_amount) so every existing reader of
-// markup_amount keeps working. Estimates carry both legs; invoices (their SQL
-// counterpart is #575) still hold a single markup and map it onto the overhead
-// leg with profit = none, which leaves their markup_amount byte-identical.
+// markup_amount keeps working. Estimates carry both legs since #572, invoices
+// since #575; the legacy markup_type/markup_value columns are write-dead on
+// both.
 //
 // Money contracts:
 // - overhead, profit, and discount are each computed from the RAW subtotal,
@@ -20,13 +20,12 @@
 //   + profit 10% can land a cent off a single 20% markup; that penny is
 //   intended (see waterfall.test.ts)
 //
-// Two PL/pgSQL copies of this math are still live (latest bodies in
-// migration-382b): convert_estimate_to_invoice and apply_template_to_estimate.
-// Their formulas match but their rounding doesn't — Postgres round(numeric,2)
-// is exact half-away-from-zero while round2 is float Math.round, so a leg
-// landing on an exact half cent can differ by a penny (e.g. $2.90 at 5%
-// markup → 0.15 SQL vs 0.14 here). The SQL copies are reworked with Overhead &
-// Profit in #575.
+// Two PL/pgSQL copies of this math are still live: convert_estimate_to_invoice
+// (Overhead & Profit since migration-build82b, #575) and
+// apply_template_to_estimate. Their formulas match but their rounding doesn't —
+// Postgres round(numeric,2) is exact half-away-from-zero while round2 is float
+// Math.round, so a leg landing on an exact half cent can differ by a penny
+// (e.g. $2.90 at 5% markup → 0.15 SQL vs 0.14 here).
 
 import type { AdjustmentType } from "@/lib/types";
 import { round2 } from "@/lib/format";
@@ -37,7 +36,7 @@ export interface Adjustment {
 }
 
 export type WaterfallInput = {
-  /** First markup leg. Invoices map their single markup here (profit = none). */
+  /** First markup leg. */
   overhead: Adjustment;
   /** Second markup leg. */
   profit: Adjustment;

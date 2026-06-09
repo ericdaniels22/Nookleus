@@ -110,6 +110,12 @@ function makeInvoice(o: Overrides & { total_amount?: number } = {}): BuilderEnti
     markup_type: o.markup_type ?? "none",
     markup_value: o.markup_value ?? 0,
     markup_amount: o.markup_amount ?? 0,
+    overhead_type: o.overhead_type ?? "none",
+    overhead_value: o.overhead_value ?? 0,
+    overhead_amount: o.overhead_amount ?? 0,
+    profit_type: o.profit_type ?? "none",
+    profit_value: o.profit_value ?? 0,
+    profit_amount: o.profit_amount ?? 0,
     discount_type: o.discount_type ?? "none",
     discount_value: o.discount_value ?? 0,
     discount_amount: o.discount_amount ?? 0,
@@ -141,7 +147,6 @@ function makeInvoice(o: Overrides & { total_amount?: number } = {}): BuilderEnti
 function renderBar(
   entity: BuilderEntity,
   handlers: Partial<{
-    onMarkupChange: (t: AdjustmentType, n: number) => void;
     onOverheadChange: (t: AdjustmentType, n: number) => void;
     onProfitChange: (t: AdjustmentType, n: number) => void;
     onDiscountChange: (t: AdjustmentType, n: number) => void;
@@ -154,7 +159,6 @@ function renderBar(
   return render(
     <TotalsCard
       entity={entity}
-      onMarkupChange={handlers.onMarkupChange ?? vi.fn()}
       onOverheadChange={handlers.onOverheadChange ?? vi.fn()}
       onProfitChange={handlers.onProfitChange ?? vi.fn()}
       onDiscountChange={handlers.onDiscountChange ?? vi.fn()}
@@ -189,14 +193,30 @@ describe("TotalsCard (#545)", () => {
     expect(screen.getByText("Tax")).toBeTruthy();
   });
 
-  it("renders a single Markup row (not Overhead/Profit) for an invoice", () => {
-    // Invoices keep their single Markup until #575; the Overhead/Profit split is
-    // estimate-only. So an invoice still shows one "Markup" line.
+  it("renders Overhead and Profit (not a single Markup) for an invoice too", () => {
+    // #575 carries the #572 split onto invoices: a converted invoice shows the
+    // same Overhead and Profit lines as its estimate. The combined "Markup"
+    // label no longer appears on an invoice either.
     renderBar(makeInvoice(), { mode: "invoice" });
 
-    expect(screen.getByText("Markup")).toBeTruthy();
-    expect(screen.queryByText("Overhead")).toBeNull();
-    expect(screen.queryByText("Profit")).toBeNull();
+    expect(screen.getByText("Overhead")).toBeTruthy();
+    expect(screen.getByText("Profit")).toBeTruthy();
+    expect(screen.queryByText("Markup")).toBeNull();
+  });
+
+  it("edits an invoice's Overhead through its own row, like an estimate", () => {
+    // The invoice rows wire to the same onOverheadChange/onProfitChange
+    // handlers — there is no invoice-only markup handler anymore.
+    const onOverheadChange = vi.fn();
+    renderBar(makeInvoice({ overhead_type: "percent", overhead_value: 10 }), {
+      mode: "invoice",
+      onOverheadChange,
+    });
+
+    const box = screen.getByDisplayValue("10") as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "15" } });
+
+    expect(onOverheadChange).toHaveBeenCalledWith("percent", 15);
   });
 
   it("reflects a fixed-amount Overhead change via onOverheadChange", () => {
@@ -438,7 +458,6 @@ describe("TotalsCard floating card (#569)", () => {
   const card = (entity: BuilderEntity, editorOpen: boolean) => (
     <TotalsCard
       entity={entity}
-      onMarkupChange={vi.fn()}
       onOverheadChange={vi.fn()}
       onProfitChange={vi.fn()}
       onDiscountChange={vi.fn()}
