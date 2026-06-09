@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
@@ -44,19 +45,39 @@ import {
   type PhotoReportBuilderState,
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
+import { AddPhotosDialog } from "@/components/photo-report-add-photos-dialog";
 import { measureWriteupFit, writeupLimitFor } from "@/lib/section-writeup-fit";
 import {
   newSectionId,
   type ReportSection,
   type StoredReportSection,
 } from "@/lib/build-initial-sections";
+import {
+  resolveReportSettings,
+  type CoverBlockVisibility,
+} from "@/lib/photo-report-settings";
 import type { Photo, PhotoReport, ReportPhotosPerPage } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the
 // estimate builder's auto-save debounce).
 const DEBOUNCE_MS = 2000;
 
+// Over-limit write-ups are no longer hard-blocked (#550): the per-layout counter
+// turning red is the only (soft) warning, so there is no "blocked" save state and
+// no over-limit save gate — every edit saves/flushes/generates like any other.
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+// The five identifying blocks the Cover Page editor can show or hide, in print
+// order, paired with their user-facing label (#551). The canonical set and
+// order come from ADR 0014 / CONTEXT.md ("logo, customer, property address,
+// point of contact, insurance").
+const COVER_BLOCKS: { field: keyof CoverBlockVisibility; label: string }[] = [
+  { field: "logo", label: "Logo" },
+  { field: "customer", label: "Customer" },
+  { field: "propertyAddress", label: "Property address" },
+  { field: "pointOfContact", label: "Point of contact" },
+  { field: "insurance", label: "Insurance" },
+];
 
 // The fields a save persists, plus the revision that snapshot belongs to. Built
 // in one place so the debounced auto-save and the Generate flush always persist
@@ -69,8 +90,19 @@ function snapshotOf(state: PhotoReportBuilderState) {
     reportDate: state.reportDate,
     sections: state.sections,
     reportSettings: { photosPerPage: state.photosPerPage, ...state.details },
+    cover: state.cover,
     revision: state.revision,
   };
+}
+
+// Split the in-memory resolved cover back into the two persisted columns: the
+// five identifying-block flags go to `cover_config`, the chosen photo to
+// `cover_photo_id`. Writing both on every save materializes the report's own
+// cover snapshot — including the Job-cover fallback the builder seeded — on the
+// first edit (ADR 0014 "freeze on first edit", #551).
+function coverColumns(cover: PhotoReportBuilderState["cover"]) {
+  const { coverPhotoId, ...blocks } = cover;
+  return { cover_config: blocks, cover_photo_id: coverPhotoId };
 }
 
 interface PhotoReportBuilderProps {
@@ -79,6 +111,13 @@ interface PhotoReportBuilderProps {
   /** All of the Job's photos, so any can be added to the report (#401). */
   photos: Photo[];
   supabaseUrl: string;
+  /**
+   * The Job's own cover photo, used as the fallback when the report has not
+   * chosen its own (ADR 0014, #551). Optional and defaults to null so existing
+   * call sites and tests that don't supply it still seed an all-on, no-photo
+   * cover.
+   */
+  jobCoverPhotoId?: string | null;
 }
 
 export default function PhotoReportBuilder({
@@ -86,6 +125,7 @@ export default function PhotoReportBuilder({
   report,
   photos,
   supabaseUrl,
+  jobCoverPhotoId = null,
 }: PhotoReportBuilderProps) {
   const [state, dispatch] = useReducer(
     photoReportBuilderReducer,
@@ -97,6 +137,19 @@ export default function PhotoReportBuilder({
       // the chosen photos-per-page + detail toggles, falling back to the
       // hardcoded 2-per-page/all-on defaults when a pre-0014 row has none.
       report_settings: report.report_settings,
+      // Seed the Cover Page editor with the report's fully-resolved cover: its
+      // own snapshot if any, else the Job's cover photo, else all-on/no-photo.
+      // The builder then persists whatever is in state, so the first edit
+      // freezes this resolved cover into the report's own copy (#551).
+      cover: resolveReportSettings(
+        {
+          report_settings: report.report_settings,
+          cover_config: report.cover_config,
+          cover_photo_id: report.cover_photo_id,
+        },
+        null,
+        jobCoverPhotoId,
+      ).cover,
     },
     initBuilderState,
   );
@@ -120,6 +173,12 @@ export default function PhotoReportBuilder({
   const selectedId = state.sections.some((s) => s.id === selectedSectionId)
     ? selectedSectionId
     : null;
+  // Which Section the "+ Add Photos" picker is adding into (#552), or null
+  // while closed. Like selectedSectionId, purely ephemeral UI state. The dialog
+  // mounts only while open, so every open starts with a fresh, empty selection.
+  const [pickerSectionIndex, setPickerSectionIndex] = useState<number | null>(
+    null,
+  );
 
   // The latest edit revision, mirrored into a ref so the async save tail can
   // tell whether a newer edit landed while it was in flight (its own captured
@@ -149,6 +208,7 @@ export default function PhotoReportBuilder({
           report_date: snapshot.reportDate,
           sections: snapshot.sections,
           report_settings: snapshot.reportSettings,
+          ...coverColumns(snapshot.cover),
         })
         .eq("id", report.id);
       if (error) {
@@ -210,6 +270,7 @@ export default function PhotoReportBuilder({
         report_date: state.reportDate,
         sections: state.sections,
         report_settings: { photosPerPage: state.photosPerPage, ...state.details },
+        ...coverColumns(state.cover),
       }),
       keepalive: true,
     });
@@ -463,6 +524,82 @@ export default function PhotoReportBuilder({
                   className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </label>
+
+              {/* Cover photo — pick one of the Job's photos to print on the
+                  cover. Seeded with the report's resolved cover (Job-cover
+                  fallback included); the chosen photo persists on the report's
+                  own snapshot (#551). */}
+              <div>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Cover photo
+                </span>
+                {photos.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    This job has no photos to use as a cover.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
+                    {photos.map((photo) => {
+                      const selected = state.cover.coverPhotoId === photo.id;
+                      return (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={`Use ${
+                            photo.caption || "this photo"
+                          } as cover photo`}
+                          onClick={() =>
+                            dispatch({
+                              type: "setCoverPhoto",
+                              photoId: photo.id,
+                            })
+                          }
+                          className={cn(
+                            "aspect-square overflow-hidden rounded-lg ring-2 transition-shadow",
+                            selected
+                              ? "ring-primary"
+                              : "ring-transparent hover:ring-border",
+                          )}
+                        >
+                          <img
+                            src={photoUrl(photo, supabaseUrl, "grid")}
+                            alt={photo.caption || "Photo"}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Identifying blocks — show/hide each on the cover (#551). All
+                  default on; the canonical set is logo, customer, property
+                  address, point of contact, insurance (ADR 0014). */}
+              <div>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Show on cover
+                </span>
+                <div className="space-y-1.5">
+                  {COVER_BLOCKS.map(({ field, label }) => (
+                    <label
+                      key={field}
+                      className="flex items-center gap-2 text-sm text-foreground"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={state.cover[field]}
+                        onChange={() =>
+                          dispatch({ type: "toggleCoverField", field })
+                        }
+                        className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/*
@@ -491,6 +628,7 @@ export default function PhotoReportBuilder({
                     dispatch={dispatch}
                     photosPerPage={state.photosPerPage}
                     desktopSelected={selectedId === section.id}
+                    onOpenPicker={() => setPickerSectionIndex(index)}
                   />
                 ))}
               </div>
@@ -507,7 +645,9 @@ export default function PhotoReportBuilder({
               Add section
             </button>
 
-            {/* Photos not yet in the report — drag into a Section to add. */}
+            {/* Photos not yet in the report — drag into a Section to add.
+                Phone-only (#552): on desktop the "+ Add Photos" picker replaces
+                the always-visible tray. */}
             <PhotoTray photos={availablePhotos} supabaseUrl={supabaseUrl} />
           </div>
         </div>
@@ -519,6 +659,28 @@ export default function PhotoReportBuilder({
           details={state.details}
           dispatch={dispatch}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {/* The "+ Add Photos" picker (#552): adds a multi-selection of the Job's
+          photos into the Section whose button opened it. */}
+      {pickerSectionIndex !== null && (
+        <AddPhotosDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPickerSectionIndex(null);
+          }}
+          photos={photos}
+          sections={state.sections}
+          sectionIndex={pickerSectionIndex}
+          supabaseUrl={supabaseUrl}
+          onAdd={(photoIds) => {
+            dispatch({
+              type: "addPhotosToSection",
+              photoIds,
+              sectionIndex: pickerSectionIndex,
+            });
+            setPickerSectionIndex(null);
+          }}
         />
       )}
     </div>
@@ -617,6 +779,7 @@ function SortableSection({
   dispatch,
   photosPerPage,
   desktopSelected,
+  onOpenPicker,
 }: {
   index: number;
   section: ReportSection;
@@ -637,6 +800,8 @@ function SortableSection({
    * inert below lg, where the phone builder still renders every Section.
    */
   desktopSelected: boolean;
+  /** Open the "+ Add Photos" picker targeting this Section (#552). */
+  onOpenPicker: () => void;
 }) {
   const {
     attributes,
@@ -751,55 +916,81 @@ function SortableSection({
         {!fit.fits && ` · ${-fit.remaining} over the limit`}
       </p>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-        {section.photo_ids.map((photoId) => {
-          const photo = photosById.get(photoId);
-          if (!photo) return null;
-          return (
-            <DraggablePhoto
-              key={photoId}
-              photo={photo}
-              sectionIndex={index}
-              supabaseUrl={supabaseUrl}
-              dispatch={dispatch}
-            />
-          );
-        })}
+      {/* Photos are sortable within their Section (#552): the items are the
+          raw photo_ids (a dangling id still occupies its index, so photoIndex
+          stays aligned with the reducer's photo_ids positions). rect strategy:
+          this is a wrapping grid, not a vertical list. */}
+      <SortableContext items={section.photo_ids} strategy={rectSortingStrategy}>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+          {section.photo_ids.map((photoId, photoIndex) => {
+            const photo = photosById.get(photoId);
+            if (!photo) return null;
+            return (
+              <DraggablePhoto
+                key={photoId}
+                photo={photo}
+                sectionIndex={index}
+                photoIndex={photoIndex}
+                supabaseUrl={supabaseUrl}
+                dispatch={dispatch}
+              />
+            );
+          })}
+        </div>
+      </SortableContext>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {visibleCount} photo{visibleCount === 1 ? "" : "s"}
+          {/* The drag-here hint only makes sense where the tray exists (phone);
+              on desktop the picker is the add affordance (#552). */}
+          <span className="lg:hidden"> — drag photos here to add them</span>
+        </p>
+        <button
+          type="button"
+          onClick={onOpenPicker}
+          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+        >
+          <Plus size={14} />
+          Add Photos
+        </button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {visibleCount} photo{visibleCount === 1 ? "" : "s"} — drag photos here to
-        add them
-      </p>
     </section>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DraggablePhoto — a photo inside a Section: drag it to another Section, or
-// remove it from the report.
+// DraggablePhoto — a photo inside a Section: drag it within its Section to
+// reorder (#552), drag it to another Section to move it, or remove it from the
+// report. Sortable (so it is also a drop target), unlike the tray's photos —
+// its id can't collide with a tray photo's because a photo is never in a
+// Section and the tray at once.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DraggablePhoto({
   photo,
   sectionIndex,
+  photoIndex,
   supabaseUrl,
   dispatch,
 }: {
   photo: Photo;
   sectionIndex: number;
+  /** This photo's position in its Section's photo_ids. */
+  photoIndex: number;
   supabaseUrl: string;
   dispatch: React.Dispatch<
     Parameters<typeof photoReportBuilderReducer>[1]
   >;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({
       id: photo.id,
-      data: { type: "photo", photoId: photo.id, sectionIndex },
+      data: { type: "photo", photoId: photo.id, sectionIndex, photoIndex },
     });
 
   const style = {
-    transform: CSS.Translate.toString(transform),
+    transform: CSS.Transform.toString(transform),
+    transition,
     opacity: isDragging ? 0.4 : 1,
   };
 
@@ -832,7 +1023,8 @@ function DraggablePhoto({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PhotoTray — the Job's photos that are not yet in the report; drag one into a
-// Section to add it.
+// Section to add it. Phone-only (#552): on desktop the "+ Add Photos" picker is
+// the add affordance, so the tray hides at lg+.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PhotoTray({
@@ -843,7 +1035,7 @@ function PhotoTray({
   supabaseUrl: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-4">
+    <div className="lg:hidden rounded-xl border border-border bg-muted/30 p-4">
       <h2 className="mb-2 text-xs font-medium text-muted-foreground">
         Photos not in the report
       </h2>

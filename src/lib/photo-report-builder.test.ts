@@ -21,6 +21,15 @@ function loaded() {
   });
 }
 
+/** The five Cover Page block flags, all on — the #551 cover-block default. */
+const DEFAULT_COVER_BLOCKS = {
+  logo: true,
+  customer: true,
+  propertyAddress: true,
+  pointOfContact: true,
+  insurance: true,
+} as const;
+
 describe("buildDefaultReportSections", () => {
   it("puts every selected photo into a single default section, in order", () => {
     expect(buildDefaultReportSections(["p1", "p2", "p3"])).toEqual([
@@ -370,6 +379,149 @@ describe("photoReportBuilderReducer", () => {
     expect(next).toBe(before);
   });
 
+  it("adds several photos to a section in selection order with one revision bump (#552)", () => {
+    const before = loaded(); // [ Photos(p1,p2) ]
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p3", "p4", "p5"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+    expect(next.dirty).toBe(true);
+    // The whole multi-add is one edit: one revision bump, one auto-save.
+    expect(next.revision).toBe(before.revision + 1);
+  });
+
+  it("dedupes a selection that names the same photo twice", () => {
+    const next = photoReportBuilderReducer(loaded(), {
+      type: "addPhotosToSection",
+      photoIds: ["p3", "p4", "p3"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3", "p4"]);
+  });
+
+  it("adding a photo that lives in another section moves it (no duplicates)", () => {
+    // [ Photos(p1,p2), New section() ]; add p1 + a new p9 into section 1.
+    const before = photoReportBuilderReducer(loaded(), {
+      type: "addSection",
+      id: "s2",
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p1", "p9"],
+      sectionIndex: 1,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p2"]);
+    expect(next.sections[1].photo_ids).toEqual(["p1", "p9"]);
+  });
+
+  it("keeps a photo already in the target section in place while appending the rest", () => {
+    // p1 is already first in section 0 — re-adding it must not move it to the
+    // end (the picker disables in-Section photos, but the reducer guards too).
+    const next = photoReportBuilderReducer(loaded(), {
+      type: "addPhotosToSection",
+      photoIds: ["p1", "p3"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("treats an add that changes nothing as a no-op", () => {
+    const before = loaded();
+    // Everything requested is already (only) in the target section.
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "addPhotosToSection",
+        photoIds: ["p1", "p2"],
+        sectionIndex: 0,
+      }),
+    ).toBe(before);
+    // An empty selection is equally a no-op.
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "addPhotosToSection",
+        photoIds: [],
+        sectionIndex: 0,
+      }),
+    ).toBe(before);
+  });
+
+  it("ignores adding photos to a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p3"],
+      sectionIndex: 9,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("reorders a photo within its section and marks dirty (#552)", () => {
+    const before = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { title: "Photos", description: "", photo_ids: ["p1", "p2", "p3"] },
+        { title: "Other", description: "", photo_ids: ["p4"] },
+      ],
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 0,
+      from: 0,
+      to: 2,
+    });
+    // arrayMove semantics: the dragged photo lands at the target index.
+    expect(next.sections[0].photo_ids).toEqual(["p2", "p3", "p1"]);
+    // The other section is untouched (same object, not just equal).
+    expect(next.sections[1]).toBe(before.sections[1]);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBe(before.revision + 1);
+  });
+
+  it("treats reordering a photo onto its own position as a no-op", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 0,
+      from: 1,
+      to: 1,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("ignores a photo reorder with an out-of-range photo index", () => {
+    const before = loaded(); // section 0 has two photos
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "reorderPhotoWithinSection",
+        sectionIndex: 0,
+        from: 0,
+        to: 5,
+      }),
+    ).toBe(before);
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "reorderPhotoWithinSection",
+        sectionIndex: 0,
+        from: -1,
+        to: 0,
+      }),
+    ).toBe(before);
+  });
+
+  it("ignores a photo reorder in a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 9,
+      from: 0,
+      to: 1,
+    });
+    expect(next).toBe(before);
+  });
+
   it("removes a photo from the report, taking it out of its section and marking dirty", () => {
     const before = loaded(); // [ Photos(p1,p2) ]
     const next = photoReportBuilderReducer(before, {
@@ -425,6 +577,108 @@ describe("photoReportBuilderReducer", () => {
       heading: "Nowhere",
     });
     expect(next).toBe(before);
+  });
+});
+
+describe("cover page editor (#551)", () => {
+  it("seeds the cover with all five blocks on and no photo by default", () => {
+    // A loaded report carries a resolved cover (the resolver supplies the
+    // job-photo fallback and the all-on block defaults); the builder brain just
+    // seeds whatever it is handed. With nothing provided it is all-on, no photo.
+    expect(loaded().cover).toEqual({
+      logo: true,
+      customer: true,
+      propertyAddress: true,
+      pointOfContact: true,
+      insurance: true,
+      coverPhotoId: null,
+    });
+  });
+
+  it("seeds the cover from the report's resolved cover, without marking dirty", () => {
+    // The component resolves the cover (report snapshot → Job cover photo →
+    // defaults) and hands it in; the builder seeds it verbatim. Loading is not
+    // an edit, so the report is not dirty.
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [{ title: "Photos", description: "", photo_ids: [] }],
+      cover: {
+        logo: false,
+        customer: true,
+        propertyAddress: true,
+        pointOfContact: false,
+        insurance: true,
+        coverPhotoId: "job-photo-1",
+      },
+    });
+    expect(state.cover).toEqual({
+      logo: false,
+      customer: true,
+      propertyAddress: true,
+      pointOfContact: false,
+      insurance: true,
+      coverPhotoId: "job-photo-1",
+    });
+    expect(state.dirty).toBe(false);
+  });
+
+  it("setCoverPhoto chooses the cover photo, marking dirty and bumping the revision", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "setCoverPhoto",
+      photoId: "p2",
+    });
+    expect(next.cover.coverPhotoId).toBe("p2");
+    // The block toggles are untouched.
+    expect(next.cover.logo).toBe(true);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBeGreaterThan(before.revision);
+  });
+
+  it("treats re-choosing the cover photo it already has as a no-op", () => {
+    // Seed a report whose cover photo is already p2; re-picking p2 must change
+    // nothing — same state object back, not dirty (mirrors the assign no-op).
+    const before = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [{ title: "Photos", description: "", photo_ids: [] }],
+      cover: { ...DEFAULT_COVER_BLOCKS, coverPhotoId: "p2" },
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "setCoverPhoto",
+      photoId: "p2",
+    });
+    expect(next).toBe(before);
+  });
+
+  it("toggleCoverField turns a block off, marking dirty and bumping the revision", () => {
+    const before = loaded(); // all blocks on
+    const next = photoReportBuilderReducer(before, {
+      type: "toggleCoverField",
+      field: "insurance",
+    });
+    expect(next.cover.insurance).toBe(false);
+    // The other blocks and the cover photo are untouched.
+    expect(next.cover.logo).toBe(true);
+    expect(next.cover.customer).toBe(true);
+    expect(next.cover.coverPhotoId).toBe(null);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBeGreaterThan(before.revision);
+  });
+
+  it("toggleCoverField flips a block back on when applied twice", () => {
+    const off = photoReportBuilderReducer(loaded(), {
+      type: "toggleCoverField",
+      field: "logo",
+    });
+    expect(off.cover.logo).toBe(false);
+    const onAgain = photoReportBuilderReducer(off, {
+      type: "toggleCoverField",
+      field: "logo",
+    });
+    expect(onAgain.cover.logo).toBe(true);
+    expect(onAgain.dirty).toBe(true);
   });
 });
 

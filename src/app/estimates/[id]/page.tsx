@@ -4,7 +4,7 @@ import { AlertCircle, ArrowLeft, FileText, Pencil } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getEstimateWithContents } from "@/lib/estimates";
-import { STATUS_BADGE_CLASSES, formatStatusLabel } from "@/lib/estimate-status";
+import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import { ExportPdfButton } from "@/components/documents/export-pdf-button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
@@ -151,7 +151,7 @@ export default async function EstimateViewPage({
               {estimate.estimate_number}
             </span>
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASSES[estimate.status]}`}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses("estimate", estimate.status)}`}
             >
               {statusLabel}
             </span>

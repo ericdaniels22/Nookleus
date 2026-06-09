@@ -23,10 +23,28 @@ import {
 } from "./build-initial-sections";
 import {
   resolveReportSettings,
+  type CoverBlockVisibility,
   type ReportDetailToggles,
+  type ResolvedCoverConfig,
   type StoredReportSettingsJson,
 } from "./photo-report-settings";
 import type { ReportPhotosPerPage } from "./types";
+
+/**
+ * The cover config a freshly loaded report falls back to when none is supplied:
+ * every identifying block on, no cover photo (ADR 0014). The component normally
+ * hands `initBuilderState` a fully-resolved cover (which already applies the
+ * Job-cover-photo fallback); this is the read-tolerant default for callers — and
+ * tests — that pass none.
+ */
+const DEFAULT_COVER: ResolvedCoverConfig = {
+  logo: true,
+  customer: true,
+  propertyAddress: true,
+  pointOfContact: true,
+  insurance: true,
+  coverPhotoId: null,
+};
 
 /** Heading the lone starter Section gets until the user renames it. */
 const DEFAULT_SECTION_TITLE = "Photos";
@@ -67,6 +85,14 @@ export interface PhotoReportBuilderState {
   photosPerPage: ReportPhotosPerPage;
   /** The six per-report detail toggles (ADR 0014). All default on. */
   details: ReportDetailToggles;
+  /**
+   * The per-report Cover Page config: which identifying blocks show and the
+   * chosen cover photo (#551). Seeded from the report's resolved cover (already
+   * carrying the Job-cover-photo fallback) and edited via `setCoverPhoto` /
+   * `toggleCoverField`. Persisted by splitting back into `cover_photo_id` and
+   * the five `cover_config` block flags.
+   */
+  cover: ResolvedCoverConfig;
   /** True once an edit has happened that has not yet been persisted. */
   dirty: boolean;
   /**
@@ -97,6 +123,13 @@ export interface LoadedPhotoReport {
    * (2-per-page, every detail toggle on).
    */
   report_settings?: StoredReportSettingsJson | null;
+  /**
+   * The report's fully-resolved Cover Page config — the component resolves this
+   * (report snapshot → Job cover photo → defaults) before seeding the builder.
+   * Optional and read-tolerant: a caller that passes none gets the all-on,
+   * no-photo {@link DEFAULT_COVER}.
+   */
+  cover?: ResolvedCoverConfig;
 }
 
 export type PhotoReportBuilderAction =
@@ -108,9 +141,18 @@ export type PhotoReportBuilderAction =
   | { type: "removeSection"; index: number }
   | { type: "reorderSection"; from: number; to: number }
   | { type: "assignPhotoToSection"; photoId: string; sectionIndex: number }
+  | { type: "addPhotosToSection"; photoIds: string[]; sectionIndex: number }
+  | {
+      type: "reorderPhotoWithinSection";
+      sectionIndex: number;
+      from: number;
+      to: number;
+    }
   | { type: "removePhotoFromReport"; photoId: string }
   | { type: "setPhotosPerPage"; photosPerPage: ReportPhotosPerPage }
   | { type: "toggleReportField"; field: keyof ReportDetailToggles }
+  | { type: "setCoverPhoto"; photoId: string | null }
+  | { type: "toggleCoverField"; field: keyof CoverBlockVisibility }
   | { type: "markSaved"; revision: number };
 
 /**
@@ -137,6 +179,7 @@ export function initBuilderState(
     sections: ensureSectionIds(report.sections),
     photosPerPage,
     details,
+    cover: report.cover ?? DEFAULT_COVER,
     dirty: false,
     revision: 0,
   };
@@ -267,6 +310,61 @@ export function photoReportBuilderReducer(
         revision: state.revision + 1,
       };
     }
+    case "addPhotosToSection": {
+      // Multi-photo assignPhotoToSection (#552): the "+ Add Photos" picker adds
+      // its whole selection in one action so the result is a single revision
+      // bump (one auto-save). Same one-Section invariant: every requested photo
+      // ends up in the target Section, removed from wherever else it lived.
+      // Photos already in the target keep their position (the picker marks them
+      // and a re-add must not shuffle the Section); the rest append in selection
+      // order. A selection that changes nothing leaves state untouched.
+      if (!isSectionIndex(state, action.sectionIndex)) return state;
+      const requested = new Set(action.photoIds);
+      const target = state.sections[action.sectionIndex];
+      const inTarget = new Set(target.photo_ids);
+      const appended = [...requested].filter((id) => !inTarget.has(id));
+      let changed = appended.length > 0;
+      const sections = state.sections.map((section, i) => {
+        if (i === action.sectionIndex) {
+          if (appended.length === 0) return section;
+          return { ...section, photo_ids: [...section.photo_ids, ...appended] };
+        }
+        const without = section.photo_ids.filter((id) => !requested.has(id));
+        if (without.length === section.photo_ids.length) return section;
+        changed = true;
+        return { ...section, photo_ids: without };
+      });
+      if (!changed) return state;
+      return {
+        ...state,
+        sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
+    case "reorderPhotoWithinSection": {
+      // Move a photo to a new position inside its own Section (#552), matching
+      // dnd-kit's arrayMove like reorderSection. The persisted photo_ids order
+      // is what the PDF's continuous photo numbering walks, so this is the
+      // user's lever on numbering.
+      const { sectionIndex, from, to } = action;
+      if (!isSectionIndex(state, sectionIndex)) return state;
+      const photoIds = state.sections[sectionIndex].photo_ids;
+      if (from < 0 || from >= photoIds.length) return state;
+      if (to < 0 || to >= photoIds.length) return state;
+      if (from === to) return state;
+      const reordered = [...photoIds];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      return {
+        ...state,
+        sections: state.sections.map((section, i) =>
+          i === sectionIndex ? { ...section, photo_ids: reordered } : section,
+        ),
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
     case "removePhotoFromReport": {
       // Take a photo out of whatever Section holds it (there is at most one).
       // Since photos live only inside Sections, this is the same as removing it
@@ -305,6 +403,29 @@ export function photoReportBuilderReducer(
         details: {
           ...state.details,
           [action.field]: !state.details[action.field],
+        },
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "setCoverPhoto":
+      // Choose (or clear) the report's own cover photo. A no-op when it already
+      // matches — leave state untouched so an idle re-pick does not dirty the
+      // report (mirrors the photo-assignment no-op guards).
+      if (action.photoId === state.cover.coverPhotoId) return state;
+      return {
+        ...state,
+        cover: { ...state.cover, coverPhotoId: action.photoId },
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "toggleCoverField":
+      // Flip one identifying block on/off. Toggling always changes the value, so
+      // there is no no-op case — every dispatch dirties the report.
+      return {
+        ...state,
+        cover: {
+          ...state.cover,
+          [action.field]: !state.cover[action.field],
         },
         dirty: true,
         revision: state.revision + 1,

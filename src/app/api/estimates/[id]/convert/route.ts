@@ -38,12 +38,6 @@ export const POST = withRequestContext(
       if (result.code === "estimate_not_found") {
         return NextResponse.json({ error: "not_found" }, { status: 404 });
       }
-      if (result.code === "estimate_not_approved") {
-        return NextResponse.json(
-          { error: "estimate_not_approved", message: "Estimate must be approved before converting." },
-          { status: 400 },
-        );
-      }
       return apiDbError(result.message ?? "internal", "POST /api/estimates/[id]/convert");
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/estimates/[id]/convert");

@@ -134,6 +134,15 @@ function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   };
 }
 
+function makePhoto(id: string): Photo {
+  return {
+    id,
+    storage_path: `job-1/${id}.jpg`,
+    annotated_path: null,
+    caption: null,
+  } as Photo;
+}
+
 function renderBuilder(report = makeReport(), photos: Photo[] = []) {
   return render(
     <PhotoReportBuilder
@@ -428,5 +437,243 @@ describe("PhotoReportBuilder — desktop center editor shows one pane (#548)", (
     expect(tokens(cards[0])).not.toContain("lg:hidden");
     expect(tokens(cards[1])).toContain("lg:hidden");
     expect(tokens(meta)).toContain("lg:hidden");
+  });
+});
+
+// ─── #552: the "+ Add Photos" picker replaces the desktop drag tray ─────────
+
+const tokens = (el: Element) => (el as HTMLElement).className.split(/\s+/);
+
+function sectionCards() {
+  return screen
+    .getAllByLabelText("Section heading")
+    .map((el) => el.closest("section") as HTMLElement);
+}
+
+describe("PhotoReportBuilder — desktop picker replaces the drag tray (#552)", () => {
+  it("offers a desktop-only + Add Photos button on each Section card", () => {
+    renderBuilder(makeReport(), [makePhoto("p1")]);
+
+    for (const card of sectionCards()) {
+      const add = within(card).getByRole("button", { name: "Add Photos" });
+      expect(tokens(add)).toContain("hidden");
+      expect(tokens(add)).toContain("lg:inline-flex");
+    }
+  });
+
+  it("hides the drag tray on desktop only, keeping it for the phone surface", () => {
+    renderBuilder(makeReport(), [makePhoto("p1")]);
+
+    // The tray is still in the DOM (the phone surface needs it) and hidden at
+    // lg+ purely by class — a bare `hidden` would break the phone builder.
+    const tray = screen
+      .getByText("Photos not in the report")
+      .closest("div") as HTMLElement;
+    expect(tokens(tray)).toContain("lg:hidden");
+    expect(tokens(tray)).not.toContain("hidden");
+
+    // The "drag photos here" hint only makes sense where the tray exists.
+    const hints = screen.getAllByText(/drag photos here to add them/, {
+      selector: "span",
+    });
+    expect(hints.length).toBeGreaterThan(0);
+    for (const hint of hints) {
+      expect(tokens(hint)).toContain("lg:hidden");
+    }
+  });
+});
+
+describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // p1 already lives in the target (Roof), p2 in another Section (Gutters),
+  // p3/p4 are not in the report at all.
+  function pickerReport() {
+    return makeReport({
+      sections: [
+        { id: "sec-a", title: "Roof", description: "", photo_ids: ["p1"] },
+        { id: "sec-b", title: "Gutters", description: "", photo_ids: ["p2"] },
+      ],
+    });
+  }
+  const jobPhotos = () => ["p1", "p2", "p3", "p4"].map(makePhoto);
+
+  function openPickerFor(cardIndex: number) {
+    fireEvent.click(
+      within(sectionCards()[cardIndex]).getByRole("button", {
+        name: "Add Photos",
+      }),
+    );
+  }
+
+  it("lists the Job's photos, marking in-this-section (disabled) and used-elsewhere", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0); // Roof
+
+    // The dialog portal renders into document.body, so screen finds it.
+    expect(screen.getByText("Add photos")).toBeTruthy();
+
+    // Already in the target Section: disabled — it is already exactly where
+    // the picker would put it.
+    const p1 = screen.getByTestId("picker-photo-p1") as HTMLButtonElement;
+    expect(p1.disabled).toBe(true);
+    expect(within(p1).getByText("In this section")).toBeTruthy();
+
+    // Used in another Section: selectable, marked with that Section's name.
+    const p2 = screen.getByTestId("picker-photo-p2") as HTMLButtonElement;
+    expect(p2.disabled).toBe(false);
+    expect(within(p2).getByText("In Gutters")).toBeTruthy();
+
+    // Not in the report: no marking.
+    const p3 = screen.getByTestId("picker-photo-p3");
+    expect(within(p3).queryByText(/^In /)).toBeNull();
+  });
+
+  it("multi-adds the selection in pick order — moving a used-elsewhere photo, no duplicates — and autosaves once", async () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0); // Roof
+
+    // The footer button counts the selection and is disabled at zero.
+    const addSelection = () =>
+      screen.getByRole("button", {
+        name: /add \d+ photos?/i,
+      }) as HTMLButtonElement;
+    expect(addSelection().disabled).toBe(true);
+
+    // Pick p3, then p2 (currently in Gutters), then p4 — order matters: it is
+    // the append order, hence the PDF numbering order.
+    fireEvent.click(screen.getByTestId("picker-photo-p3"));
+    fireEvent.click(screen.getByTestId("picker-photo-p2"));
+    fireEvent.click(screen.getByTestId("picker-photo-p4"));
+    expect(
+      screen.getByTestId("picker-photo-p2").getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(addSelection().textContent).toContain("Add 3 photos");
+
+    fireEvent.click(addSelection());
+
+    // The dialog closes (it only mounts while open)…
+    expect(screen.queryByText("Add photos")).toBeNull();
+
+    // …and the single dispatch autosaves once: Roof appends in pick order and
+    // Gutters lost p2 — the one-Section invariant, no duplicates.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: Array<{ title: string; photo_ids: string[] }>;
+    };
+    expect(payload.sections[0].photo_ids).toEqual(["p1", "p3", "p2", "p4"]);
+    expect(payload.sections[1].photo_ids).toEqual([]);
+  });
+
+  it("Cancel closes without dispatching, and a reopened picker starts with a fresh selection", async () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByTestId("picker-photo-p3"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Add photos")).toBeNull();
+
+    // No edit was made, so nothing autosaves.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).not.toHaveBeenCalled();
+
+    // The dialog mounts per open, so the abandoned selection is gone.
+    openPickerFor(0);
+    expect(
+      screen.getByTestId("picker-photo-p3").getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+});
+
+describe("PhotoReportBuilder — within-Section photo reorder (#552)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function reorderReport() {
+    return makeReport({
+      sections: [
+        {
+          id: "sec-a",
+          title: "Roof",
+          description: "",
+          photo_ids: ["p1", "p2", "p3"],
+        },
+        { id: "sec-b", title: "Gutters", description: "", photo_ids: [] },
+      ],
+    });
+  }
+  const jobPhotos = () => ["p1", "p2", "p3"].map(makePhoto);
+
+  it("registers a Section's photos as sortable, so they are reorder drop targets", () => {
+    renderBuilder(reorderReport(), jobPhotos());
+
+    for (const id of ["p1", "p2", "p3"]) {
+      expect(capturedSortableIds).toContain(id);
+    }
+  });
+
+  it("reorders a photo dragged onto another in its Section and autosaves the new photo_ids order", async () => {
+    renderBuilder(reorderReport(), jobPhotos());
+    expect(capturedOnDragEnd).toBeTruthy();
+
+    // Drag p1 (position 0) onto p3 (position 2) — the descriptors the builder
+    // attaches to in-Section photos carry sectionIndex + photoIndex.
+    act(() => {
+      capturedOnDragEnd?.({
+        active: {
+          id: "p1",
+          data: {
+            current: {
+              type: "photo",
+              photoId: "p1",
+              sectionIndex: 0,
+              photoIndex: 0,
+            },
+          },
+        },
+        over: {
+          id: "p3",
+          data: {
+            current: {
+              type: "photo",
+              photoId: "p3",
+              sectionIndex: 0,
+              photoIndex: 2,
+            },
+          },
+        },
+      });
+    });
+
+    // The grid re-renders in the new order immediately…
+    const order = within(sectionCards()[0])
+      .getAllByAltText("Photo")
+      .map((img) => (img as HTMLImageElement).src.match(/p\d/)?.[0]);
+    expect(order).toEqual(["p2", "p3", "p1"]);
+
+    // …and the persisted photo_ids order — what the PDF's continuous photo
+    // numbering walks — autosaves.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).toHaveBeenCalledTimes(1);
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: Array<{ photo_ids: string[] }>;
+    };
+    expect(payload.sections[0].photo_ids).toEqual(["p2", "p3", "p1"]);
   });
 });

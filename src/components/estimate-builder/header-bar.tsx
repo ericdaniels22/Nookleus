@@ -227,26 +227,6 @@ export function HeaderBar({
             Mark as Sent
           </Button>
         )}
-        {est.status === "sent" && (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => transitionStatus("approved")}
-            >
-              <CheckCircle size={14} />
-              Mark Approved
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => transitionStatus("rejected")}
-            >
-              <XCircle size={14} />
-              Mark Rejected
-            </Button>
-          </>
-        )}
         {est.status !== "voided" && est.status !== "converted" && (
           <Button
             variant="outline"
