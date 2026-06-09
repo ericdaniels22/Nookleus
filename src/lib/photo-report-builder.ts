@@ -21,10 +21,14 @@ import {
   type ReportSection,
   type StoredReportSection,
 } from "./build-initial-sections";
-import type {
-  CoverBlockVisibility,
-  ResolvedCoverConfig,
+import {
+  resolveReportSettings,
+  type CoverBlockVisibility,
+  type ReportDetailToggles,
+  type ResolvedCoverConfig,
+  type StoredReportSettingsJson,
 } from "./photo-report-settings";
+import type { ReportPhotosPerPage } from "./types";
 
 /**
  * The cover config a freshly loaded report falls back to when none is supplied:
@@ -74,6 +78,14 @@ export interface PhotoReportBuilderState {
   reportDate: string;
   sections: ReportSection[];
   /**
+   * The report's chosen Photo Page density (ADR 0014, #549/#550). Drives both
+   * the PDF layout and the per-layout write-up character budget the live
+   * counter reads ({@link writeupLimitFor}).
+   */
+  photosPerPage: ReportPhotosPerPage;
+  /** The six per-report detail toggles (ADR 0014). All default on. */
+  details: ReportDetailToggles;
+  /**
    * The per-report Cover Page config: which identifying blocks show and the
    * chosen cover photo (#551). Seeded from the report's resolved cover (already
    * carrying the Job-cover-photo fallback) and edited via `setCoverPhoto` /
@@ -106,6 +118,12 @@ export interface LoadedPhotoReport {
    */
   sections: StoredReportSection[];
   /**
+   * The report's own settings snapshot (ADR 0014, #549). Absent on a pre-0014
+   * row, in which case `initBuilderState` resolves to the hardcoded defaults
+   * (2-per-page, every detail toggle on).
+   */
+  report_settings?: StoredReportSettingsJson | null;
+  /**
    * The report's fully-resolved Cover Page config — the component resolves this
    * (report snapshot → Job cover photo → defaults) before seeding the builder.
    * Optional and read-tolerant: a caller that passes none gets the all-on,
@@ -131,6 +149,8 @@ export type PhotoReportBuilderAction =
       to: number;
     }
   | { type: "removePhotoFromReport"; photoId: string }
+  | { type: "setPhotosPerPage"; photosPerPage: ReportPhotosPerPage }
+  | { type: "toggleReportField"; field: keyof ReportDetailToggles }
   | { type: "setCoverPhoto"; photoId: string | null }
   | { type: "toggleCoverField"; field: keyof CoverBlockVisibility }
   | { type: "markSaved"; revision: number };
@@ -142,10 +162,23 @@ export type PhotoReportBuilderAction =
 export function initBuilderState(
   report: LoadedPhotoReport,
 ): PhotoReportBuilderState {
+  // Resolve the report's look from its own snapshot, falling through to the
+  // hardcoded defaults (2-per-page, all detail toggles on) when absent. The
+  // Organization default is not threaded here (hence `null` below): a report is
+  // seeded with its own snapshot at creation (#549, ADR 0014). That snapshot is
+  // a one-way copy — later edits to the org default never propagate to existing
+  // reports, only to ones created after the change — so the builder never needs
+  // the org default as a live fallback.
+  const { photosPerPage, details } = resolveReportSettings(
+    { report_settings: report.report_settings ?? null },
+    null,
+  );
   return {
     title: report.title,
     reportDate: report.report_date,
     sections: ensureSectionIds(report.sections),
+    photosPerPage,
+    details,
     cover: report.cover ?? DEFAULT_COVER,
     dirty: false,
     revision: 0,
@@ -354,6 +387,26 @@ export function photoReportBuilderReducer(
         revision: state.revision + 1,
       };
     }
+    case "setPhotosPerPage":
+      // No-op when the layout is unchanged so re-picking the current density
+      // does not needlessly dirty the report (mirrors the photo no-ops above).
+      if (action.photosPerPage === state.photosPerPage) return state;
+      return {
+        ...state,
+        photosPerPage: action.photosPerPage,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "toggleReportField":
+      return {
+        ...state,
+        details: {
+          ...state.details,
+          [action.field]: !state.details[action.field],
+        },
+        dirty: true,
+        revision: state.revision + 1,
+      };
     case "setCoverPhoto":
       // Choose (or clear) the report's own cover photo. A no-op when it already
       // matches — leave state untouched so an idle re-pick does not dirty the
