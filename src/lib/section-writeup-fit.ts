@@ -28,9 +28,28 @@
  */
 
 import { normalizeSectionWriteup } from "./section-writeup";
+import type { ReportPhotosPerPage } from "./types";
 
-/** Visible characters that comfortably fit on one Section intro page. */
-export const WRITEUP_CHARACTER_LIMIT = 1500;
+/**
+ * The one-page write-up character budget, per photos-per-page layout (ADR 0014,
+ * #549). A denser Photo Page leaves less room for the Section's intro prose, so
+ * the cap shrinks as the layout packs more photos per page. This replaces the
+ * single 1500-char {@link WRITEUP_CHARACTER_LIMIT} of the one-layout era.
+ */
+const WRITEUP_LIMITS: Record<ReportPhotosPerPage, number> = {
+  2: 750,
+  3: 400,
+  4: 260,
+};
+
+/**
+ * The one-page Section write-up character cap for a photos-per-page layout. The
+ * single source of truth the builder's live counter and save-time guard read,
+ * now keyed by the report's resolved layout rather than a global constant.
+ */
+export function writeupLimitFor(photosPerPage: ReportPhotosPerPage): number {
+  return WRITEUP_LIMITS[photosPerPage];
+}
 
 // Match real tags the same way `html-to-pdf`'s tokenizer does: "<" (optionally
 // "/") immediately followed by a letter. A stray "<" in prose ("gap was < 2in")
@@ -66,14 +85,14 @@ function visibleLength(html: string): number {
 
 /**
  * Measure how full a Section write-up is against the one-page character budget.
- * `limit` defaults to {@link WRITEUP_CHARACTER_LIMIT} but is overridable so the
- * counter, the guard, and tests all share one calculation. The write-up is run
+ * `limit` defaults to the 2-per-page cap ({@link writeupLimitFor}) but is
+ * overridable so the counter, the guard, and tests all share one calculation. The write-up is run
  * through {@link normalizeSectionWriteup} first, so it is measured as exactly the
  * string the PDF renderer receives.
  */
 export function measureWriteupFit(
   writeup: string | null | undefined,
-  limit: number = WRITEUP_CHARACTER_LIMIT,
+  limit: number = writeupLimitFor(2),
 ): WriteupFit {
   const used = visibleLength(normalizeSectionWriteup(writeup));
   return { used, limit, fits: used <= limit, remaining: limit - used };

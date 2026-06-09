@@ -125,7 +125,13 @@ vi.mock("@dnd-kit/sortable", async () => {
 
 import React from "react";
 import PhotoReportBuilder from "./photo-report-builder";
-import { WRITEUP_CHARACTER_LIMIT } from "@/lib/section-writeup-fit";
+import { writeupLimitFor } from "@/lib/section-writeup-fit";
+
+// The builder caps the write-up at one PDF intro page. Until the builder is
+// wired to the report's resolved photos-per-page (a later #540 slice), it
+// measures against the default 2-per-page cap, so that is the limit these tests
+// assert against (the single 1500-char budget was retired in ADR 0014 / #549).
+const WRITEUP_CHARACTER_LIMIT = writeupLimitFor(2);
 import { generateReportPDF } from "@/lib/generate-report-pdf";
 import { toast } from "sonner";
 
@@ -145,6 +151,9 @@ function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
     created_at: "2026-06-04T00:00:00Z",
     updated_at: "2026-06-04T00:00:00Z",
     deleted_at: null,
+    report_settings: null,
+    cover_config: null,
+    cover_photo_id: null,
     ...overrides,
   };
 }
