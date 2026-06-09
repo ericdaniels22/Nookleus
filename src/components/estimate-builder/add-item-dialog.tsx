@@ -37,6 +37,12 @@ export interface AddItemDialogProps {
   jobDamageType?: string;
   onAdded: (item: EstimateLineItem) => void;
   mode?: BuilderMode;
+  /**
+   * #573: which tab each open starts on ("library" → From Library, "custom" →
+   * Custom Item). The dialog stays mounted across opens, so this drives a
+   * remount key rather than Tabs' defaultValue alone.
+   */
+  initialTab?: "library" | "custom";
 }
 
 const CATEGORY_OPTIONS: { value: ItemCategory; label: string }[] = [
@@ -562,6 +568,7 @@ export function AddItemDialog({
   jobDamageType,
   onAdded,
   mode = "estimate",
+  initialTab = "library",
 }: AddItemDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -573,7 +580,13 @@ export function AddItemDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue={0}>
+        {/* key remounts Tabs whenever the dialog (re)opens or the requested
+            tab changes — defaultValue is only read on mount, and the dialog
+            stays mounted across opens. */}
+        <Tabs
+          key={`${open}-${initialTab}`}
+          defaultValue={initialTab === "custom" ? 1 : 0}
+        >
           <TabsList>
             <TabsTrigger value={0}>From Library</TabsTrigger>
             <TabsTrigger value={1}>Custom Item</TabsTrigger>
