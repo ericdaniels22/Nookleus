@@ -52,6 +52,12 @@ export interface LineItemRowProps {
   selected?: boolean;
   /** #544: select this row (opens the editor panel on it). */
   onSelect?: () => void;
+  /**
+   * #568: derived positional number for this row (e.g. "2.3.1" for a subsection
+   * item, "2.3" for a Section's direct item). A read-model projection computed
+   * by numberSectionTree — never persisted. Omitted → no number is shown.
+   */
+  number?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +72,7 @@ export function LineItemRow({
   domId,
   selected = false,
   onSelect,
+  number,
 }: LineItemRowProps) {
   // ── dnd-kit sortable ──────────────────────────────────────────────────────
   const {
@@ -129,6 +136,13 @@ export function LineItemRow({
       )}
       {/* Spacer when readOnly to keep alignment consistent */}
       {readOnly && <span className="w-5 shrink-0" />}
+
+      {/* Derived positional number (#568) — read-model, never persisted. */}
+      {number && (
+        <span className="w-12 shrink-0 mt-0.5 px-1 py-0.5 text-xs font-mono tabular-nums text-muted-foreground">
+          {number}
+        </span>
+      )}
 
       {/* Stacked name + description column */}
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
