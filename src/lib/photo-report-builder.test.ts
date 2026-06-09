@@ -292,6 +292,149 @@ describe("photoReportBuilderReducer", () => {
     expect(next).toBe(before);
   });
 
+  it("adds several photos to a section in selection order with one revision bump (#552)", () => {
+    const before = loaded(); // [ Photos(p1,p2) ]
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p3", "p4", "p5"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+    expect(next.dirty).toBe(true);
+    // The whole multi-add is one edit: one revision bump, one auto-save.
+    expect(next.revision).toBe(before.revision + 1);
+  });
+
+  it("dedupes a selection that names the same photo twice", () => {
+    const next = photoReportBuilderReducer(loaded(), {
+      type: "addPhotosToSection",
+      photoIds: ["p3", "p4", "p3"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3", "p4"]);
+  });
+
+  it("adding a photo that lives in another section moves it (no duplicates)", () => {
+    // [ Photos(p1,p2), New section() ]; add p1 + a new p9 into section 1.
+    const before = photoReportBuilderReducer(loaded(), {
+      type: "addSection",
+      id: "s2",
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p1", "p9"],
+      sectionIndex: 1,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p2"]);
+    expect(next.sections[1].photo_ids).toEqual(["p1", "p9"]);
+  });
+
+  it("keeps a photo already in the target section in place while appending the rest", () => {
+    // p1 is already first in section 0 — re-adding it must not move it to the
+    // end (the picker disables in-Section photos, but the reducer guards too).
+    const next = photoReportBuilderReducer(loaded(), {
+      type: "addPhotosToSection",
+      photoIds: ["p1", "p3"],
+      sectionIndex: 0,
+    });
+    expect(next.sections[0].photo_ids).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("treats an add that changes nothing as a no-op", () => {
+    const before = loaded();
+    // Everything requested is already (only) in the target section.
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "addPhotosToSection",
+        photoIds: ["p1", "p2"],
+        sectionIndex: 0,
+      }),
+    ).toBe(before);
+    // An empty selection is equally a no-op.
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "addPhotosToSection",
+        photoIds: [],
+        sectionIndex: 0,
+      }),
+    ).toBe(before);
+  });
+
+  it("ignores adding photos to a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "addPhotosToSection",
+      photoIds: ["p3"],
+      sectionIndex: 9,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("reorders a photo within its section and marks dirty (#552)", () => {
+    const before = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [
+        { title: "Photos", description: "", photo_ids: ["p1", "p2", "p3"] },
+        { title: "Other", description: "", photo_ids: ["p4"] },
+      ],
+    });
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 0,
+      from: 0,
+      to: 2,
+    });
+    // arrayMove semantics: the dragged photo lands at the target index.
+    expect(next.sections[0].photo_ids).toEqual(["p2", "p3", "p1"]);
+    // The other section is untouched (same object, not just equal).
+    expect(next.sections[1]).toBe(before.sections[1]);
+    expect(next.dirty).toBe(true);
+    expect(next.revision).toBe(before.revision + 1);
+  });
+
+  it("treats reordering a photo onto its own position as a no-op", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 0,
+      from: 1,
+      to: 1,
+    });
+    expect(next).toBe(before);
+  });
+
+  it("ignores a photo reorder with an out-of-range photo index", () => {
+    const before = loaded(); // section 0 has two photos
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "reorderPhotoWithinSection",
+        sectionIndex: 0,
+        from: 0,
+        to: 5,
+      }),
+    ).toBe(before);
+    expect(
+      photoReportBuilderReducer(before, {
+        type: "reorderPhotoWithinSection",
+        sectionIndex: 0,
+        from: -1,
+        to: 0,
+      }),
+    ).toBe(before);
+  });
+
+  it("ignores a photo reorder in a section index that does not exist", () => {
+    const before = loaded();
+    const next = photoReportBuilderReducer(before, {
+      type: "reorderPhotoWithinSection",
+      sectionIndex: 9,
+      from: 0,
+      to: 1,
+    });
+    expect(next).toBe(before);
+  });
+
   it("removes a photo from the report, taking it out of its section and marking dirty", () => {
     const before = loaded(); // [ Photos(p1,p2) ]
     const next = photoReportBuilderReducer(before, {

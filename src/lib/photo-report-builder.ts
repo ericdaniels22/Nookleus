@@ -88,6 +88,13 @@ export type PhotoReportBuilderAction =
   | { type: "removeSection"; index: number }
   | { type: "reorderSection"; from: number; to: number }
   | { type: "assignPhotoToSection"; photoId: string; sectionIndex: number }
+  | { type: "addPhotosToSection"; photoIds: string[]; sectionIndex: number }
+  | {
+      type: "reorderPhotoWithinSection";
+      sectionIndex: number;
+      from: number;
+      to: number;
+    }
   | { type: "removePhotoFromReport"; photoId: string }
   | { type: "markSaved"; revision: number };
 
@@ -228,6 +235,61 @@ export function photoReportBuilderReducer(
       return {
         ...state,
         sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
+    case "addPhotosToSection": {
+      // Multi-photo assignPhotoToSection (#552): the "+ Add Photos" picker adds
+      // its whole selection in one action so the result is a single revision
+      // bump (one auto-save). Same one-Section invariant: every requested photo
+      // ends up in the target Section, removed from wherever else it lived.
+      // Photos already in the target keep their position (the picker marks them
+      // and a re-add must not shuffle the Section); the rest append in selection
+      // order. A selection that changes nothing leaves state untouched.
+      if (!isSectionIndex(state, action.sectionIndex)) return state;
+      const requested = new Set(action.photoIds);
+      const target = state.sections[action.sectionIndex];
+      const inTarget = new Set(target.photo_ids);
+      const appended = [...requested].filter((id) => !inTarget.has(id));
+      let changed = appended.length > 0;
+      const sections = state.sections.map((section, i) => {
+        if (i === action.sectionIndex) {
+          if (appended.length === 0) return section;
+          return { ...section, photo_ids: [...section.photo_ids, ...appended] };
+        }
+        const without = section.photo_ids.filter((id) => !requested.has(id));
+        if (without.length === section.photo_ids.length) return section;
+        changed = true;
+        return { ...section, photo_ids: without };
+      });
+      if (!changed) return state;
+      return {
+        ...state,
+        sections,
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    }
+    case "reorderPhotoWithinSection": {
+      // Move a photo to a new position inside its own Section (#552), matching
+      // dnd-kit's arrayMove like reorderSection. The persisted photo_ids order
+      // is what the PDF's continuous photo numbering walks, so this is the
+      // user's lever on numbering.
+      const { sectionIndex, from, to } = action;
+      if (!isSectionIndex(state, sectionIndex)) return state;
+      const photoIds = state.sections[sectionIndex].photo_ids;
+      if (from < 0 || from >= photoIds.length) return state;
+      if (to < 0 || to >= photoIds.length) return state;
+      if (from === to) return state;
+      const reordered = [...photoIds];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      return {
+        ...state,
+        sections: state.sections.map((section, i) =>
+          i === sectionIndex ? { ...section, photo_ids: reordered } : section,
+        ),
         dirty: true,
         revision: state.revision + 1,
       };
