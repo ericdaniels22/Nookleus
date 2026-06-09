@@ -26,6 +26,7 @@ import { TrashConfirmDialog } from "@/components/trash/trash-confirm-dialog";
 import { ForceDeleteConfirmDialog } from "@/components/trash/force-delete-confirm-dialog";
 import { VoidConfirmDialog } from "@/components/void-confirm-dialog";
 import { PaymentRequestModal } from "@/components/payments/payment-request-modal";
+import { NewEstimateModal } from "@/components/job-detail/new-estimate-modal";
 import { daysLeft } from "@/lib/trash/days-left";
 import type { Estimate, Invoice } from "@/lib/types";
 
@@ -51,9 +52,13 @@ function capitalize(s: string): string {
 
 interface EstimatesInvoicesSectionProps {
   jobId: string;
+  jobDamageType: string | null;
 }
 
-export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProps) {
+export function EstimatesInvoicesSection({
+  jobId,
+  jobDamageType,
+}: EstimatesInvoicesSectionProps) {
   const router = useRouter();
   const { hasPermission, loading: authLoading } = useAuth();
 
@@ -78,6 +83,7 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
   const [voidTarget, setVoidTarget] = useState<Invoice | null>(null);
   const [isVoiding, setIsVoiding] = useState(false);
   const [paymentRequestTarget, setPaymentRequestTarget] = useState<Invoice | null>(null);
+  const [newEstimateOpen, setNewEstimateOpen] = useState(false);
 
   const [showTrashed, setShowTrashed] = useState(false);
   const [trashedEstimates, setTrashedEstimates] = useState<Estimate[]>([]);
@@ -316,12 +322,15 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
             </div>
           </div>
           {authLoading ? null : canCreate ? (
-            <Link href={`/jobs/${jobId}/estimates/new`}>
-              <Button size="sm" variant="outline" className="gap-1.5">
-                <Plus size={14} />
-                New Estimate
-              </Button>
-            </Link>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setNewEstimateOpen(true)}
+            >
+              <Plus size={14} />
+              New Estimate
+            </Button>
           ) : null}
         </div>
 
@@ -619,6 +628,20 @@ export function EstimatesInvoicesSection({ jobId }: EstimatesInvoicesSectionProp
         onConfirm={handleVoidConfirm}
         entityLabel="invoice"
       />
+
+      {/* ── New Estimate modal (#571) — create + apply template in one action,
+          then land in the populated builder. ─────────────────────────────── */}
+      {newEstimateOpen && (
+        <NewEstimateModal
+          open={newEstimateOpen}
+          onOpenChange={setNewEstimateOpen}
+          jobId={jobId}
+          jobDamageType={jobDamageType}
+          onCreated={(estimateId) => {
+            router.push(`/estimates/${estimateId}/edit`);
+          }}
+        />
+      )}
 
       {/* ── Payment request modal (invoices only) ───────────────────────────── */}
       {paymentRequestTarget && (

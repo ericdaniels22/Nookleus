@@ -862,7 +862,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         onSaved={fetchData}
       />
 
-      <EstimatesInvoicesSection jobId={jobId} />
+      <EstimatesInvoicesSection jobId={jobId} jobDamageType={job.damage_type ?? null} />
 
       <JobFiles jobId={jobId} />
 

@@ -10,20 +10,9 @@ import { round2 } from "@/lib/format";
 import { touchEntity, checkSnapshot as checkSnapshotGeneric } from "@/lib/builder-shared";
 import { computeWaterfall } from "@/lib/waterfall";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Numbering — atomic per-job sequence via RPC (uses SELECT FOR UPDATE in SQL)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function generateEstimateNumber(
-  jobId: string,
-  supabase: SupabaseClient,
-): Promise<{ estimate_number: string; sequence_number: number }> {
-  const { data, error } = await supabase
-    .rpc("generate_estimate_number", { p_job_id: jobId });
-  if (error) throw new Error(`generate_estimate_number failed: ${error.message}`);
-  if (!data || data.length === 0) throw new Error("generate_estimate_number returned no row");
-  return data[0] as { estimate_number: string; sequence_number: number };
-}
+// Numbering note: the atomic per-job sequence lives in the SQL
+// generate_estimate_number RPC, called inside create_estimate_with_template
+// (#571) — there is no TS-side wrapper anymore.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Loaded fetch — returns estimate + sections (one level of nesting) + items

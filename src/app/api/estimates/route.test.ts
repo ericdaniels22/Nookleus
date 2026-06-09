@@ -7,7 +7,7 @@ vi.mock("@/lib/supabase/get-active-org", () => ({
   getActiveOrganizationId: vi.fn(),
 }));
 
-import { GET, POST } from "./route";
+import { GET } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { fakeUserClient, memberTables } from "../__test-utils__/request-context-fakes";
@@ -58,45 +58,5 @@ describe("GET /api/estimates (converted to withRequestContext)", () => {
   });
 });
 
-describe("POST /api/estimates (converted to withRequestContext)", () => {
-  function postRequest(body: unknown) {
-    return new Request("http://test/api/estimates", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-  }
-
-  it("returns 401 when unauthenticated", async () => {
-    useUser({ user: null });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 403 when a non-admin lacks create_estimates", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "member", grants: [] }),
-    });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(403);
-  });
-
-  it("reaches the handler when the caller holds create_estimates", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "member", grants: ["create_estimates"] }),
-    });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "job_id required" });
-  });
-
-  it("an admin passes the gate without holding the key", async () => {
-    useUser({
-      user: { id: "user-1" },
-      tables: memberTables({ userId: "user-1", role: "admin", grants: [] }),
-    });
-    const res = await POST(postRequest({}), { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
-  });
-});
+// POST /api/estimates was removed in #571 — creation goes through
+// POST /api/estimates/create-with-template (see its route.test.ts).

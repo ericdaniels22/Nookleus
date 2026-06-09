@@ -10,7 +10,7 @@
 // estimate-drag-end.test.tsx (stub use-auto-save / next-navigation / sonner;
 // real @dnd-kit so the section cards render).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import type {
@@ -38,40 +38,6 @@ vi.mock("sonner", () => ({
 }));
 
 import { EstimateBuilder } from "./estimate-builder";
-
-// EstimateBuilder reads localStorage (the per-estimate template-applied flag).
-// Under Node's experimental localStorage the global is a bare object missing
-// getItem/setItem, so we install a functional in-memory fake on both the bare
-// global and window before each mount. (This is the same Node-25 artifact that
-// leaves the sibling *-drag-end suites red without a shim.)
-const store = new Map<string, string>();
-beforeEach(() => {
-  store.clear();
-  const fake = {
-    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
-    setItem: (k: string, v: string) => {
-      store.set(k, String(v));
-    },
-    removeItem: (k: string) => {
-      store.delete(k);
-    },
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size;
-    },
-  };
-  Object.defineProperty(globalThis, "localStorage", {
-    value: fake,
-    configurable: true,
-    writable: true,
-  });
-  Object.defineProperty(window, "localStorage", {
-    value: fake,
-    configurable: true,
-    writable: true,
-  });
-});
 
 // ── Minimal seeded entities (one Section with a Subsection line item, plus an
 // empty Section) — enough to prove the letterhead + nested Section structure
