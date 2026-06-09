@@ -239,6 +239,40 @@ describe("LineItemEditorPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("closes on Escape even when focus has left the panel subtree (global)", () => {
+    const onClose = vi.fn();
+    render(
+      <LineItemEditorPanel item={makeItem()} onChange={vi.fn()} onClose={onClose} />,
+    );
+
+    // Escape fired from the document body (focus is no longer in the panel) —
+    // the local onKeyDown wouldn't see this; a window-level listener does.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not steal Escape from a modal dialog layered above it", () => {
+    const onClose = vi.fn();
+    render(
+      <>
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={onClose}
+        />
+        <div role="dialog">
+          <button data-testid="dialog-button">Cancel</button>
+        </div>
+      </>,
+    );
+
+    // Escape originating inside an open dialog must close the dialog, not the
+    // editor panel — the global listener bows out when the event comes from a
+    // [role="dialog"] subtree.
+    fireEvent.keyDown(screen.getByTestId("dialog-button"), { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("disables every field when readOnly (voided entity)", () => {
     render(
       <LineItemEditorPanel

@@ -519,15 +519,20 @@ function CustomTab({
         <Label htmlFor="custom-unit-price" className="text-sm font-medium">
           Unit Price <span className="text-destructive">*</span>
         </Label>
-        <Input
-          id="custom-unit-price"
-          type="number"
-          value={unitPrice}
-          onChange={(e) => setUnitPrice(e.target.value)}
-          placeholder="0.00"
-          step="0.01"
-          className="text-sm"
-        />
+        <div className="relative">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+            $
+          </span>
+          <Input
+            id="custom-unit-price"
+            type="number"
+            value={unitPrice}
+            onChange={(e) => setUnitPrice(e.target.value)}
+            placeholder="0.00"
+            step="0.01"
+            className="pl-6 text-sm"
+          />
+        </div>
       </div>
 
       {/* Submit button */}

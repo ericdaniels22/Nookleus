@@ -3,8 +3,10 @@
 // LineItemEditorPanel (#544) — the editor surface for the currently selected
 // line. Holds its own draft state for all seven fields and commits on blur
 // through the shared change pathway (`onChange`), so auto-save behaves exactly
-// as the inline row does. Renders docked on desktop and as a slide-up sheet on
-// phone. (Built up test-first — fields/behaviors arrive per cycle.)
+// as the inline row does. Renders docked on desktop (slides in from the right)
+// and as a slide-up sheet on phone, both via tw-animate-css entrance classes.
+// Escape closes it from anywhere (window-level), and on phone a tap-dismiss
+// scrim sits behind the sheet. (Built up test-first — fields/behaviors per cycle.)
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -111,6 +113,28 @@ export function LineItemEditorPanel({
     nameRef.current?.focus();
   }, [item.id]);
 
+  // Escape closes the editor from anywhere — not only while focus is still
+  // inside the panel. A single window-level listener (registered once) covers
+  // the case where focus has moved to the document or the totals bar. It bows
+  // out when the Escape originates inside a modal dialog layered above the panel
+  // (e.g. the Add-item dialog) so it never steals that dialog's own Escape.
+  // onClose is read through a ref so the listener is bound once, not re-bound on
+  // every keystroke re-render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.('[role="dialog"]')) return;
+      onCloseRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // ── Live line total — computed from the local editing values. ──────────────
   const localQty = Number(quantity);
   const liveTotal =
@@ -181,20 +205,17 @@ export function LineItemEditorPanel({
         <div
           data-testid="editor-scrim"
           onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/40"
+          className="fixed inset-0 z-40 bg-black/40 animate-in fade-in-0 duration-200"
         />
       )}
       <div
         data-testid="line-item-editor-panel"
         data-variant={isDesktop ? "desktop" : "phone"}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
-        }}
         className={cn(
-          "flex flex-col bg-card border-border",
+          "flex flex-col bg-card border-border animate-in fade-in-0 duration-200",
           isDesktop
-            ? "sticky top-6 w-full shrink-0 lg:w-[22rem] max-h-[calc(100vh-3rem)] rounded-xl border shadow-sm"
-            : "fixed inset-x-0 bottom-0 z-50 max-h-[85vh] rounded-t-2xl border-t shadow-2xl",
+            ? "sticky top-6 w-full shrink-0 lg:w-[22rem] max-h-[calc(100vh-3rem)] rounded-xl border shadow-sm slide-in-from-right-4"
+            : "fixed inset-x-0 bottom-0 z-50 max-h-[85vh] rounded-t-2xl border-t shadow-2xl slide-in-from-bottom-8",
         )}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
