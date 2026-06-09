@@ -14,57 +14,57 @@ import type { BuilderEntity } from "@/lib/types";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Props — single `entity: BuilderEntity` discriminator (Task 33.5).
-// Internally narrowed via `entity.kind`.
+// HeaderCard (#574) — one compact card consolidating the document's identity
+// (back link, number badge, status badge, editable title, save indicator,
+// actions, Export PDF) with the mode-branched date/PO fields. Replaces the
+// HeaderBar + MetadataBar sibling strips.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface HeaderBarProps {
+export interface HeaderCardProps {
   entity: BuilderEntity;
   onTitleChange: (title: string) => void;
   onVoid: (reason: string) => void;
   saveStatus: "idle" | "saving" | "saved" | "error";
   lastSavedAt: Date | null;
   isVoiding: boolean;
-  // New optional callbacks for non-estimate modes
+  onIssuedDateChange: (d: string | null) => void;
+  onValidUntilChange: (d: string | null) => void;
+  onDueDateChange?: (d: string | null) => void;
+  onPoNumberChange?: (po: string | null) => void;
   onSaveTemplate?: () => void;
   onConvertClick?: () => void;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HeaderBar
-// ─────────────────────────────────────────────────────────────────────────────
+export function HeaderCard(props: HeaderCardProps) {
+  const {
+    entity,
+    onVoid,
+    saveStatus,
+    lastSavedAt,
+    isVoiding,
+    onIssuedDateChange,
+    onValidUntilChange,
+    onDueDateChange,
+    onPoNumberChange,
+    onSaveTemplate,
+    onConvertClick,
+  } = props;
 
-export function HeaderBar({
-  entity,
-  onTitleChange,
-  onVoid,
-  saveStatus,
-  lastSavedAt,
-  isVoiding,
-  onSaveTemplate,
-  onConvertClick,
-}: HeaderBarProps) {
   const router = useRouter();
+  const [voidOpen, setVoidOpen] = useState(false);
 
-  // Derive entity title: EstimateTemplate uses `name`, everything else uses `title`
   const entityTitle =
     entity.kind === "template" ? entity.data.name : entity.data.title;
 
-  // Derive whether entity is voided (templates have no status)
   const isVoided =
     entity.kind !== "template" && entity.data.status === "voided";
 
   // ── Title inline-edit state ──────────────────────────────────────────────
+  // editValue is only read while editing; startEdit/cancelEdit reseed it from
+  // entityTitle, so no sync-from-outside effect is needed.
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(entityTitle);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Sync edit value if title changes from outside
-  useEffect(() => {
-    if (!isEditing) {
-      setEditValue(entityTitle);
-    }
-  }, [entityTitle, isEditing]);
 
   // Auto-focus the input when entering edit mode
   useEffect(() => {
@@ -85,7 +85,7 @@ export function HeaderBar({
     if (!trimmed) {
       setEditValue(entityTitle);
     } else if (trimmed !== entityTitle) {
-      onTitleChange(trimmed);
+      props.onTitleChange(trimmed);
     }
     setIsEditing(false);
   }
@@ -105,10 +105,37 @@ export function HeaderBar({
     }
   }
 
-  // ── Void dialog state ────────────────────────────────────────────────────
-  const [voidOpen, setVoidOpen] = useState(false);
+  // Paid invoices lock their metadata fields too (parity with MetadataBar).
+  const isFieldsDisabled =
+    isVoided || (entity.kind === "invoice" && entity.data.status === "paid");
 
-  // ── Status transition ────────────────────────────────────────────────────
+  const entityNumberLabel =
+    entity.kind === "estimate"
+      ? entity.data.estimate_number
+      : entity.kind === "invoice"
+      ? entity.data.invoice_number
+      : null;
+
+  const statusBadgeClasses =
+    entity.kind !== "template"
+      ? getStatusBadgeClasses(entity.kind, entity.data.status)
+      : null;
+  const statusLabel =
+    entity.kind !== "template" ? formatStatusLabel(entity.data.status) : null;
+
+  const backHref =
+    entity.kind === "template"
+      ? "/settings/estimate-templates"
+      : `/jobs/${entity.data.job_id}`;
+
+  const entityLabel =
+    entity.kind === "invoice"
+      ? "invoice"
+      : entity.kind === "template"
+      ? "template"
+      : "estimate";
+
+  // ── Status transition (badge is read-only; actions drive status) ──────────
   async function transitionStatus(next: string) {
     if (entity.kind === "template") return; // templates have no status workflow
     const base = entity.kind === "invoice" ? "invoices" : "estimates";
@@ -129,37 +156,6 @@ export function HeaderBar({
     router.refresh();
   }
 
-  // ── Back link ─────────────────────────────────────────────────────────────
-  const backHref =
-    entity.kind === "template"
-      ? "/settings/estimate-templates"
-      : `/jobs/${entity.data.job_id}`;
-
-  // ── Entity number label (estimate_number / invoice_number / none) ─────────
-  const entityNumberLabel =
-    entity.kind === "estimate"
-      ? entity.data.estimate_number
-      : entity.kind === "invoice"
-      ? entity.data.invoice_number
-      : null;
-
-  // ── Status badge ──────────────────────────────────────────────────────────
-  const statusBadgeClasses =
-    entity.kind !== "template"
-      ? getStatusBadgeClasses(entity.kind, entity.data.status)
-      : null;
-  const statusLabel =
-    entity.kind !== "template" ? formatStatusLabel(entity.data.status) : null;
-
-  // ── Void dialog label ─────────────────────────────────────────────────────
-  const entityLabel =
-    entity.kind === "invoice"
-      ? "invoice"
-      : entity.kind === "template"
-      ? "template"
-      : "estimate";
-
-  // ── Action buttons ────────────────────────────────────────────────────────
   function renderActions() {
     if (entity.kind === "template") {
       return (
@@ -255,9 +251,9 @@ export function HeaderBar({
   }
 
   return (
-    <>
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3">
-        {/* ── Left: back link + entity number + status badge ──────────── */}
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3">
+      {/* ── Row 1: identity ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href={backHref}
@@ -283,7 +279,6 @@ export function HeaderBar({
           )}
         </div>
 
-        {/* ── Middle: editable title ────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <Input
@@ -310,7 +305,6 @@ export function HeaderBar({
           )}
         </div>
 
-        {/* ── Right: action buttons + save indicator ────────────────────── */}
         <div className="flex items-center gap-2 shrink-0">
           <SaveIndicator status={saveStatus} lastSavedAt={lastSavedAt} mode={entity.kind} />
           {renderActions()}
@@ -328,6 +322,63 @@ export function HeaderBar({
         </div>
       </div>
 
+      {/* ── Row 2: mode-branched dates ──────────────────────────────────── */}
+      {entity.kind === "estimate" && (
+        <div className="flex flex-row gap-6">
+          <MetaField
+            label="Date of issue"
+            type="date"
+            disabled={isFieldsDisabled}
+            value={entity.data.issued_date}
+            onChange={onIssuedDateChange}
+          />
+          <MetaField
+            label="Valid until"
+            type="date"
+            disabled={isFieldsDisabled}
+            value={entity.data.valid_until}
+            onChange={onValidUntilChange}
+          />
+        </div>
+      )}
+
+      {entity.kind === "invoice" && (
+        <div className="flex flex-row gap-6">
+          <MetaField
+            label="Date of issue"
+            type="date"
+            disabled={isFieldsDisabled}
+            value={entity.data.issued_date}
+            onChange={onIssuedDateChange}
+          />
+          <MetaField
+            label="Due date"
+            type="date"
+            disabled={isFieldsDisabled}
+            value={entity.data.due_date}
+            onChange={(d) => onDueDateChange?.(d)}
+          />
+          <MetaField
+            label="PO number"
+            type="text"
+            disabled={isFieldsDisabled}
+            value={entity.data.po_number}
+            onChange={(po) => onPoNumberChange?.(po)}
+          />
+
+          {entity.data.converted_from_estimate_id && (
+            <div className="flex flex-col gap-1 text-xs justify-end pb-1">
+              <Link
+                href={`/estimates/${entity.data.converted_from_estimate_id}`}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                From estimate ↗
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Void confirmation dialog */}
       <VoidConfirmDialog
         open={voidOpen}
@@ -335,6 +386,40 @@ export function HeaderBar({
         onConfirm={onVoid}
         entityLabel={entityLabel}
       />
-    </>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MetaField — one labeled date/text input in the dates row. Empty input maps
+// to null so autosave clears the column instead of writing "".
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MetaField({
+  label,
+  type,
+  disabled,
+  value,
+  onChange,
+}: {
+  label: string;
+  type: "date" | "text";
+  disabled: boolean;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-xs min-w-[140px]">
+      <span className="uppercase tracking-wide text-muted-foreground font-medium">
+        {label}
+      </span>
+      <input
+        type={type}
+        disabled={disabled}
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        className="border border-border rounded-md px-2 py-1 bg-background text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+      />
+    </label>
   );
 }
