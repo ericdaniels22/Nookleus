@@ -54,6 +54,9 @@ import { Input } from "@/components/ui/input";
 import { buildNumberIndex } from "./number-section-tree";
 import { resolveLineItemDropTarget } from "./move-line-item";
 import { LineItemRow, type BuilderLineItem } from "./line-item-row";
+import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/lib/format";
+import { sumLineItemsFromSections } from "@/lib/estimates-calc";
 import type { EstimateSection, InvoiceSection } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,10 +443,24 @@ function SubsectionGroup({
         <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {entryCountLabel(subsection.items.length)}
         </span>
+        {/* Collapsed → surface the subsection's $ total on the header, since
+            the line totals it sums are hidden (#591). */}
+        {collapsed && (
+          <span className="ml-auto shrink-0 font-mono tabular-nums text-xs text-foreground">
+            {formatCurrency(
+              sumLineItemsFromSections([
+                { items: subsection.items, subsections: [] },
+              ]),
+            )}
+          </span>
+        )}
         <button
           type="button"
           onClick={onToggleCollapsed}
-          className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          className={cn(
+            "p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0",
+            !collapsed && "ml-auto",
+          )}
           aria-label={collapsed ? "Expand subsection" : "Collapse subsection"}
           title={collapsed ? "Expand" : "Collapse"}
         >
@@ -628,10 +645,21 @@ function SectionGroup({
         <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {entryCountLabel(section.items.length + subsectionItemCount)}
         </span>
+        {/* Collapsed → surface the section's $ total (direct items plus every
+            subsection's items) on the header, since the line totals it sums
+            are hidden (#591). Same summation as the document subtotal. */}
+        {collapsed && (
+          <span className="ml-auto shrink-0 font-mono tabular-nums text-sm font-medium text-foreground">
+            {formatCurrency(sumLineItemsFromSections([section]))}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => onToggleCollapsed(section.id)}
-          className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          className={cn(
+            "p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0",
+            !collapsed && "ml-auto",
+          )}
           aria-label={collapsed ? "Expand section" : "Collapse section"}
           title={collapsed ? "Expand" : "Collapse"}
         >

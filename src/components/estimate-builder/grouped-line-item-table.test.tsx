@@ -117,6 +117,54 @@ describe("GroupedLineItemTable", () => {
     expect(within(table).getByText("0 items")).toBeDefined();
   });
 
+  it("shows the $ total on a collapsed section header, and hides it again on expand (#591)", () => {
+    renderTable();
+    const roof = screen.getByText("Roof").closest("li") as HTMLElement;
+
+    // Expanded → no header total (line totals are already visible below).
+    expect(screen.queryByText("$1,400.00")).toBeNull();
+
+    // Collapsed → the header shows the section's total: the 7 × $100 direct
+    // item plus the 7 × $100 item inside the Flashing subsection.
+    fireEvent.click(
+      within(roof).getByRole("button", { name: /collapse section/i }),
+    );
+    expect(within(roof).getByText("$1,400.00")).toBeDefined();
+
+    fireEvent.click(
+      within(roof).getByRole("button", { name: /expand section/i }),
+    );
+    expect(screen.queryByText("$1,400.00")).toBeNull();
+  });
+
+  it("shows the $ total on a collapsed subsection header (#591)", () => {
+    renderTable();
+    // Scoped to the header row div — the Tear-off and Step flashing item rows
+    // render the same $700.00 as their line totals.
+    const header = screen.getByText("Flashing").closest("div") as HTMLElement;
+
+    fireEvent.click(
+      within(header).getByRole("button", { name: /collapse subsection/i }),
+    );
+    expect(within(header).getByText("$700.00")).toBeDefined();
+
+    fireEvent.click(
+      within(header).getByRole("button", { name: /expand subsection/i }),
+    );
+    expect(within(header).queryByText("$700.00")).toBeNull();
+  });
+
+  it("shows a $0.00 total on empty sections under Collapse all (#591)", () => {
+    renderTable();
+
+    fireEvent.click(screen.getByRole("button", { name: /collapse all/i }));
+
+    const roof = screen.getByText("Roof").closest("li") as HTMLElement;
+    const gutters = screen.getByText("Gutters").closest("li") as HTMLElement;
+    expect(within(roof).getByText("$1,400.00")).toBeDefined();
+    expect(within(gutters).getByText("$0.00")).toBeDefined();
+  });
+
   it("collapses and expands a section, hiding its subsection and item rows", () => {
     renderTable();
 
