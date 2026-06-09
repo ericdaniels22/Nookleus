@@ -16,16 +16,17 @@ const PUBLIC_ROUTES = ["/sign", "/pay"];
 const INTERNAL_FULLSCREEN_PATTERNS: RegExp[] = [
   /^\/contracts\/[^/]+\/sign-in-person(\/|$)/,
   /^\/jobs\/[^/]+\/capture(\/|$)/,
-  // The in-Job Photo Report builder (#400) is full-screen, like capture.
-  /^\/jobs\/[^/]+\/reports\/[^/]+(\/|$)/,
 ];
-// Estimate Builder routes (#543) render the side navbar as a slim icon rail so
-// the document gets full content width. Covers the estimate, invoice, and
-// template editing modes — all served by EstimateBuilder.
+// Builder routes render the side navbar as a slim icon rail so the document
+// gets full content width (#543). Covers the estimate, invoice, and template
+// editing modes — all served by EstimateBuilder — plus the in-Job Photo Report
+// builder (#548), which used to be full-screen and now keeps the nav so the
+// author is never trapped.
 const BUILDER_ROUTE_PATTERNS: RegExp[] = [
   /^\/estimates\/[^/]+\/edit(\/|$)/,
   /^\/invoices\/[^/]+\/edit(\/|$)/,
   /^\/settings\/estimate-templates\/[^/]+\/edit(\/|$)/,
+  /^\/jobs\/[^/]+\/reports\/[^/]+(\/|$)/,
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

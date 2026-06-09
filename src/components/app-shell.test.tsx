@@ -140,6 +140,36 @@ describe("AppShell — persisted navbar unchanged off builder routes (#543)", ()
   });
 });
 
+describe("AppShell — Photo Report builder is a builder route (#548)", () => {
+  it("renders the app navigation in rail mode on the report builder route", () => {
+    // The in-Job Photo Report builder used to be in INTERNAL_FULLSCREEN_PATTERNS
+    // (nav stripped — a dead-end). #548 restores the nav: the route is now a
+    // builder route, so the Sidebar renders as the slim rail, collapsed by
+    // default, with the ephemeral toggle.
+    pathnameRef.current = "/jobs/job-1/reports/report-1";
+    renderShell();
+
+    expect(sidebarProps.last?.forceCollapsed).toBe(true);
+    expect(typeof sidebarProps.last?.onToggleRail).toBe("function");
+  });
+
+  it("toggles the rail on the report route without writing the persisted pref", () => {
+    // Same crux as #543, pinned against this route: expanding the rail while
+    // authoring a report must never write "sidebar-collapsed" — leaving the
+    // builder restores whatever navbar state the user had.
+    pathnameRef.current = "/jobs/job-1/reports/report-1";
+    renderShell();
+
+    fireEvent.click(screen.getByText("rail-toggle"));
+    expect(sidebarProps.last?.forceCollapsed).toBe(false);
+
+    const wrotePref = setItemSpy.mock.calls.some(
+      ([key]) => key === "sidebar-collapsed",
+    );
+    expect(wrotePref).toBe(false);
+  });
+});
+
 describe("AppShell — content margin tracks the rail (#543)", () => {
   it("reserves the slim-rail margin on a builder route and widens when expanded", () => {
     // The document must sit beside the slim rail (narrow left margin) even

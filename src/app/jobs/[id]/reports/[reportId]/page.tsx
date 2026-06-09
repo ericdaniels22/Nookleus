@@ -7,10 +7,11 @@ import { requirePagePermission } from "@/lib/request-context/require-page-permis
 import PhotoReportBuilder from "@/components/photo-report-builder";
 import type { Photo, PhotoReport } from "@/lib/types";
 
-// The full-screen, Job-scoped Photo Report builder route (#400). Rendered
-// full-screen via the AppShell `INTERNAL_FULLSCREEN_PATTERNS` regex. The page
-// fetches the draft + its photos server-side (RLS scopes to the active org) and
-// hands them to the client builder, which auto-saves edits.
+// The Job-scoped Photo Report builder route (#400). A builder route in the
+// AppShell `BUILDER_ROUTE_PATTERNS` sense (#548): the app nav renders as the
+// slim collapsed rail beside the builder. The page fetches the draft + its
+// photos server-side (RLS scopes to the active org) and hands them to the
+// client builder, which auto-saves edits.
 export default async function PhotoReportBuilderPage({
   params,
 }: {

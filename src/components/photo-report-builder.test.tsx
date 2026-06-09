@@ -603,7 +603,11 @@ describe("PhotoReportBuilder section reorder focus (#467)", () => {
     // The DndContext is stubbed in these tests, so a revert of `useSortable({ id })`
     // back to a positional `section-${index}` would not surface through the focus
     // test above — this asserts it directly. Sections loaded with explicit ids keep
-    // them (ensureSectionIds), making the expected ids deterministic.
+    // them (ensureSectionIds), making the expected ids deterministic. Since #548
+    // the desktop rail registers its own `rail-`-prefixed sortable per section
+    // (ids must be unique within the one DndContext) alongside the center
+    // editor's — membership is asserted, not order, because rail-vs-center
+    // registration order is incidental JSX layout, not part of this contract.
     capturedSortableIds = [];
     renderBuilder(
       makeReport({
@@ -614,7 +618,10 @@ describe("PhotoReportBuilder section reorder focus (#467)", () => {
       }),
     );
 
-    expect(capturedSortableIds).toEqual(["sec-a", "sec-b"]);
+    expect(capturedSortableIds).toHaveLength(4);
+    expect(capturedSortableIds).toEqual(
+      expect.arrayContaining(["rail-sec-a", "rail-sec-b", "sec-a", "sec-b"]),
+    );
   });
 });
 
