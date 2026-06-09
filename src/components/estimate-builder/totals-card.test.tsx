@@ -10,7 +10,7 @@
 // a specific field's wrapper rather than asserted via a loose getByText.
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 
 import { TotalsCard } from "./totals-card";
 import type {
@@ -25,6 +25,12 @@ interface Overrides {
   markup_type?: AdjustmentType;
   markup_value?: number;
   markup_amount?: number;
+  overhead_type?: AdjustmentType;
+  overhead_value?: number;
+  overhead_amount?: number;
+  profit_type?: AdjustmentType;
+  profit_value?: number;
+  profit_amount?: number;
   discount_type?: AdjustmentType;
   discount_value?: number;
   discount_amount?: number;
@@ -50,6 +56,12 @@ function makeEstimate(o: Overrides = {}): BuilderEntity {
     markup_type: o.markup_type ?? "none",
     markup_value: o.markup_value ?? 0,
     markup_amount: o.markup_amount ?? 0,
+    overhead_type: o.overhead_type ?? "none",
+    overhead_value: o.overhead_value ?? 0,
+    overhead_amount: o.overhead_amount ?? 0,
+    profit_type: o.profit_type ?? "none",
+    profit_value: o.profit_value ?? 0,
+    profit_amount: o.profit_amount ?? 0,
     discount_type: o.discount_type ?? "none",
     discount_value: o.discount_value ?? 0,
     discount_amount: o.discount_amount ?? 0,
@@ -130,6 +142,8 @@ function renderBar(
   entity: BuilderEntity,
   handlers: Partial<{
     onMarkupChange: (t: AdjustmentType, n: number) => void;
+    onOverheadChange: (t: AdjustmentType, n: number) => void;
+    onProfitChange: (t: AdjustmentType, n: number) => void;
     onDiscountChange: (t: AdjustmentType, n: number) => void;
     onTaxRateChange: (n: number) => void;
     readOnly: boolean;
@@ -141,6 +155,8 @@ function renderBar(
     <TotalsCard
       entity={entity}
       onMarkupChange={handlers.onMarkupChange ?? vi.fn()}
+      onOverheadChange={handlers.onOverheadChange ?? vi.fn()}
+      onProfitChange={handlers.onProfitChange ?? vi.fn()}
       onDiscountChange={handlers.onDiscountChange ?? vi.fn()}
       onTaxRateChange={handlers.onTaxRateChange ?? vi.fn()}
       readOnly={handlers.readOnly}
@@ -159,28 +175,60 @@ describe("TotalsCard (#545)", () => {
     expect(screen.getByText("$125.00")).toBeTruthy();
   });
 
-  it("renders the Markup, Discount, Adjusted subtotal, and Tax rows", () => {
+  it("renders Overhead and Profit (not a single Markup) for an estimate", () => {
+    // #572 splits the estimate's single Markup into two independent uplifts —
+    // Overhead and Profit — each with its own line/toggle. The combined "Markup"
+    // label no longer appears on an estimate.
     renderBar(makeEstimate());
 
-    expect(screen.getByText("Markup")).toBeTruthy();
+    expect(screen.getByText("Overhead")).toBeTruthy();
+    expect(screen.getByText("Profit")).toBeTruthy();
+    expect(screen.queryByText("Markup")).toBeNull();
     expect(screen.getByText("Discount")).toBeTruthy();
     expect(screen.getByText("Adjusted subtotal")).toBeTruthy();
     expect(screen.getByText("Tax")).toBeTruthy();
   });
 
-  it("reflects a fixed-amount Markup change via onMarkupChange", () => {
-    const onMarkupChange = vi.fn();
-    renderBar(makeEstimate({ markup_type: "amount", markup_value: 50 }), {
-      onMarkupChange,
+  it("renders a single Markup row (not Overhead/Profit) for an invoice", () => {
+    // Invoices keep their single Markup until #575; the Overhead/Profit split is
+    // estimate-only. So an invoice still shows one "Markup" line.
+    renderBar(makeInvoice(), { mode: "invoice" });
+
+    expect(screen.getByText("Markup")).toBeTruthy();
+    expect(screen.queryByText("Overhead")).toBeNull();
+    expect(screen.queryByText("Profit")).toBeNull();
+  });
+
+  it("reflects a fixed-amount Overhead change via onOverheadChange", () => {
+    const onOverheadChange = vi.fn();
+    renderBar(makeEstimate({ overhead_type: "amount", overhead_value: 50 }), {
+      onOverheadChange,
     });
 
+    // Overhead is the only amount-typed field here, so the lone MoneyInput
+    // textbox is Overhead's.
     const box = screen.getByRole("textbox") as HTMLInputElement;
     expect(box.value).toBe("50");
 
     fireEvent.change(box, { target: { value: "75" } });
     fireEvent.blur(box);
 
-    expect(onMarkupChange).toHaveBeenCalledWith("amount", 75);
+    expect(onOverheadChange).toHaveBeenCalledWith("amount", 75);
+  });
+
+  it("reflects a fixed-amount Profit change via onProfitChange", () => {
+    const onProfitChange = vi.fn();
+    renderBar(makeEstimate({ profit_type: "amount", profit_value: 40 }), {
+      onProfitChange,
+    });
+
+    const box = screen.getByRole("textbox") as HTMLInputElement;
+    expect(box.value).toBe("40");
+
+    fireEvent.change(box, { target: { value: "60" } });
+    fireEvent.blur(box);
+
+    expect(onProfitChange).toHaveBeenCalledWith("amount", 60);
   });
 
   it("reflects a fixed-amount Discount change via onDiscountChange", () => {
@@ -208,16 +256,59 @@ describe("TotalsCard (#545)", () => {
     expect(onTaxRateChange).toHaveBeenCalledWith(10);
   });
 
-  it("reflects a percent Markup change via onMarkupChange", () => {
-    const onMarkupChange = vi.fn();
-    renderBar(makeEstimate({ markup_type: "percent", markup_value: 10 }), {
-      onMarkupChange,
+  it("reflects a percent Overhead change via onOverheadChange", () => {
+    const onOverheadChange = vi.fn();
+    renderBar(makeEstimate({ overhead_type: "percent", overhead_value: 10 }), {
+      onOverheadChange,
     });
 
     const box = screen.getByDisplayValue("10") as HTMLInputElement;
     fireEvent.change(box, { target: { value: "15" } });
 
-    expect(onMarkupChange).toHaveBeenCalledWith("percent", 15);
+    expect(onOverheadChange).toHaveBeenCalledWith("percent", 15);
+  });
+
+  it("reflects a percent Profit change via onProfitChange", () => {
+    const onProfitChange = vi.fn();
+    renderBar(makeEstimate({ profit_type: "percent", profit_value: 20 }), {
+      onProfitChange,
+    });
+
+    const box = screen.getByDisplayValue("20") as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "25" } });
+
+    expect(onProfitChange).toHaveBeenCalledWith("percent", 25);
+  });
+
+  it("toggles Overhead from percent to fixed amount via its own toggle", () => {
+    // The %/$/— toggle glyphs repeat across rows, so scope the click to the
+    // Overhead row's wrapper. Switching to "$" must fire onOverheadChange with
+    // the amount type (carrying the current value through).
+    const onOverheadChange = vi.fn();
+    renderBar(makeEstimate({ overhead_type: "percent", overhead_value: 10 }), {
+      onOverheadChange,
+    });
+
+    const overheadRow = screen
+      .getByText("Overhead")
+      .closest(".space-y-1") as HTMLElement;
+    fireEvent.click(within(overheadRow).getByTitle("Fixed amount"));
+
+    expect(onOverheadChange).toHaveBeenCalledWith("amount", 10);
+  });
+
+  it("toggles Profit from fixed amount to percent via its own toggle", () => {
+    const onProfitChange = vi.fn();
+    renderBar(makeEstimate({ profit_type: "amount", profit_value: 50 }), {
+      onProfitChange,
+    });
+
+    const profitRow = screen
+      .getByText("Profit")
+      .closest(".space-y-1") as HTMLElement;
+    fireEvent.click(within(profitRow).getByTitle("Percent"));
+
+    expect(onProfitChange).toHaveBeenCalledWith("percent", 50);
   });
 
   it("warns when the grand total is negative", () => {
@@ -262,11 +353,15 @@ describe("TotalsCard (#545)", () => {
 
   it("disables inline editing when readOnly (e.g. a voided document)", () => {
     renderBar(
-      makeEstimate({ tax_rate: 8.25, markup_type: "percent", markup_value: 10 }),
+      makeEstimate({
+        tax_rate: 8.25,
+        overhead_type: "percent",
+        overhead_value: 10,
+      }),
       { readOnly: true },
     );
 
-    // Both the Tax % box and the Markup adjustment box are disabled, so a
+    // Both the Tax % box and the Overhead adjustment box are disabled, so a
     // voided document's totals can't be edited from the bar.
     expect((screen.getByDisplayValue("8.25") as HTMLInputElement).disabled).toBe(
       true,
@@ -313,7 +408,7 @@ describe("TotalsCard floating card (#569)", () => {
 
     // Pill: the whole breakdown is gone from the DOM (not merely CSS-hidden).
     expect(screen.queryByText("Subtotal")).toBeNull();
-    expect(screen.queryByText("Markup")).toBeNull();
+    expect(screen.queryByText("Overhead")).toBeNull();
     expect(screen.queryByText("Tax")).toBeNull();
 
     // ...but the grand Total — the reason the pill exists — stays in view.
@@ -344,6 +439,8 @@ describe("TotalsCard floating card (#569)", () => {
     <TotalsCard
       entity={entity}
       onMarkupChange={vi.fn()}
+      onOverheadChange={vi.fn()}
+      onProfitChange={vi.fn()}
       onDiscountChange={vi.fn()}
       onTaxRateChange={vi.fn()}
       editorOpen={editorOpen}

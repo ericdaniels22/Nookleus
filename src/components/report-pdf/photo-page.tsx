@@ -4,8 +4,9 @@ import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { Style } from "@react-pdf/types";
 import { format } from "date-fns";
 
+import type { RenderSlot } from "@/lib/report-render-model";
 import PageFooter from "./page-footer";
-import PageHeader from "./page-header";
+import TagChips from "./tag-chips";
 
 const colors = {
   primary: "#1B2434",
@@ -18,39 +19,47 @@ const colors = {
 };
 
 // 2-per-page slot geometry: each of the two photo rows takes roughly half
-// of the printable area between header and footer. The photo itself is a
-// portrait-shaped frame (~3:4) with the metadata column to the right.
+// of the printable area. The photo is a portrait-shaped frame (~3:4) with
+// the metadata column to the right.
 const TWO_PHOTO_HEIGHT = 295;
 const TWO_PHOTO_WIDTH = 220;
 
-// 1-per-page slot geometry: one large portrait-shaped photo dominating the
-// page, metadata beneath.
-const ONE_PHOTO_HEIGHT = 540;
-const ONE_PHOTO_WIDTH = 405;
+// 3-per-page slot geometry: same side-by-side shape as 2-per, but shorter so
+// three rows fit between the (now header-less) top margin and the footer.
+const THREE_PHOTO_HEIGHT = 195;
+const THREE_PHOTO_WIDTH = 146;
 
-// 4-per-page tile geometry: 2x2 grid; each tile ~half the usable width.
+// 4-per-page tile geometry: 2x2 grid; each tile ~half the usable width with
+// metadata stacked beneath.
 const FOUR_TILE_WIDTH = 240;
 const FOUR_PHOTO_HEIGHT = 245;
 
-// Corner radius shared by every photo frame (1/2/4-per-page) so the rounding
-// stays consistent and is tuned in one place.
+// Corner radius shared by every photo frame (2/3/4-per-page) so the rounding
+// stays consistent and is tuned in one place. Also imported by the cover and
+// before/after pages.
 export const PHOTO_CORNER_RADIUS = 12;
 
 const styles = StyleSheet.create({
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
-    paddingTop: 56,
+    paddingTop: 40,
     paddingBottom: 56,
     paddingHorizontal: 40,
     color: colors.text,
   },
 
-  // 2-per-page layout — photo + side metadata.
-  twoSlot: {
+  // Side-by-side layout shared by 2- and 3-per-page — photo + side metadata.
+  sideSlot: {
     flexDirection: "row",
     marginBottom: 16,
     alignItems: "stretch",
+  },
+  sideMeta: {
+    flex: 1,
+    paddingLeft: 14,
+    paddingVertical: 4,
+    justifyContent: "flex-start",
   },
   twoPhotoFrame: {
     width: TWO_PHOTO_WIDTH,
@@ -62,31 +71,15 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
   },
-  twoMeta: {
-    flex: 1,
-    paddingLeft: 14,
-    paddingVertical: 4,
-    justifyContent: "flex-start",
-  },
-
-  // 1-per-page layout — large photo + metadata stacked beneath.
-  oneTile: {
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  onePhotoFrame: {
-    width: ONE_PHOTO_WIDTH,
-    height: ONE_PHOTO_HEIGHT,
+  threePhotoFrame: {
+    width: THREE_PHOTO_WIDTH,
+    height: THREE_PHOTO_HEIGHT,
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: PHOTO_CORNER_RADIUS,
     position: "relative",
     overflow: "hidden",
-  },
-  oneMeta: {
-    width: ONE_PHOTO_WIDTH,
-    paddingTop: 10,
   },
 
   // 4-per-page layout — 2x2 grid; each tile has photo + metadata beneath.
@@ -152,110 +145,115 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginBottom: 2,
   },
+  tagsWrap: {
+    marginTop: 4,
+  },
 });
 
-export interface PhotoPageSlot {
-  photoId: string;
-  url: string;
-  number: number;
-  caption: string | null;
-  takenAt: string | null;
-  takenBy: string | null;
-  orientation: "portrait" | "landscape";
-}
-
 interface PhotoPageProps {
-  slots: PhotoPageSlot[];
+  slots: RenderSlot[];
   sectionTitle: string;
-  customerName: string;
-  reportDate: string;
   pageNumber?: number;
   totalPages?: number;
-  photosPerPage?: 1 | 2 | 4;
+  photosPerPage?: 2 | 3 | 4;
 }
 
-function formatTakenAt(takenAt: string | null): string | null {
-  if (!takenAt) return null;
-  const d = new Date(takenAt);
+function formatTakenAt(dateCaptured: string | null): string | null {
+  if (!dateCaptured) return null;
+  const d = new Date(dateCaptured);
   if (Number.isNaN(d.getTime())) return null;
   return format(d, "MMM d, yyyy, h:mm a");
 }
 
-function objectFitFor(orientation: PhotoPageSlot["orientation"]) {
+function objectFitFor(orientation: RenderSlot["orientation"]) {
   return orientation === "landscape" ? "contain" : "cover";
 }
 
-function renderMetaLines(
-  slot: PhotoPageSlot,
-  captionStyle: Style,
-  lineStyle: Style,
-) {
-  const dateLine = formatTakenAt(slot.takenAt);
-  return [
-    slot.caption ? (
-      <Text key="caption" style={captionStyle}>
-        {slot.caption}
-      </Text>
-    ) : null,
-    dateLine ? (
-      <Text key="date" style={lineStyle}>
-        {dateLine}
-      </Text>
-    ) : null,
-    slot.takenBy ? (
-      <Text key="creator" style={lineStyle}>
-        {slot.takenBy}
-      </Text>
-    ) : null,
-  ];
-}
-
-function TwoPerPageSlot({ slot }: { slot: PhotoPageSlot }) {
+/** The clipping frame holding one photo, with its number badge when present. */
+export function PhotoFrame({
+  slot,
+  frameStyle,
+}: {
+  slot: RenderSlot;
+  frameStyle: Style;
+}) {
   return (
-    <View style={styles.twoSlot}>
-      <View style={styles.twoPhotoFrame}>
+    <View style={frameStyle}>
+      {slot.url ? (
         <Image
           src={slot.url}
-          style={[styles.photoImage, { objectFit: objectFitFor(slot.orientation) }]}
+          style={[
+            styles.photoImage,
+            { objectFit: objectFitFor(slot.orientation) },
+          ]}
         />
+      ) : null}
+      {slot.number != null ? (
         <Text style={styles.badge}>{slot.number}</Text>
-      </View>
-      <View style={styles.twoMeta}>
-        {renderMetaLines(slot, styles.caption, styles.metaLine)}
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The per-photo detail block: each field is already gated to null upstream, so
+ * we render exactly what is present — caption (bold), date captured, captured
+ * by, location, then the tag chips.
+ */
+export function PhotoMeta({
+  slot,
+  captionStyle,
+  lineStyle,
+}: {
+  slot: RenderSlot;
+  captionStyle: Style;
+  lineStyle: Style;
+}) {
+  const dateLine = formatTakenAt(slot.dateCaptured);
+  return (
+    <>
+      {slot.caption ? <Text style={captionStyle}>{slot.caption}</Text> : null}
+      {dateLine ? <Text style={lineStyle}>{dateLine}</Text> : null}
+      {slot.capturedBy ? (
+        <Text style={lineStyle}>{slot.capturedBy}</Text>
+      ) : null}
+      {slot.location ? <Text style={lineStyle}>{slot.location}</Text> : null}
+      {slot.tags.length > 0 ? (
+        <View style={styles.tagsWrap}>
+          <TagChips tags={slot.tags} />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+function SideBySideSlot({
+  slot,
+  frameStyle,
+}: {
+  slot: RenderSlot;
+  frameStyle: Style;
+}) {
+  return (
+    <View style={styles.sideSlot}>
+      <PhotoFrame slot={slot} frameStyle={frameStyle} />
+      <View style={styles.sideMeta}>
+        <PhotoMeta slot={slot} captionStyle={styles.caption} lineStyle={styles.metaLine} />
       </View>
     </View>
   );
 }
 
-function OnePerPageTile({ slot }: { slot: PhotoPageSlot }) {
-  return (
-    <View style={styles.oneTile}>
-      <View style={styles.onePhotoFrame}>
-        <Image
-          src={slot.url}
-          style={[styles.photoImage, { objectFit: objectFitFor(slot.orientation) }]}
-        />
-        <Text style={styles.badge}>{slot.number}</Text>
-      </View>
-      <View style={styles.oneMeta}>
-        {renderMetaLines(slot, styles.caption, styles.metaLine)}
-      </View>
-    </View>
-  );
-}
-
-function FourPerPageTile({ slot }: { slot: PhotoPageSlot }) {
+function FourPerPageTile({ slot }: { slot: RenderSlot }) {
   return (
     <View style={styles.fourTile}>
-      <View style={styles.fourPhotoFrame}>
-        <Image
-          src={slot.url}
-          style={[styles.photoImage, { objectFit: objectFitFor(slot.orientation) }]}
-        />
-        <Text style={styles.badge}>{slot.number}</Text>
-      </View>
+      <PhotoFrame slot={slot} frameStyle={styles.fourPhotoFrame} />
       <View style={styles.fourMeta}>
-        {renderMetaLines(slot, styles.captionSmall, styles.metaLineSmall)}
+        <PhotoMeta
+          slot={slot}
+          captionStyle={styles.captionSmall}
+          lineStyle={styles.metaLineSmall}
+        />
       </View>
     </View>
   );
@@ -264,29 +262,31 @@ function FourPerPageTile({ slot }: { slot: PhotoPageSlot }) {
 export default function PhotoPage({
   slots,
   sectionTitle,
-  customerName,
-  reportDate,
   pageNumber,
   totalPages,
   photosPerPage = 2,
 }: PhotoPageProps) {
   return (
     <Page size="LETTER" style={styles.page}>
-      <PageHeader customerName={customerName} reportDate={reportDate} />
-      {photosPerPage === 1 ? (
-        slots.map((slot) => <OnePerPageTile key={slot.photoId} slot={slot} />)
-      ) : photosPerPage === 4 ? (
+      {photosPerPage === 4 ? (
         <View style={styles.fourGrid}>
           {slots.map((slot) => (
             <FourPerPageTile key={slot.photoId} slot={slot} />
           ))}
         </View>
       ) : (
-        slots.map((slot) => <TwoPerPageSlot key={slot.photoId} slot={slot} />)
+        slots.map((slot) => (
+          <SideBySideSlot
+            key={slot.photoId}
+            slot={slot}
+            frameStyle={
+              photosPerPage === 3 ? styles.threePhotoFrame : styles.twoPhotoFrame
+            }
+          />
+        ))
       )}
       <PageFooter
         sectionTitle={sectionTitle}
-        customerName={customerName}
         pageNumber={pageNumber}
         totalPages={totalPages}
       />

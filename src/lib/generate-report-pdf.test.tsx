@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Integration-flavored test for the report generator's photos-per-page wiring
- * (issue #361). Supabase is mocked at the client boundary (@/lib/supabase), the
+ * Integration-flavored test for the report generator's render-model wiring
+ * (#553). Supabase is mocked at the client boundary (@/lib/supabase), the
  * react-pdf renderer and the document component are stubbed so no real PDF is
- * produced, and the pure layout engine is spied so we can read the
- * photos-per-page it was handed.
+ * produced, and the shared render-model builder is spied so we can read the
+ * fully-assembled input the generator hands it: the resolved settings
+ * (photos-per-page after the legacy 1→2 remap), the photos with their tags, and
+ * the Job's property address.
  *
  * The seeded report carries a template_id and the seeded template advertises a
- * DIFFERENT photos_per_page (1) than Company Settings (4) — so any test that
- * expects the settings value proves the template no longer drives layout.
+ * photos_per_page of its own — so any test that proves the layout came from
+ * Company Settings also proves the template no longer drives layout.
  */
 const h = vi.hoisted(() => {
   const REPORT_ID = "report-1";
@@ -30,6 +32,11 @@ const h = vi.hoisted(() => {
     title: "Roof Inspection",
     report_date: "2026-05-29",
     template_id: "tmpl-1",
+    // Per-report look snapshot absent (pre-0014 / never edited): the resolver
+    // must fall through to the Organization default and all-on cover.
+    report_settings: null,
+    cover_config: null,
+    cover_photo_id: null,
     sections: [{ title: "Exterior", description: "", photo_ids: ["photo-1"] }],
     job: {
       id: "job-1",
@@ -55,6 +62,11 @@ const h = vi.hoisted(() => {
       taken_by: null,
       width: 100,
       height: 100,
+      // Nested tag embed, as PostgREST returns it for
+      // photo_tag_assignments(tag:photo_tags(name, color)).
+      photo_tag_assignments: [
+        { tag: { name: "Water Damage", color: "#1E90FF" } },
+      ],
     },
   ];
 
@@ -87,6 +99,7 @@ const h = vi.hoisted(() => {
         }
         return q;
       },
+      maybeSingle: () => Promise.resolve({ data: null, error: null }),
       single: () => {
         if (table === "photo_report_templates") {
           state.templateQueried = true;
@@ -143,14 +156,30 @@ vi.mock("@react-pdf/renderer", () => ({
   }),
 }));
 vi.mock("@/components/report-pdf-document", () => ({ default: () => null }));
-vi.mock("@/lib/build-report-document", () => ({
-  buildReportDocument: vi.fn(() => []),
+vi.mock("@/lib/report-render-model", () => ({
+  buildReportRenderModel: vi.fn(() => ({
+    title: "stub",
+    cover: {
+      title: "stub",
+      logo: null,
+      customerName: null,
+      propertyAddress: null,
+      pointOfContact: null,
+      insurance: null,
+      coverPhotoUrl: null,
+    },
+    pages: [],
+  })),
 }));
 
 import { generateReportPDF } from "./generate-report-pdf";
-import { buildReportDocument } from "@/lib/build-report-document";
+import { buildReportRenderModel } from "@/lib/report-render-model";
 
-describe("generateReportPDF — photos-per-page wiring", () => {
+function modelArg() {
+  return vi.mocked(buildReportRenderModel).mock.calls[0][0];
+}
+
+describe("generateReportPDF — render-model wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     h.state.companySettingsValue = "4";
@@ -166,13 +195,12 @@ describe("generateReportPDF — photos-per-page wiring", () => {
     vi.unstubAllEnvs();
   });
 
-  it("hands buildReportDocument the photos-per-page from Company Settings, not the template", async () => {
+  it("hands the render model the photos-per-page from Company Settings, not the template", async () => {
     await generateReportPDF(h.REPORT_ID);
 
-    expect(buildReportDocument).toHaveBeenCalledTimes(1);
-    const arg = vi.mocked(buildReportDocument).mock.calls[0][0];
+    expect(buildReportRenderModel).toHaveBeenCalledTimes(1);
     // Settings say 4; the seeded template says 1. The resolved value must be 4.
-    expect(arg.photosPerPage).toBe(4);
+    expect(modelArg().settings.photosPerPage).toBe(4);
   });
 
   it("loads report_photos_per_page among the Company Settings keys", async () => {
@@ -193,22 +221,33 @@ describe("generateReportPDF — photos-per-page wiring", () => {
 
     await generateReportPDF(h.REPORT_ID);
 
-    const arg = vi.mocked(buildReportDocument).mock.calls[0][0];
-    expect(arg.photosPerPage).toBe(2);
+    expect(modelArg().settings.photosPerPage).toBe(2);
   });
 
-  it("still generates a report carrying a template_id, using the global value", async () => {
-    h.state.companySettingsValue = "1"; // company-wide setting
+  it("remaps the retired 1-per-page Company Setting to 2", async () => {
+    h.state.companySettingsValue = "1"; // legacy single-photo layout
 
     const pdfPath = await generateReportPDF(h.REPORT_ID);
 
-    // reportRow.template_id is "tmpl-1" (old template-bound flow), but layout
-    // now comes from the global setting (1), not the template (1 here too, so
-    // also assert the template was never consulted).
+    // The retired 1-per-page layout normalizes to the 2-per-page default
+    // (ADR 0014); the template (also 1 here) is never consulted.
     expect(h.state.templateQueried).toBe(false);
-    const arg = vi.mocked(buildReportDocument).mock.calls[0][0];
-    expect(arg.photosPerPage).toBe(1);
+    expect(modelArg().settings.photosPerPage).toBe(2);
     expect(pdfPath).toBe(`${h.JOB_NUMBER}/${h.REPORT_ID}.pdf`);
+  });
+
+  it("threads each photo's tags onto the render-model input", async () => {
+    await generateReportPDF(h.REPORT_ID);
+
+    expect(modelArg().photos["photo-1"].tags).toEqual([
+      { name: "Water Damage", color: "#1E90FF" },
+    ]);
+  });
+
+  it("threads the Job's property address onto the render model", async () => {
+    await generateReportPDF(h.REPORT_ID);
+
+    expect(modelArg().propertyAddress).toBe("123 Main St");
   });
 
   it("uploads the PDF to {job_number}/{reportId}.pdf in the reports bucket", async () => {

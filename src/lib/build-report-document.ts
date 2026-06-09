@@ -31,7 +31,7 @@ export type DocumentPage =
       kind: "photoPage";
       sectionTitle: string;
       slots: PhotoSlot[];
-      photosPerPage: 1 | 2 | 4;
+      photosPerPage: 2 | 3 | 4;
     }
   | {
       kind: "beforeAfterPair";
@@ -44,6 +44,13 @@ export interface BuildReportDocumentArgs {
   sections: ReportSectionInput[];
   photos: Record<string, ReportPhotoInput>;
   photosPerPage: number;
+  /**
+   * Whether each Section opens with its own Section Title Page — the
+   * section-divider page carrying the write-up (ADR 0014). When off, the
+   * write-up page is omitted and the Section is named only via the photo-page
+   * footer. Defaults to on for backward compatibility.
+   */
+  sectionTitlePages?: boolean;
 }
 
 function orientationOf(photo: ReportPhotoInput): "portrait" | "landscape" {
@@ -68,16 +75,23 @@ export function buildReportDocument(
   args: BuildReportDocumentArgs,
 ): DocumentPage[] {
   const pages: DocumentPage[] = [{ kind: "cover" }];
-  const bucketSize: 1 | 2 | 4 =
-    args.photosPerPage === 1 || args.photosPerPage === 4 ? args.photosPerPage : 2;
+  // Supported layouts are 2, 3, or 4 per page; the retired 1-per-page value (and
+  // anything else) falls back to 2 (ADR 0014). The generator maps the legacy
+  // "1" to 2 before this point, but the fallback keeps the builder total.
+  const bucketSize: 2 | 3 | 4 =
+    args.photosPerPage === 3 || args.photosPerPage === 4
+      ? args.photosPerPage
+      : 2;
   let runningNumber = 1;
 
   for (const section of args.sections) {
-    pages.push({
-      kind: "sectionDivider",
-      title: section.title,
-      description: section.description,
-    });
+    if (args.sectionTitlePages !== false) {
+      pages.push({
+        kind: "sectionDivider",
+        title: section.title,
+        description: section.description,
+      });
+    }
 
     const sectionPhotos = section.photoIds
       .map((id) => args.photos[id])

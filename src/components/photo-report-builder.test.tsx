@@ -127,10 +127,11 @@ import React from "react";
 import PhotoReportBuilder from "./photo-report-builder";
 import { writeupLimitFor } from "@/lib/section-writeup-fit";
 
-// The builder caps the write-up at one PDF intro page. Until the builder is
-// wired to the report's resolved photos-per-page (a later #540 slice), it
-// measures against the default 2-per-page cap, so that is the limit these tests
-// assert against (the single 1500-char budget was retired in ADR 0014 / #549).
+// The live counter measures the write-up against the report's resolved
+// photos-per-page (#550): the budget is layout-dependent (writeupLimitFor), and
+// a settings-less report defaults to 2-per-page, so that is the cap these
+// default-report tests assert against (the single 1500-char budget was retired
+// in ADR 0014 / #549). A report carrying its own density is exercised separately.
 const WRITEUP_CHARACTER_LIMIT = writeupLimitFor(2);
 import { generateReportPDF } from "@/lib/generate-report-pdf";
 import { toast } from "sonner";
@@ -751,7 +752,8 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
     expect(keepalivePuts(fetchMock)).toHaveLength(0);
   });
 
-  it("does not flush an over-limit write-up on unmount", () => {
+  it("flushes an over-limit write-up on unmount (#550: the cap is a soft warning, not a block)", () => {
+    const tooLong = `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`;
     const { unmount } = renderBuilder(
       makeReport({
         sections: [{ title: "Findings", description: "", photo_ids: [] }],
@@ -760,18 +762,24 @@ describe("PhotoReportBuilder unmount flush (#443)", () => {
 
     act(() => {
       fireEvent.change(screen.getByTestId("tiptap-stub"), {
-        target: { value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>` },
+        target: { value: tooLong },
       });
     });
 
-    // The write-up overflows its one-page intro, so the report is dirty but
-    // blocked. The flush must honour the same save-time guard (#404) as the
-    // debounced save and refuse to persist the over-limit content.
+    // The write-up overflows its Section Title Page, but that no longer holds
+    // back the save (#550 / ADR 0014): it renders on its own page and mild
+    // overflow is tolerable. The flush persists it like any other dirty edit.
     act(() => {
       unmount();
     });
 
-    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+    const puts = keepalivePuts(fetchMock);
+    expect(puts).toHaveLength(1);
+    expect(
+      (JSON.parse((puts[0][1] as RequestInit).body as string) as {
+        sections: { description: string }[];
+      }).sections[0].description,
+    ).toBe(tooLong);
   });
 });
 
@@ -881,15 +889,16 @@ describe("PhotoReportBuilder hard-unload flush (#479)", () => {
     });
   });
 
-  it("does not flush an over-limit write-up on pagehide or visibilitychange (#404)", () => {
+  it("flushes an over-limit write-up on pagehide / visibilitychange (#550: soft cap, no block)", () => {
     const { unmount } = renderBuilder(
       makeReport({
         sections: [{ title: "Findings", description: "", photo_ids: [] }],
       }),
     );
 
-    // Dirty, but the write-up overflows its one-page intro — the same save-time
-    // guard (#404) that holds back the debounced save must hold back the flush.
+    // Dirty and over the per-layout budget — but the cap is a soft warning
+    // since #550, so the hard-unload flush persists it like any other edit
+    // rather than holding it back.
     act(() => {
       fireEvent.change(screen.getByTestId("tiptap-stub"), {
         target: { value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>` },
@@ -898,11 +907,9 @@ describe("PhotoReportBuilder hard-unload flush (#479)", () => {
 
     act(() => {
       window.dispatchEvent(new Event("pagehide"));
-      setVisibility("hidden");
-      document.dispatchEvent(new Event("visibilitychange"));
     });
 
-    expect(keepalivePuts(fetchMock)).toHaveLength(0);
+    expect(keepalivePuts(fetchMock)).toHaveLength(1);
 
     act(() => {
       unmount();
@@ -953,7 +960,7 @@ describe("PhotoReportBuilder hard-unload flush (#479)", () => {
   });
 });
 
-describe("PhotoReportBuilder save-time guard", () => {
+describe("PhotoReportBuilder over-limit write-up (soft cap, #550)", () => {
   beforeEach(() => {
     h.updateMock.mockClear();
     h.manual = false;
@@ -961,92 +968,37 @@ describe("PhotoReportBuilder save-time guard", () => {
     vi.useFakeTimers();
   });
 
-  it("does not persist a write-up that is over the one-page limit", async () => {
+  it("persists an over-limit write-up — the cap only turns the counter red, it does not block the save", async () => {
     renderBuilder(
       makeReport({
         sections: [{ title: "Findings", description: "", photo_ids: [] }],
       }),
     );
 
+    const tooLong = `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`;
     act(() => {
       fireEvent.change(screen.getByTestId("tiptap-stub"), {
-        target: {
-          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
-        },
+        target: { value: tooLong },
       });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
 
-    expect(h.updateMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/can't save/i)).toBeTruthy();
-  });
-
-  it("resumes saving once an over-limit write-up is trimmed back under", async () => {
-    renderBuilder(
-      makeReport({
-        sections: [{ title: "Findings", description: "", photo_ids: [] }],
-      }),
-    );
-    const editor = screen.getByTestId("tiptap-stub");
-
-    // Over the limit → blocked, nothing written.
-    act(() => {
-      fireEvent.change(editor, {
-        target: {
-          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
-        },
-      });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-    expect(h.updateMock).not.toHaveBeenCalled();
-
-    // Trimmed back under → the next debounce persists it.
-    act(() => {
-      fireEvent.change(editor, { target: { value: "<p>short</p>" } });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-
+    // The over-limit write-up saves like any other edit (#550 / ADR 0014): it
+    // renders on its own full Section Title Page, so mild overflow is tolerable.
     expect(h.updateMock).toHaveBeenCalledTimes(1);
     const payload = h.updateMock.mock.calls[0][0] as {
       sections: { description: string }[];
     };
-    expect(payload.sections[0].description).toBe("<p>short</p>");
+    expect(payload.sections[0].description).toBe(tooLong);
     expect(screen.getByText("Saved")).toBeTruthy();
-  });
-
-  it("blocks the whole save when any one section is over the limit", async () => {
-    renderBuilder(
-      makeReport({
-        sections: [
-          { title: "A", description: "<p>fine</p>", photo_ids: [] },
-          {
-            title: "B",
-            description: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
-            photo_ids: [],
-          },
-        ],
-      }),
-    );
-
-    // Edit an unrelated field (the title) to make the report dirty without
-    // touching the overflowing section: the save is still held back.
-    act(() => {
-      fireEvent.change(screen.getByLabelText("Report title"), {
-        target: { value: "Renamed report" },
-      });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-
-    expect(h.updateMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/can't save/i)).toBeTruthy();
+    // The only warning is the counter going red and reporting the overflow —
+    // assert both: the magnitude AND the destructive styling that is the entire
+    // user-facing signal once the hard block was removed (#550 / ADR 0014).
+    const counter = screen.getByTestId("writeup-counter-0");
+    expect(counter.textContent).toContain("1 over");
+    expect(counter.className).toMatch(/text-destructive/);
   });
 
   it("persists a write-up that is exactly at the limit", async () => {
@@ -1072,9 +1024,17 @@ describe("PhotoReportBuilder save-time guard", () => {
     };
     expect(payload.sections[0].description).toBe(atLimit);
     expect(screen.getByText("Saved")).toBeTruthy();
+    // Exactly at the cap still fits — the counter must NOT be red, fixing the
+    // off-by-one boundary of the soft warning.
+    expect(screen.getByTestId("writeup-counter-0").className).not.toMatch(
+      /text-destructive/,
+    );
   });
 
-  it("keeps the blocked status when a stale in-flight save resolves after an over-limit edit", async () => {
+  it("does not mark the report Saved when a stale in-flight save resolves after a newer over-limit edit", async () => {
+    // The revision guard (revisionRef) must hold under the soft-cap regime: a
+    // slow save that resolves after a newer (over-limit, but valid) edit landed
+    // must not flip the badge to "Saved" while that newer edit is unpersisted.
     h.manual = true;
     renderBuilder(
       makeReport({
@@ -1082,50 +1042,51 @@ describe("PhotoReportBuilder save-time guard", () => {
       }),
     );
 
-    // A valid edit goes in flight and is held open ("Saving…").
+    const editor = screen.getByTestId("tiptap-stub");
+
+    // A fitting edit goes in flight (held open by manual mode).
     act(() => {
-      fireEvent.change(screen.getByLabelText("Report title"), {
-        target: { value: "Valid title" },
-      });
+      fireEvent.change(editor, { target: { value: "<p>fits</p>" } });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(h.updateMock).toHaveBeenCalledTimes(1);
     expect(h.resolvers).toHaveLength(1);
-    expect(screen.getByText(/saving/i)).toBeTruthy();
 
-    // Before it resolves, the write-up goes over the limit → next debounce blocks
-    // and writes nothing new.
+    // A newer, over-limit edit lands WHILE that save is still in flight. The cap
+    // is soft (#550), so it is a valid edit that must still be persisted.
+    const tooLong = `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`;
     act(() => {
-      fireEvent.change(screen.getByTestId("tiptap-stub"), {
-        target: {
-          value: `<p>${"a".repeat(WRITEUP_CHARACTER_LIMIT + 1)}</p>`,
-        },
-      });
+      fireEvent.change(editor, { target: { value: tooLong } });
     });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-    expect(screen.getByText(/can't save/i)).toBeTruthy();
-    expect(h.updateMock).toHaveBeenCalledTimes(1);
 
-    // The stale valid save now resolves. It must NOT flip the badge to "Saved" —
-    // the over-limit content was never persisted.
+    // The stale save (of the fitting edit) resolves now. It must NOT claim
+    // "Saved", because the newer over-limit edit has not been persisted yet.
     await act(async () => {
       h.resolvers[0]();
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(screen.queryByText("Saved")).toBeNull();
-    expect(screen.getByText(/can't save/i)).toBeTruthy();
+
+    // The newer edit gets its own debounced save; once that resolves, settle.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(h.updateMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      h.resolvers[1]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText("Saved")).toBeTruthy();
   });
 });
 
 // Issue #441 — Generating the PDF must reflect what is on screen, not the
 // last-saved row. The generator (`generateReportPDF`) re-reads the persisted row
 // and is mocked here, so these tests assert what the builder does *before* it
-// calls the generator: it flushes pending edits, and it refuses to generate a
-// stale PDF when the report is over the one-page limit.
+// calls the generator: it flushes pending edits first. Since #550 an over-limit
+// write-up no longer blocks generation — it flushes and renders like any other.
 describe("PhotoReportBuilder generate", () => {
   beforeEach(() => {
     h.updateMock.mockClear();
@@ -1175,7 +1136,7 @@ describe("PhotoReportBuilder generate", () => {
     expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
   });
 
-  it("refuses to generate when a section write-up is over the one-page limit, producing no PDF", async () => {
+  it("generates even when a section write-up is over the limit (#550: soft cap, no block)", async () => {
     renderBuilder(
       makeReport({
         sections: [
@@ -1190,13 +1151,11 @@ describe("PhotoReportBuilder generate", () => {
 
     await clickGenerate();
 
-    // No stale PDF: the generator (which would render the persisted, shorter
-    // row) is never invoked.
-    expect(vi.mocked(generateReportPDF)).not.toHaveBeenCalled();
-    // The user is told why, in plain terms.
-    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
-      expect.stringMatching(/too long|shorten/i),
-    );
+    // The over-limit write-up renders on its own Section Title Page (ADR 0014),
+    // so generation proceeds normally — no refusal, no error toast.
+    expect(vi.mocked(generateReportPDF)).toHaveBeenCalledWith("report-1");
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
   it("does not generate a PDF when flushing the pending edit fails", async () => {
@@ -1283,6 +1242,134 @@ describe("PhotoReportBuilder generate", () => {
       screen.getByRole("link", { name: /open pdf/i }).getAttribute("href"),
     ).toBe(
       "https://example.supabase.co/storage/v1/object/public/reports/job-1/report-1.pdf",
+    );
+  });
+});
+
+// Issue #550 — the in-builder Report Settings panel behind the top-bar gear, and
+// the per-layout write-up cap wired to the report's resolved photos-per-page.
+// These assert the builder ↔ panel wiring through the DOM: the live counter
+// reads the report's density, the gear opens the panel, and a setting changed in
+// the panel auto-saves through the same path as every other edit.
+describe("PhotoReportBuilder Report Settings (#550)", () => {
+  beforeEach(() => {
+    h.updateMock.mockClear();
+    h.manual = false;
+    h.resolvers = [];
+    vi.useFakeTimers();
+  });
+
+  it("measures the write-up against the report's resolved photos-per-page, not the 2-per-page default", () => {
+    // A 3-per-page report's intro shares its Section Title Page with one more
+    // photo row, so its budget is tighter: writeupLimitFor(3) = 400, not 750.
+    renderBuilder(
+      makeReport({
+        report_settings: { photosPerPage: 3 },
+        sections: [
+          { title: "Findings", description: "<p>Hello</p>", photo_ids: [] },
+        ],
+      }),
+    );
+
+    expect(screen.getByTestId("writeup-counter-0").textContent).toContain(
+      `5 / ${writeupLimitFor(3)}`,
+    );
+  });
+
+  it("relives the live write-up budget when photos-per-page is changed in the panel", () => {
+    // A 500-char intro fits at 2-per-page (cap 750) but overflows at 4-per-page
+    // (cap 260). Changing the density in the panel must move the budget live —
+    // proving the counter is bound to the current setting, not the value the
+    // report loaded with.
+    renderBuilder(
+      makeReport({
+        sections: [
+          {
+            title: "Findings",
+            description: `<p>${"a".repeat(500)}</p>`,
+            photo_ids: [],
+          },
+        ],
+      }),
+    );
+
+    const counter = () => screen.getByTestId("writeup-counter-0");
+    // Under the 2-per-page budget: fits, not red.
+    expect(counter().textContent).toContain(`500 / ${writeupLimitFor(2)}`);
+    expect(counter().textContent).not.toContain("over");
+    expect(counter().className).not.toMatch(/text-destructive/);
+
+    // Tighten the layout to 4-per-page in the panel.
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /report settings/i }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /4 per page/i }));
+    });
+
+    // The same unchanged write-up now overflows the tighter budget and goes red.
+    expect(counter().textContent).toContain(`500 / ${writeupLimitFor(4)}`);
+    expect(counter().textContent).toContain(`${500 - writeupLimitFor(4)} over`);
+    expect(counter().className).toMatch(/text-destructive/);
+  });
+
+  it("opens the Report Settings panel when the gear is clicked", () => {
+    renderBuilder();
+
+    // Closed on load — the gear is the only thing named "Report settings".
+    expect(
+      screen.queryByRole("dialog", { name: /report settings/i }),
+    ).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /report settings/i }));
+    });
+
+    expect(
+      screen.getByRole("dialog", { name: /report settings/i }),
+    ).toBeTruthy();
+  });
+
+  it("auto-saves the report_settings snapshot when photos-per-page is changed in the panel", async () => {
+    renderBuilder();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /report settings/i }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /4 per page/i }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    // The layout change rides the same debounced write as a title/section edit,
+    // carrying the report's settings snapshot in the persisted row.
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        report_settings: expect.objectContaining({ photosPerPage: 4 }),
+      }),
+    );
+  });
+
+  it("auto-saves the report_settings snapshot when a detail toggle is flipped in the panel", async () => {
+    renderBuilder();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /report settings/i }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("checkbox", { name: /photo tags/i }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    // The six detail toggles default on, so flipping one persists it as false.
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        report_settings: expect.objectContaining({ photoTags: false }),
+      }),
     );
   });
 });

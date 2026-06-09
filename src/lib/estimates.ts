@@ -116,14 +116,17 @@ export async function recalculateTotals(
     }
   }
 
-  // 3. Load adjustment fields
+  // 3. Load adjustment fields. The Markup is now the Overhead + Profit legs
+  //    (#572); legacy markup_type/markup_value are write-dead and not read here.
   const { data: est, error: estErr } = await supabase
     .from("estimates")
-    .select("markup_type, markup_value, discount_type, discount_value, tax_rate")
+    .select("overhead_type, overhead_value, profit_type, profit_value, discount_type, discount_value, tax_rate")
     .eq("id", estimateId)
     .maybeSingle<{
-      markup_type: "percent" | "amount" | "none";
-      markup_value: number;
+      overhead_type: "percent" | "amount" | "none";
+      overhead_value: number;
+      profit_type: "percent" | "amount" | "none";
+      profit_value: number;
       discount_type: "percent" | "amount" | "none";
       discount_value: number;
       tax_rate: number;
@@ -136,19 +139,31 @@ export async function recalculateTotals(
     .map((li) => round2(Number(li.quantity) * Number(li.unit_price)));
 
   // 5. Delegate pure monetary calc to the shared waterfall
-  const { subtotal, markup_amount, discount_amount, adjusted_subtotal, tax_amount, total } =
-    computeWaterfall({
-      lineItemCharges: lineItemTotals,
-      markup: { type: est.markup_type, value: Number(est.markup_value) },
-      discount: { type: est.discount_type, value: Number(est.discount_value) },
-      taxRatePercent: Number(est.tax_rate),
-    });
+  const {
+    subtotal,
+    overhead_amount,
+    profit_amount,
+    markup_amount,
+    discount_amount,
+    adjusted_subtotal,
+    tax_amount,
+    total,
+  } = computeWaterfall({
+    lineItemCharges: lineItemTotals,
+    overhead: { type: est.overhead_type, value: Number(est.overhead_value) },
+    profit: { type: est.profit_type, value: Number(est.profit_value) },
+    discount: { type: est.discount_type, value: Number(est.discount_value) },
+    taxRatePercent: Number(est.tax_rate),
+  });
 
-  // 6. Write back
+  // 6. Write back. markup_amount is kept (= overhead_amount + profit_amount) so
+  //    every existing reader of markup_amount stays correct.
   const { error: updErr } = await supabase
     .from("estimates")
     .update({
       subtotal,
+      overhead_amount,
+      profit_amount,
       markup_amount,
       discount_amount,
       adjusted_subtotal,

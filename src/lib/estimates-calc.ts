@@ -15,12 +15,16 @@ import { computeWaterfall } from "@/lib/waterfall";
 
 export function computeEstimateTotals(input: {
   subtotal: number;
-  markup_type: AdjustmentType;
-  markup_value: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
   discount_type: AdjustmentType;
   discount_value: number;
   tax_rate: number;
 }): {
+  overhead_amount: number;
+  profit_amount: number;
   markup_amount: number;
   discount_amount: number;
   adjusted_subtotal: number;
@@ -29,12 +33,17 @@ export function computeEstimateTotals(input: {
 } {
   const t = computeWaterfall({
     subtotal: input.subtotal,
-    markup: { type: input.markup_type, value: Number(input.markup_value) },
+    overhead: { type: input.overhead_type, value: Number(input.overhead_value) },
+    profit: { type: input.profit_type, value: Number(input.profit_value) },
     discount: { type: input.discount_type, value: Number(input.discount_value) },
     taxRatePercent: Number(input.tax_rate),
   });
   // Callers spread this into row state — keep the historical shape (no subtotal).
+  // Invoices read only markup_amount (their single-markup leg); estimates read
+  // overhead_amount/profit_amount too.
   return {
+    overhead_amount: t.overhead_amount,
+    profit_amount: t.profit_amount,
     markup_amount: t.markup_amount,
     discount_amount: t.discount_amount,
     adjusted_subtotal: t.adjusted_subtotal,

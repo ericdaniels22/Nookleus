@@ -20,36 +20,27 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingTop: 8,
   },
-  side: {
+  section: {
     flex: 1,
     fontSize: 8,
     color: colors.light,
-  },
-  right: {
-    flex: 1,
-    fontSize: 8,
-    color: colors.light,
-    textAlign: "right",
   },
   pageCounter: {
     fontSize: 8,
     fontFamily: "Helvetica-Bold",
     color: colors.muted,
-    textAlign: "center",
-    flex: 1,
+    textAlign: "right",
   },
 });
 
 interface PageFooterProps {
   sectionTitle: string;
-  customerName: string;
   pageNumber?: number;
   totalPages?: number;
 }
 
 export default function PageFooter({
   sectionTitle,
-  customerName,
   pageNumber,
   totalPages,
 }: PageFooterProps) {
@@ -58,18 +49,19 @@ export default function PageFooter({
 
   return (
     <View style={styles.footer} fixed>
-      <Text style={styles.side}>{sectionTitle}</Text>
+      <Text style={styles.section}>{sectionTitle}</Text>
       {hasStaticCounter ? (
         <Text style={styles.pageCounter}>
-          {pageNumber} / {totalPages}
+          Page {pageNumber} of {totalPages}
         </Text>
       ) : (
         <Text
           style={styles.pageCounter}
-          render={({ pageNumber: pn, totalPages: tp }) => `${pn} / ${tp}`}
+          render={({ pageNumber: pn, totalPages: tp }) =>
+            `Page ${pn} of ${tp}`
+          }
         />
       )}
-      <Text style={styles.right}>{customerName}</Text>
     </View>
   );
 }

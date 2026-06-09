@@ -664,9 +664,19 @@ export interface Estimate {
   opening_statement: string | null;
   closing_statement: string | null;
   subtotal: number;
+  // #572 — the Markup is split into two independent uplifts, Overhead + Profit,
+  // each applied to the raw subtotal. markup_amount is kept as their sum so
+  // existing readers keep working; markup_type/markup_value stay (NOT NULL,
+  // default none/0) but are write-dead — no longer the source of the Markup.
   markup_type: AdjustmentType;
   markup_value: number;
   markup_amount: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  overhead_amount: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
+  profit_amount: number;
   discount_type: AdjustmentType;
   discount_value: number;
   discount_amount: number;

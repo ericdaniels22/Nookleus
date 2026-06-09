@@ -3,12 +3,19 @@
 import { pdf } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase";
 import ReportPDFDocument from "@/components/report-pdf-document";
+import type { ReportPhotoInput } from "@/lib/build-report-document";
 import {
-  buildReportDocument,
-  type ReportPhotoInput,
-} from "@/lib/build-report-document";
+  buildReportRenderModel,
+  type RenderPhotoInput,
+  type RenderTag,
+} from "@/lib/report-render-model";
 import { resolveCoverPageData } from "@/lib/cover-page-data";
-import { resolvePhotosPerPage } from "@/lib/resolve-photos-per-page";
+import {
+  companySettingsToReportDefault,
+  resolveReportSettings,
+  REPORT_DEFAULT_SETTING_KEYS,
+  type StoredReportSettings,
+} from "@/lib/photo-report-settings";
 import { photoUrl, reportCoverPhotoUrl } from "@/lib/jobs/photo-url";
 import type { CompanySettings } from "@/lib/types";
 
@@ -22,11 +29,6 @@ interface JoinedContact {
   full_name: string | null;
 }
 
-interface JoinedCoverPhoto {
-  storage_path: string | null;
-  annotated_path: string | null;
-}
-
 interface JoinedJob {
   id: string;
   job_number: string;
@@ -35,16 +37,23 @@ interface JoinedJob {
   insurance_company: string | null;
   cover_photo_id: string | null;
   contact: JoinedContact | null;
-  cover_photo: JoinedCoverPhoto | null;
 }
 
-const COMPANY_SETTINGS_KEYS = [
+// One nested tag embed as PostgREST returns it for
+// photo_tag_assignments(tag:photo_tags(name, color)).
+interface JoinedTagAssignment {
+  tag: { name: string; color: string } | null;
+}
+
+// Branding + Cover Page settings plus the Organization's Report-layout default
+// keys (photos-per-page and the six detail toggles, ADR 0014 / #549).
+const COMPANY_SETTINGS_KEYS: string[] = [
   "company_name",
   "phone",
   "email",
   "logo_path",
-  "report_photos_per_page",
-] as const;
+  ...Object.values(REPORT_DEFAULT_SETTING_KEYS),
+];
 
 async function loadCompanySettings(
   supabase: ReturnType<typeof createClient>,
@@ -52,7 +61,7 @@ async function loadCompanySettings(
   const { data, error } = await supabase
     .from("company_settings")
     .select("key, value")
-    .in("key", COMPANY_SETTINGS_KEYS as unknown as string[]);
+    .in("key", COMPANY_SETTINGS_KEYS);
 
   if (error) {
     // Soft-fail: render with empty settings rather than block PDF generation.
@@ -66,6 +75,24 @@ async function loadCompanySettings(
   return settings as CompanySettings;
 }
 
+// Resolve the chosen cover photo (the report's own pick, else the Job's — both
+// folded into one id by resolveReportSettings) to a full-resolution URL. The
+// photo may live outside any Section, so it is fetched by id rather than read
+// from the body-photo load.
+async function resolveCoverPhotoUrl(
+  supabase: ReturnType<typeof createClient>,
+  coverPhotoId: string | null,
+  supabaseUrl: string,
+): Promise<string | null> {
+  if (!coverPhotoId) return null;
+  const { data } = await supabase
+    .from("photos")
+    .select("storage_path, annotated_path")
+    .eq("id", coverPhotoId)
+    .maybeSingle();
+  return reportCoverPhotoUrl(data ?? null, supabaseUrl);
+}
+
 /**
  * Generate a PDF for a photo report, upload to Supabase storage,
  * and update the report record with the pdf_path and status.
@@ -74,7 +101,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const supabase = createClient();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
-  // 1. Fetch the report + joined job, contact, and cover photo
+  // 1. Fetch the report (its own look snapshot included) + joined job + contact
   const { data: report, error: reportErr } = await supabase
     .from("photo_reports")
     .select(
@@ -87,8 +114,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
           claim_number,
           insurance_company,
           cover_photo_id,
-          contact:contacts!contact_id(full_name),
-          cover_photo:photos!cover_photo_id(storage_path, annotated_path)
+          contact:contacts!contact_id(full_name)
         )
       `,
     )
@@ -102,16 +128,28 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const job = report.job as JoinedJob;
   const sections = report.sections as ReportSection[];
 
-  // 2. Company settings for cover page + branding + body layout
+  // 2. Company settings: cover-page data + branding + the Organization's
+  //    Report-layout default (photos-per-page and detail toggles).
   const companySettings = await loadCompanySettings(supabase);
 
-  // 3. Photos-per-page is company-wide (ADR 0003, amended): resolved from
-  //    Company Settings, not the report's template. A report's template_id is
-  //    preset provenance only and no longer influences layout.
-  const photosPerPage = resolvePhotosPerPage(companySettings);
+  // 3. Resolve the report's effective look (ADR 0014): its own snapshot wins,
+  //    else the Organization default, else hardcoded defaults. This owns the
+  //    legacy 1-per-page → 2 remap and the cover-photo precedence (report → Job).
+  const reportStored: StoredReportSettings = {
+    report_settings: report.report_settings ?? null,
+    cover_config: report.cover_config ?? null,
+    cover_photo_id: report.cover_photo_id ?? null,
+  };
+  const settings = resolveReportSettings(
+    reportStored,
+    companySettingsToReportDefault(
+      companySettings as Record<string, string | undefined>,
+    ),
+    job.cover_photo_id,
+  );
 
-  // 4. Resolve cover page model (pure)
-  const coverPageData = resolveCoverPageData(
+  // 4. Resolve cover-page data (pure) and image URLs (both buckets are public)
+  const coverData = resolveCoverPageData(
     {
       property_address: job.property_address,
       insurance_company: job.insurance_company,
@@ -123,51 +161,42 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     companySettings,
   );
 
-  // 5. Resolve image URLs (both buckets are public)
   const logoUrl =
-    coverPageData.logo.kind === "image"
-      ? `${supabaseUrl}/storage/v1/object/public/company-assets/${coverPageData.logo.path}`
+    coverData.logo.kind === "image"
+      ? `${supabaseUrl}/storage/v1/object/public/company-assets/${coverData.logo.path}`
       : null;
 
-  const coverPhotoUrl = reportCoverPhotoUrl(job.cover_photo, supabaseUrl);
+  const coverPhotoUrl = await resolveCoverPhotoUrl(
+    supabase,
+    settings.cover.coverPhotoId,
+    supabaseUrl,
+  );
 
-  // 6. Collect body photos (body unchanged in slice 1)
+  // 5. Collect body photos with their tags
   const allPhotoIds = new Set<string>();
   sections.forEach((s) => s.photo_ids.forEach((id) => allPhotoIds.add(id)));
 
   const { data: photoData } = await supabase
     .from("photos")
     .select(
-      "id, storage_path, annotated_path, caption, before_after_pair_id, before_after_role, taken_at, taken_by, width, height",
+      "id, storage_path, annotated_path, caption, before_after_pair_id, before_after_role, taken_at, taken_by, width, height, photo_tag_assignments(tag:photo_tags(name, color))",
     )
     .in("id", Array.from(allPhotoIds));
 
-  const photos: Record<
-    string,
-    {
-      id: string;
-      url: string;
-      caption: string | null;
-      before_after_role: "before" | "after" | null;
-      taken_at: string | null;
-    }
-  > = {};
-
-  const engineInputPhotos: Record<string, ReportPhotoInput> = {};
+  const photos: Record<string, RenderPhotoInput> = {};
 
   for (const p of photoData || []) {
-    photos[p.id] = {
-      id: p.id,
-      url: photoUrl(
-        { annotated_path: p.annotated_path, storage_path: p.storage_path },
-        supabaseUrl,
-        "full",
-      ),
-      caption: p.caption,
-      before_after_role: p.before_after_role,
-      taken_at: p.taken_at,
-    };
-    engineInputPhotos[p.id] = {
+    // The untyped client infers the to-one `tag` embed pessimistically (as an
+    // array); at runtime PostgREST returns a single object per assignment, so
+    // narrow through `unknown` to the actual shape.
+    const tags: RenderTag[] = (
+      (p.photo_tag_assignments ?? []) as unknown as JoinedTagAssignment[]
+    )
+      .map((a) => a.tag)
+      .filter((t): t is { name: string; color: string } => t != null)
+      .map((t) => ({ name: t.name, color: t.color }));
+
+    const base: ReportPhotoInput = {
       id: p.id,
       caption: p.caption,
       takenAt: p.taken_at,
@@ -177,29 +206,39 @@ export async function generateReportPDF(reportId: string): Promise<string> {
       beforeAfterPairId: p.before_after_pair_id ?? null,
       beforeAfterRole: p.before_after_role ?? null,
     };
+    photos[p.id] = {
+      ...base,
+      url: photoUrl(
+        { annotated_path: p.annotated_path, storage_path: p.storage_path },
+        supabaseUrl,
+        "full",
+      ),
+      tags,
+    };
   }
 
-  // 7. Build the document page list from the engine
-  const documentPages = buildReportDocument({
+  // 6. Assemble the complete, render-ready model: page structure + cover blocks
+  //    + each slot's enabled detail fields, all decided here (the @react-pdf
+  //    components stay dumb).
+  const model = buildReportRenderModel({
+    title: report.title,
     sections: sections.map((s) => ({
       title: s.title,
       description: s.description ?? null,
       photoIds: s.photo_ids,
     })),
-    photos: engineInputPhotos,
-    photosPerPage,
+    photos,
+    settings,
+    coverData,
+    coverPhotoUrl,
+    propertyAddress: job.property_address,
   });
 
-  // 8. Render PDF
+  // 7. Render PDF
   const blob = await pdf(
     <ReportPDFDocument
-      title={report.title}
-      coverPageData={coverPageData}
-      coverPhotoUrl={coverPhotoUrl}
+      model={model}
       logoUrl={logoUrl}
-      reportDate={report.report_date}
-      pages={documentPages}
-      photos={photos}
       preparedBy={report.created_by}
     />,
   ).toBlob();

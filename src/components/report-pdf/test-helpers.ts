@@ -20,6 +20,11 @@ export function expandTree(node: ReactNode | unknown): Expanded {
   if (typeof node === "object" && node !== null && "type" in node) {
     const el = node as { type: unknown; props: { children?: unknown } };
     const { type, props } = el;
+    // A React Fragment (<>…</>) carries no tag of its own — expand straight
+    // through to its children so the primitives inside still surface.
+    if (typeof type === "symbol" || type === undefined) {
+      return expandTree((props as { children?: unknown })?.children);
+    }
     if (typeof type === "function") {
       const rendered = (type as (p: unknown) => ReactNode)(props ?? {});
       return expandTree(rendered);

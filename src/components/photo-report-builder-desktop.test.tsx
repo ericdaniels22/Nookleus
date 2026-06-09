@@ -376,19 +376,21 @@ describe("PhotoReportBuilder — rail selection stays keyboard-reachable (#548)"
 });
 
 describe("PhotoReportBuilder — desktop top-bar placeholders (#548)", () => {
-  it("offers desktop-only gear and Preview placeholders while Generate stays the one real action", () => {
+  it("offers desktop-only gear and Preview controls while Generate stays the one real action", () => {
     renderBuilder();
 
-    // Gear (Report Settings, per the glossary) and Preview ship as disabled
-    // desktop-only placeholders this slice; later slices wire them up.
+    // Both are desktop-only (hidden on phone, shown at lg). #550 wired the gear
+    // up to open Report Settings, so it is now a real action; Preview is still a
+    // disabled placeholder a later slice fills in.
     const gear = screen.getByRole("button", { name: "Report settings" });
     const preview = screen.getByRole("button", { name: "Preview" });
     for (const el of [gear, preview]) {
       const t = el.className.split(/\s+/);
       expect(t).toContain("hidden");
       expect(t).toContain("lg:inline-flex");
-      expect((el as HTMLButtonElement).disabled).toBe(true);
     }
+    expect((gear as HTMLButtonElement).disabled).toBe(false);
+    expect((preview as HTMLButtonElement).disabled).toBe(true);
 
     // Generate keeps today's behavior — one button, both surfaces share it.
     expect(

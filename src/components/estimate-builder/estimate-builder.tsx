@@ -37,10 +37,9 @@ import {
   moveLineItemAcrossContainers,
   resolveLineItemDropTarget,
 } from "./move-line-item";
-import { HeaderBar } from "./header-bar";
+import { HeaderCard } from "./header-card";
 import { TotalsCard } from "./totals-card";
-import { MetadataBar } from "./metadata-bar";
-import { CustomerBlock } from "./customer-block";
+import { CustomerCard } from "./customer-card";
 import { StatementEditor } from "./statement-editor";
 import { SectionCard } from "./section-card";
 import { buildNumberIndex } from "./number-section-tree";
@@ -64,8 +63,12 @@ const ESTIMATE_FIELDS = [
   "closing_statement",
   "issued_date",
   "valid_until",
-  "markup_type",
-  "markup_value",
+  // #572 — the Markup is now the Overhead + Profit legs; legacy markup_type/
+  // markup_value are write-dead and no longer sent from the builder.
+  "overhead_type",
+  "overhead_value",
+  "profit_type",
+  "profit_value",
   "discount_type",
   "discount_value",
   "tax_rate",
@@ -141,8 +144,10 @@ function serializeTemplateRootPut(template: TemplateWithContents) {
 
 function applyEstimateTotals<T extends {
   subtotal: number;
-  markup_type: AdjustmentType;
-  markup_value: number;
+  overhead_type: AdjustmentType;
+  overhead_value: number;
+  profit_type: AdjustmentType;
+  profit_value: number;
   discount_type: AdjustmentType;
   discount_value: number;
   tax_rate: number;
@@ -165,7 +170,21 @@ function applyInvoiceTotals<T extends {
   tax_amount: number;
   total_amount: number;
 } {
-  const { total, ...rest } = computeEstimateTotals(invoice);
+  // Invoices keep their single Markup until #575. Map it onto the waterfall's
+  // Overhead leg with Profit = none, so markup_amount (= overhead_amount + 0)
+  // stays byte-identical; the estimate-only overhead/profit amounts are dropped.
+  const { total, overhead_amount, profit_amount, ...rest } = computeEstimateTotals({
+    subtotal: invoice.subtotal,
+    overhead_type: invoice.markup_type,
+    overhead_value: invoice.markup_value,
+    profit_type: "none",
+    profit_value: 0,
+    discount_type: invoice.discount_type,
+    discount_value: invoice.discount_value,
+    tax_rate: invoice.tax_rate,
+  });
+  void overhead_amount;
+  void profit_amount;
   return { ...invoice, ...rest, total_amount: total };
 }
 
@@ -554,16 +573,11 @@ export function EstimateBuilder({
   // local field update only; the server's recalculateInvoiceTotals on the next
   // root PUT settles the values (the totals bar may briefly show stale totals).
 
+  // Invoices keep a single Markup; an estimate's Markup is the Overhead + Profit
+  // legs (onOverheadChange / onProfitChange below). So onMarkupChange is now
+  // invoice-only — the estimate UI never renders a combined Markup control.
   function onMarkupChange(type: AdjustmentType, value: number) {
     setState((prev) => {
-      if (prev.entity.kind === "estimate") {
-        const next_estimate = applyEstimateTotals({
-          ...prev.entity.data,
-          markup_type: type,
-          markup_value: value,
-        });
-        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
-      }
       if (prev.entity.kind === "invoice") {
         const next_invoice = applyInvoiceTotals({
           ...prev.entity.data,
@@ -571,6 +585,34 @@ export function EstimateBuilder({
           markup_value: value,
         });
         return { ...prev, entity: { ...prev.entity, data: next_invoice } };
+      }
+      return prev;
+    });
+  }
+
+  function onOverheadChange(type: AdjustmentType, value: number) {
+    setState((prev) => {
+      if (prev.entity.kind === "estimate") {
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          overhead_type: type,
+          overhead_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      }
+      return prev;
+    });
+  }
+
+  function onProfitChange(type: AdjustmentType, value: number) {
+    setState((prev) => {
+      if (prev.entity.kind === "estimate") {
+        const next_estimate = applyEstimateTotals({
+          ...prev.entity.data,
+          profit_type: type,
+          profit_value: value,
+        });
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       }
       return prev;
     });
@@ -1691,7 +1733,7 @@ export function EstimateBuilder({
   if (state.entity.kind === "invoice") {
     // ── Invoice-mode JSX (Task 43) ─────────────────────────────────────────
     // Mirrors estimate-mode shape but strips: ConvertConfirmModal, Convert
-    // button (HeaderBar handles per-kind action buttons — Mark as Sent /
+    // button (HeaderCard handles per-kind action buttons — Mark as Sent /
     // Mark as Paid / Send Payment Request / Void).
     const invoiceEntity = state.entity; // narrowed
     const invoice = invoiceEntity.data;
@@ -1731,6 +1773,8 @@ export function EstimateBuilder({
             <TotalsCard
               entity={invoiceEntity}
               onMarkupChange={onMarkupChange}
+              onOverheadChange={onOverheadChange}
+              onProfitChange={onProfitChange}
               onDiscountChange={onDiscountChange}
               onTaxRateChange={onTaxRateChange}
               readOnly={isVoided}
@@ -1753,28 +1797,22 @@ export function EstimateBuilder({
           }
           onBackgroundClick={lineSelection.clear}
         >
-          {/* ── HeaderBar — Mark as Sent / Mark as Paid / Send Payment / Void ── */}
-          <HeaderBar
+          {/* ── HeaderCard — identity + dates/PO in one card (#574) ── */}
+          <HeaderCard
             entity={invoiceEntity}
             onTitleChange={onTitleChange}
             onVoid={onVoid}
             saveStatus={saveStatus}
             lastSavedAt={lastSavedAt}
             isVoiding={isVoiding}
-          />
-
-          {/* ── MetadataBar — Issued + Due + PO + converted-from-link ── */}
-          <MetadataBar
-            entity={invoice}
             onIssuedDateChange={onIssuedDateChange}
             onValidUntilChange={onValidUntilChange}
             onDueDateChange={onDueDateChange}
             onPoNumberChange={onPoNumberChange}
-            mode={invMode}
           />
 
-          {/* ── CustomerBlock ── */}
-          {job && <CustomerBlock job={job} mode={invMode} />}
+          {/* ── CustomerCard ── */}
+          {job && <CustomerCard job={job} mode={invMode} />}
 
           {/* ── Opening statement ── */}
           <StatementEditor
@@ -1921,9 +1959,9 @@ export function EstimateBuilder({
 
   if (state.entity.kind === "template") {
     // ── Template-mode JSX (Task 40) ────────────────────────────────────────
-    // Mirrors estimate-mode shape but strips: MetadataBar (replaced by
-    // TemplateMetaBar), CustomerBlock, the totals bar, voided banner,
-    // Convert modal.
+    // Mirrors estimate-mode shape but strips: the dates row (HeaderCard shows
+    // none for templates; TemplateMetaBar covers name/description/tags),
+    // CustomerCard, the totals bar, voided banner, Convert modal.
     const templateEntity = state.entity; // narrowed
     const template = templateEntity.data;
     const tmplSections = template.sections;
@@ -1963,8 +2001,8 @@ export function EstimateBuilder({
           }
           onBackgroundClick={lineSelection.clear}
         >
-          {/* ── HeaderBar — Save Template / Cancel-edit per spec §4.1 ── */}
-          <HeaderBar
+          {/* ── HeaderCard — Save Template / Cancel-edit per spec §4.1 ── */}
+          <HeaderCard
             entity={templateEntity}
             onTitleChange={onTitleChange}
             onVoid={() => {
@@ -1973,6 +2011,12 @@ export function EstimateBuilder({
             saveStatus={saveStatus}
             lastSavedAt={lastSavedAt}
             isVoiding={false}
+            onIssuedDateChange={() => {
+              /* templates have no dates */
+            }}
+            onValidUntilChange={() => {
+              /* templates have no dates */
+            }}
           />
 
           {/* ── TemplateMetaBar — name, description, damage_type_tags ── */}
@@ -2161,6 +2205,8 @@ export function EstimateBuilder({
           <TotalsCard
             entity={estimateEntity}
             onMarkupChange={onMarkupChange}
+            onOverheadChange={onOverheadChange}
+            onProfitChange={onProfitChange}
             onDiscountChange={onDiscountChange}
             onTaxRateChange={onTaxRateChange}
             readOnly={isVoided}
@@ -2182,8 +2228,8 @@ export function EstimateBuilder({
         onBackgroundClick={lineSelection.clear}
       >
 
-        {/* ── SLOT 1: HeaderBar ────────────────────────────────────────────── */}
-        <HeaderBar
+        {/* ── SLOT 1: HeaderCard — identity + dates in one card (#574) ────── */}
+        <HeaderCard
           entity={estimateEntity}
           onTitleChange={onTitleChange}
           onVoid={onVoid}
@@ -2191,18 +2237,12 @@ export function EstimateBuilder({
           lastSavedAt={lastSavedAt}
           isVoiding={isVoiding}
           onConvertClick={() => setConvertOpen(true)}
-        />
-
-        {/* ── SLOT 2: MetadataBar ──────────────────────────────────────────── */}
-        <MetadataBar
-          entity={estimate}
           onIssuedDateChange={onIssuedDateChange}
           onValidUntilChange={onValidUntilChange}
-          mode={mode}
         />
 
-        {/* ── SLOT 3: CustomerBlock ────────────────────────────────────────── */}
-        {job && <CustomerBlock job={job} mode={mode} />}
+        {/* ── SLOT 3: CustomerCard ────────────────────────────────────────── */}
+        {job && <CustomerCard job={job} mode={mode} />}
 
         {/* ── SLOT 4: Opening statement ────────────────────────────────────── */}
         <StatementEditor

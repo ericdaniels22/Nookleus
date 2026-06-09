@@ -1,20 +1,16 @@
 "use client";
 
-import { Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { format } from "date-fns";
+import { Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
+import type { RenderSlot } from "@/lib/report-render-model";
 import PageFooter from "./page-footer";
-import PageHeader from "./page-header";
-import { PHOTO_CORNER_RADIUS, type PhotoPageSlot } from "./photo-page";
+import { PHOTO_CORNER_RADIUS, PhotoFrame, PhotoMeta } from "./photo-page";
 
 const colors = {
-  primary: "#1B2434",
   text: "#1A1A1A",
   muted: "#666666",
-  light: "#999999",
   border: "#E5E7EB",
   bg: "#F4F4F4",
-  white: "#FFFFFF",
 };
 
 const PHOTO_HEIGHT = 320;
@@ -23,7 +19,7 @@ const styles = StyleSheet.create({
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
-    paddingTop: 56,
+    paddingTop: 40,
     paddingBottom: 56,
     paddingHorizontal: 40,
     color: colors.text,
@@ -54,22 +50,6 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
   },
-  photoImage: {
-    width: "100%",
-    height: "100%",
-  },
-  badge: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    backgroundColor: colors.primary,
-    color: colors.white,
-    fontFamily: "Helvetica-Bold",
-    fontSize: 9,
-    paddingVertical: 2,
-    paddingHorizontal: 7,
-    borderRadius: 10,
-  },
   meta: {
     paddingTop: 10,
     paddingHorizontal: 2,
@@ -87,43 +67,26 @@ const styles = StyleSheet.create({
   },
 });
 
-function formatTakenAt(takenAt: string | null): string | null {
-  if (!takenAt) return null;
-  const d = new Date(takenAt);
-  if (Number.isNaN(d.getTime())) return null;
-  return format(d, "MMM d, yyyy, h:mm a");
-}
-
-function PairColumn({ slot, label }: { slot: PhotoPageSlot; label: string }) {
-  const objectFit = slot.orientation === "landscape" ? "contain" : "cover";
-  const dateLine = formatTakenAt(slot.takenAt);
-
+function PairColumn({ slot, label }: { slot: RenderSlot; label: string }) {
   return (
     <View style={styles.column}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.photoFrame}>
-        <Image src={slot.url} style={[styles.photoImage, { objectFit }]} />
-        <Text style={styles.badge}>{slot.number}</Text>
-      </View>
+      <PhotoFrame slot={slot} frameStyle={styles.photoFrame} />
       <View style={styles.meta}>
-        {slot.caption ? (
-          <Text style={styles.caption}>{slot.caption}</Text>
-        ) : null}
-        {dateLine ? <Text style={styles.metaLine}>{dateLine}</Text> : null}
-        {slot.takenBy ? (
-          <Text style={styles.metaLine}>{slot.takenBy}</Text>
-        ) : null}
+        <PhotoMeta
+          slot={slot}
+          captionStyle={styles.caption}
+          lineStyle={styles.metaLine}
+        />
       </View>
     </View>
   );
 }
 
 interface BeforeAfterPairPageProps {
-  before: PhotoPageSlot;
-  after: PhotoPageSlot;
+  before: RenderSlot;
+  after: RenderSlot;
   sectionTitle: string;
-  customerName: string;
-  reportDate: string;
   pageNumber?: number;
   totalPages?: number;
 }
@@ -132,21 +95,17 @@ export default function BeforeAfterPairPage({
   before,
   after,
   sectionTitle,
-  customerName,
-  reportDate,
   pageNumber,
   totalPages,
 }: BeforeAfterPairPageProps) {
   return (
     <Page size="LETTER" style={styles.page}>
-      <PageHeader customerName={customerName} reportDate={reportDate} />
       <View style={styles.row}>
         <PairColumn slot={before} label="Before" />
         <PairColumn slot={after} label="After" />
       </View>
       <PageFooter
         sectionTitle={sectionTitle}
-        customerName={customerName}
         pageNumber={pageNumber}
         totalPages={totalPages}
       />

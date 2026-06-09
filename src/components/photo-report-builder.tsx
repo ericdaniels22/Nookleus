@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { photoUrl } from "@/lib/jobs/photo-url";
 import { generateReportPDF } from "@/lib/generate-report-pdf";
 import TiptapEditor from "@/components/tiptap-editor";
+import ReportSettingsPanel from "@/components/report-settings-panel";
 import {
   initBuilderState,
   photoReportBuilderReducer,
@@ -45,7 +46,7 @@ import {
 } from "@/lib/photo-report-builder";
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
 import { AddPhotosDialog } from "@/components/photo-report-add-photos-dialog";
-import { measureWriteupFit } from "@/lib/section-writeup-fit";
+import { measureWriteupFit, writeupLimitFor } from "@/lib/section-writeup-fit";
 import {
   newSectionId,
   type ReportSection,
@@ -55,13 +56,16 @@ import {
   resolveReportSettings,
   type CoverBlockVisibility,
 } from "@/lib/photo-report-settings";
-import type { Photo, PhotoReport } from "@/lib/types";
+import type { Photo, PhotoReport, ReportPhotosPerPage } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the
 // estimate builder's auto-save debounce).
 const DEBOUNCE_MS = 2000;
 
-type SaveStatus = "idle" | "saving" | "saved" | "error" | "blocked";
+// Over-limit write-ups are no longer hard-blocked (#550): the per-layout counter
+// turning red is the only (soft) warning, so there is no "blocked" save state and
+// no over-limit save gate — every edit saves/flushes/generates like any other.
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 // The five identifying blocks the Cover Page editor can show or hide, in print
 // order, paired with their user-facing label (#551). The canonical set and
@@ -75,22 +79,17 @@ const COVER_BLOCKS: { field: keyof CoverBlockVisibility; label: string }[] = [
   { field: "insurance", label: "Insurance" },
 ];
 
-// A report can't be persisted while any Section's write-up overflows its
-// one-page intro (issue #404). Every save path gates on this one rule — the
-// debounced auto-save, the unmount flush (#443), and the Generate flush (#441)
-// — so it lives in one place.
-function hasOverLimitSection(sections: ReportSection[]): boolean {
-  return sections.some((s) => !measureWriteupFit(s.description).fits);
-}
-
 // The fields a save persists, plus the revision that snapshot belongs to. Built
 // in one place so the debounced auto-save and the Generate flush always persist
-// exactly the same shape. (issue #441)
+// exactly the same shape. (issue #441) Since #550 this also carries the report's
+// settings snapshot (photos-per-page + the six detail toggles) so layout changes
+// auto-save like every other edit.
 function snapshotOf(state: PhotoReportBuilderState) {
   return {
     title: state.title,
     reportDate: state.reportDate,
     sections: state.sections,
+    reportSettings: { photosPerPage: state.photosPerPage, ...state.details },
     cover: state.cover,
     revision: state.revision,
   };
@@ -134,6 +133,10 @@ export default function PhotoReportBuilder({
       title: report.title,
       report_date: report.report_date,
       sections: report.sections as StoredReportSection[],
+      // The report's own layout snapshot (#550): initBuilderState resolves it to
+      // the chosen photos-per-page + detail toggles, falling back to the
+      // hardcoded 2-per-page/all-on defaults when a pre-0014 row has none.
+      report_settings: report.report_settings,
       // Seed the Cover Page editor with the report's fully-resolved cover: its
       // own snapshot if any, else the Job's cover photo, else all-on/no-photo.
       // The builder then persists whatever is in state, so the first edit
@@ -152,6 +155,9 @@ export default function PhotoReportBuilder({
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [generating, setGenerating] = useState(false);
+  // Whether the gear's Report Settings panel is open (#550). Purely ephemeral
+  // UI state — the settings themselves live in the reducer and auto-save.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The path of the most recently generated PDF, surfaced as a persistent
   // "Open PDF" link the user taps (issue #442). Seeded from the report so a
   // PDF generated in an earlier session is retrievable on load without
@@ -176,8 +182,8 @@ export default function PhotoReportBuilder({
 
   // The latest edit revision, mirrored into a ref so the async save tail can
   // tell whether a newer edit landed while it was in flight (its own captured
-  // `state` is stale by then). Without this, a slow valid save resolving after a
-  // newer over-limit edit would flip the badge from "blocked" back to "Saved".
+  // `state` is stale by then). Without this, a slow save resolving after a newer
+  // edit would flip the badge from "Saving…" back to "Saved" with stale state.
   const revisionRef = useRef(state.revision);
   // Holds the pending auto-save debounce timer so the Generate flush can cancel
   // it and write immediately, rather than racing the debounce. (issue #441)
@@ -201,6 +207,7 @@ export default function PhotoReportBuilder({
           title: snapshot.title,
           report_date: snapshot.reportDate,
           sections: snapshot.sections,
+          report_settings: snapshot.reportSettings,
           ...coverColumns(snapshot.cover),
         })
         .eq("id", report.id);
@@ -210,8 +217,8 @@ export default function PhotoReportBuilder({
       }
       dispatch({ type: "markSaved", revision: snapshot.revision });
       // Only claim "Saved" if no newer edit landed while this write was in
-      // flight. If one did, its own effect run owns the status (e.g. it may have
-      // set "blocked"), so we must not overwrite it with a stale success.
+      // flight. If one did, its own effect run owns the status, so we must not
+      // overwrite it with a stale success.
       if (snapshot.revision === revisionRef.current) {
         setSaveStatus("saved");
       }
@@ -229,15 +236,11 @@ export default function PhotoReportBuilder({
   useEffect(() => {
     revisionRef.current = state.revision;
     if (!state.dirty) return;
-    // Save-time guard (issue #404): the whole report write is held back while
-    // any Section is over the limit, so the report stays dirty and saves itself
-    // once trimmed back under.
-    const overLimit = hasOverLimitSection(state.sections);
+    // A write-up that runs over its per-layout budget is no longer held back
+    // (#550): it renders on its own full Section Title Page, so mild overflow is
+    // tolerable (ADR 0014). The live counter turning red is the only warning;
+    // the report saves like any other edit.
     const timer = setTimeout(() => {
-      if (overLimit) {
-        setSaveStatus("blocked");
-        return;
-      }
       void writeReport(snapshotOf(state));
     }, DEBOUNCE_MS);
     saveTimerRef.current = timer;
@@ -259,9 +262,6 @@ export default function PhotoReportBuilder({
   const flushOnUnmountRef = useRef<() => void>(() => {});
   flushOnUnmountRef.current = () => {
     if (!state.dirty) return;
-    // Honour the same save-time over-limit guard (#404) as the debounced save:
-    // a flush must never sneak an over-limit write-up past it on teardown.
-    if (hasOverLimitSection(state.sections)) return;
     void fetch(`/api/jobs/${jobId}/reports/${report.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -269,6 +269,7 @@ export default function PhotoReportBuilder({
         title: state.title,
         report_date: state.reportDate,
         sections: state.sections,
+        report_settings: { photosPerPage: state.photosPerPage, ...state.details },
         ...coverColumns(state.cover),
       }),
       keepalive: true,
@@ -283,7 +284,7 @@ export default function PhotoReportBuilder({
   // "hidden" covers app-backgrounding (the common iOS exit, where pagehide is
   // unreliable). We flush only when the page is actually hidden — a change *to*
   // visible is the user returning, not leaving. The same flush ref is reused, so
-  // the over-limit (#404) and dirty guards still apply. Listeners are removed on
+  // the dirty guard still applies. Listeners are removed on
   // unmount so a torn-down builder can't keep flushing. iOS can fire both
   // visibilitychange→hidden AND pagehide in one teardown, re-running the flush;
   // the #478 PUT is idempotent and the flush no-ops once clean, so — as in #477
@@ -317,15 +318,6 @@ export default function PhotoReportBuilder({
   const availablePhotos = photos.filter((p) => !assignedIds.has(p.id));
 
   const handleGenerate = async () => {
-    // A write-up over the one-page limit was never persisted (the save guard
-    // holds it back), so generating now would render a stale, shorter PDF.
-    // Refuse with a clear message instead of silently producing it. (issue #441)
-    if (hasOverLimitSection(state.sections)) {
-      setSaveStatus("blocked");
-      toast.error("Write-up too long — shorten it before generating.");
-      return;
-    }
-
     setGenerating(true);
     try {
       // The PDF is rendered from the persisted row and auto-save is debounced,
@@ -369,24 +361,21 @@ export default function PhotoReportBuilder({
         <div className="flex-1" />
         <span
           className={`text-xs text-right ${
-            saveStatus === "blocked" || saveStatus === "error"
-              ? "text-destructive"
-              : "text-muted-foreground"
+            saveStatus === "error" ? "text-destructive" : "text-muted-foreground"
           }`}
         >
           {saveStatus === "saving" && "Saving…"}
           {saveStatus === "saved" && "Saved"}
           {saveStatus === "error" && "Save failed"}
-          {saveStatus === "blocked" && "Can't save — write-up too long"}
         </span>
-        {/* Desktop-only placeholders (#548): the gear opens Report Settings and
-            Preview shows the rendered PDF in later slices (#549+). Shipped
-            disabled so the top bar's final shape is in place from the start. */}
+        {/* The gear opens the in-builder Report Settings panel (#550): photos
+            per page + the six detail toggles. Preview (still a placeholder)
+            shows the rendered PDF in a later slice. */}
         <button
           type="button"
           aria-label="Report settings"
-          disabled
-          className="hidden lg:inline-flex items-center rounded-lg border border-border p-2 text-muted-foreground opacity-60"
+          onClick={() => setSettingsOpen(true)}
+          className="hidden lg:inline-flex items-center rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
         >
           <Settings size={16} />
         </button>
@@ -637,6 +626,7 @@ export default function PhotoReportBuilder({
                     photosById={photosById}
                     supabaseUrl={supabaseUrl}
                     dispatch={dispatch}
+                    photosPerPage={state.photosPerPage}
                     desktopSelected={selectedId === section.id}
                     onOpenPicker={() => setPickerSectionIndex(index)}
                   />
@@ -663,6 +653,14 @@ export default function PhotoReportBuilder({
         </div>
       </DndContext>
 
+      {settingsOpen && (
+        <ReportSettingsPanel
+          photosPerPage={state.photosPerPage}
+          details={state.details}
+          dispatch={dispatch}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {/* The "+ Add Photos" picker (#552): adds a multi-selection of the Job's
           photos into the Section whose button opened it. */}
       {pickerSectionIndex !== null && (
@@ -779,6 +777,7 @@ function SortableSection({
   photosById,
   supabaseUrl,
   dispatch,
+  photosPerPage,
   desktopSelected,
   onOpenPicker,
 }: {
@@ -789,6 +788,12 @@ function SortableSection({
   dispatch: React.Dispatch<
     Parameters<typeof photoReportBuilderReducer>[1]
   >;
+  /**
+   * The report's chosen Photo Page density (#550). Sets the write-up character
+   * budget the live counter reads — fewer photos per page leaves more room for
+   * the intro write-up, so the cap is layout-dependent ({@link writeupLimitFor}).
+   */
+  photosPerPage: ReportPhotosPerPage;
   /**
    * Whether the desktop rail has this Section selected (#548). The center
    * editor shows one pane at a time, so an unselected card is `lg:hidden` —
@@ -832,9 +837,14 @@ function SortableSection({
     photosById.has(id),
   ).length;
 
-  // The write-up is capped to one PDF intro page (ADR 0009). measureWriteupFit
-  // is the single source of truth shared with the save-time guard.
-  const fit = measureWriteupFit(section.description);
+  // The write-up shares the Section Title Page with the layout, so its budget
+  // depends on the chosen density (#550): writeupLimitFor maps photos-per-page
+  // to the character cap (2→750, 3→400, 4→260). Going over no longer blocks the
+  // save — the counter just turns red (ADR 0014).
+  const fit = measureWriteupFit(
+    section.description,
+    writeupLimitFor(photosPerPage),
+  );
 
   return (
     <section
@@ -894,7 +904,8 @@ function SortableSection({
         placeholder="Write-up — what you found, what you did…"
       />
 
-      {/* Live one-page fit counter (issue #404), driven by measureWriteupFit. */}
+      {/* Live per-layout fit counter (#404, #550): measureWriteupFit against the
+          density-dependent budget (writeupLimitFor). Red past the cap, never blocks. */}
       <p
         data-testid={`writeup-counter-${index}`}
         className={`text-xs ${

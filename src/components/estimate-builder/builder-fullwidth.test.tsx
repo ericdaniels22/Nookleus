@@ -58,6 +58,12 @@ function makeEstimateEntity(): BuilderEntity {
     markup_type: "none",
     markup_value: 0,
     markup_amount: 0,
+    overhead_type: "none",
+    overhead_value: 0,
+    overhead_amount: 0,
+    profit_type: "none",
+    profit_value: 0,
+    profit_amount: 0,
     discount_type: "none",
     discount_value: 0,
     discount_amount: 0,
@@ -299,7 +305,7 @@ describe("EstimateBuilder — full-width shell across modes (#543)", () => {
     render(<EstimateBuilder entity={makeTemplateEntity()} />);
 
     // Letterhead title (template name) + nested Section structure stay intact.
-    // The name surfaces in both the HeaderBar and the TemplateMetaBar, so just
+    // The name surfaces in both the HeaderCard and the TemplateMetaBar, so just
     // assert it is present (at least once) — the letterhead survived the shell.
     expect(screen.getAllByText("Full-width test template").length).toBeGreaterThan(0);
     expect(screen.getByText("Template step flashing")).toBeDefined();

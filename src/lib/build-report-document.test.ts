@@ -405,8 +405,8 @@ describe("buildReportDocument", () => {
     expect(single.slots.map((s) => s.number)).toEqual([3]);
   });
 
-  it("emits each pair on its own page regardless of photosPerPage (1, 2, or 4)", () => {
-    for (const ppp of [1, 2, 4]) {
+  it("emits each pair on its own page regardless of photosPerPage (2, 3, or 4)", () => {
+    for (const ppp of [2, 3, 4]) {
       const pages = buildReportDocument({
         sections: [
           makeSection({ title: "Living Room", photoIds: ["a", "b"] }),
@@ -520,7 +520,7 @@ describe("buildReportDocument", () => {
     expect(pair.before.number).toBe(2);
   });
 
-  it("at photosPerPage=1 emits one photoPage per non-paired photo with one slot each, numbered continuously", () => {
+  it("treats the retired photosPerPage=1 value as the 2-per-page default", () => {
     const pages = buildReportDocument({
       sections: [
         makeSection({ title: "Living Room", photoIds: ["a", "b", "c"] }),
@@ -538,14 +538,15 @@ describe("buildReportDocument", () => {
       "sectionDivider",
       "photoPage",
       "photoPage",
-      "photoPage",
     ]);
 
     const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
       DocumentPage,
       { kind: "photoPage" }
     >[];
-    expect(photoPages.map((p) => p.slots.length)).toEqual([1, 1, 1]);
+    // 1 is no longer a layout; it buckets at 2 and the pages are tagged 2.
+    expect(photoPages.map((p) => p.slots.length)).toEqual([2, 1]);
+    expect(photoPages.map((p) => p.photosPerPage)).toEqual([2, 2]);
     expect(photoPages.flatMap((p) => p.slots.map((s) => s.photoId))).toEqual([
       "a",
       "b",
@@ -553,6 +554,47 @@ describe("buildReportDocument", () => {
     ]);
     expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
       1, 2, 3,
+    ]);
+  });
+
+  it("at photosPerPage=3 buckets three photos into one photoPage, spilling the fourth onto its own page", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Living Room",
+          photoIds: ["a", "b", "c", "d"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+        d: makePhoto({ id: "d" }),
+      },
+      photosPerPage: 3,
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
+      "photoPage",
+    ]);
+
+    const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
+      DocumentPage,
+      { kind: "photoPage" }
+    >[];
+    expect(photoPages.map((p) => p.slots.length)).toEqual([3, 1]);
+    expect(photoPages.map((p) => p.photosPerPage)).toEqual([3, 3]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.photoId))).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
+      1, 2, 3, 4,
     ]);
   });
 
@@ -586,7 +628,7 @@ describe("buildReportDocument", () => {
   });
 
   it("tags each photoPage with the photosPerPage value the engine bucketed at", () => {
-    for (const ppp of [1, 2, 4] as const) {
+    for (const ppp of [2, 3, 4] as const) {
       const pages = buildReportDocument({
         sections: [makeSection({ title: "S", photoIds: ["a"] })],
         photos: { a: makePhoto({ id: "a" }) },
@@ -683,5 +725,71 @@ describe("buildReportDocument", () => {
       "<p>What we found.</p><ul><li>Buckled flooring</li></ul>",
     );
     expect(intros[1].description).toBe("<p>What we did.</p>");
+  });
+
+  it("omits the Section Title Page when sectionTitlePages is false, naming each Section only via its photoPage and leaving numbering unchanged", () => {
+    const pages = buildReportDocument({
+      sections: [
+        makeSection({
+          title: "Exterior",
+          description: "<p>write-up</p>",
+          photoIds: ["a", "b", "c"],
+        }),
+        makeSection({
+          title: "Interior",
+          description: "<p>more</p>",
+          photoIds: ["d"],
+        }),
+      ],
+      photos: {
+        a: makePhoto({ id: "a" }),
+        b: makePhoto({ id: "b" }),
+        c: makePhoto({ id: "c" }),
+        d: makePhoto({ id: "d" }),
+      },
+      photosPerPage: 2,
+      sectionTitlePages: false,
+    });
+
+    // No sectionDivider pages: the cover leads straight into photo pages.
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "photoPage",
+      "photoPage",
+      "photoPage",
+    ]);
+
+    const photoPages = pages.filter((p) => p.kind === "photoPage") as Extract<
+      DocumentPage,
+      { kind: "photoPage" }
+    >[];
+    // The Section name still rides on every photo page so the footer can name it.
+    expect(photoPages.map((p) => p.sectionTitle)).toEqual([
+      "Exterior",
+      "Exterior",
+      "Interior",
+    ]);
+    // Dropping the title pages does not disturb continuous photo numbering.
+    expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it("keeps the Section Title Page when sectionTitlePages is true (and by default)", () => {
+    const withFlag = buildReportDocument({
+      sections: [makeSection({ title: "S", photoIds: ["a"] })],
+      photos: { a: makePhoto({ id: "a" }) },
+      photosPerPage: 2,
+      sectionTitlePages: true,
+    });
+    const byDefault = buildReportDocument({
+      sections: [makeSection({ title: "S", photoIds: ["a"] })],
+      photos: { a: makePhoto({ id: "a" }) },
+      photosPerPage: 2,
+    });
+
+    const expected = ["cover", "sectionDivider", "photoPage"];
+    expect(withFlag.map((p) => p.kind)).toEqual(expected);
+    expect(byDefault.map((p) => p.kind)).toEqual(expected);
   });
 });

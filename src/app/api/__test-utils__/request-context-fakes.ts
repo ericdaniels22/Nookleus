@@ -52,6 +52,9 @@ export interface QueryBuilder extends Awaitable {
   or(...args: unknown[]): QueryBuilder;
   order(...args: unknown[]): QueryBuilder;
   limit(...args: unknown[]): QueryBuilder;
+  // PostgREST `.returns<T>()` only retypes the awaited result; the builder
+  // stays the same loose thenable, so we model the resolved shape on T.
+  returns<T = Row[]>(): { then(resolve: (v: { data: T; error: FakeError | null }) => unknown): unknown };
 }
 
 function queryBuilder(
@@ -103,6 +106,13 @@ function queryBuilder(
     or: passthrough,
     order: passthrough,
     limit: passthrough,
+    // `.returns<T>()` is terminal in the query paths the fakes exercise: it only
+    // retypes the awaited list. Hand back the same loose thenable, retyped on T.
+    returns<T = Row[]>() {
+      return builder as unknown as {
+        then(resolve: (v: { data: T; error: FakeError | null }) => unknown): unknown;
+      };
+    },
     async maybeSingle<T = Row>() {
       if (error) return { data: null, error };
       return { data: (filtered[0] ?? null) as T | null, error: null };
