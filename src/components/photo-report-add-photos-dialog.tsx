@@ -36,7 +36,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { PickerPhotoViewer } from "@/components/photo-report-picker-viewer";
 import type { ReportSection } from "@/lib/build-initial-sections";
-import type { Photo } from "@/lib/types";
+import type { Photo, PhotoTag } from "@/lib/types";
+
+/**
+ * A Photo as the builder page fetches it for the picker: the Photos-tab join
+ * shape, carrying the photo's tag assignment ids for client-side filtering
+ * (the `Photo` type does not carry assignments).
+ */
+export type PickerPhoto = Photo & {
+  photo_tag_assignments?: { tag_id: string }[];
+};
 
 // One calendar day of photos, in grid order. Keyed/labelled exactly like the
 // Photos tab (job-photos-tab.tsx): key "yyyy-MM-dd", header "EEEE, MMMM do,
@@ -69,12 +78,14 @@ export interface AddPhotosDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** All of the Job's photos, in the Job's order (newest first). */
-  photos: Photo[];
+  photos: PickerPhoto[];
   /** The report's live Sections, for marking photos already used. */
   sections: ReportSection[];
   /** The Section the picker adds into. */
   sectionIndex: number;
   supabaseUrl: string;
+  /** The Organization's tag vocabulary; empty hides the Tags dropdown. */
+  tags?: PhotoTag[];
   /** Hand the selection (in pick order) back to the builder to dispatch. */
   onAdd: (photoIds: string[]) => void;
 }
@@ -86,9 +97,15 @@ export function AddPhotosDialog({
   sections,
   sectionIndex,
   supabaseUrl,
+  tags = [],
   onAdd,
 }: AddPhotosDialogProps) {
   const [selected, setSelected] = useState<string[]>([]);
+  // Any-of tag filter + sort toggle (spec §1). Filters never clear the
+  // selection: a selected photo hidden by a filter stays in `selected` (a
+  // cart being filled across filter views) and "Add N photos" still adds it.
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [sortNewestFirst, setSortNewestFirst] = useState(true);
   // Index into the visible flat list of the photo open fullscreen; null = grid.
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
@@ -131,9 +148,19 @@ export function AddPhotosDialog({
     }
   }
 
-  // The flat list the grid and the viewer both show (the Tags filter + sort
-  // toolbar will derive this; for now it is the Job's photos as supplied).
-  const visiblePhotos = photos;
+  // The flat list the grid and the viewer both show: any-of tag filter, then
+  // sort. Newest first is the order the page already supplies; oldest is its
+  // mirror (reverses both group order and photo order within each day).
+  const filtered =
+    selectedTags.length === 0
+      ? photos
+      : photos.filter((photo) => {
+          const tagIds = (photo.photo_tag_assignments ?? []).map(
+            (a) => a.tag_id,
+          );
+          return selectedTags.some((t) => tagIds.includes(t));
+        });
+  const visiblePhotos = sortNewestFirst ? filtered : [...filtered].reverse();
   const viewerPhoto = viewerIndex !== null ? visiblePhotos[viewerIndex] : undefined;
 
   return (
@@ -160,9 +187,59 @@ export function AddPhotosDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {photos.length === 0 ? (
+        {photos.length > 0 && (
+          <div className="flex items-center gap-2">
+            {tags.length > 0 && (
+              <div className="group relative">
+                <button
+                  type="button"
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm"
+                >
+                  Tags {selectedTags.length > 0 && `(${selectedTags.length})`} ▾
+                </button>
+                <div className="absolute left-0 top-full z-50 mt-1 hidden min-w-[200px] rounded-lg border border-border bg-card p-2 shadow-lg group-focus-within:block hover:block">
+                  {tags.map((tag) => (
+                    <label
+                      key={tag.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTags.includes(tag.id)}
+                        onChange={() =>
+                          setSelectedTags((prev) =>
+                            prev.includes(tag.id)
+                              ? prev.filter((t) => t !== tag.id)
+                              : [...prev, tag.id],
+                          )
+                        }
+                        className="rounded"
+                      />
+                      <span
+                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      {tag.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSortNewestFirst((v) => !v)}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm"
+            >
+              {sortNewestFirst ? "Newest first" : "Oldest first"}
+            </button>
+          </div>
+        )}
+
+        {visiblePhotos.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            No photos on this job yet.
+            {photos.length === 0
+              ? "No photos on this job yet."
+              : "No photos match the selected tags."}
           </p>
         ) : (
           <div className="max-h-[55vh] space-y-4 overflow-y-auto">

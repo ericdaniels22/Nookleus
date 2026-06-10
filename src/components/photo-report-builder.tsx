@@ -58,7 +58,7 @@ import {
   resolveReportSettings,
   type CoverBlockVisibility,
 } from "@/lib/photo-report-settings";
-import type { Photo, PhotoReport, ReportPhotosPerPage } from "@/lib/types";
+import type { Photo, PhotoReport, PhotoTag, ReportPhotosPerPage } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the
 // estimate builder's auto-save debounce).
@@ -120,6 +120,12 @@ interface PhotoReportBuilderProps {
    * cover.
    */
   jobCoverPhotoId?: string | null;
+  /**
+   * The Organization's photo-tag vocabulary, for the picker's Tags filter.
+   * Optional and defaults to empty so existing call sites and tests keep
+   * compiling; with no tags the picker renders no Tags dropdown at all.
+   */
+  tags?: PhotoTag[];
 }
 
 export default function PhotoReportBuilder({
@@ -128,6 +134,7 @@ export default function PhotoReportBuilder({
   photos,
   supabaseUrl,
   jobCoverPhotoId = null,
+  tags = [],
 }: PhotoReportBuilderProps) {
   const [state, dispatch] = useReducer(
     photoReportBuilderReducer,
@@ -760,6 +767,7 @@ export default function PhotoReportBuilder({
           sections={state.sections}
           sectionIndex={pickerSectionIndex}
           supabaseUrl={supabaseUrl}
+          tags={tags}
           onAdd={(photoIds) => {
             dispatch({
               type: "addPhotosToSection",

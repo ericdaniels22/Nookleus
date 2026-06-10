@@ -24,7 +24,7 @@ import {
   within,
 } from "@testing-library/react";
 
-import type { Photo, PhotoReport } from "@/lib/types";
+import type { Photo, PhotoReport, PhotoTag } from "@/lib/types";
 
 const h = vi.hoisted(() => ({
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
@@ -168,13 +168,18 @@ function makePhoto(id: string, createdAt = "2026-06-04T12:00:00"): Photo {
   } as Photo;
 }
 
-function renderBuilder(report = makeReport(), photos: Photo[] = []) {
+function renderBuilder(
+  report = makeReport(),
+  photos: Photo[] = [],
+  tags: PhotoTag[] = [],
+) {
   return render(
     <PhotoReportBuilder
       jobId="job-1"
       report={report}
       photos={photos}
       supabaseUrl="https://example.supabase.co"
+      tags={tags}
     />,
   );
 }
@@ -549,6 +554,33 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
   }
   const jobPhotos = () => ["p1", "p2", "p3", "p4"].map((id) => makePhoto(id));
 
+  const orgTags: PhotoTag[] = [
+    {
+      id: "tag-red",
+      organization_id: "org-1",
+      name: "Damage",
+      color: "#ef4444",
+      created_by: "u-1",
+      created_at: "2026-06-01T00:00:00Z",
+    },
+    {
+      id: "tag-blue",
+      organization_id: "org-1",
+      name: "Repaired",
+      color: "#3b82f6",
+      created_by: "u-1",
+      created_at: "2026-06-01T00:00:00Z",
+    },
+  ];
+
+  // The page's join shape: the photo carries its tag assignment ids.
+  function withTags(photo: Photo, ...tagIds: string[]): Photo {
+    return {
+      ...photo,
+      photo_tag_assignments: tagIds.map((tag_id) => ({ tag_id })),
+    } as Photo;
+  }
+
   function openPickerFor(cardIndex: number) {
     fireEvent.click(
       within(sectionCards()[cardIndex]).getByRole("button", {
@@ -798,6 +830,99 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
       name: /select all photos from/i,
     }) as HTMLInputElement;
     expect(box.disabled).toBe(true);
+  });
+
+  it("renders no Tags dropdown when the Organization has no tags", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+    expect(screen.queryByRole("button", { name: /^Tags/ })).toBeNull();
+  });
+
+  it("tag filter hides non-matching photos but keeps the hidden selection for Add", async () => {
+    const photos = [
+      makePhoto("p1"),
+      makePhoto("p2"),
+      withTags(makePhoto("p3"), "tag-red"),
+      makePhoto("p4"),
+    ];
+    renderBuilder(pickerReport(), photos, orgTags);
+    openPickerFor(0);
+
+    // Select p4 BEFORE filtering.
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
+
+    // Filter to "Damage": only p3 carries it. (The dropdown is CSS-gated —
+    // hidden until hover/focus-within — but jsdom ignores CSS, so the
+    // checkbox is reachable directly.)
+    fireEvent.click(screen.getByRole("checkbox", { name: "Damage" }));
+    expect(screen.queryByTestId("picker-photo-p4")).toBeNull();
+    expect(screen.getByTestId("picker-photo-p3")).toBeTruthy();
+
+    // The hidden selection survives the filter (selection is a cart, not a
+    // transient bulk-action target — unlike the Photos tab, on purpose)…
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    const addSelection = screen.getByRole("button", {
+      name: /add \d+ photos?/i,
+    });
+    expect(addSelection.textContent).toContain("Add 2 photos");
+
+    // …and Add hands back both, in pick order.
+    fireEvent.click(addSelection);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: Array<{ photo_ids: string[] }>;
+    };
+    expect(payload.sections[0].photo_ids).toEqual(["p1", "p4", "p3"]);
+  });
+
+  it("the sort toggle reverses group order", () => {
+    const photos = [
+      makePhoto("p1", "2026-06-09T10:00:00"),
+      makePhoto("p2", "2026-06-08T10:00:00"),
+    ];
+    renderBuilder(makeReport(), photos);
+    openPickerFor(0);
+
+    const groupIds = () =>
+      screen
+        .getAllByTestId(/^picker-group-/)
+        .map((el) => el.getAttribute("data-testid"));
+    expect(groupIds()).toEqual([
+      "picker-group-2026-06-09",
+      "picker-group-2026-06-08",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Newest first" }));
+    expect(screen.getByRole("button", { name: "Oldest first" })).toBeTruthy();
+    expect(groupIds()).toEqual([
+      "picker-group-2026-06-08",
+      "picker-group-2026-06-09",
+    ]);
+  });
+
+  it("the viewer pages through the filtered list only", () => {
+    const photos = [
+      withTags(makePhoto("p1"), "tag-red"),
+      makePhoto("p2"),
+      withTags(makePhoto("p3"), "tag-red"),
+    ];
+    renderBuilder(makeReport(), photos, orgTags);
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Damage" }));
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p1")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+
+    // ArrowRight lands on p3 — p2 is filtered out of the flip-through list.
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    const viewer = screen.getByRole("dialog", { name: "Photo viewer" });
+    const img = within(viewer).getByRole("img") as HTMLImageElement;
+    expect(img.src).toContain("job-1/p3.jpg");
   });
 });
 
