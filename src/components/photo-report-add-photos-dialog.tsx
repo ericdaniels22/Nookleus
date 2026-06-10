@@ -4,8 +4,8 @@
 //
 // The desktop replacement for the always-visible drag tray: a modal listing ALL
 // of the Job's photos, from which the author multi-selects to drop into the
-// Section they are editing. A photo already in that Section is disabled (it is
-// already exactly where the picker would put it); a photo used in ANOTHER
+// Section they are editing. A photo already in that Section is unselectable (it
+// is already exactly where the picker would put it); a photo used in ANOTHER
 // Section is selectable but marked with that Section's name — adding it moves
 // it here (the one-Section invariant: a photo lives in at most one Section, so
 // `addPhotosToSection` dedupes by removing it from wherever else it lived).
@@ -13,6 +13,11 @@
 // Selection is kept as an ordered array, not a Set: the reducer appends in
 // selection order, so the order the author picks in is the order the photos
 // land in (and the order the PDF numbers them).
+//
+// Each tile has two affordances (spec: docs/superpowers/specs/
+// 2026-06-10-add-photos-dialog-viewer-design.md): a top-right checkbox that
+// toggles selection, and the photo body, which opens the fullscreen
+// PickerPhotoViewer (a NESTED Base UI dialog — see that file's header).
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
@@ -28,13 +33,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { PickerPhotoViewer } from "@/components/photo-report-picker-viewer";
 import type { ReportSection } from "@/lib/build-initial-sections";
 import type { Photo } from "@/lib/types";
 
 export interface AddPhotosDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** All of the Job's photos, in the Job's order. */
+  /** All of the Job's photos, in the Job's order (newest first). */
   photos: Photo[];
   /** The report's live Sections, for marking photos already used. */
   sections: ReportSection[];
@@ -55,6 +61,8 @@ export function AddPhotosDialog({
   onAdd,
 }: AddPhotosDialogProps) {
   const [selected, setSelected] = useState<string[]>([]);
+  // Index into the visible flat list of the photo open fullscreen; null = grid.
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   const target = sections[sectionIndex];
   const targetTitle = target?.title || "Untitled section";
@@ -76,13 +84,31 @@ export function AddPhotosDialog({
     );
   }
 
+  // The flat list the grid and the viewer both show (the Tags filter + sort
+  // toolbar will derive this; for now it is the Job's photos as supplied).
+  const visiblePhotos = photos;
+  const viewerPhoto = viewerIndex !== null ? visiblePhotos[viewerIndex] : undefined;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Escape layering: while the viewer is open, any close request aimed
+        // at the picker (an Escape falling through the dialog stack, an
+        // outside press) closes the viewer instead — the first Escape can
+        // never close the dialog. A second Escape (or ✕ / Cancel) then can.
+        if (!next && viewerIndex !== null) {
+          setViewerIndex(null);
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add photos</DialogTitle>
           <DialogDescription>
-            Select photos to add to “{targetTitle}”. A photo used in another
+            Select photos to add to "{targetTitle}". A photo used in another
             section moves here.
           </DialogDescription>
         </DialogHeader>
@@ -93,45 +119,64 @@ export function AddPhotosDialog({
           </p>
         ) : (
           <div className="grid max-h-[55vh] grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 overflow-y-auto">
-            {photos.map((photo) => {
+            {visiblePhotos.map((photo) => {
               const isInTarget = inTarget.has(photo.id);
               const elsewhere = usedElsewhere.get(photo.id);
               const isSelected = selected.includes(photo.id);
               return (
-                <button
+                <div
                   key={photo.id}
-                  type="button"
                   data-testid={`picker-photo-${photo.id}`}
-                  disabled={isInTarget}
-                  aria-pressed={isSelected}
-                  onClick={() => toggle(photo.id)}
                   className={cn(
-                    "group relative aspect-square overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    "group relative aspect-square overflow-hidden rounded-lg",
                     isSelected && "ring-2 ring-primary",
-                    isInTarget && "cursor-default opacity-50",
+                    isInTarget && "opacity-50",
                   )}
                 >
-                  <img
-                    src={photoUrl(photo, supabaseUrl, "grid")}
-                    alt={photo.caption || "Photo"}
-                    className="h-full w-full object-cover"
-                  />
-                  {isSelected && (
-                    <span className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
-                      {selected.indexOf(photo.id) + 1}
-                    </span>
+                  <button
+                    type="button"
+                    aria-label="View photo"
+                    onClick={() =>
+                      setViewerIndex(
+                        visiblePhotos.findIndex((p) => p.id === photo.id),
+                      )
+                    }
+                    className="absolute inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <img
+                      src={photoUrl(photo, supabaseUrl, "grid")}
+                      alt={photo.caption || "Photo"}
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                  {!isInTarget && (
+                    <button
+                      type="button"
+                      data-testid={`picker-select-${photo.id}`}
+                      aria-pressed={isSelected}
+                      aria-label={isSelected ? "Deselect photo" : "Select photo"}
+                      onClick={() => toggle(photo.id)}
+                      className={cn(
+                        "absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                        isSelected
+                          ? "bg-primary text-primary-foreground"
+                          : "border-2 border-white/80 bg-black/30",
+                      )}
+                    >
+                      {isSelected ? selected.indexOf(photo.id) + 1 : null}
+                    </button>
                   )}
                   {/* Used-elsewhere marking: which Section holds it now. */}
                   {isInTarget ? (
-                    <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
                       In this section
                     </span>
                   ) : elsewhere ? (
-                    <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
                       In {elsewhere}
                     </span>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -150,6 +195,30 @@ export function AddPhotosDialog({
             Add {selected.length} photo{selected.length === 1 ? "" : "s"}
           </Button>
         </DialogFooter>
+
+        {viewerIndex !== null && viewerPhoto && (
+          <PickerPhotoViewer
+            photos={visiblePhotos}
+            index={viewerIndex}
+            onIndexChange={setViewerIndex}
+            supabaseUrl={supabaseUrl}
+            selectedNumber={
+              selected.includes(viewerPhoto.id)
+                ? selected.indexOf(viewerPhoto.id) + 1
+                : null
+            }
+            status={
+              inTarget.has(viewerPhoto.id)
+                ? "in-target"
+                : usedElsewhere.has(viewerPhoto.id)
+                  ? "elsewhere"
+                  : "free"
+            }
+            elsewhereTitle={usedElsewhere.get(viewerPhoto.id)}
+            onToggleSelect={toggle}
+            onClose={() => setViewerIndex(null)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

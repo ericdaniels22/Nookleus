@@ -556,22 +556,24 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     );
   }
 
-  it("lists the Job's photos, marking in-this-section (disabled) and used-elsewhere", () => {
+  it("lists the Job's photos, marking in-this-section (dimmed, no checkbox) and used-elsewhere", () => {
     renderBuilder(pickerReport(), jobPhotos());
     openPickerFor(0); // Roof
 
     // The dialog portal renders into document.body, so screen finds it.
     expect(screen.getByText("Add photos")).toBeTruthy();
 
-    // Already in the target Section: disabled — it is already exactly where
-    // the picker would put it.
-    const p1 = screen.getByTestId("picker-photo-p1") as HTMLButtonElement;
-    expect(p1.disabled).toBe(true);
+    // Already in the target Section: dimmed, no selection checkbox — it is
+    // already exactly where the picker would put it. Still viewable.
+    const p1 = screen.getByTestId("picker-photo-p1");
+    expect(p1.className).toContain("opacity-50");
+    expect(within(p1).queryByTestId("picker-select-p1")).toBeNull();
     expect(within(p1).getByText("In this section")).toBeTruthy();
+    expect(within(p1).getByRole("button", { name: "View photo" })).toBeTruthy();
 
     // Used in another Section: selectable, marked with that Section's name.
-    const p2 = screen.getByTestId("picker-photo-p2") as HTMLButtonElement;
-    expect(p2.disabled).toBe(false);
+    const p2 = screen.getByTestId("picker-photo-p2");
+    expect(within(p2).getByTestId("picker-select-p2")).toBeTruthy();
     expect(within(p2).getByText("In Gutters")).toBeTruthy();
 
     // Not in the report: no marking.
@@ -590,14 +592,18 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
       }) as HTMLButtonElement;
     expect(addSelection().disabled).toBe(true);
 
-    // Pick p3, then p2 (currently in Gutters), then p4 — order matters: it is
-    // the append order, hence the PDF numbering order.
-    fireEvent.click(screen.getByTestId("picker-photo-p3"));
-    fireEvent.click(screen.getByTestId("picker-photo-p2"));
-    fireEvent.click(screen.getByTestId("picker-photo-p4"));
+    // Pick p3, then p2 (currently in Gutters), then p4 via the corner
+    // checkboxes — order matters: it is the append order, hence the PDF
+    // numbering order.
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p2"));
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
     expect(
-      screen.getByTestId("picker-photo-p2").getAttribute("aria-pressed"),
+      screen.getByTestId("picker-select-p2").getAttribute("aria-pressed"),
     ).toBe("true");
+    // The checkbox carries the pick number.
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("2");
     expect(addSelection().textContent).toContain("Add 3 photos");
 
     fireEvent.click(addSelection());
@@ -622,7 +628,7 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     renderBuilder(pickerReport(), jobPhotos());
     openPickerFor(0);
 
-    fireEvent.click(screen.getByTestId("picker-photo-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Add photos")).toBeNull();
 
@@ -635,8 +641,79 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     // The dialog mounts per open, so the abandoned selection is gone.
     openPickerFor(0);
     expect(
-      screen.getByTestId("picker-photo-p3").getAttribute("aria-pressed"),
+      screen.getByTestId("picker-select-p3").getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("clicking the photo body opens the fullscreen viewer at that photo", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p3")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+
+    const viewer = screen.getByRole("dialog", { name: "Photo viewer" });
+    const img = within(viewer).getByRole("img") as HTMLImageElement;
+    expect(img.src).toContain(
+      "/storage/v1/object/public/photos/job-1/p3.jpg",
+    );
+  });
+
+  it("the in-viewer checkbox drives the same selection the grid shows", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p3")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+    fireEvent.click(screen.getByTestId("viewer-select"));
+    fireEvent.click(screen.getByRole("button", { name: "Close viewer" }));
+
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+    expect(
+      screen.getByTestId("picker-select-p3").getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: /add \d+ photos?/i }).textContent,
+    ).toContain("Add 1 photo");
+  });
+
+  it("un-checking an earlier pick renumbers the later ones (ordered-selection regression guard)", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("2");
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("1");
+  });
+
+  it("Escape closes the viewer first, the dialog second", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p4")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Photo viewer" })).toBeTruthy();
+
+    // Base UI listens for Escape on the document. The viewer (topmost dialog)
+    // takes the first one; the picker's onOpenChange guard converts any close
+    // request that falls through into "close the viewer" instead.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+    expect(screen.getByText("Add photos")).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByText("Add photos")).toBeNull();
   });
 });
 
