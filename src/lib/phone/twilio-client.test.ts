@@ -824,6 +824,39 @@ describe("buildVoiceTwiml — voicemail recording callbacks (#313)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Slice 13 (#317) — custom voicemail greeting. A number can carry its own
+// recorded greeting; the inbound-voice webhook signs the stored object and
+// passes the URL through `voicemailGreetingUrl`. The builder then <Play>s that
+// audio instead of <Say>ing the default text — Twilio renders mp3/wav, which is
+// exactly what the greetings bucket validation enforces. Omitted → the default
+// spoken greeting (the slice-8 "voicemail" test above is the regression guard).
+// ---------------------------------------------------------------------------
+describe("buildVoiceTwiml — custom voicemail greeting (#317)", () => {
+  it("<Play>s the signed greeting URL instead of <Say>ing the default text", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "voicemail" },
+      {
+        voicemailGreetingUrl:
+          "https://signed.example/phone-voicemail-greetings/org-1/pn-1.wav",
+      },
+    );
+    expect(xml).toContain(
+      "<Play>https://signed.example/phone-voicemail-greetings/org-1/pn-1.wav</Play>",
+    );
+    // The default spoken greeting is replaced, not appended.
+    expect(xml).not.toContain("<Say");
+    // Still records the caller after the greeting.
+    expect(xml).toContain("<Record");
+  });
+
+  it("falls back to the default spoken greeting when no custom URL is set", () => {
+    const xml = buildVoiceTwiml({ kind: "voicemail" }, {});
+    expect(xml).toContain("<Say");
+    expect(xml).not.toContain("<Play");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Slice 11 (#315) — call recording + consent on the inbound dial branches.
 // When recording is enabled, every answered inbound call (ring-all / forward /
 // round-robin) speaks the legally-required consent notice to the caller, then
