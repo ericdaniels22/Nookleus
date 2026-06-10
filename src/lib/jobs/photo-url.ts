@@ -11,9 +11,12 @@ export type PhotoVariant = "grid" | "full";
 const PHOTOS_OBJECT_PREFIX = "/storage/v1/object/public/photos/";
 const PHOTOS_RENDER_PREFIX = "/storage/v1/render/image/public/photos/";
 
-// Grid-preview transform parameters. Sensible starting point per ADR 0008
-// (~grid-square width, moderate quality, square crop); tune at go-live.
-const GRID_PREVIEW_QUERY = "?width=400&quality=60&resize=cover";
+// Grid-preview transform parameters (ADR 0008): a 400×400 square center-crop at
+// moderate quality, matching the aspect-square grid tile. Both width AND height
+// are required — `resize=cover` with only one dimension degenerates into a
+// full-height center strip (e.g. 400×4032 for a 3024×4032 portrait), which the
+// tile's CSS `object-cover` then zooms into hard (issue #596).
+const GRID_PREVIEW_QUERY = "?width=400&height=400&quality=60&resize=cover";
 
 // Formats Supabase image transformation can resize. A Photo's stored file
 // may be something the transformer rejects — a HEIC original from a web

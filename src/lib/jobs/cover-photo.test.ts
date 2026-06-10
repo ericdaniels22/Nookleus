@@ -67,7 +67,7 @@ describe("resolveCoverPhotoUrl — resized preview (#420)", () => {
       SUPABASE_URL,
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 
@@ -78,7 +78,7 @@ describe("resolveCoverPhotoUrl — resized preview (#420)", () => {
       SUPABASE_URL,
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 });
