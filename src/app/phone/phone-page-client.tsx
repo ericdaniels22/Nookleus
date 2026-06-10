@@ -147,7 +147,15 @@ export function PhonePageClient({
   const [conversations, setConversations] = useState(
     sortConversations(initialConversations),
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  // Slice 12 (#316) — deep link from the Job-page Calls section. `conversation`
+  // pre-selects the thread on mount; `call` is the call to scroll into view
+  // once that thread's calls load.
+  const deepLinkConversation = searchParams?.get("conversation") ?? null;
+  const deepLinkCallId = searchParams?.get("call") ?? null;
+  const [selectedId, setSelectedId] = useState<string | null>(
+    deepLinkConversation,
+  );
   const [messages, setMessages] = useState<PhoneMessage[]>([]);
   const [calls, setCalls] = useState<PhoneCall[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -172,7 +180,6 @@ export function PhonePageClient({
   // chips, save-as-contact) remains visible either way.
   const outboundEnabled = isPhoneOutboundEnabled();
 
-  const searchParams = useSearchParams();
   const initialTo = searchParams?.get("to") ?? null;
   const [newConv, setNewConv] = useState<null | { to: string; body: string }>(
     outboundEnabled && initialTo ? { to: initialTo, body: "" } : null,
@@ -221,6 +228,21 @@ export function PhonePageClient({
     void loadMessages(selectedId);
     void loadCalls(selectedId);
   }, [selectedId, loadMessages, loadCalls]);
+
+  // Slice 12 (#316) — after a deep-linked thread's calls load, scroll the call
+  // named in `?call=` into view (once). Each CallRow renders a stable
+  // `call-row-<id>` anchor; we wait until that call is present before scrolling.
+  const didScrollToDeepLinkRef = useRef(false);
+  useEffect(() => {
+    if (didScrollToDeepLinkRef.current) return;
+    if (!deepLinkCallId) return;
+    if (!calls.some((c) => c.id === deepLinkCallId)) return;
+    const el = document.getElementById(`call-row-${deepLinkCallId}`);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      didScrollToDeepLinkRef.current = true;
+    }
+  }, [calls, deepLinkCallId]);
 
   const threadItems = useMemo(
     () => mergeThreadItems(messages, calls),
@@ -1103,7 +1125,7 @@ function CallRow({ call }: { call: PhoneCall }) {
   const label = incoming ? "Incoming call" : "Outgoing call";
   const DirectionIcon = incoming ? PhoneIncoming : PhoneOutgoing;
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div id={`call-row-${call.id}`} className="flex flex-col items-center gap-1">
       {/* A call renders as a centered status pill. Slice 11 (#315) replaced the
           tap-to-open placeholder with inline recording playback below the pill,
           so the pill is no longer interactive. */}

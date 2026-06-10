@@ -32,6 +32,7 @@ import ComposeEmailModal from "@/components/compose-email";
 import { JobEmailRow } from "@/components/email/job-email-row";
 import { buildQuotedReply } from "@/components/email/build-quoted-reply";
 import { JobMessagesSection } from "@/components/job-detail/job-messages-section";
+import { JobCallsSection } from "@/components/job-detail/job-calls-section";
 import { buildJobTextContacts } from "@/components/job-detail/job-text-contacts";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
@@ -1027,6 +1028,15 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           view_phone; renders every text tagged to this Job across all
           numbers (Shared + Personal). PRD #304, slice 7 (#311). */}
       <JobMessagesSection
+        jobId={jobId}
+        organizationId={job.organization_id}
+        contacts={buildJobTextContacts(job)}
+      />
+
+      {/* Calls — mirrors Messages. Hidden from users without view_phone;
+          renders every voice call tagged to this Job across all numbers, each
+          deep-linking to its Phone-tab thread. PRD #304, slice 12 (#316). */}
+      <JobCallsSection
         jobId={jobId}
         organizationId={job.organization_id}
         contacts={buildJobTextContacts(job)}

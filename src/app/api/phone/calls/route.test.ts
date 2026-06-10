@@ -49,7 +49,7 @@ vi.mock("@/lib/phone/twilio-client", () => ({
   createTwilioClient: () => createTwilioClientMock(),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
@@ -841,5 +841,113 @@ describe("POST /api/phone/calls — Twilio failure", () => {
 
     expect(res.status).toBe(502);
     expect(inserts.find((i) => i.table === "phone_calls")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. GET ?jobId= — Slice 12 (#316). The Job-page Calls (N) section reads
+//     every call tagged to a Job here, mirroring the messages GET: a thin RLS
+//     pass-through over the User client (no Service client) that filters by
+//     job_tag, embeds + flattens the voicemail/recording children, and orders
+//     by started_at. RLS (migration-312) enforces the ADR 0003 matrix — a
+//     caller who cannot see a row simply doesn't get it back. The section and
+//     this endpoint are both hidden from anyone without view_phone.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/phone/calls?jobId= — Job-page Calls section (#316)", () => {
+  it("returns only this job's calls, with voicemail + recording flattened, for a view_phone caller", async () => {
+    const tables = memberTables({
+      userId: "u-1",
+      role: "crew_lead",
+      grants: ["view_phone"],
+    });
+    tables.phone_calls = [
+      // Tagged to job-1 — answered + recorded.
+      {
+        id: "call-rec",
+        organization_id: ORG,
+        conversation_id: "conv-1",
+        direction: "out",
+        from_e164: "+15125550000",
+        to_e164: "+15551234567",
+        status: "completed",
+        duration_seconds: 42,
+        job_tag: "job-1",
+        started_at: "2026-05-27T12:00:00Z",
+        ended_at: "2026-05-27T12:00:42Z",
+        phone_recordings: [
+          {
+            id: "rec-1",
+            audio_storage_path: "org-1/rec-1.mp3",
+            consent_notice_played: true,
+            duration_seconds: 42,
+          },
+        ],
+        phone_voicemails: [],
+      },
+      // Tagged to a DIFFERENT job — must be filtered out by job_tag.
+      {
+        id: "call-other",
+        organization_id: ORG,
+        conversation_id: "conv-9",
+        direction: "in",
+        from_e164: "+15559998888",
+        to_e164: "+15125550000",
+        status: "completed",
+        duration_seconds: 10,
+        job_tag: "job-2",
+        started_at: "2026-05-27T09:00:00Z",
+        ended_at: "2026-05-27T09:00:10Z",
+        phone_recordings: [],
+        phone_voicemails: [],
+      },
+    ];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({ user: { id: "u-1" }, tables }) as never,
+    );
+
+    const res = await GET(
+      new Request("http://test/api/phone/calls?jobId=job-1"),
+      noParams,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({
+      id: "call-rec",
+      direction: "out",
+      status: "completed",
+      job_tag: "job-1",
+    });
+    expect(body[0].recording).toEqual({
+      id: "rec-1",
+      audio_storage_path: "org-1/rec-1.mp3",
+      consent_notice_played: true,
+      duration_seconds: 42,
+    });
+    expect(body[0].voicemail).toBeNull();
+    // The raw PostgREST embed keys are gone — the client sees only the
+    // flattened `recording` / `voicemail` fields.
+    expect("phone_recordings" in body[0]).toBe(false);
+    expect("phone_voicemails" in body[0]).toBe(false);
+  });
+
+  it("400s when jobId is missing — the section always scopes to one Job", async () => {
+    const tables = memberTables({
+      userId: "u-1",
+      role: "crew_lead",
+      grants: ["view_phone"],
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({ user: { id: "u-1" }, tables }) as never,
+    );
+
+    const res = await GET(
+      new Request("http://test/api/phone/calls"),
+      noParams,
+    );
+
+    expect(res.status).toBe(400);
   });
 });

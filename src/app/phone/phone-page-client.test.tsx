@@ -1590,3 +1590,84 @@ describe("PhonePageClient — voicemail render (#313)", () => {
     expect(screen.queryByText(/transcribing/i)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 12 (#316) — deep link from the Job-page Calls section. A call row
+// links to /phone?conversation=<id>&call=<id>; landing on the Phone tab with
+// those params auto-selects the thread and scrolls the named call into view.
+// ---------------------------------------------------------------------------
+describe("PhonePageClient — deep link to a call (#316)", () => {
+  it("auto-selects the conversation named in ?conversation= without a click", async () => {
+    respondWith({
+      "/api/phone/conversations/conv-1/messages": {
+        ok: true,
+        body: [
+          {
+            id: "m-deep",
+            conversation_id: "conv-1",
+            direction: "in",
+            body: "Deep linked thread",
+            sent_at: "2026-05-27T10:00:00Z",
+            job_tag: null,
+          },
+        ],
+      },
+      "/api/phone/conversations/conv-1/calls": { ok: true, body: [] },
+    });
+    searchParamsMock.mockReturnValue(
+      new URLSearchParams("conversation=conv-1"),
+    );
+
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[convo({ id: "conv-1" })]}
+      />,
+    );
+
+    // No fireEvent.click — the URL param drove the selection.
+    expect(await screen.findByText("Deep linked thread")).toBeDefined();
+  });
+
+  it("scrolls the call named in ?call= into view once its thread loads", async () => {
+    const scrollSpy = vi.fn();
+    (
+      Element.prototype as unknown as { scrollIntoView: () => void }
+    ).scrollIntoView = scrollSpy;
+
+    respondWith({
+      "/api/phone/conversations/conv-1/messages": { ok: true, body: [] },
+      "/api/phone/conversations/conv-1/calls": {
+        ok: true,
+        body: [
+          {
+            id: "call-deep",
+            conversation_id: "conv-1",
+            direction: "in",
+            status: "completed",
+            duration_seconds: 30,
+            started_at: "2026-05-27T10:00:00Z",
+            ended_at: "2026-05-27T10:00:30Z",
+          },
+        ],
+      },
+    });
+    searchParamsMock.mockReturnValue(
+      new URLSearchParams("conversation=conv-1&call=call-deep"),
+    );
+
+    const { container } = render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[convo({ id: "conv-1" })]}
+      />,
+    );
+
+    await waitFor(() => {
+      // The CallRow rendered with a stable anchor id…
+      expect(container.querySelector("#call-row-call-deep")).not.toBeNull();
+      // …and the page scrolled it into view.
+      expect(scrollSpy).toHaveBeenCalled();
+    });
+  });
+});
