@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 // Issue #552 — Photo Report builder: the "+ Add Photos" picker.
 //
