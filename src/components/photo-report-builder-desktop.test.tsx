@@ -158,12 +158,13 @@ function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   };
 }
 
-function makePhoto(id: string): Photo {
+function makePhoto(id: string, createdAt = "2026-06-04T12:00:00"): Photo {
   return {
     id,
     storage_path: `job-1/${id}.jpg`,
     annotated_path: null,
     caption: null,
+    created_at: createdAt,
   } as Photo;
 }
 
@@ -714,6 +715,89 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
 
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByText("Add photos")).toBeNull();
+  });
+
+  it("groups photos under day headers", () => {
+    const photos = [
+      makePhoto("p1", "2026-06-09T10:00:00"),
+      makePhoto("p2", "2026-06-09T09:00:00"),
+      makePhoto("p3", "2026-06-08T15:00:00"),
+      makePhoto("p4", "2026-06-08T14:00:00"),
+    ];
+    renderBuilder(pickerReport(), photos);
+    openPickerFor(0);
+
+    const tuesday = screen.getByTestId("picker-group-2026-06-09");
+    expect(within(tuesday).getByText("Tuesday, June 9th, 2026")).toBeTruthy();
+    expect(within(tuesday).getByTestId("picker-photo-p1")).toBeTruthy();
+    expect(within(tuesday).getByTestId("picker-photo-p2")).toBeTruthy();
+
+    const monday = screen.getByTestId("picker-group-2026-06-08");
+    expect(within(monday).getByText("Monday, June 8th, 2026")).toBeTruthy();
+    expect(within(monday).getByTestId("picker-photo-p3")).toBeTruthy();
+    expect(within(monday).getByTestId("picker-photo-p4")).toBeTruthy();
+  });
+
+  it("the group checkbox bulk-selects the day's selectable photos in grid order and unselects on second click", () => {
+    // All four photos share the default day; p1 is in Roof (the target),
+    // p2 in Gutters.
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    const groupCheckbox = () =>
+      screen.getByRole("checkbox", {
+        name: /select all photos from/i,
+      }) as HTMLInputElement;
+    expect(groupCheckbox().checked).toBe(false);
+
+    fireEvent.click(groupCheckbox());
+
+    // p1 is "in this section" — excluded; the rest append in grid order.
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("2");
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("3");
+    expect(groupCheckbox().checked).toBe(true);
+
+    fireEvent.click(groupCheckbox());
+    expect(
+      screen.getByTestId("picker-select-p2").getAttribute("aria-pressed"),
+    ).toBe("false");
+    const footer = screen.getByRole("button", {
+      name: /add \d+ photos?/i,
+    }) as HTMLButtonElement;
+    expect(footer.disabled).toBe(true);
+  });
+
+  it("a day-check appends only the day's unselected photos, keeping earlier picks' numbers", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /select all photos from/i }),
+    );
+
+    // A day-check acts like clicking each unselected photo left to right:
+    // p3 keeps its number, p2 and p4 append after it.
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("2");
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("3");
+  });
+
+  it("a day whose photos are all in this section gets a disabled group checkbox", () => {
+    const report = makeReport({
+      sections: [
+        { id: "sec-a", title: "Roof", description: "", photo_ids: ["p1", "p2"] },
+        { id: "sec-b", title: "Gutters", description: "", photo_ids: [] },
+      ],
+    });
+    renderBuilder(report, ["p1", "p2"].map((id) => makePhoto(id)));
+    openPickerFor(0);
+
+    const box = screen.getByRole("checkbox", {
+      name: /select all photos from/i,
+    }) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
   });
 });
 

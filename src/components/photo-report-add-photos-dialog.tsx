@@ -20,6 +20,7 @@
 // PickerPhotoViewer (a NESTED Base UI dialog — see that file's header).
 
 import { useState } from "react";
+import { format } from "date-fns";
 import { Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -36,6 +37,33 @@ import { Button } from "@/components/ui/button";
 import { PickerPhotoViewer } from "@/components/photo-report-picker-viewer";
 import type { ReportSection } from "@/lib/build-initial-sections";
 import type { Photo } from "@/lib/types";
+
+// One calendar day of photos, in grid order. Keyed/labelled exactly like the
+// Photos tab (job-photos-tab.tsx): key "yyyy-MM-dd", header "EEEE, MMMM do,
+// yyyy". Local to the dialog — promote to @/lib/jobs/ only if a third
+// consumer appears.
+interface PhotoGroup {
+  date: string;
+  label: string;
+  photos: Photo[];
+}
+
+function groupByDay(photos: Photo[]): PhotoGroup[] {
+  return photos.reduce<PhotoGroup[]>((groups, photo) => {
+    const dateKey = format(new Date(photo.created_at), "yyyy-MM-dd");
+    const existing = groups.find((g) => g.date === dateKey);
+    if (existing) {
+      existing.photos.push(photo);
+    } else {
+      groups.push({
+        date: dateKey,
+        label: format(new Date(photo.created_at), "EEEE, MMMM do, yyyy"),
+        photos: [photo],
+      });
+    }
+    return groups;
+  }, []);
+}
 
 export interface AddPhotosDialogProps {
   open: boolean;
@@ -84,6 +112,25 @@ export function AddPhotosDialog({
     );
   }
 
+  // A day-check acts like clicking each of the day's unselected photos left
+  // to right: append in grid order, preserving everyone's existing pick
+  // numbers (ordered-selection semantics). Unchecking removes the day's
+  // selectable photos wherever they sit in the pick order.
+  function toggleGroup(groupPhotos: Photo[]) {
+    const selectable = groupPhotos.filter((p) => !inTarget.has(p.id));
+    const allSelected =
+      selectable.length > 0 && selectable.every((p) => selected.includes(p.id));
+    if (allSelected) {
+      const dayIds = new Set(selectable.map((p) => p.id));
+      setSelected((prev) => prev.filter((id) => !dayIds.has(id)));
+    } else {
+      setSelected((prev) => [
+        ...prev,
+        ...selectable.map((p) => p.id).filter((id) => !prev.includes(id)),
+      ]);
+    }
+  }
+
   // The flat list the grid and the viewer both show (the Tags filter + sort
   // toolbar will derive this; for now it is the Job's photos as supplied).
   const visiblePhotos = photos;
@@ -104,7 +151,7 @@ export function AddPhotosDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Add photos</DialogTitle>
           <DialogDescription>
@@ -118,65 +165,98 @@ export function AddPhotosDialog({
             No photos on this job yet.
           </p>
         ) : (
-          <div className="grid max-h-[55vh] grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 overflow-y-auto">
-            {visiblePhotos.map((photo) => {
-              const isInTarget = inTarget.has(photo.id);
-              const elsewhere = usedElsewhere.get(photo.id);
-              const isSelected = selected.includes(photo.id);
+          <div className="max-h-[55vh] space-y-4 overflow-y-auto">
+            {groupByDay(visiblePhotos).map((group) => {
+              const selectable = group.photos.filter(
+                (p) => !inTarget.has(p.id),
+              );
+              const allSelected =
+                selectable.length > 0 &&
+                selectable.every((p) => selected.includes(p.id));
               return (
-                <div
-                  key={photo.id}
-                  data-testid={`picker-photo-${photo.id}`}
-                  className={cn(
-                    "group relative aspect-square overflow-hidden rounded-lg",
-                    isSelected && "ring-2 ring-primary",
-                    isInTarget && "opacity-50",
-                  )}
-                >
-                  <button
-                    type="button"
-                    aria-label="View photo"
-                    onClick={() =>
-                      setViewerIndex(
-                        visiblePhotos.findIndex((p) => p.id === photo.id),
-                      )
-                    }
-                    className="absolute inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <img
-                      src={photoUrl(photo, supabaseUrl, "grid")}
-                      alt={photo.caption || "Photo"}
-                      className="h-full w-full object-cover"
+                <section key={group.date} data-testid={`picker-group-${group.date}`}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-foreground">
+                      {group.label}
+                    </h3>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all photos from ${group.label}`}
+                      checked={allSelected}
+                      disabled={selectable.length === 0}
+                      onChange={() => toggleGroup(group.photos)}
+                      className="rounded disabled:opacity-40"
                     />
-                  </button>
-                  {!isInTarget && (
-                    <button
-                      type="button"
-                      data-testid={`picker-select-${photo.id}`}
-                      aria-pressed={isSelected}
-                      aria-label={isSelected ? "Deselect photo" : "Select photo"}
-                      onClick={() => toggle(photo.id)}
-                      className={cn(
-                        "absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                        isSelected
-                          ? "bg-primary text-primary-foreground"
-                          : "border-2 border-white/80 bg-black/30",
-                      )}
-                    >
-                      {isSelected ? selected.indexOf(photo.id) + 1 : null}
-                    </button>
-                  )}
-                  {/* Used-elsewhere marking: which Section holds it now. */}
-                  {isInTarget ? (
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
-                      In this section
-                    </span>
-                  ) : elsewhere ? (
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
-                      In {elsewhere}
-                    </span>
-                  ) : null}
-                </div>
+                  </div>
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+                    {group.photos.map((photo) => {
+                      const isInTarget = inTarget.has(photo.id);
+                      const elsewhere = usedElsewhere.get(photo.id);
+                      const isSelected = selected.includes(photo.id);
+                      return (
+                        <div
+                          key={photo.id}
+                          data-testid={`picker-photo-${photo.id}`}
+                          className={cn(
+                            "group relative aspect-square overflow-hidden rounded-lg",
+                            isSelected && "ring-2 ring-primary",
+                            isInTarget && "opacity-50",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            aria-label="View photo"
+                            onClick={() =>
+                              setViewerIndex(
+                                visiblePhotos.findIndex(
+                                  (p) => p.id === photo.id,
+                                ),
+                              )
+                            }
+                            className="absolute inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <img
+                              src={photoUrl(photo, supabaseUrl, "grid")}
+                              alt={photo.caption || "Photo"}
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                          {!isInTarget && (
+                            <button
+                              type="button"
+                              data-testid={`picker-select-${photo.id}`}
+                              aria-pressed={isSelected}
+                              aria-label={
+                                isSelected ? "Deselect photo" : "Select photo"
+                              }
+                              onClick={() => toggle(photo.id)}
+                              className={cn(
+                                "absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                                isSelected
+                                  ? "bg-primary text-primary-foreground"
+                                  : "border-2 border-white/80 bg-black/30",
+                              )}
+                            >
+                              {isSelected
+                                ? selected.indexOf(photo.id) + 1
+                                : null}
+                            </button>
+                          )}
+                          {/* Used-elsewhere marking: which Section holds it now. */}
+                          {isInTarget ? (
+                            <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
+                              In this section
+                            </span>
+                          ) : elsewhere ? (
+                            <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[10px] text-white">
+                              In {elsewhere}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               );
             })}
           </div>
