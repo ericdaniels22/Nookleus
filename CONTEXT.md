@@ -267,6 +267,30 @@ deliberate user click — no automated promotions. Active is the only
 status that makes the row a Referral Partner in the strict sense.
 _Avoid_: stage, pipeline status, partner status
 
+**Showcase**:
+A public-facing story of one Job — selected Photos plus a write-up — that
+markets the Organization's work. The write-up is AI-drafted on request,
+human-edited, and published as a real post on the Organization's connected
+WordPress site; a published Showcase is also the source material social
+posts are drafted from. At most one per Job, started manually from the Job
+(any status) — never auto-created; the Marketing area nudges by listing
+recently-completed Jobs without one. Drafts scrub identifying customer
+details by default (city-level location only, no names or exact addresses),
+and publishing requires a one-click confirmation that the customer is OK
+with the photos going public.
+_Avoid_: portfolio item, case study, project post (those are renderings of
+a Showcase, not the thing itself)
+
+**Website connection**:
+An Organization's credentialed link to its own public marketing website,
+which Showcase publishing writes posts onto. WordPress-only at first: the
+site URL plus a WordPress Application Password scoped to writing posts —
+created by the business, pasted into Nookleus settings, revocable from
+WordPress at any time, stored encrypted. Same trust shape as a QuickBooks
+connection or an Email account: per-Organization, opt-in, never a shared
+admin login. An Organization without one simply has no site publishing.
+_Avoid_: site integration, WP hookup, website sync
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
@@ -283,6 +307,7 @@ _Avoid_: stage, pipeline status, partner status
 - An **Estimate** or **Invoice** has zero or one **PDF layout** of its own; with none it renders using its Organization's **default preset**. A document's own layout always wins over the default, resolved by a pure precedence rule, and is locked once the document is frozen (Estimate converted, Invoice paid or voided). A **PDF preset** belongs to one **Organization** and seeds a document's layout; applying one copies its preferences in, it is not a binding link.
 - A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …). Each Photo Report also owns a per-report **Cover Page** and per-report **Report Settings**, seeded from the Organization at creation (the settings from the **Report layout default**, the cover photo from the Job) and editable per report thereafter — a later change to the Organization default does not rewrite an existing report.
 - A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
+- A **Job** has zero or one **Showcase**; a Showcase belongs to exactly one Job and gathers that Job's **Photos** plus a write-up for public marketing.
 - An **Organization** has one **Report layout default**; it seeds every new Photo Report's **Report Settings** at creation and is not a binding link (the report keeps its own copy). Distinct from a **Photo Report template**, which seeds Sections rather than look.
 
 ## Example dialogue
