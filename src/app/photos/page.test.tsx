@@ -72,7 +72,7 @@ describe("/photos — grid thumbnails request the grid variant (#418)", () => {
 
     const img = (await screen.findByAltText("Kitchen before")) as HTMLImageElement;
     expect(img.getAttribute("src")).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 
@@ -100,7 +100,7 @@ describe("/photos — grid thumbnails request the grid variant (#418)", () => {
 
     const img = (await screen.findByAltText("Kitchen before")) as HTMLImageElement;
     expect(img.getAttribute("src")).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 });

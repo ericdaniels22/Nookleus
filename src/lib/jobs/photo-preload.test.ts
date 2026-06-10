@@ -95,7 +95,7 @@ describe("pickPreloadUrls — uses the resolver's grid variant", () => {
       12,
     );
     expect(urls).toEqual([
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&height=400&quality=60&resize=cover",
     ]);
   });
 });

@@ -28,7 +28,7 @@ describe("photoUrl — grid variant, resize flag on", () => {
       "grid",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 });
@@ -42,7 +42,7 @@ describe("photoUrl — annotated photo", () => {
       "grid",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 
@@ -54,7 +54,7 @@ describe("photoUrl — annotated photo", () => {
       "grid",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=400&height=400&quality=60&resize=cover",
     );
   });
 });
@@ -138,7 +138,7 @@ describe("photoUrl — unsupported format (grid, resize on)", () => {
       "grid",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/IMG_0042.JPG?width=400&quality=60&resize=cover",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/IMG_0042.JPG?width=400&height=400&quality=60&resize=cover",
     );
   });
 });
