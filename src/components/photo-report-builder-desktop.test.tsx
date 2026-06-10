@@ -547,7 +547,7 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
       ],
     });
   }
-  const jobPhotos = () => ["p1", "p2", "p3", "p4"].map(makePhoto);
+  const jobPhotos = () => ["p1", "p2", "p3", "p4"].map((id) => makePhoto(id));
 
   function openPickerFor(cardIndex: number) {
     fireEvent.click(
@@ -822,7 +822,7 @@ describe("PhotoReportBuilder — within-Section photo reorder (#552)", () => {
       ],
     });
   }
-  const jobPhotos = () => ["p1", "p2", "p3"].map(makePhoto);
+  const jobPhotos = () => ["p1", "p2", "p3"].map((id) => makePhoto(id));
 
   it("registers a Section's photos as sortable, so they are reorder drop targets", () => {
     renderBuilder(reorderReport(), jobPhotos());
