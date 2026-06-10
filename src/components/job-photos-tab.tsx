@@ -607,7 +607,7 @@ export default function JobPhotosTab({
                   onChange={() => toggleGroupSelect(group.photos)}
                   className="w-4 h-4 rounded border-2 border-muted-foreground/30 accent-[#2B5EA7] cursor-pointer"
                 />
-                <span className="text-[15px] font-semibold text-foreground">{group.label}</span>
+                <span className="text-lg font-semibold text-foreground">{group.label}</span>
               </div>
               {/* Photo grid */}
               <div
