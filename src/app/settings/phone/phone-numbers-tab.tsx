@@ -1,9 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Phone as PhoneIcon, Plus, Trash2, Loader2 } from "lucide-react";
+import {
+  Phone as PhoneIcon,
+  Plus,
+  Trash2,
+  Loader2,
+  Mic,
+  Square,
+  Voicemail,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { formatPhoneNumber } from "@/lib/phone";
+import {
+  startMicWavRecording,
+  type MicWavRecording,
+} from "@/lib/phone/mic-wav-recorder";
 
 // PRD #304 — Nookleus Phone. Slice 3 (#307) + slice 13 (#317) —
 // Settings → Phone tab.
@@ -28,6 +40,10 @@ interface PhoneNumberRow {
   kind: "shared" | "personal";
   user_id: string | null;
   inbound_rule: unknown | null;
+  // Slice 13 (#317) — the storage path of the number's custom voicemail
+  // greeting, or null for the default spoken greeting. The list GET returns it
+  // (PHONE_NUMBER_FIELDS); the UI shows set/unset and lets a manager change it.
+  voicemail_greeting_url: string | null;
   monthly_cost_cents: number | null;
   is_active: boolean;
   released_at: string | null;
@@ -171,6 +187,18 @@ export function PhoneNumbersTab() {
   // Release-confirm flow state — the row the admin clicked Release on.
   const [releasing, setReleasing] = useState<PhoneNumberRow | null>(null);
   const [releaseInFlight, setReleaseInFlight] = useState(false);
+
+  // Voicemail-greeting flow state (slice 13, #317). `greetingFor` is the row
+  // whose greeting dialog is open. The pending audio is either an uploaded
+  // File or a Blob the in-browser recorder produced; `recording` is the live
+  // recorder handle while capturing.
+  const [greetingFor, setGreetingFor] = useState<PhoneNumberRow | null>(null);
+  const [greetingFile, setGreetingFile] = useState<Blob | null>(null);
+  const [greetingFileName, setGreetingFileName] = useState<string | null>(null);
+  const [recording, setRecording] = useState<MicWavRecording | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [greetingSaving, setGreetingSaving] = useState(false);
+  const [greetingRemoving, setGreetingRemoving] = useState(false);
 
   // Inbound-rule editor state — the Shared row the admin clicked Configure on.
   const [editing, setEditing] = useState<PhoneNumberRow | null>(null);
@@ -412,6 +440,103 @@ export function PhoneNumbersTab() {
     }
   }
 
+  // canManage at the surface: Shared → admin; Personal → owner-self (or admin).
+  // Mirrors the route's gate so the greeting affordance is offered exactly when
+  // a PUT/DELETE would be allowed.
+  function canManageRow(r: PhoneNumberRow): boolean {
+    if (r.kind === "shared") return isAdmin;
+    return isAdmin || r.user_id === viewerId;
+  }
+
+  // Open / close the greeting dialog, resetting any pending audio + recorder.
+  function openGreeting(r: PhoneNumberRow) {
+    setGreetingFor(r);
+    setGreetingFile(null);
+    setGreetingFileName(null);
+    setRecordError(null);
+  }
+  function closeGreeting() {
+    // Drop a live recording if the dialog is dismissed mid-capture.
+    recording?.cancel();
+    setRecording(null);
+    setGreetingFor(null);
+    setGreetingFile(null);
+    setGreetingFileName(null);
+    setRecordError(null);
+  }
+
+  // The selected upload replaces any prior pick (uploaded or recorded).
+  function handleGreetingFileChange(file: File | null) {
+    setGreetingFile(file);
+    setGreetingFileName(file?.name ?? null);
+  }
+
+  async function handleStartRecording() {
+    setRecordError(null);
+    try {
+      const rec = await startMicWavRecording();
+      setRecording(rec);
+    } catch {
+      setRecordError(
+        "Couldn't access the microphone. Check your browser permissions.",
+      );
+    }
+  }
+
+  async function handleStopRecording() {
+    if (!recording) return;
+    const blob = await recording.stop();
+    setRecording(null);
+    setGreetingFile(blob);
+    setGreetingFileName("greeting.wav");
+  }
+
+  // PUT the chosen audio as multipart form-data. A File carries its own name;
+  // a recorded Blob is sent as greeting.wav so the server sees a wav upload.
+  async function handleGreetingSave() {
+    if (!greetingFor || !greetingFile) return;
+    setGreetingSaving(true);
+    try {
+      const form = new FormData();
+      if (greetingFile instanceof File) {
+        form.append("file", greetingFile);
+      } else {
+        form.append("file", greetingFile, greetingFileName ?? "greeting.wav");
+      }
+      const res = await fetch(
+        `/api/phone/numbers/${greetingFor.id}/voicemail-greeting`,
+        { method: "PUT", body: form },
+      );
+      if (!res.ok) {
+        setError("Failed to save voicemail greeting");
+        return;
+      }
+      await load();
+      closeGreeting();
+    } finally {
+      setGreetingSaving(false);
+    }
+  }
+
+  async function handleGreetingRemove() {
+    if (!greetingFor) return;
+    setGreetingRemoving(true);
+    try {
+      const res = await fetch(
+        `/api/phone/numbers/${greetingFor.id}/voicemail-greeting`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        setError("Failed to remove voicemail greeting");
+        return;
+      }
+      await load();
+      closeGreeting();
+    } finally {
+      setGreetingRemoving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -524,16 +649,33 @@ export function PhoneNumbersTab() {
                     {formatCents(r.monthly_cost_cents)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setReleasing(r)}
-                        className="inline-flex items-center gap-1 text-destructive text-xs font-medium hover:underline"
-                      >
-                        <Trash2 size={12} />
-                        Release
-                      </button>
-                    )}
+                    <div className="flex items-center justify-end gap-3">
+                      {canManageRow(r) && (
+                        <button
+                          type="button"
+                          onClick={() => openGreeting(r)}
+                          className="inline-flex items-center gap-1 text-[var(--brand-primary)] text-xs font-medium hover:underline"
+                          title={
+                            r.voicemail_greeting_url
+                              ? "Custom voicemail greeting set"
+                              : "Using the default voicemail greeting"
+                          }
+                        >
+                          <Voicemail size={12} />
+                          Greeting
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setReleasing(r)}
+                          className="inline-flex items-center gap-1 text-destructive text-xs font-medium hover:underline"
+                        >
+                          <Trash2 size={12} />
+                          Release
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -757,6 +899,112 @@ export function PhoneNumbersTab() {
               >
                 {releaseInFlight ? "Releasing…" : "Confirm"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voicemail-greeting dialog (slice 13, #317) — upload an audio file or
+          record one in the browser (encoded to WAV), then PUT it; or remove an
+          existing greeting (DELETE). Twilio <Play> renders mp3/wav only. */}
+      {greetingFor && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-card rounded-xl border border-border w-full max-w-md p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Voicemail greeting — {formatPhoneNumber(greetingFor.e164)}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {greetingFor.voicemail_greeting_url
+                ? "A custom greeting is set. Upload or record a new one to replace it, or remove it to use the default."
+                : "Using the default spoken greeting. Upload an MP3/WAV file or record one to set a custom greeting."}
+            </p>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="greeting-file"
+                className="text-sm font-medium text-foreground"
+              >
+                Upload audio (MP3 or WAV)
+              </label>
+              <input
+                id="greeting-file"
+                type="file"
+                accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,.mp3,.wav"
+                onChange={(e) =>
+                  handleGreetingFileChange(e.target.files?.[0] ?? null)
+                }
+                className="block w-full text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">or</span>
+              {recording ? (
+                <button
+                  type="button"
+                  onClick={() => void handleStopRecording()}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground"
+                >
+                  <Square size={14} />
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleStartRecording()}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  <Mic size={14} />
+                  Record
+                </button>
+              )}
+              {recording && (
+                <span className="inline-flex items-center gap-1 text-xs text-destructive">
+                  <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                  Recording…
+                </span>
+              )}
+            </div>
+
+            {greetingFileName && !recording && (
+              <p className="text-xs text-muted-foreground">
+                Ready to save: <span className="text-foreground">{greetingFileName}</span>
+              </p>
+            )}
+            {recordError && (
+              <p className="text-xs text-destructive">{recordError}</p>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <div>
+                {greetingFor.voicemail_greeting_url && (
+                  <button
+                    type="button"
+                    onClick={() => void handleGreetingRemove()}
+                    disabled={greetingRemoving}
+                    className="rounded-md px-3 py-1.5 text-sm font-medium text-destructive hover:underline disabled:opacity-50"
+                  >
+                    {greetingRemoving ? "Removing…" : "Remove greeting"}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={closeGreeting}
+                  className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleGreetingSave()}
+                  disabled={!greetingFile || greetingSaving || recording !== null}
+                  className="rounded-md bg-[var(--brand-primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {greetingSaving ? "Saving…" : "Save greeting"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
