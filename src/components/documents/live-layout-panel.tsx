@@ -24,12 +24,14 @@ const SAVE_DELAY_MS = 600;
 // The boolean show/hide fields of a layout (everything but the title text).
 type ToggleKey = Exclude<keyof DocumentPdfLayout, "document_title">;
 
-// The nine show/hide toggles in panel order. Labels/help mirror the org preset
+// The eleven show/hide toggles in panel order. Labels/help mirror the org preset
 // editor's vocabulary (settings/pdf-presets) so the two surfaces read the same;
 // show_document_title is the document-level field the preset has no column for.
 const TOGGLES: { key: ToggleKey; label: string; help?: string }[] = [
   { key: "show_document_title", label: "Show document title" },
   { key: "show_markup", label: "Show markup row in totals" },
+  { key: "show_overhead", label: "Show overhead row in totals" },
+  { key: "show_profit", label: "Show profit row in totals" },
   { key: "show_discount", label: "Show discount row in totals" },
   { key: "show_tax", label: "Show tax row in totals" },
   { key: "show_opening_statement", label: "Show opening statement" },
@@ -70,7 +72,7 @@ interface LayoutControlsProps {
   onSaveAsPreset: () => void;
 }
 
-// The controls themselves (preset picker + editable title + the nine toggles +
+// The controls themselves (preset picker + editable title + the eleven toggles +
 // "Save as preset"), with no surrounding chrome. The parent wraps this in a card
 // for the desktop rail and in a Sheet for the mobile bottom sheet, so the markup
 // lives in exactly one place and both surfaces are driven by the same state.
@@ -217,7 +219,7 @@ interface LiveLayoutPanelProps {
 }
 
 // The live PDF layout panel, shared by the Estimate View (#483/#484) and the
-// Invoice View (#485). The nine toggles + editable title autosave the complete
+// Invoice View (#485). The eleven toggles + editable title autosave the complete
 // per-document snapshot (ADR 0012) and re-render the preview live.
 //
 // Responsive treatment (#488): the preview is the always-mounted main column;
@@ -360,7 +362,7 @@ export function LiveLayoutPanel({
   // Save the document's current look as a new reusable org preset (#486), via the
   // existing POST /api/pdf-presets (gated `manage_pdf_presets` server-side too).
   // `show_document_title` is a document-only field with no preset column, so it is
-  // dropped; the eight shared toggles + the title become the preset. This is an
+  // dropped; the ten shared toggles + the title become the preset. This is an
   // explicit action, not debounced.
   const saveAsPreset = async () => {
     const name = presetName.trim();
@@ -373,7 +375,7 @@ export function LiveLayoutPanel({
       body: JSON.stringify({
         name,
         document_type: documentType,
-        ...sharedFields, // document_title + the eight shared toggles
+        ...sharedFields, // document_title + the ten shared toggles
         is_default: false,
       }),
     });

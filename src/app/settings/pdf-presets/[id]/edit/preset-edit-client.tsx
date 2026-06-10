@@ -16,6 +16,8 @@ interface Props { initial: PdfPreset; }
 
 const TOGGLES: { key: keyof PdfPreset; label: string; help?: string }[] = [
   { key: "show_markup", label: "Show markup row in totals" },
+  { key: "show_overhead", label: "Show overhead row in totals" },
+  { key: "show_profit", label: "Show profit row in totals" },
   { key: "show_discount", label: "Show discount row in totals" },
   { key: "show_tax", label: "Show tax row in totals" },
   { key: "show_opening_statement", label: "Show opening statement" },
@@ -46,6 +48,8 @@ export default function PresetEditClient({ initial }: Props) {
         document_title: preset.document_title,
         is_default: preset.is_default,
         show_markup: preset.show_markup,
+        show_overhead: preset.show_overhead,
+        show_profit: preset.show_profit,
         show_discount: preset.show_discount,
         show_tax: preset.show_tax,
         show_opening_statement: preset.show_opening_statement,

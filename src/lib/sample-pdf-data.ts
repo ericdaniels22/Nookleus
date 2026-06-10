@@ -46,15 +46,16 @@ export function buildSampleEstimate(orgId: string): {
     markup_type: "percent",
     markup_value: 15,
     markup_amount: 180,
-    // #572 — Markup split into Overhead + Profit. This sample carries it all on
-    // the Overhead leg (15% of 1200 = 180), Profit none, so the combined
-    // markup_amount and every downstream total below are unchanged.
+    // #572 — Markup split into Overhead + Profit. Both legs are non-zero
+    // (10% + 5% of 1200) so a preset preview with the #576 toggles on shows
+    // both rows; together they still equal markup_amount, so the combined
+    // figure and every downstream total below are unchanged.
     overhead_type: "percent",
-    overhead_value: 15,
-    overhead_amount: 180,
-    profit_type: "none",
-    profit_value: 0,
-    profit_amount: 0,
+    overhead_value: 10,
+    overhead_amount: 120,
+    profit_type: "percent",
+    profit_value: 5,
+    profit_amount: 60,
     discount_type: "amount",
     discount_value: 50,
     discount_amount: 50,
@@ -156,14 +157,15 @@ export function buildSampleInvoice(orgId: string): {
     markup_value: 15,
     markup_amount: 180,
     // #575 — invoices carry the Overhead + Profit split too. Like the sample
-    // estimate above, everything rides the Overhead leg (15% of 1200 = 180),
-    // Profit none, so markup_amount and the downstream totals are unchanged.
+    // estimate above, both legs are non-zero (10% + 5% of 1200) so an invoice
+    // preset preview with the #576 toggles on shows both rows; together they
+    // still equal markup_amount, so the downstream totals are unchanged.
     overhead_type: "percent",
-    overhead_value: 15,
-    overhead_amount: 180,
-    profit_type: "none",
-    profit_value: 0,
-    profit_amount: 0,
+    overhead_value: 10,
+    overhead_amount: 120,
+    profit_type: "percent",
+    profit_value: 5,
+    profit_amount: 60,
     discount_type: "amount",
     discount_value: 50,
     discount_amount: 50,

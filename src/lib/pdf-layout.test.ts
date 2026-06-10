@@ -21,6 +21,8 @@ function customLayout(): DocumentPdfLayout {
     document_title: "Proposal",
     show_document_title: false,
     show_markup: false,
+    show_overhead: true, // field default is false (#576) — flipped like the rest
+    show_profit: true,
     show_discount: false,
     show_tax: false,
     show_opening_statement: false,
@@ -41,6 +43,8 @@ function customPreset(): PdfPreset {
     document_type: "estimate",
     document_title: "Quote",
     show_markup: false,
+    show_overhead: true, // field default is false (#576) — flipped like the rest
+    show_profit: true,
     show_discount: false,
     show_tax: false,
     show_opening_statement: false,
@@ -110,6 +114,8 @@ describe("resolveEffectiveLayout — precedence (#482)", () => {
       document_title: preset.document_title,
       show_document_title: LAYOUT_FIELD_DEFAULTS.show_document_title,
       show_markup: preset.show_markup,
+      show_overhead: preset.show_overhead,
+      show_profit: preset.show_profit,
       show_discount: preset.show_discount,
       show_tax: preset.show_tax,
       show_opening_statement: preset.show_opening_statement,
@@ -139,13 +145,31 @@ describe("resolveEffectiveLayout — precedence (#482)", () => {
   });
 });
 
+// #576 — Overhead & Profit get their own show/hide toggles, parallel to
+// markup/discount/tax. They default to HIDDEN so legacy documents (and any
+// document whose uplifts are zero) don't sprout two empty $0 lines.
+describe("resolveEffectiveLayout — Overhead & Profit visibility (#576)", () => {
+  it("defaults both new toggles to hidden when neither layout nor preset exists", () => {
+    const resolved = resolveEffectiveLayout(null, null);
+    expect(resolved.show_overhead).toBe(false);
+    expect(resolved.show_profit).toBe(false);
+  });
+
+  it("lets a preset that shows Overhead & Profit supply them when the layout is NULL", () => {
+    const preset = { ...customPreset(), show_overhead: true, show_profit: true };
+    const resolved = resolveEffectiveLayout(null, preset);
+    expect(resolved.show_overhead).toBe(true);
+    expect(resolved.show_profit).toBe(true);
+  });
+});
+
 // #486 — applying a saved preset COPIES its choices onto the document's own
-// layout (ADR 0012 snapshot, never a binding link). A preset carries the eight
+// layout (ADR 0012 snapshot, never a binding link). A preset carries the ten
 // shared toggles + the title, but has no `show_document_title` column — that one
 // document-level field is preserved from the document's current look rather than
 // reset, so applying a preset never silently flips the title on or off.
 describe("presetToLayout — snapshot a preset's choices onto a document layout (#486)", () => {
-  it("copies the preset's eight toggles + title and preserves the current show_document_title", () => {
+  it("copies the preset's ten toggles + title and preserves the current show_document_title", () => {
     const preset = customPreset(); // every toggle the opposite of the field defaults
     // The document currently hides its title; the preset has no opinion on that
     // field, so applying it must leave show_document_title alone.
@@ -153,6 +177,8 @@ describe("presetToLayout — snapshot a preset's choices onto a document layout 
       document_title: preset.document_title,
       show_document_title: false, // preserved from the document, not the preset
       show_markup: preset.show_markup,
+      show_overhead: preset.show_overhead, // #576 — copied like the other toggles
+      show_profit: preset.show_profit,
       show_discount: preset.show_discount,
       show_tax: preset.show_tax,
       show_opening_statement: preset.show_opening_statement,

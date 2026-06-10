@@ -32,6 +32,8 @@ const COMPLETE_LAYOUT = {
   document_title: "Estimate",
   show_document_title: true,
   show_markup: false,
+  show_overhead: false, // #576 — field default; part of the complete snapshot
+  show_profit: false,
   show_discount: true,
   show_tax: true,
   show_opening_statement: true,

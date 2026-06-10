@@ -172,4 +172,30 @@ describe("POST /api/pdf-presets — manage_pdf_presets gate (#486)", () => {
     expect(res.status).toBe(201);
     expect(createPreset).toHaveBeenCalledTimes(1);
   });
+
+  // #576 — the create payload carries the overhead/profit toggles. Absent from
+  // the body they default false (hidden), so legacy clients and the spec
+  // defaults keep producing legacy-looking presets.
+  it("forwards show_overhead/show_profit, defaulting false when absent (#576)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({ userId: "user-1", role: "admin", grants: [] }),
+      }) as never,
+    );
+    vi.mocked(createPreset).mockResolvedValue({ id: "preset-576" } as PdfPreset);
+
+    const res = await POST(
+      postRequest({ ...VALID_POST_BODY, show_overhead: true }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(createPreset).toHaveBeenCalledWith(
+      expect.anything(),
+      "org-1",
+      "user-1",
+      expect.objectContaining({ show_overhead: true, show_profit: false }),
+    );
+  });
 });

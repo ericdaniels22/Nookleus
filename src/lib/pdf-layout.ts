@@ -10,13 +10,18 @@ import type { DocumentPdfLayout, DocumentType, PdfPreset } from "./types";
 // Built-in field defaults — the last resort when a document has neither its own
 // layout nor an Organization default preset. Mirrors the `pdf_presets` column
 // defaults (migrations build67c1 + 382a): every toggle on except
-// `show_category_subtotals`. `show_document_title` defaults on because the title
-// renders unconditionally today. `document_title` is a generic placeholder; in
-// every real render path a preset supplies the actual title.
+// `show_category_subtotals` and the #576 `show_overhead`/`show_profit` pair.
+// `show_document_title` defaults on because the title renders unconditionally
+// today. `document_title` is a generic placeholder; in every real render path a
+// preset supplies the actual title.
 export const LAYOUT_FIELD_DEFAULTS: DocumentPdfLayout = {
   document_title: "Document",
   show_document_title: true,
   show_markup: true,
+  // #576 — the Overhead/Profit rows default HIDDEN so documents and presets
+  // that predate the toggles don't sprout two new lines on the customer PDF.
+  show_overhead: false,
+  show_profit: false,
   show_discount: true,
   show_tax: true,
   show_opening_statement: true,
@@ -51,6 +56,8 @@ export function resolveEffectiveLayout(
     ? {
         document_title: preset.document_title,
         show_markup: preset.show_markup,
+        show_overhead: preset.show_overhead,
+        show_profit: preset.show_profit,
         show_discount: preset.show_discount,
         show_tax: preset.show_tax,
         show_opening_statement: preset.show_opening_statement,
@@ -75,6 +82,8 @@ export function resolveEffectiveLayout(
     document_title: pick("document_title"),
     show_document_title: pick("show_document_title"),
     show_markup: pick("show_markup"),
+    show_overhead: pick("show_overhead"),
+    show_profit: pick("show_profit"),
     show_discount: pick("show_discount"),
     show_tax: pick("show_tax"),
     show_opening_statement: pick("show_opening_statement"),
@@ -88,7 +97,7 @@ export function resolveEffectiveLayout(
 // Snapshot a saved preset's choices onto a document's own layout (#486). Per
 // ADR 0012 applying a preset is a *copy*, never a binding link — the document
 // gets its own complete layout, so later edits to the preset never reach back
-// into it. The preset carries the eight shared toggles + the title but has no
+// into it. The preset carries the ten shared toggles + the title but has no
 // `show_document_title` column, so that one document-level field is preserved
 // from the document's current look (default: the field default) rather than
 // silently reset. Pure.
@@ -100,6 +109,8 @@ export function presetToLayout(
     document_title: preset.document_title,
     show_document_title: currentShowDocumentTitle,
     show_markup: preset.show_markup,
+    show_overhead: preset.show_overhead,
+    show_profit: preset.show_profit,
     show_discount: preset.show_discount,
     show_tax: preset.show_tax,
     show_opening_statement: preset.show_opening_statement,
@@ -111,14 +122,16 @@ export function presetToLayout(
 }
 
 // Validate an untrusted PATCH body into a `DocumentPdfLayout`. Accepts only a
-// well-formed layout — exactly the nine boolean toggles plus a string
+// well-formed layout — exactly the eleven boolean toggles plus a string
 // `document_title` — and returns it normalized (extra keys stripped) so only the
 // canonical shape ever reaches the JSONB column. Returns null on any violation.
-// The nine boolean toggles that, with `document_title`, make up a layout. Used
+// The eleven boolean toggles that, with `document_title`, make up a layout. Used
 // to validate and normalize a payload field-by-field.
 const LAYOUT_TOGGLE_KEYS = [
   "show_document_title",
   "show_markup",
+  "show_overhead",
+  "show_profit",
   "show_discount",
   "show_tax",
   "show_opening_statement",
