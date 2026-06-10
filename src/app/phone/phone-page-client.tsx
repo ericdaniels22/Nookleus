@@ -79,6 +79,16 @@ interface PhoneVoicemail {
 // conversation as the messages; `started_at` is its timeline anchor.
 // `status`/`duration_seconds` are null until the status-callback webhook
 // advances the row (a 'ringing' insert has neither yet).
+// Slice 11 (#315) — a call recording attached to an answered call. Like
+// voicemail, `audio_storage_path` is the Nookleus-hosted MP3 the player signs a
+// URL for; it can lag the row briefly while the copy-from-Twilio finishes.
+interface PhoneRecording {
+  id: string;
+  audio_storage_path: string | null;
+  consent_notice_played: boolean;
+  duration_seconds: number | null;
+}
+
 interface PhoneCall {
   id: string;
   conversation_id: string;
@@ -89,6 +99,8 @@ interface PhoneCall {
   ended_at: string | null;
   // Slice 9 (#313) — present when the call went to voicemail.
   voicemail?: PhoneVoicemail | null;
+  // Slice 11 (#315) — present when the answered call was recorded.
+  recording?: PhoneRecording | null;
 }
 
 // Slice 6 (#310) — a staged attachment in the compose strip. Either the
@@ -154,10 +166,6 @@ export function PhonePageClient({
   // Slice 6 (#310) — lightbox state: the storage_path of the image
   // currently being shown full-size, or null.
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
-  // Slice 8 (#312) — the call whose detail placeholder is open, or null.
-  // Recording playback ships in slice 11; until then a click on a call row
-  // opens this placeholder.
-  const [callDetail, setCallDetail] = useState<PhoneCall | null>(null);
   // #309 outbound surfaces are gated on the A2P 10DLC feature flag.
   // Computed once at mount — the flag flips by env-var redeploy, not at
   // runtime, so we never need to re-evaluate. The read path (thread,
@@ -777,33 +785,6 @@ export function PhonePageClient({
         />
       ) : null}
 
-      {/* Slice 8 (#312) — call-detail placeholder. Recording playback
-          lands in slice 11 (#11); until then a tapped call row shows this. */}
-      {callDetail ? (
-        <div
-          role="dialog"
-          aria-label="Call details"
-          onClick={() => setCallDetail(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="max-w-sm rounded-lg bg-background p-6 text-center shadow-lg"
-          >
-            <p className="text-sm text-muted-foreground">
-              Recording playback will land in slice 11.
-            </p>
-            <button
-              type="button"
-              onClick={() => setCallDetail(null)}
-              className="mt-4 rounded-md bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {/* Right pane — selected thread */}
       <section className="flex-1 flex flex-col">
         {selected ? (
@@ -849,11 +830,7 @@ export function PhonePageClient({
               {threadItems.map((item) => {
                 if (item.kind === "call") {
                   return (
-                    <CallRow
-                      key={`call-${item.call.id}`}
-                      call={item.call}
-                      onOpen={() => setCallDetail(item.call)}
-                    />
+                    <CallRow key={`call-${item.call.id}`} call={item.call} />
                   );
                 }
                 const m = item.message;
@@ -1121,17 +1098,16 @@ function formatDuration(seconds: number): string {
 // like a system row (distinct from the left/right message bubbles). Slice 9
 // (#313) — when the call went to voicemail, its recording + transcript render
 // inline beneath the call pill.
-function CallRow({ call, onOpen }: { call: PhoneCall; onOpen: () => void }) {
+function CallRow({ call }: { call: PhoneCall }) {
   const incoming = call.direction === "in";
   const label = incoming ? "Incoming call" : "Outgoing call";
   const DirectionIcon = incoming ? PhoneIncoming : PhoneOutgoing;
   return (
     <div className="flex flex-col items-center gap-1">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70"
-      >
+      {/* A call renders as a centered status pill. Slice 11 (#315) replaced the
+          tap-to-open placeholder with inline recording playback below the pill,
+          so the pill is no longer interactive. */}
+      <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
         <DirectionIcon size={12} aria-hidden="true" />
         <span>{label}</span>
         {call.status && <span>{formatCallStatus(call.status)}</span>}
@@ -1144,8 +1120,9 @@ function CallRow({ call, onOpen }: { call: PhoneCall; onOpen: () => void }) {
             minute: "2-digit",
           })}
         </span>
-      </button>
+      </div>
       {call.voicemail ? <VoicemailBlock voicemail={call.voicemail} /> : null}
+      {call.recording ? <RecordingBlock recording={call.recording} /> : null}
     </div>
   );
 }
@@ -1199,6 +1176,48 @@ function VoicemailPlayer({ storagePath }: { storagePath: string }) {
       controls
       src={url ?? undefined}
       aria-label="Voicemail recording"
+      className="w-full"
+    />
+  );
+}
+
+// Slice 11 (#315) — the call recording shown under an answered call. Mirrors
+// VoicemailBlock: the player renders once the audio copy has landed
+// (audio_storage_path set); until then the row simply shows no player (the
+// recording-completed webhook fills the path moments after the call ends).
+function RecordingBlock({ recording }: { recording: PhoneRecording }) {
+  if (!recording.audio_storage_path) return null;
+  return (
+    <div className="w-full max-w-sm rounded-lg border border-border bg-background p-2 text-xs">
+      <RecordingPlayer storagePath={recording.audio_storage_path} />
+    </div>
+  );
+}
+
+// Slice 11 (#315) — <audio> player for a stored call recording. Identical to
+// VoicemailPlayer (recordings share the phone-recordings bucket and the same
+// signed-URL route); only the aria-label differs.
+function RecordingPlayer({ storagePath }: { storagePath: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(
+        `/api/phone/recordings?path=${encodeURIComponent(storagePath)}`,
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { url: string };
+      if (!cancelled) setUrl(body.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storagePath]);
+  return (
+    <audio
+      controls
+      src={url ?? undefined}
+      aria-label="Call recording"
       className="w-full"
     />
   );

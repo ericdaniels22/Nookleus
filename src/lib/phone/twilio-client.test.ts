@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   buildBridgeTwiml,
+  buildConsentWhisperTwiml,
   buildVoiceTwiml,
   createTwilioClient,
   deleteRecording,
@@ -23,6 +24,7 @@ import {
   sendSms,
   type TwilioClientLike,
 } from "./twilio-client";
+import { RECORDING_CONSENT_NOTICE } from "./recording-consent";
 
 function fakeClient(opts: {
   listResult?: unknown[];
@@ -588,6 +590,70 @@ describe("buildBridgeTwiml — outbound bridge (#314)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Slice 11 (#315) — call recording + consent on the outbound bridge. When
+// recording is enabled, the Crew Lead (the answered originating leg) hears the
+// consent notice before the dial, the bridged conversation is recorded
+// dual-channel and posts to the recording-completed webhook, and the customer
+// (the answering leg) hears the same notice via the <Number> whisper URL.
+// Disabled → byte-for-byte the slice-10 bridge dial.
+// ---------------------------------------------------------------------------
+describe("buildBridgeTwiml — call recording + consent (#315)", () => {
+  it("speaks consent, records the bridge, and whispers consent to the customer when recording is enabled", () => {
+    const xml = buildBridgeTwiml({
+      customerE164: "+15551234567",
+      callerId: "+15125550000",
+      recordCall: true,
+      callRecordingStatusCallback:
+        "https://app.example.com/api/phone/webhook/recording-completed",
+      consentWhisperUrl:
+        "https://app.example.com/api/phone/webhook/recording-whisper",
+    });
+    // The Crew Lead (originating leg) hears the notice before the dial.
+    expect(xml).toContain("<Say");
+    expect(xml).toContain(RECORDING_CONSENT_NOTICE);
+    // The bridged conversation is recorded dual-channel with the callback.
+    expect(xml).toContain('record="record-from-answer-dual"');
+    expect(xml).toContain(
+      'recordingStatusCallback="https://app.example.com/api/phone/webhook/recording-completed"',
+    );
+    // The customer (answering leg) hears the SAME notice via the whisper URL.
+    expect(xml).toContain(
+      'url="https://app.example.com/api/phone/webhook/recording-whisper"',
+    );
+    expect(xml).toContain("+15551234567");
+  });
+
+  it("emits no consent notice and no recording when recording is disabled", () => {
+    const xml = buildBridgeTwiml({
+      customerE164: "+15551234567",
+      callerId: "+15125550000",
+      recordCall: false,
+    });
+    expect(xml).not.toContain("<Say");
+    expect(xml).not.toContain("record=");
+    expect(xml).not.toContain(RECORDING_CONSENT_NOTICE);
+    expect(xml).toContain("<Number>+15551234567</Number>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 11 (#315) — buildConsentWhisperTwiml is the static TwiML the
+// recording-whisper endpoint serves: it plays the canonical consent notice to
+// the answering party of a recorded call (via each <Number url=...> whisper),
+// so both parties hear it. Sourced from the recording-consent module so it can
+// never drift from the spoken-to-the-caller notice.
+// ---------------------------------------------------------------------------
+describe("buildConsentWhisperTwiml — answering-party consent whisper (#315)", () => {
+  it("plays only the canonical consent notice", () => {
+    const xml = buildConsentWhisperTwiml();
+    expect(xml).toContain("<Say");
+    expect(xml).toContain(RECORDING_CONSENT_NOTICE);
+    // A whisper plays to the callee and returns — it never dials anyone.
+    expect(xml).not.toContain("<Dial");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Slice 10 (#314) — placeBridgeCall. Rings the Crew Lead's cell (`to`) from
 // the Nookleus number (`from`), executing the inline bridge `twiml` on answer.
 // Returns the outer-leg CallSid + initial status; the route stores that SID so
@@ -754,5 +820,74 @@ describe("buildVoiceTwiml — voicemail recording callbacks (#313)", () => {
     const xml = buildVoiceTwiml({ kind: "voicemail" });
     expect(xml).toContain('playBeep="true"');
     expect(xml).toContain('maxLength="120"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 11 (#315) — call recording + consent on the inbound dial branches.
+// When recording is enabled, every answered inbound call (ring-all / forward /
+// round-robin) speaks the legally-required consent notice to the caller, then
+// records the bridged conversation (dual channel) and posts the finished
+// recording to the recording-completed webhook. The answering team member
+// hears the same notice via the per-leg whisper URL on each <Number>. When
+// recording is NOT enabled the TwiML is byte-for-byte the slice-8 dial (the
+// existing ring-all/forward/round-robin tests above are the regression guard).
+// ---------------------------------------------------------------------------
+describe("buildVoiceTwiml — call recording + consent (#315)", () => {
+  it("speaks the consent notice and records the dial when recording is enabled", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "forward", cell: "+15125550009" },
+      {
+        callerId: "+15125550000",
+        recordCall: true,
+        callRecordingStatusCallback:
+          "https://app.example.com/api/phone/webhook/recording-completed",
+        consentWhisperUrl:
+          "https://app.example.com/api/phone/webhook/recording-whisper",
+      },
+    );
+    // The inbound caller (originating leg) hears the consent notice before the dial.
+    expect(xml).toContain("<Say");
+    expect(xml).toContain(RECORDING_CONSENT_NOTICE);
+    // The bridged conversation is recorded dual-channel with the recording-completed callback.
+    expect(xml).toContain('record="record-from-answer-dual"');
+    expect(xml).toContain(
+      'recordingStatusCallback="https://app.example.com/api/phone/webhook/recording-completed"',
+    );
+    // The answering team member hears the SAME notice via the per-leg whisper URL.
+    expect(xml).toContain(
+      'url="https://app.example.com/api/phone/webhook/recording-whisper"',
+    );
+    expect(xml).toContain("+15125550009");
+  });
+
+  it("emits no consent notice and no recording when recording is disabled", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "forward", cell: "+15125550009" },
+      { callerId: "+15125550000", recordCall: false },
+    );
+    expect(xml).not.toContain("<Say");
+    expect(xml).not.toContain("record=");
+    expect(xml).not.toContain(RECORDING_CONSENT_NOTICE);
+    // Identical to the slice-8 bare dial.
+    expect(xml).toContain("<Number>+15125550009</Number>");
+  });
+
+  it("whispers the consent notice to every cell on a ring-all (consent said once to the caller)", () => {
+    const xml = buildVoiceTwiml(
+      { kind: "ring-all", cells: ["+15125550001", "+15125550002"] },
+      {
+        callerId: "+15125550000",
+        recordCall: true,
+        consentWhisperUrl:
+          "https://app.example.com/api/phone/webhook/recording-whisper",
+      },
+    );
+    // The caller hears the notice exactly once before the parallel ring.
+    expect(xml.match(/<Say/g)).toHaveLength(1);
+    // Every reachable cell carries the whisper URL.
+    expect(
+      xml.match(/url="https:\/\/app\.example\.com\/api\/phone\/webhook\/recording-whisper"/g),
+    ).toHaveLength(2);
   });
 });

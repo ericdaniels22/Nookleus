@@ -185,4 +185,86 @@ describe("GET /api/phone/conversations/[id]/calls", () => {
     const body = await res.json();
     expect(body[0].voicemail).toBeNull();
   });
+
+  // Slice 11 (#315) — an answered call carries its recording inline so the
+  // thread can render a play control on the call event. Same flatten as
+  // voicemail: PostgREST embeds the (0-or-1, UNIQUE per call) phone_recordings
+  // row; the route collapses it to a single `recording` field.
+  it("flattens an embedded recording onto the call as `recording`", async () => {
+    const tables = memberTables({
+      userId: "u-1",
+      role: "crew_lead",
+      grants: ["view_phone"],
+    });
+    tables.phone_calls = [
+      {
+        id: "call-rec",
+        organization_id: "org-1",
+        conversation_id: "conv-1",
+        direction: "out",
+        status: "completed",
+        duration_seconds: 42,
+        started_at: "2026-05-27T12:00:00Z",
+        ended_at: "2026-05-27T12:00:42Z",
+        phone_recordings: [
+          {
+            id: "rec-1",
+            audio_storage_path: "org-1/rec-1.mp3",
+            consent_notice_played: true,
+            duration_seconds: 42,
+          },
+        ],
+      },
+    ];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({ user: { id: "u-1" }, tables }) as never,
+    );
+
+    const res = await GET(
+      new Request("http://test/api/phone/conversations/conv-1/calls"),
+      params("conv-1"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0].recording).toEqual({
+      id: "rec-1",
+      audio_storage_path: "org-1/rec-1.mp3",
+      consent_notice_played: true,
+      duration_seconds: 42,
+    });
+    // The raw PostgREST embed key is gone — the client sees only `recording`.
+    expect("phone_recordings" in body[0]).toBe(false);
+  });
+
+  it("sets recording to null for a call with no recording", async () => {
+    const tables = memberTables({
+      userId: "u-1",
+      role: "crew_lead",
+      grants: ["view_phone"],
+    });
+    tables.phone_calls = [
+      {
+        id: "call-norec",
+        organization_id: "org-1",
+        conversation_id: "conv-1",
+        direction: "out",
+        status: "completed",
+        duration_seconds: 30,
+        started_at: "2026-05-27T13:00:00Z",
+        ended_at: "2026-05-27T13:00:30Z",
+        phone_recordings: [],
+      },
+    ];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({ user: { id: "u-1" }, tables }) as never,
+    );
+
+    const res = await GET(
+      new Request("http://test/api/phone/conversations/conv-1/calls"),
+      params("conv-1"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0].recording).toBeNull();
+  });
 });

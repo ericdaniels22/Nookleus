@@ -52,6 +52,10 @@ interface Body {
   // Valid sources: 'phone-tab' / 'contact' / 'contact-card' (untagged) and
   // `{ kind: 'job', jobId }` (Job-page Call, auto-tagged to that Job).
   sourceContext?: unknown;
+  // Slice 11 (#315) — per-call recording override. Omitted → the org's
+  // recording_enabled_default. Explicit `false` suppresses both the consent
+  // notice and the recording for THIS call (the override the issue specifies).
+  recordCall?: unknown;
 }
 
 const E164_RE = /^\+[1-9]\d{6,14}$/;
@@ -291,12 +295,31 @@ export const POST = withRequestContext(
     });
     const jobTag = smartAttach.kind === "auto" ? smartAttach.jobId : null;
 
+    // Slice 11 (#315) — recording decision for this call. Default to the org's
+    // recording_enabled_default (NOT NULL default true); a per-call override in
+    // the payload (recordCall:false) suppresses recording for THIS call only.
+    // When on, the bridge speaks the consent notice to the crew lead, records
+    // the conversation dual-channel to the recording-completed webhook, and
+    // whispers the same notice to the customer leg.
+    const { data: orgRow } = await ctx.serviceClient!
+      .from("organizations")
+      .select("recording_enabled_default")
+      .eq("id", ctx.orgId)
+      .maybeSingle<{ recording_enabled_default: boolean }>();
+    const overrideRecord =
+      typeof body.recordCall === "boolean" ? body.recordCall : undefined;
+    const recordCall = overrideRecord ?? orgRow?.recording_enabled_default ?? false;
+
     // Dispatch via Twilio. The inline bridge TwiML presents the Nookleus
     // number to the customer; `placeBridgeCall` rings the crew lead's cell
     // (`to`) FROM the Nookleus number (`from`) and runs the TwiML on answer.
     const twiml = buildBridgeTwiml({
       customerE164: outsideE164,
       callerId: fromNumber.e164,
+      recordCall,
+      callRecordingStatusCallback:
+        process.env.PHONE_RECORDING_CALLBACK_URL || undefined,
+      consentWhisperUrl: process.env.PHONE_RECORDING_WHISPER_URL || undefined,
     });
     const statusCallback =
       process.env.PHONE_VOICE_STATUS_CALLBACK_URL || undefined;
