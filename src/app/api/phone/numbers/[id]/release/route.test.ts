@@ -191,4 +191,50 @@ describe("POST /api/phone/numbers/[id]/release", () => {
 
     expect(res.status).toBe(502);
   });
+
+  // Slice 13 (#317) — admin offboarding of a departing member's Personal line.
+  // Two things must hold, and the second is the privacy invariant from ADR
+  // 0005: releasing the number must NOT read the owner-only content on it.
+  //   1. An admin can release a teammate's untagged Personal number (canManage
+  //      grants admins Personal-number management for offboarding).
+  //   2. The release route touches ONLY phone_numbers — never phone_messages
+  //      or phone_calls. Untagged Personal content stays owner-only even as the
+  //      admin returns the number to Twilio.
+  it("admin releases a teammate's untagged Personal number without reading its messages or calls", async () => {
+    authed({
+      user: { id: "admin-1" },
+      tables: memberTables({ userId: "admin-1", role: "admin", grants: [] }),
+    });
+    const personalRow = {
+      id: "row-personal",
+      organization_id: "org-1",
+      twilio_sid: "PNpersonal",
+      e164: "+15125559999",
+      kind: "personal" as const,
+      user_id: "user-bob", // a departing teammate, not the acting admin
+      released_at: null,
+    };
+    const service = fakeServiceClient({
+      tables: { phone_numbers: [personalRow] },
+    });
+    const fromSpy = vi.spyOn(service, "from");
+    vi.mocked(createServiceClient).mockReturnValue(service as never);
+
+    const res = await POST(
+      new Request("http://test", { method: "POST" }),
+      idParams("row-personal"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(releaseNumberMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "PNpersonal",
+    );
+    // The route never reaches for the content tables — the only table it
+    // touches is phone_numbers (the SELECT then the released_at UPDATE).
+    const tablesTouched = fromSpy.mock.calls.map((c) => c[0]);
+    expect(tablesTouched).not.toContain("phone_messages");
+    expect(tablesTouched).not.toContain("phone_calls");
+    expect(new Set(tablesTouched)).toEqual(new Set(["phone_numbers"]));
+  });
 });
