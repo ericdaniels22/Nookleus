@@ -222,3 +222,128 @@ describe("POST /api/phone/numbers — admin-only provision (canManage)", () => {
     expect(res.status).toBe(502);
   });
 });
+
+describe("POST /api/phone/numbers — Personal claim (slice 13, #317)", () => {
+  // Slice 13 makes the same POST endpoint a Crew Lead's self-service claim:
+  // body.kind === 'personal' provisions a number owned by the caller. The
+  // matrix is still delegated to canManage — for a Personal number whose
+  // userId is the caller, canManage(personal) returns true for any member,
+  // so the broader view_phone wrapper gate is the real door (crew_member,
+  // which lacks view_phone by default, never reaches here).
+
+  it("lets a crew_lead with view_phone claim a Personal number owned by themselves", async () => {
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    provisionNumberMock.mockResolvedValue({
+      sid: "PNpers",
+      phoneNumber: "+15125559999",
+    });
+
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_numbers: [
+            {
+              id: "row-p1",
+              organization_id: "org-1",
+              twilio_sid: "PNpers",
+              e164: "+15125559999",
+              label: null,
+              kind: "personal",
+              user_id: "user-1",
+              monthly_cost_cents: null,
+              released_at: null,
+              created_at: "2026-06-10T00:00:00Z",
+            },
+          ],
+        },
+      }) as never,
+    );
+
+    const res = await POST(
+      postReq({ phoneNumber: "+15125559999", kind: "personal" }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(provisionNumberMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "+15125559999",
+    );
+    const body = await res.json();
+    expect(body).toMatchObject({
+      kind: "personal",
+      user_id: "user-1",
+      e164: "+15125559999",
+    });
+  });
+
+  it("owns the claim to the authenticated caller, ignoring any body-supplied owner", async () => {
+    // Privilege-escalation guard (ADR 0005 privacy). A Personal number is
+    // owner-only and hidden from admins, so the owner id is the whole access
+    // boundary. The route must derive it from the session, never the request
+    // body — otherwise a member could claim a number "as" someone else (or an
+    // admin), then read that person's untagged Personal messages. We inspect
+    // the row actually persisted, not just the echoed response.
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    provisionNumberMock.mockResolvedValue({
+      sid: "PNpers",
+      phoneNumber: "+15125559999",
+    });
+
+    const writes: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_numbers: [
+            {
+              id: "row-p1",
+              organization_id: "org-1",
+              twilio_sid: "PNpers",
+              e164: "+15125559999",
+              label: null,
+              kind: "personal",
+              user_id: "user-1",
+              monthly_cost_cents: null,
+              released_at: null,
+              created_at: "2026-06-10T00:00:00Z",
+            },
+          ],
+        },
+        onWrite: (table, _op, payload) =>
+          writes.push({ table, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    const res = await POST(
+      postReq({
+        phoneNumber: "+15125559999",
+        kind: "personal",
+        // A hostile body trying to claim the number for someone else.
+        userId: "victim-2",
+        user_id: "victim-2",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const inserted = writes.find((w) => w.table === "phone_numbers");
+    expect(inserted?.payload.user_id).toBe("user-1");
+    expect(inserted?.payload.kind).toBe("personal");
+  });
+});
