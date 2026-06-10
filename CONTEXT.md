@@ -221,10 +221,41 @@ separate feature (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md))
 _Avoid_: preset (in code — "preset" is older UI copy), report template (unqualified), layout
 
 **Estimate**:
-A priced proposal for a Job — line items grouped into sections, with markup,
-discount, and tax — that an Organization sends a customer for approval. The
-primary billing document, and the only thing an Invoice can be made from.
+A priced proposal for a Job — line items grouped into sections, with overhead
+& profit, discount, and tax — that an Organization sends a customer for
+approval. The primary billing document, and the only thing an Invoice can be
+made from.
 _Avoid_: quote, proposal, bid (quote/bid fine in UI copy)
+
+**Estimate line item**:
+A single priced row on an Estimate. Its unit price is what the Organization
+**charges the customer** for that item — not the Organization's internal cost.
+The app deliberately stores no contractor cost basis: there is no "what it
+costs us" figure anywhere, so margin is never computed.
+_Avoid_: "unit cost" (the current column label is a misnomer — the value is
+the charge, not a cost), line, entry
+
+**Overhead & Profit (O&P)**:
+Two optional uplifts — the contractor's "10 & 10" (commonly 10% each) — added
+**on top of** an Estimate's Subtotal to reach the customer's price. Each is a
+percentage (or flat dollar) the customer ultimately pays; together they are the
+Estimate's **Markup**. They are additive charges applied to the Subtotal, never
+a margin back-calculated against a cost (there is no cost to back-calculate
+against).
+_Avoid_: using "overhead"/"profit" to mean an internal cost breakdown or
+job-margin worksheet; treating "markup" as one field (it decomposes into
+Overhead + Profit)
+
+**Subtotal**:
+The sum of an Estimate's line-item charges, before Overhead & Profit, Discount,
+and Tax.
+_Avoid_: "Costs" (rejected — it reads as the contractor's expenses, which the
+app does not track and never shows the customer)
+
+**Tax**:
+A single rate applied **after** Overhead & Profit and Discount — i.e. on the
+adjusted Subtotal, not the raw Subtotal — yielding the tax the customer pays.
+_Avoid_: VAT, GST (a single US rate today)
 
 **Invoice**:
 A request for payment for a Job, created only by converting an Estimate —
