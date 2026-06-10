@@ -382,6 +382,69 @@ describe("sendSms", () => {
       }),
     ).rejects.toThrow(/body|media/i);
   });
+
+  // Slice 1 (#305) — A2P 10DLC. US carriers only deliver outbound business
+  // SMS that is associated with the registered campaign's Messaging Service.
+  // When a messagingServiceSid is supplied it rides along in the SDK call so
+  // Twilio attaches the message to the approved campaign.
+  it("includes the messagingServiceSid in the SDK call when provided (#305 A2P campaign association)", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMa2p", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "your quote is ready",
+      messagingServiceSid: "MG0123456789abcdef0123456789abcdef",
+    });
+    const payload = (messageCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      messagingServiceSid: "MG0123456789abcdef0123456789abcdef",
+    });
+  });
+
+  // The A2P dual form: a messagingServiceSid does NOT replace `from`. Nookleus
+  // selects a specific outbound number (Personal-if-any-else-Shared), so the
+  // send must keep that `from` (Twilio requires it be in the Service's sender
+  // pool) AND carry the Service SID for the campaign association.
+  it("keeps `from` alongside the messagingServiceSid (deterministic sender + campaign association)", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMa2p", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "your quote is ready",
+      messagingServiceSid: "MG0123456789abcdef0123456789abcdef",
+    });
+    const payload = (messageCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).toMatchObject({
+      from: "+15125550000",
+      messagingServiceSid: "MG0123456789abcdef0123456789abcdef",
+    });
+  });
+
+  // Mirrors the statusCallback / mediaUrl omit tests above: a falsy
+  // messagingServiceSid must NOT reach the SDK as a present-but-empty key
+  // (an explicit blank Service SID is not the same as omitting it).
+  it("omits messagingServiceSid from the SDK call when none is provided", async () => {
+    const messageCreateSpy = vi.fn(async () => ({ sid: "SMa", status: "queued" }));
+    const client = fakeClient({ messageCreateSpy });
+    await sendSms(client, {
+      from: "+15125550000",
+      to: "+15551234567",
+      body: "hi",
+    });
+    const payload = (messageCreateSpy.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("messagingServiceSid");
+  });
 });
 
 // ---------------------------------------------------------------------------

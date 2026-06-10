@@ -111,6 +111,9 @@ export function createFakeTwilioClient(): TwilioClientLike {
         body: string;
         statusCallback?: string;
         mediaUrl?: string[];
+        // Slice 1 (#305) — accepted for interface parity. The fake reaches no
+        // carrier, so there is no campaign to associate; the SID is ignored.
+        messagingServiceSid?: string;
       }) {
         return {
           sid: `SM${fakeSidTail()}`,
