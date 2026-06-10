@@ -126,14 +126,20 @@ in pure modules — see the third-consumer heuristic). It reuses:
 Rendering and interactions mirror the desktop `PhotoViewer`:
 
 - `fixed inset-0 z-[90] bg-black` (same layer as `PhotoViewer`), image
-  `object-contain` with `translate(...) scale(...)` transform. shadcn's
-  `DialogContent` sits at `z-50`, so `z-[90]` covers the dialog and its
+  `object-contain` with `translate(...) scale(...)` transform. The picker
+  dialog's popup sits at `z-50`, so `z-[90]` covers the dialog and its
   overlay.
-- **Render through `createPortal(..., document.body)`.** shadcn's
-  `DialogContent` centres itself with a CSS `translate` transform; a
-  transformed ancestor becomes the containing block for `fixed` children, so
-  a viewer rendered inline inside the dialog would be positioned relative to
-  the dialog box, not the viewport. The portal escapes that.
+- **Render as a nested Base UI Dialog** (`@base-ui/react/dialog`, the
+  primitive behind `components/ui/dialog` — this repo's dialog is Base UI,
+  not Radix). Two forces require it: the picker dialog's popup centres
+  itself with a CSS `translate` transform, so a transformed ancestor would
+  become the containing block for a `fixed` viewer rendered inline; and the
+  picker dialog is modal — Base UI disables pointer interaction on
+  everything outside its own dialog stack, so a plain
+  `createPortal(document.body)` overlay would paint but never receive
+  clicks. A nested `Dialog.Root open` + `Dialog.Portal` + `Dialog.Popup`
+  escapes the transform, stays interactive, and takes over the focus trap
+  while open.
 - **Zoom:** scroll wheel (`Math.exp(-e.deltaY * 0.0015)` about the cursor),
   double-click (`doubleTap`), +/− toolbar buttons (`zoomBy` with `ZOOM_STEP`
   about the viewport centre), drag-to-pan when `scale > 1`.
@@ -149,11 +155,12 @@ Rendering and interactions mirror the desktop `PhotoViewer`:
 The viewer is **view-only + select**: no caption editing, no tag editing, no
 delete, no annotate, no info panel.
 
-**Escape layering.** Radix's Dialog closes on Escape by default. While the
-viewer is open, `DialogContent` gets
-`onEscapeKeyDown={(e) => { if (viewerOpen) { e.preventDefault(); closeViewer(); } }}`
-so the first Escape closes only the viewer and a second Escape closes the
-dialog.
+**Escape layering.** As the topmost dialog in the Base UI stack, the viewer
+receives Escape first (its `onOpenChange(false)` calls `onClose`). As a
+guard, the picker dialog's own `onOpenChange` converts any close request
+arriving while the viewer is open into "close the viewer" instead, so the
+first Escape can never fall through to the dialog; a second Escape (or ✕ /
+Cancel) then closes the dialog itself.
 
 ### 5. Data plumbing
 
