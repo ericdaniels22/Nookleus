@@ -85,6 +85,16 @@ export interface UsePhoneSyncInput {
   onVoicemailUpdate?: (row: PhoneVoicemailRow) => void;
 }
 
+// Channel topics must be unique PER HOOK MOUNT, not per org. RealtimeClient
+// dedupes channels by topic, so two mounts sharing a topic (the Job page
+// mounts Messages (N) and Calls (N), both syncing the active org) would hand
+// the second mount the first's already-subscribed channel — and realtime-js
+// throws from `.on("postgres_changes", …)` once a channel is joining/joined,
+// which took down every Job page (prod incident 2026-06-10). The suffix costs
+// one extra realtime subscription per mount; postgres_changes filtering is
+// per-binding, so behavior is otherwise identical.
+let channelSeq = 0;
+
 export function usePhoneSync(input: UsePhoneSyncInput): void {
   const onNewMessageRef = useRef(input.onNewMessage);
   const onMessageUpdateRef = useRef(input.onMessageUpdate);
@@ -122,7 +132,7 @@ export function usePhoneSync(input: UsePhoneSyncInput): void {
     if (!organizationId) return;
     const orgFilter = `organization_id=eq.${organizationId}`;
     let channel = supabase
-      .channel(`phone-messages-${organizationId}`)
+      .channel(`phone-messages-${organizationId}-${++channelSeq}`)
       .on(
         "postgres_changes",
         {
