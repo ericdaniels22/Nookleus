@@ -1590,3 +1590,167 @@ describe("PhonePageClient — voicemail render (#313)", () => {
     expect(screen.queryByText(/transcribing/i)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 13 (#317) — per-message number picker.
+//
+// When the caller may send from more than one number (their own Personal plus
+// the org's Shared, say), the compose box surfaces a "Send from" picker so they
+// can override which number this one message goes out from. The chosen
+// phone_numbers.id rides the /api/phone/messages POST as `fromNumberId`; the
+// route validates it against the caller's permitted set. With one (or zero)
+// selectable number there's nothing to choose, so no picker renders.
+// ---------------------------------------------------------------------------
+
+describe("PhonePageClient — per-message number picker (#317)", () => {
+  const TWO_NUMBERS = [
+    // selectableOutboundNumbers orders the caller's own Personal first (the
+    // default), then Shared — so the picker pre-selects the Personal.
+    { id: "pn-personal", e164: "+15125559999", kind: "personal" as const },
+    { id: "pn-shared", e164: "+15125550000", kind: "shared" as const },
+  ];
+
+  function stubThreadAndSend() {
+    mockFetch.mockImplementation(
+      async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        const path = url.replace(/^https?:\/\/[^/]+/, "");
+        if (
+          path === "/api/phone/conversations/conv-1/messages" &&
+          (!init || init.method !== "POST")
+        ) {
+          return { ok: true, status: 200, json: async () => [] };
+        }
+        if (path === "/api/phone/messages" && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              id: "msg-out",
+              conversationId: "conv-1",
+              twilio_sid: "SM-out",
+              status: "queued",
+            }),
+          };
+        }
+        throw new Error(`unmocked fetch: ${path} ${init?.method ?? "GET"}`);
+      },
+    );
+  }
+
+  it("sends the chosen fromNumberId when the user overrides the default number", async () => {
+    stubThreadAndSend();
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        selectableNumbers={TWO_NUMBERS}
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const textarea = (await screen.findByPlaceholderText(
+      /text message/i,
+    )) as HTMLTextAreaElement;
+    // Override the default (Personal) with the Shared line for this message.
+    const picker = screen.getByLabelText(/send from/i) as HTMLSelectElement;
+    fireEvent.change(picker, { target: { value: "pn-shared" } });
+    fireEvent.change(textarea, { target: { value: "from the shared line" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        ([, i]) => (i as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeDefined();
+      const body = JSON.parse(
+        (postCall![1] as RequestInit).body as string,
+      ) as Record<string, unknown>;
+      expect(body.fromNumberId).toBe("pn-shared");
+      expect(body.body).toBe("from the shared line");
+    });
+  });
+
+  it("defaults the picker to the first selectable number (own Personal) and sends it when left unchanged", async () => {
+    stubThreadAndSend();
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        selectableNumbers={TWO_NUMBERS}
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const textarea = (await screen.findByPlaceholderText(
+      /text message/i,
+    )) as HTMLTextAreaElement;
+    const picker = screen.getByLabelText(/send from/i) as HTMLSelectElement;
+    // Pre-selected to the default (own Personal) — no interaction.
+    expect(picker.value).toBe("pn-personal");
+    fireEvent.change(textarea, { target: { value: "default line" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        ([, i]) => (i as RequestInit | undefined)?.method === "POST",
+      );
+      const body = JSON.parse(
+        (postCall![1] as RequestInit).body as string,
+      ) as Record<string, unknown>;
+      expect(body.fromNumberId).toBe("pn-personal");
+    });
+  });
+
+  it("renders no picker — and sends no fromNumberId — when the caller has a single selectable number", async () => {
+    stubThreadAndSend();
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        selectableNumbers={[TWO_NUMBERS[1]]}
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+
+    const textarea = (await screen.findByPlaceholderText(
+      /text message/i,
+    )) as HTMLTextAreaElement;
+    // With nothing to choose, the picker is omitted entirely.
+    expect(screen.queryByLabelText(/send from/i)).toBeNull();
+    fireEvent.change(textarea, { target: { value: "only one line" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        ([, i]) => (i as RequestInit | undefined)?.method === "POST",
+      );
+      const body = JSON.parse(
+        (postCall![1] as RequestInit).body as string,
+      ) as Record<string, unknown>;
+      // No override — the route's default selection stands.
+      expect(body).not.toHaveProperty("fromNumberId");
+    });
+  });
+
+  it("renders no picker when the caller has zero selectable numbers (prop omitted)", async () => {
+    stubThreadAndSend();
+    render(
+      <PhonePageClient
+        organizationId="org-1"
+        initialConversations={[
+          convo({ id: "conv-1", contact_id: "c-1", contact_name: "Alice" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    await screen.findByPlaceholderText(/text message/i);
+    expect(screen.queryByLabelText(/send from/i)).toBeNull();
+  });
+});

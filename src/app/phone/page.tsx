@@ -3,6 +3,10 @@ import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import {
+  selectableOutboundNumbers,
+  type SelectableNumber,
+} from "@/lib/phone/select-outbound-number";
+import {
   PhonePageClient,
   type PhoneConversationItem,
 } from "./phone-page-client";
@@ -123,5 +127,30 @@ export default async function PhonePage() {
     active_jobs: c.contact_id ? activeJobsByContact[c.contact_id] ?? [] : [],
   }));
 
-  return <PhonePageClient organizationId={orgId} initialConversations={items} />;
+  // Slice 13 (#317) — the compose-box "Send from" picker. The caller may send
+  // from any active Shared org number or their own active Personal number;
+  // `selectableOutboundNumbers` is the same pure rule the send route applies,
+  // so the picker and the route agree on what's permitted (own Personal first
+  // — the default the route would otherwise pick). RLS already hides a
+  // teammate's Personal number from the User client; the rule excludes it too,
+  // belt-and-suspenders, so the picker can never offer an impersonating line.
+  const { data: numberRows } = await supabase
+    .from("phone_numbers")
+    .select(
+      "id, organization_id, e164, kind, user_id, released_at, is_active, created_at",
+    )
+    .eq("organization_id", orgId);
+  const selectableNumbers = selectableOutboundNumbers({
+    callerUserId: auth.userId,
+    organizationId: orgId,
+    orgNumbers: (numberRows ?? []) as SelectableNumber[],
+  }).map((n) => ({ id: n.id, e164: n.e164, kind: n.kind }));
+
+  return (
+    <PhonePageClient
+      organizationId={orgId}
+      initialConversations={items}
+      selectableNumbers={selectableNumbers}
+    />
+  );
 }
