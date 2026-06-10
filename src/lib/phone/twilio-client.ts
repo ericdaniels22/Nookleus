@@ -18,6 +18,7 @@
 
 import twilio, { validateRequest } from "twilio";
 import { createFakeTwilioClient } from "./fake-twilio-client";
+import { RECORDING_CONSENT_NOTICE } from "./recording-consent";
 import type { DecideSharedResult } from "./route-shared-call";
 
 // A narrowed slice of an item returned by `availablePhoneNumbers.list` —
@@ -352,6 +353,18 @@ export interface VoiceTwimlOptions {
   // RecordingSid). The route supplies the transcription-completed webhook URL
   // from env; transcription is off when this is omitted.
   transcribeCallback?: string;
+  // Slice 11 (#315) — call recording + consent on the answered (dial) branches.
+  // When `recordCall` is set, the inbound caller hears the consent notice
+  // before the dial, the bridged conversation is recorded dual-channel, and
+  // Twilio posts the finished recording to `callRecordingStatusCallback` (our
+  // recording-completed webhook). `consentWhisperUrl` is played to the
+  // answering team member via each <Number>'s `url` whisper, so BOTH parties
+  // hear the notice. All three are omitted when recording is disabled, leaving
+  // the slice-8 dial TwiML byte-for-byte unchanged. (The consent text itself
+  // is the single source of truth in recording-consent.ts — never inlined.)
+  recordCall?: boolean;
+  callRecordingStatusCallback?: string;
+  consentWhisperUrl?: string;
 }
 
 // Spoken when an inbound call falls through to voicemail and no custom
@@ -363,6 +376,38 @@ const DEFAULT_VOICEMAIL_GREETING =
 // to start speaking; the cap bounds Twilio recording/storage cost and matches
 // a typical voicemail length (2 minutes).
 const VOICEMAIL_MAX_LENGTH_SECONDS = 120;
+
+// Slice 11 (#315) — the dial-level recording config shared by the inbound dial
+// branches (buildVoiceTwiml) and the outbound bridge (buildBridgeTwiml).
+// Centralized so the two legally-relevant recording surfaces can never drift:
+// both capture the whole bridged conversation dual-channel and post the
+// finished recording to the recording-completed webhook.
+type VoiceDialAttributes = NonNullable<
+  Parameters<InstanceType<typeof twilio.twiml.VoiceResponse>["dial"]>[0]
+>;
+type VoiceDial = ReturnType<
+  InstanceType<typeof twilio.twiml.VoiceResponse>["dial"]
+>;
+
+function recordingDialAttributes(statusCallback?: string): VoiceDialAttributes {
+  const attrs: VoiceDialAttributes = { record: "record-from-answer-dual" };
+  if (statusCallback) {
+    attrs.recordingStatusCallback = statusCallback;
+    attrs.recordingStatusCallbackEvent = ["completed"];
+  }
+  return attrs;
+}
+
+// Dial a number, attaching the consent "whisper" URL when recording so the
+// answering party hears the notice too; a bare <Number> otherwise.
+function dialNumberWithConsent(
+  dial: VoiceDial,
+  number: string,
+  whisperUrl?: string,
+): void {
+  if (whisperUrl) dial.number({ url: whisperUrl }, number);
+  else dial.number(number);
+}
 
 /**
  * Build the inbound-call TwiML for a `decideShared` decision. Each decision
@@ -381,14 +426,28 @@ export function buildVoiceTwiml(
   opts: VoiceTwimlOptions = {},
 ): string {
   const vr = new twilio.twiml.VoiceResponse();
+  // Slice 11 (#315): when recording is enabled, the answered call is recorded
+  // dual-channel and posts to the recording-completed webhook. Off → exactly
+  // the slice-8 `{ callerId }` dial.
+  const dialAttrs: VoiceDialAttributes = { callerId: opts.callerId };
+  if (opts.recordCall) {
+    Object.assign(
+      dialAttrs,
+      recordingDialAttributes(opts.callRecordingStatusCallback),
+    );
+  }
+  // The consent whisper plays to each answering cell only when recording.
+  const whisperUrl = opts.recordCall ? opts.consentWhisperUrl : undefined;
   if (decision.kind === "ring-all") {
-    const dial = vr.dial({ callerId: opts.callerId });
+    if (opts.recordCall) vr.say(RECORDING_CONSENT_NOTICE);
+    const dial = vr.dial(dialAttrs);
     for (const cell of decision.cells) {
-      dial.number(cell);
+      dialNumberWithConsent(dial, cell, whisperUrl);
     }
   } else if (decision.kind === "forward" || decision.kind === "round-robin") {
-    const dial = vr.dial({ callerId: opts.callerId });
-    dial.number(decision.cell);
+    if (opts.recordCall) vr.say(RECORDING_CONSENT_NOTICE);
+    const dial = vr.dial(dialAttrs);
+    dialNumberWithConsent(dial, decision.cell, whisperUrl);
   } else {
     vr.say(DEFAULT_VOICEMAIL_GREETING);
     const record: NonNullable<Parameters<typeof vr.record>[0]> = {
@@ -424,12 +483,50 @@ export interface BridgeTwimlInput {
   customerE164: string;
   // The Nookleus number presented to the customer as caller ID.
   callerId: string;
+  // Slice 11 (#315) — call recording + consent. When `recordCall` is set, the
+  // Crew Lead (the answered originating leg) hears the consent notice before
+  // the bridge, the conversation is recorded dual-channel and posted to
+  // `callRecordingStatusCallback` (the recording-completed webhook), and the
+  // customer hears the same notice via the <Number> whisper URL — so BOTH
+  // parties are notified. Omitted → the slice-10 bare bridge dial, unchanged.
+  recordCall?: boolean;
+  callRecordingStatusCallback?: string;
+  consentWhisperUrl?: string;
 }
 
 export function buildBridgeTwiml(input: BridgeTwimlInput): string {
   const vr = new twilio.twiml.VoiceResponse();
-  const dial = vr.dial({ callerId: input.callerId });
-  dial.number(input.customerE164);
+  const dialAttrs: VoiceDialAttributes = { callerId: input.callerId };
+  if (input.recordCall) {
+    // The Crew Lead hears the notice before the customer is dialed.
+    vr.say(RECORDING_CONSENT_NOTICE);
+    Object.assign(
+      dialAttrs,
+      recordingDialAttributes(input.callRecordingStatusCallback),
+    );
+  }
+  // The customer hears the same notice via the whisper on answer, before being
+  // bridged — so both parties are notified on a recorded call.
+  const dial = vr.dial(dialAttrs);
+  dialNumberWithConsent(
+    dial,
+    input.customerE164,
+    input.recordCall ? input.consentWhisperUrl : undefined,
+  );
+  return vr.toString();
+}
+
+/**
+ * Build the consent "whisper" TwiML — the static document the recording-whisper
+ * endpoint serves. Twilio executes it on the answering party's leg (via each
+ * recorded <Number url=...>) before bridging, so BOTH parties hear the consent
+ * notice on a recorded call (PRD stories 38/39; ADR 0006). The notice text is
+ * the single source of truth in recording-consent.ts, so the whisper can never
+ * drift from the notice spoken to the initiating party.
+ */
+export function buildConsentWhisperTwiml(): string {
+  const vr = new twilio.twiml.VoiceResponse();
+  vr.say(RECORDING_CONSENT_NOTICE);
   return vr.toString();
 }
 

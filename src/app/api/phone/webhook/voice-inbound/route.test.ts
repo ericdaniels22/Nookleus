@@ -23,6 +23,7 @@
 // run, so the TwiML and persistence are asserted end-to-end.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { RECORDING_CONSENT_NOTICE } from "@/lib/phone/recording-consent";
 
 const validateSignatureMock = vi.fn();
 vi.mock("@/lib/phone/twilio-client", async (importOriginal) => {
@@ -52,6 +53,9 @@ interface BuilderTables {
   phone_number_round_robin: Row[];
   phone_conversations: Row[];
   phone_calls: Row[];
+  // Slice 11 (#315) — the org's recording_enabled_default. Absent here for the
+  // slice-8 tests (the webhook reads it as "off"), seeded in the recording tests.
+  organizations?: Row[];
 }
 
 function makeServiceClient(tables: BuilderTables) {
@@ -337,6 +341,50 @@ describe("POST /api/phone/webhook/voice-inbound — Personal number", () => {
     expect(xml).toContain("<Record");
     expect(xml).not.toContain("<Dial");
     expect(inserts.find((i) => i.table === "phone_calls")).toBeDefined();
+  });
+});
+
+describe("POST /api/phone/webhook/voice-inbound — call recording + consent (#315)", () => {
+  it("speaks consent and records the dial when the org records calls by default", async () => {
+    vi.stubEnv(
+      "PHONE_RECORDING_CALLBACK_URL",
+      "https://app.test/api/phone/webhook/recording-completed",
+    );
+    vi.stubEnv(
+      "PHONE_RECORDING_WHISPER_URL",
+      "https://app.test/api/phone/webhook/recording-whisper",
+    );
+    const tables = ringAllTables();
+    tables.organizations = [{ id: "org-1", recording_enabled_default: true }];
+    const { client } = makeServiceClient(tables);
+    createServiceClientMock.mockReturnValue(client);
+
+    const res = await POST(voiceForm({}));
+    const xml = await res.text();
+
+    // The inbound caller hears the consent notice; the bridged call records.
+    expect(xml).toContain(RECORDING_CONSENT_NOTICE);
+    expect(xml).toContain('record="record-from-answer-dual"');
+    expect(xml).toContain(
+      'recordingStatusCallback="https://app.test/api/phone/webhook/recording-completed"',
+    );
+    // Each answering cell gets the whisper so it hears the notice too.
+    expect(xml).toContain(
+      'url="https://app.test/api/phone/webhook/recording-whisper"',
+    );
+  });
+
+  it("omits consent + recording when the org has recording disabled", async () => {
+    const tables = ringAllTables();
+    tables.organizations = [{ id: "org-1", recording_enabled_default: false }];
+    const { client } = makeServiceClient(tables);
+    createServiceClientMock.mockReturnValue(client);
+
+    const res = await POST(voiceForm({}));
+    const xml = await res.text();
+
+    expect(xml).not.toContain(RECORDING_CONSENT_NOTICE);
+    expect(xml).not.toContain("record=");
   });
 });
 

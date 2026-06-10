@@ -1117,6 +1117,7 @@ describe("PhonePageClient — call events (#312)", () => {
   function setupThread(opts: {
     messages?: Array<Record<string, unknown>>;
     calls?: Array<Record<string, unknown>>;
+    recordingUrl?: string;
   }) {
     mockFetch.mockImplementation(async (input: RequestInfo) => {
       const url = typeof input === "string" ? input : (input as Request).url;
@@ -1126,6 +1127,15 @@ describe("PhonePageClient — call events (#312)", () => {
       }
       if (path === "/api/phone/conversations/conv-1/calls") {
         return { ok: true, status: 200, json: async () => opts.calls ?? [] };
+      }
+      if (path.startsWith("/api/phone/recordings")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            url: opts.recordingUrl ?? "https://signed/rec.mp3",
+          }),
+        };
       }
       throw new Error(`unmocked fetch: ${path}`);
     });
@@ -1304,23 +1314,32 @@ describe("PhonePageClient — call events (#312)", () => {
     ).toBeDefined();
   });
 
-  it("opens a slice-11 recording placeholder when a call row is clicked", async () => {
+  // Slice 11 (#315) — a recorded call plays inline on the call event (the
+  // slice-8 "Recording playback will land in slice 11" placeholder is gone).
+  it("plays a call recording inline on the call event (no placeholder)", async () => {
     setupThread({
       messages: [],
+      recordingUrl: "https://signed/phone-recordings/org-1/rec-1.mp3",
       calls: [
         {
-          id: "c-click",
+          id: "c-rec",
           conversation_id: "conv-1",
           direction: "in",
           status: "completed",
           duration_seconds: 30,
           started_at: "2026-05-27T10:00:00Z",
           ended_at: "2026-05-27T10:00:30Z",
+          recording: {
+            id: "rec-1",
+            audio_storage_path: "org-1/rec-1.mp3",
+            consent_notice_played: true,
+            duration_seconds: 30,
+          },
         },
       ],
     });
 
-    render(
+    const { container } = render(
       <PhonePageClient
         organizationId="org-1"
         initialConversations={[
@@ -1329,15 +1348,23 @@ describe("PhonePageClient — call events (#312)", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /alice/i }));
-    const callRow = await screen.findByText(/incoming call/i);
+    await screen.findByText(/incoming call/i);
 
-    // Nothing about slice 11 until the row is clicked…
+    // The legacy placeholder is gone — recording playback has landed.
     expect(screen.queryByText(/slice 11/i)).toBeNull();
-    // …recording playback ships in slice 11, so for now the click reveals
-    // a placeholder pointing there (AC: "Click on a row opens a future
-    // placeholder").
-    fireEvent.click(callRow);
-    expect(await screen.findByText(/slice 11/i)).toBeDefined();
+    // The recording plays inline, signed from the same endpoint as voicemail.
+    await waitFor(() => {
+      const audio = container.querySelector('audio[aria-label="Call recording"]');
+      expect(audio?.getAttribute("src")).toBe(
+        "https://signed/phone-recordings/org-1/rec-1.mp3",
+      );
+    });
+    const signedCall = mockFetch.mock.calls.find(([input]) =>
+      String(input).includes("/api/phone/recordings"),
+    );
+    expect(String(signedCall![0])).toContain(
+      `path=${encodeURIComponent("org-1/rec-1.mp3")}`,
+    );
   });
 });
 

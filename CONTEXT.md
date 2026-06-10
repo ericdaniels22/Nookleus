@@ -115,6 +115,26 @@ business), whereas an untagged event on the same Personal number is
 owner-only — see [ADR 0005](docs/adr/0005-shared-and-personal-phone-numbers.md).
 _Avoid_: job link, attribution, assignment
 
+**Call recording**:
+The recorded audio of an _answered_ voice call (inbound or outbound bridge) —
+one `phone_recordings` row per call, with the audio copied into Nookleus's own
+storage so it outlives Twilio's retention and deletion is under the
+Organization's control. Distinct from a **Voicemail** (an unanswered call's
+left message, which has its own row and transcript). Recording is on by default
+per Organization (`recording_enabled_default`), with a per-call override on the
+outbound bridge; every recorded call plays the Recording consent notice at the
+start — see [ADR 0006](docs/adr/0006-twilio-as-telephony-backbone.md).
+_Avoid_: tape, capture, the call log
+
+**Recording consent notice**:
+The single, legally-required spoken line played to _both_ parties at the start
+of every recorded call: "This call may be recorded for quality and reference."
+Its one source of truth is `src/lib/phone/recording-consent.ts`, snapshot-pinned
+so the wording can never change silently; it covers all 50 states including
+two-party-consent jurisdictions. The initiating party hears it before the dial;
+the answering party hears the same line via a per-leg whisper.
+_Avoid_: disclaimer, warning, disclosure
+
 **Active job**:
 A job that is still alive — its status is neither `completed` nor `cancelled`,
 and it has not been trashed (`deleted_at IS NULL`). A cancelled job is dead,
@@ -301,6 +321,7 @@ _Avoid_: site integration, WP hookup, website sync
 - A **Phone number** belongs to one **Organization**; a **Personal phone number** is additionally owned by one **User**, a **Shared phone number** by none.
 - A **Conversation** is identified by the pair (one of the Organization's Phone numbers, one outside phone number) and groups its events on the Contact whose phone number matches the outside number.
 - A **Job tag** ties one text or call event to exactly zero or one **Job**. A single Conversation may contain events with several different Job tags (or none).
+- A **Call recording** belongs to exactly one answered voice call (one recording per call); deleting the call cascades the recording, and deleting the recording also hard-deletes it on Twilio. Whether a call records is governed per **Organization** by `recording_enabled_default`, overridable per call on the outbound bridge — see [ADR 0006](docs/adr/0006-twilio-as-telephony-backbone.md).
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).

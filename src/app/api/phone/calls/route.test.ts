@@ -264,6 +264,73 @@ describe("POST /api/phone/calls — bridge dispatch", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. Call recording + consent (#315) — the bridge records by org default,
+//     suppressible per call.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/calls — call recording + consent (#315)", () => {
+  it("records the bridge with consent when the org records calls by default", async () => {
+    vi.stubEnv(
+      "PHONE_RECORDING_CALLBACK_URL",
+      "https://example.com/api/phone/webhook/recording-completed",
+    );
+    vi.stubEnv(
+      "PHONE_RECORDING_WHISPER_URL",
+      "https://example.com/api/phone/webhook/recording-whisper",
+    );
+    authed("user-1", "crew_lead");
+    const { client } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+      user_profiles: [CREW_PROFILE],
+      organizations: [{ id: ORG, recording_enabled_default: true }],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({ outsideE164: "+15551234567", sourceContext: "phone-tab" }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(buildBridgeTwimlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerE164: "+15551234567",
+        callerId: "+15125550000",
+        recordCall: true,
+        callRecordingStatusCallback:
+          "https://example.com/api/phone/webhook/recording-completed",
+        consentWhisperUrl:
+          "https://example.com/api/phone/webhook/recording-whisper",
+      }),
+    );
+  });
+
+  it("suppresses recording for a single call when the payload overrides recordCall:false", async () => {
+    authed("user-1", "crew_lead");
+    const { client } = makeServiceClient({
+      phone_numbers: [SHARED_NUM_ROW],
+      user_profiles: [CREW_PROFILE],
+      organizations: [{ id: ORG, recording_enabled_default: true }],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        sourceContext: "phone-tab",
+        recordCall: false,
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(buildBridgeTwimlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ recordCall: false }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. Opt-out gate — refused BEFORE any Twilio call (TCPA).
 // ---------------------------------------------------------------------------
 

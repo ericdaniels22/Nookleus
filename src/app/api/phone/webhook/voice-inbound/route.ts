@@ -199,6 +199,21 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     }
   }
 
+  // Slice 11 (#315) — does this Organization record calls by default? The
+  // column is NOT NULL default true, so a real org always carries a value; a
+  // missing row falls back to "don't record" (fail-safe for consent). When on,
+  // buildVoiceTwiml speaks the consent notice on the answered (dial) branches,
+  // records the bridge dual-channel, and whispers consent to each answering
+  // cell. Recording is orthogonal to the voicemail branch (which the builder
+  // leaves unchanged). Per-number / per-call inbound overrides are out of scope
+  // for this slice (issue #315).
+  const { data: orgRow } = await supabase
+    .from("organizations")
+    .select("recording_enabled_default")
+    .eq("id", numberRow.organization_id)
+    .maybeSingle<{ recording_enabled_default: boolean }>();
+  const recordCall = orgRow?.recording_enabled_default ?? false;
+
   // Slice 9 (#313) — voicemail callback URLs. Passed on every call (the
   // builder ignores them in the dial branches); the <Record> verb in the
   // voicemail branch posts the finished recording to voicemail-completed and
@@ -208,6 +223,13 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     callerId: toE164,
     recordingStatusCallback: process.env.PHONE_VOICEMAIL_CALLBACK_URL || undefined,
     transcribeCallback: process.env.PHONE_TRANSCRIPTION_CALLBACK_URL || undefined,
+    // Slice 11 (#315) — answered-call recording + consent (no-op in the
+    // voicemail branch). callRecordingStatusCallback → recording-completed
+    // webhook; consentWhisperUrl → the per-leg consent whisper.
+    recordCall,
+    callRecordingStatusCallback:
+      process.env.PHONE_RECORDING_CALLBACK_URL || undefined,
+    consentWhisperUrl: process.env.PHONE_RECORDING_WHISPER_URL || undefined,
   });
 
   // 4. Persist the ringing call row, threaded on the conversation.
