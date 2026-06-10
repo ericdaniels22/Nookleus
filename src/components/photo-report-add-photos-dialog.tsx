@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 // Issue #552 — Photo Report builder: the "+ Add Photos" picker.
 //
@@ -108,7 +108,7 @@ export function AddPhotosDialog({
         <DialogHeader>
           <DialogTitle>Add photos</DialogTitle>
           <DialogDescription>
-            Select photos to add to "{targetTitle}". A photo used in another
+            Select photos to add to “{targetTitle}”. A photo used in another
             section moves here.
           </DialogDescription>
         </DialogHeader>
