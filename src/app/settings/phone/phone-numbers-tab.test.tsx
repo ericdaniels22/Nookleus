@@ -94,7 +94,10 @@ function stubFetch(opts: {
   rows?: PhoneNumberRow[];
   available?: Available[];
   members?: Member[];
-  postResult?: PhoneNumberRow;
+  // A revived re-claim returns 200 with `previously_owned_by`; a brand-new
+  // claim returns 201 with a plain row. `postStatus` lets a test pick which.
+  postResult?: PhoneNumberRow & { previously_owned_by?: string | null };
+  postStatus?: number;
   releaseResult?: PhoneNumberRow;
   patchResult?: PhoneNumberRow;
   greetingResult?: PhoneNumberRow;
@@ -121,7 +124,7 @@ function stubFetch(opts: {
     }
     if (url.startsWith("/api/phone/numbers")) {
       if (init?.method === "POST") {
-        return json(opts.postResult ?? row({ id: "row-new" }), 201);
+        return json(opts.postResult ?? row({ id: "row-new" }), opts.postStatus ?? 201);
       }
       if (init?.method === "PATCH") {
         return json(opts.patchResult ?? row(), 200);
@@ -655,6 +658,53 @@ describe("PhoneNumbersTab — Claim Personal Number (slice 13, #317)", () => {
     await screen.findByText("(512) 555-9999");
     // The owner column reads "You" for the caller's own line, not a raw id.
     expect(screen.getByText("You")).toBeDefined();
+  });
+
+  it("warns that a re-claimed number was previously owned by a departed member", async () => {
+    asNonAdmin(); // crew_lead user-1
+    // The picked number was released by a teammate during offboarding, so the
+    // claim revives that row — the route answers 200 with `previously_owned_by`
+    // naming the prior owner. The UI must surface that so the new owner knows
+    // the line was recycled (its prior calls/messages stay with that member).
+    stubFetch({
+      rows: [],
+      available: [
+        {
+          phoneNumber: "+15125559999",
+          friendlyName: "(512) 555-9999",
+          locality: "Austin",
+          region: "TX",
+        },
+      ],
+      postStatus: 200,
+      postResult: {
+        ...row({
+          id: "pers-revived",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+        previously_owned_by: "user-bob",
+      },
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    );
+    fireEvent.change(screen.getByLabelText(/area code/i), {
+      target: { value: "512" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+    fireEvent.click(await screen.findByText("(512) 555-9999"));
+    fireEvent.click(screen.getByRole("button", { name: /^claim$/i }));
+
+    // A notice that names the prior owner appears after the claim resolves.
+    expect(
+      await screen.findByText(/previously owned by user-bob/i),
+    ).toBeDefined();
   });
 });
 

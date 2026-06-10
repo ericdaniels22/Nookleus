@@ -183,6 +183,10 @@ export function PhoneNumbersTab() {
     null,
   );
   const [claiming, setClaiming] = useState(false);
+  // Re-claim revive notice (#317). When a claim revives a number a departed
+  // teammate had released, the route answers with `previously_owned_by`; we
+  // surface the prior owner here so the new owner knows the line was recycled.
+  const [reclaimNotice, setReclaimNotice] = useState<string | null>(null);
 
   // Release-confirm flow state — the row the admin clicked Release on.
   const [releasing, setReleasing] = useState<PhoneNumberRow | null>(null);
@@ -412,11 +416,16 @@ export function PhoneNumbersTab() {
         setError("Failed to claim number");
         return;
       }
+      // A revived re-claim carries the prior owner; a brand-new claim doesn't.
+      const result = (await res.json().catch(() => null)) as
+        | { previously_owned_by?: string | null }
+        | null;
       await load();
       setShowClaimDialog(false);
       setClaimAreaCode("");
       setClaimAvailable([]);
       setClaimPicked(null);
+      setReclaimNotice(result?.previously_owned_by ?? null);
     } finally {
       setClaiming(false);
     }
@@ -550,7 +559,10 @@ export function PhoneNumbersTab() {
           {!ownsActivePersonal && (
             <button
               type="button"
-              onClick={() => setShowClaimDialog(true)}
+              onClick={() => {
+                setReclaimNotice(null);
+                setShowClaimDialog(true);
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium hover:bg-[var(--brand-primary)]/5"
             >
               <Plus size={16} />
@@ -573,6 +585,24 @@ export function PhoneNumbersTab() {
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 text-destructive text-sm px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {reclaimNotice && (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-3 rounded-md border border-amber-400/40 bg-amber-50 text-amber-900 text-sm px-3 py-2 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          <span>
+            {`Heads up — this number was previously owned by ${reclaimNotice}. Its prior calls and messages stay with that member and won't appear on your line.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReclaimNotice(null)}
+            className="shrink-0 font-medium hover:underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
