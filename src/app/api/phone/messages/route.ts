@@ -386,6 +386,13 @@ export const POST = withRequestContext(
 
     // Dispatch via Twilio.
     const statusCallback = process.env.PHONE_STATUS_CALLBACK_URL || undefined;
+    // Slice 1 (#305) — A2P 10DLC. The day the Customer Care campaign clears
+    // carrier review, set TWILIO_MESSAGING_SERVICE_SID so every outbound send
+    // is associated with the approved campaign's Messaging Service (US
+    // carriers drop A2P traffic that isn't). Until then the var is unset and
+    // this is a bare per-number dispatch — unchanged behavior.
+    const messagingServiceSid =
+      process.env.TWILIO_MESSAGING_SERVICE_SID || undefined;
     let dispatch: { sid: string; status: string };
     try {
       dispatch = await sendSms(createTwilioClient(), {
@@ -394,6 +401,7 @@ export const POST = withRequestContext(
         body: messageBody,
         statusCallback,
         ...(mediaUrl ? { mediaUrl } : {}),
+        ...(messagingServiceSid ? { messagingServiceSid } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Twilio error";

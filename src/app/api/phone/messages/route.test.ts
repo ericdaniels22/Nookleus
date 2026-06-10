@@ -257,6 +257,57 @@ describe("POST /api/phone/messages — feature flag", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 0b. A2P 10DLC Messaging Service (#305).
+//
+// Once the Customer Care campaign clears carrier review, outbound SMS must be
+// sent through the campaign's Messaging Service or US carriers drop it. The
+// route reads the Service SID from TWILIO_MESSAGING_SERVICE_SID and threads it
+// into the Twilio dispatch. When the env var is unset (today, and in demo
+// mode) the send stays a bare per-number send — no behavior change.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/phone/messages — A2P Messaging Service (#305)", () => {
+  it("passes TWILIO_MESSAGING_SERVICE_SID into the Twilio send when set", async () => {
+    vi.stubEnv(
+      "TWILIO_MESSAGING_SERVICE_SID",
+      "MG0123456789abcdef0123456789abcdef",
+    );
+    authed("user-1", "crew_lead");
+    const { client } = makeServiceClient({ phone_numbers: [SHARED_NUM_ROW] });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({ outsideE164: "+15551234567", body: "your quote is ready" }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(sendSmsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        messagingServiceSid: "MG0123456789abcdef0123456789abcdef",
+      }),
+    );
+  });
+
+  it("omits messagingServiceSid from the Twilio send when the env var is unset (pre-A2P / demo mode)", async () => {
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "");
+    authed("user-1", "crew_lead");
+    const { client } = makeServiceClient({ phone_numbers: [SHARED_NUM_ROW] });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({ outsideE164: "+15551234567", body: "hi" }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const sendArgs = sendSmsMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(sendArgs).not.toHaveProperty("messagingServiceSid");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 1. Permission gate
 // ---------------------------------------------------------------------------
 

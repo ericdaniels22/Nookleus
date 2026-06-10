@@ -68,6 +68,9 @@ export interface TwilioClientLike {
       body: string;
       statusCallback?: string;
       mediaUrl?: string[];
+      // Slice 1 (#305) — A2P 10DLC. Associates the message with the
+      // registered campaign's Messaging Service so US carriers deliver it.
+      messagingServiceSid?: string;
     }): Promise<{ sid: string; status: string }>;
   };
   // Slice 10 (#314) — outbound bridge calling. We use the inline-`twiml`
@@ -200,6 +203,12 @@ export interface SendSmsParams {
   // URL Twilio downloads from; pass an empty/undefined array for plain SMS.
   // An MMS may carry an empty body provided at least one mediaUrl is set.
   mediaUrl?: string[];
+  // Slice 1 (#305) — A2P 10DLC. The SID of the Messaging Service bound to the
+  // approved Customer Care campaign. When set, the message is sent through the
+  // Service (alongside `from`, which must be in the Service's sender pool) so
+  // US carriers associate it with the campaign and deliver it. Omitted until
+  // the campaign clears carrier review — see TWILIO_MESSAGING_SERVICE_SID.
+  messagingServiceSid?: string;
 }
 
 export interface SendSmsResult {
@@ -242,6 +251,7 @@ export async function sendSms(
     body: string;
     statusCallback?: string;
     mediaUrl?: string[];
+    messagingServiceSid?: string;
   } = {
     from: params.from,
     to: params.to,
@@ -249,6 +259,10 @@ export async function sendSms(
   };
   if (params.statusCallback) payload.statusCallback = params.statusCallback;
   if (hasMedia) payload.mediaUrl = params.mediaUrl;
+  // Slice 1 (#305) — A2P campaign association, when configured.
+  if (params.messagingServiceSid) {
+    payload.messagingServiceSid = params.messagingServiceSid;
+  }
   const created = await client.messages.create(payload);
   return { sid: created.sid, status: created.status };
 }
