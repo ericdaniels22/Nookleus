@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nookleus iOS icon candidates</title>
+<style>
+  body {
+    margin: 0;
+    font-family: -apple-system, "SF Pro Text", sans-serif;
+    background: linear-gradient(160deg, #0e1b2e 0%, #1d3a52 45%, #3a6073 100%);
+    min-height: 100vh;
+    color: #fff;
+    padding: 48px 24px;
+  }
+  h1 { text-align: center; font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  p.sub { text-align: center; color: rgba(255,255,255,.65); margin: 0 0 40px; font-size: 14px; }
+  .row { display: flex; justify-content: center; gap: 56px; flex-wrap: wrap; }
+  .candidate { text-align: center; }
+  .candidate .name {
+    margin-top: 14px; font-size: 13px; font-weight: 600;
+    color: rgba(255,255,255,.9); letter-spacing: .02em;
+  }
+  /* iOS applies ~22.37% corner radius */
+  .icon-lg { width: 180px; height: 180px; border-radius: 40.5px;
+             box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .small-row { display: flex; gap: 18px; justify-content: center; margin-top: 18px; }
+  .home-icon { width: 60px; }
+  .home-icon img { width: 60px; height: 60px; border-radius: 13.4px;
+                   box-shadow: 0 4px 10px rgba(0,0,0,.4); }
+  .home-icon .label { font-size: 11px; margin-top: 4px; color: #fff;
+                      text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+  <h1>Nookleus — iOS app icon candidates</h1>
+  <p class="sub">Large = App Store size &nbsp;•&nbsp; small = home screen size, with iOS corner masking</p>
+  <div class="row">
+    <div class="candidate">
+      <img class="icon-lg" src="light.png">
+      <div class="small-row"><div class="home-icon"><img src="light.png"><div class="label">Nookleus</div></div></div>
+      <div class="name">1 · light</div>
+    </div>
+    <div class="candidate">
+      <img class="icon-lg" src="forest.png">
+      <div class="small-row"><div class="home-icon"><img src="forest.png"><div class="label">Nookleus</div></div></div>
+      <div class="name">2 · forest</div>
+    </div>
+    <div class="candidate">
+      <img class="icon-lg" src="lime.png">
+      <div class="small-row"><div class="home-icon"><img src="lime.png"><div class="label">Nookleus</div></div></div>
+      <div class="name">3 · lime</div>
+    </div>
+    <div class="candidate">
+      <img class="icon-lg" src="midnight.png">
+      <div class="small-row"><div class="home-icon"><img src="midnight.png"><div class="label">Nookleus</div></div></div>
+      <div class="name">4 · midnight</div>
+    </div>
+  </div>
+</body>
+</html>
