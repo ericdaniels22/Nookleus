@@ -5,7 +5,8 @@ import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import PhotoReportBuilder from "@/components/photo-report-builder";
-import type { Photo, PhotoReport } from "@/lib/types";
+import type { PhotoReport, PhotoTag } from "@/lib/types";
+import type { PickerPhoto } from "@/components/photo-report-add-photos-dialog";
 
 // The Job-scoped Photo Report builder route (#400). A builder route in the
 // AppShell `BUILDER_ROUTE_PATTERNS` sense (#548): the app nav renders as the
@@ -56,14 +57,24 @@ export default async function PhotoReportBuilderPage({
 
   // Load every photo on the Job (not just the ones already in the report) so
   // the builder can add photos beyond the original selection (#401). Mirrors
-  // the Job Photos tab's ordering.
+  // the Job Photos tab's ordering and join shape: the picker's Tags filter
+  // matches client-side on the joined assignment ids.
   const { data: photoData } = await supabase
     .from("photos")
-    .select("*")
+    .select("*, photo_tag_assignments(tag_id)")
     .eq("job_id", jobId)
     .order("created_at", { ascending: false })
-    .returns<Photo[]>();
-  const photos: Photo[] = photoData ?? [];
+    .returns<PickerPhoto[]>();
+  const photos: PickerPhoto[] = photoData ?? [];
+
+  // The Organization's tag vocabulary for the picker's Tags filter (RLS
+  // scopes to the active org). Name-ordered like the Photos tab's dropdown.
+  const { data: tagData } = await supabase
+    .from("photo_tags")
+    .select("*")
+    .order("name")
+    .returns<PhotoTag[]>();
+  const tags: PhotoTag[] = tagData ?? [];
 
   // The Job's own cover photo seeds the report's Cover Page when the report has
   // not chosen its own (ADR 0014, #551). Read it here so the builder can resolve
@@ -82,6 +93,7 @@ export default async function PhotoReportBuilderPage({
       report={report}
       photos={photos}
       supabaseUrl={supabaseUrl}
+      tags={tags}
       jobCoverPhotoId={job?.cover_photo_id ?? null}
     />
   );
