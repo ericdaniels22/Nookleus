@@ -85,6 +85,18 @@ export function createFakeTwilioClient(): TwilioClientLike {
           phoneNumber: opts.phoneNumber,
         };
       },
+      // Slice 14 (#318) — adopt an already-ported number. The demo provider has
+      // no real carrier account to query, so it pretends the requested number
+      // is already ported and returns a synthetic existing SID for it. This
+      // lets the adopt path run end-to-end in demo mode without a purchase.
+      async list(opts: { phoneNumber: string }) {
+        return [
+          {
+            sid: `PN${fakeSidTail()}`,
+            phoneNumber: opts.phoneNumber,
+          },
+        ];
+      },
     },
   );
 

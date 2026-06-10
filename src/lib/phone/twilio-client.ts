@@ -55,6 +55,13 @@ export interface TwilioClientLike {
       sid: string;
       phoneNumber: string;
     }>;
+    // Slice 14 (#318) — adopt an already-ported number. `list({ phoneNumber })`
+    // finds a number ALREADY on the Twilio account (a completed port) and
+    // returns its existing SID, so adoption reuses the line instead of buying
+    // a new one via `.create`.
+    list(opts: { phoneNumber: string }): Promise<
+      Array<{ sid: string; phoneNumber: string }>
+    >;
   };
   // Slice 10 (#313) — voicemail deletion. The SDK's `recordings` is the same
   // callable-single-resource shape: `client.recordings(sid).remove()` issues
@@ -140,6 +147,38 @@ export async function provisionNumber(
   }
   const created = await client.incomingPhoneNumbers.create({ phoneNumber });
   return { sid: created.sid, phoneNumber: created.phoneNumber };
+}
+
+/**
+ * Adopt a number that has ALREADY been ported onto the Twilio account —
+ * e.g. a CallRail / legacy line whose carrier port has completed. Unlike
+ * `provisionNumber`, this never calls `.create`, so it incurs no purchase
+ * and no monthly charge: the line already exists on the account; we only
+ * need its Twilio SID to store in `phone_numbers.twilio_sid`.
+ *
+ * Looks the number up by exact E.164 via `incomingPhoneNumbers.list`. Throws
+ * if no match is found — the expected signal that the port has not landed on
+ * the account yet (so the caller can surface "port not complete" rather than
+ * silently provisioning a fresh, wrong number).
+ */
+export async function adoptPortedNumber(
+  client: TwilioClientLike,
+  phoneNumber: string,
+): Promise<ProvisionedNumber> {
+  if (!E164_RE.test(phoneNumber)) {
+    throw new Error(
+      `twilio-client: invalid phoneNumber "${phoneNumber}" (must be E.164, e.g. +15125551234)`,
+    );
+  }
+  const matches = await client.incomingPhoneNumbers.list({ phoneNumber });
+  const existing = matches[0];
+  if (!existing) {
+    throw new Error(
+      `twilio-client: no number "${phoneNumber}" on the Twilio account ` +
+        "(port not complete — the line must already be ported before it can be adopted)",
+    );
+  }
+  return { sid: existing.sid, phoneNumber: existing.phoneNumber };
 }
 
 /**
