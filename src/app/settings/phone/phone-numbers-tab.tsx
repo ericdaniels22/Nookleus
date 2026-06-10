@@ -5,17 +5,19 @@ import { Phone as PhoneIcon, Plus, Trash2, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { formatPhoneNumber } from "@/lib/phone";
 
-// PRD #304 — Nookleus Phone. Slice 3 (#307) — Settings → Phone tab.
+// PRD #304 — Nookleus Phone. Slice 3 (#307) + slice 13 (#317) —
+// Settings → Phone tab.
 //
-// Lists every phone_numbers row in the active org and lets an admin
-// provision a new Shared number from Twilio or release an existing one.
-// Non-admins see the read-only list (the AC allows this — they get the
-// surface; the management affordances are hidden).
+// Lists every phone_numbers row the caller can see (RLS-filtered) and
+// carries two role-scoped actions, per ADR 0005's access matrix:
+//   - Admins provision/release Shared numbers and configure inbound rules.
+//   - Any member holding view_phone claims a single Personal number for
+//     themselves (self-service), shown in the same list under the Owner
+//     column as "You". Untagged Personal lines are owner-only — RLS keeps
+//     them out of an admin's list, so the admin affordances never touch them.
 //
-// Slice 3 lands the Shared path only. Personal numbers (slice 13) will
-// show up in the same list under an "Owner: X" column; the table is
-// already prepared for that — `kind` and `user_id` are surfaced on each
-// row so slice 13 is a UI-extension delivery rather than a rewrite.
+// Non-admins see the read-only Shared list plus their own Personal line; the
+// admin-only management affordances stay hidden.
 
 interface PhoneNumberRow {
   id: string;
@@ -133,6 +135,7 @@ function summarizeInboundRule(rule: unknown): string {
 export function PhoneNumbersTab() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const viewerId = profile?.id ?? null;
 
   const [rows, setRows] = useState<PhoneNumberRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,6 +151,22 @@ export function PhoneNumbersTab() {
   );
   const [label, setLabel] = useState("");
   const [provisioning, setProvisioning] = useState(false);
+
+  // Claim-Personal-Number flow state (slice 13, #317). A member's own
+  // self-service claim: search by area code, pick, claim. The number is
+  // always owned by the caller — the route derives the owner from the
+  // session, so the dialog never collects an owner. Its own search/pick state
+  // keeps it independent of the admin Add-Shared dialog above.
+  const [showClaimDialog, setShowClaimDialog] = useState(false);
+  const [claimAreaCode, setClaimAreaCode] = useState("");
+  const [claimSearching, setClaimSearching] = useState(false);
+  const [claimAvailable, setClaimAvailable] = useState<AvailableLocalNumber[]>(
+    [],
+  );
+  const [claimPicked, setClaimPicked] = useState<AvailableLocalNumber | null>(
+    null,
+  );
+  const [claiming, setClaiming] = useState(false);
 
   // Release-confirm flow state — the row the admin clicked Release on.
   const [releasing, setReleasing] = useState<PhoneNumberRow | null>(null);
@@ -272,6 +291,17 @@ export function PhoneNumbersTab() {
     [rows],
   );
 
+  // ADR 0005: a member gets at most one active Personal line, claimed
+  // self-service. The "Claim Personal Number" affordance shows only when the
+  // viewer owns none — the one-per-member cap is enforced here at the surface
+  // (the route would accept a second, but the UI never offers it).
+  const ownsActivePersonal = useMemo(
+    () =>
+      viewerId !== null &&
+      liveRows.some((r) => r.kind === "personal" && r.user_id === viewerId),
+    [liveRows, viewerId],
+  );
+
   async function handleSearch() {
     setSearching(true);
     setAvailable([]);
@@ -318,6 +348,52 @@ export function PhoneNumbersTab() {
     }
   }
 
+  async function handleClaimSearch() {
+    setClaimSearching(true);
+    setClaimAvailable([]);
+    try {
+      const res = await fetch(
+        `/api/phone/numbers/available?areaCode=${encodeURIComponent(claimAreaCode)}`,
+      );
+      if (!res.ok) {
+        setError("Failed to search for numbers");
+        return;
+      }
+      setClaimAvailable((await res.json()) as AvailableLocalNumber[]);
+    } finally {
+      setClaimSearching(false);
+    }
+  }
+
+  // Claim the picked number as the caller's own Personal line. The body
+  // carries only the number + kind='personal'; the route owns it to the
+  // authenticated caller, so the client never sends (or could spoof) an owner.
+  async function handleClaim() {
+    if (!claimPicked) return;
+    setClaiming(true);
+    try {
+      const res = await fetch("/api/phone/numbers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber: claimPicked.phoneNumber,
+          kind: "personal",
+        }),
+      });
+      if (!res.ok) {
+        setError("Failed to claim number");
+        return;
+      }
+      await load();
+      setShowClaimDialog(false);
+      setClaimAreaCode("");
+      setClaimAvailable([]);
+      setClaimPicked(null);
+    } finally {
+      setClaiming(false);
+    }
+  }
+
   async function handleReleaseConfirm() {
     if (!releasing) return;
     setReleaseInFlight(true);
@@ -345,16 +421,28 @@ export function PhoneNumbersTab() {
             Phone numbers
           </h2>
         </div>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowAddDialog(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--brand-primary)] text-white text-sm font-medium hover:opacity-90"
-          >
-            <Plus size={16} />
-            Add Shared Number
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!ownsActivePersonal && (
+            <button
+              type="button"
+              onClick={() => setShowClaimDialog(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium hover:bg-[var(--brand-primary)]/5"
+            >
+              <Plus size={16} />
+              Claim Personal Number
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowAddDialog(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--brand-primary)] text-white text-sm font-medium hover:opacity-90"
+            >
+              <Plus size={16} />
+              Add Shared Number
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -408,7 +496,11 @@ export function PhoneNumbersTab() {
                     {r.label ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {r.kind === "shared" ? "—" : r.user_id ?? "—"}
+                    {r.kind === "shared"
+                      ? "—"
+                      : r.user_id === viewerId
+                        ? "You"
+                        : r.user_id ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">
                     <div className="flex items-center gap-2">
@@ -545,6 +637,93 @@ export function PhoneNumbersTab() {
                 className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
                 {provisioning ? "Provisioning…" : "Provision"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Claim a Personal Number dialog — area code → pick → claim. The
+          number is owned by the caller (route-enforced); no owner field. */}
+      {showClaimDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-card rounded-xl border border-border w-full max-w-md p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Claim a Personal Number
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              A personal number is your own line — only you can see its calls
+              and messages. Pick a number to claim it for yourself.
+            </p>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="claim-area-code"
+                className="text-sm font-medium text-foreground"
+              >
+                Area code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="claim-area-code"
+                  value={claimAreaCode}
+                  onChange={(e) => setClaimAreaCode(e.target.value)}
+                  placeholder="512"
+                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleClaimSearch}
+                  disabled={claimSearching || !claimAreaCode}
+                  className="rounded-md bg-secondary text-secondary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                >
+                  {claimSearching ? "Searching…" : "Search"}
+                </button>
+              </div>
+            </div>
+
+            {claimAvailable.length > 0 && (
+              <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-auto">
+                {claimAvailable.map((n) => (
+                  <button
+                    key={n.phoneNumber}
+                    type="button"
+                    onClick={() => setClaimPicked(n)}
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent ${
+                      claimPicked?.phoneNumber === n.phoneNumber
+                        ? "bg-accent"
+                        : ""
+                    }`}
+                  >
+                    <div className="font-mono">{n.friendlyName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {n.locality ?? "—"}, {n.region ?? "—"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowClaimDialog(false);
+                  setClaimAreaCode("");
+                  setClaimAvailable([]);
+                  setClaimPicked(null);
+                }}
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClaim}
+                disabled={!claimPicked || claiming}
+                className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              >
+                {claiming ? "Claiming…" : "Claim"}
               </button>
             </div>
           </div>

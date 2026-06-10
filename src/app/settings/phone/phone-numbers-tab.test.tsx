@@ -525,6 +525,121 @@ describe("PhoneNumbersTab — inbound-rule editor", () => {
   });
 });
 
+describe("PhoneNumbersTab — Claim Personal Number (slice 13, #317)", () => {
+  // ADR 0005: a Personal number is the member's own line — owner-only, hidden
+  // from admins. Slice 13 gives any member holding view_phone a self-service
+  // claim, scoped to themselves. The affordance is offered only when the
+  // member does not already own an active Personal number ("claim when none").
+
+  it("offers a Claim Personal Number button to a member who owns none", async () => {
+    asNonAdmin(); // crew_lead user-1
+    // Only a Shared number exists; user-1 owns no Personal line.
+    stubFetch({ rows: [row()] });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    ).toBeDefined();
+  });
+
+  it("searches, picks, and claims a Personal number for the caller (POST kind=personal)", async () => {
+    asNonAdmin(); // crew_lead user-1
+    const fetchSpy = stubFetch({
+      rows: [],
+      available: [
+        {
+          phoneNumber: "+15125559999",
+          friendlyName: "(512) 555-9999",
+          locality: "Austin",
+          region: "TX",
+        },
+      ],
+      postResult: row({
+        id: "pers-new",
+        kind: "personal",
+        user_id: "user-1",
+        e164: "+15125559999",
+        label: null,
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    );
+
+    const areaCode = screen.getByLabelText(/area code/i);
+    fireEvent.change(areaCode, { target: { value: "512" } });
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    fireEvent.click(await screen.findByText("(512) 555-9999"));
+    fireEvent.click(screen.getByRole("button", { name: /^claim$/i }));
+
+    await waitFor(() => {
+      const postCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers" &&
+          (c[1] as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeDefined();
+      // The claim never sends an owner — the route derives it from the
+      // session. It carries only the picked number and kind='personal'.
+      const body = JSON.parse(String((postCall![1] as RequestInit).body));
+      expect(body).toEqual({
+        phoneNumber: "+15125559999",
+        kind: "personal",
+      });
+    });
+  });
+
+  it("hides the Claim button once the member already owns an active Personal number", async () => {
+    asNonAdmin(); // user-1
+    stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("(512) 555-9999");
+    // One active Personal line per member: the affordance is gone.
+    expect(
+      screen.queryByRole("button", { name: /claim personal number/i }),
+    ).toBeNull();
+  });
+
+  it("labels the viewer's own Personal number owner as You", async () => {
+    asNonAdmin(); // user-1
+    stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("(512) 555-9999");
+    // The owner column reads "You" for the caller's own line, not a raw id.
+    expect(screen.getByText("You")).toBeDefined();
+  });
+});
+
 describe("PhoneNumbersTab — Release flow", () => {
   it("admin clicks Release, confirms, the row is hit on /release", async () => {
     asAdmin();
