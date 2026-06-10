@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  adoptPortedNumber,
   buildBridgeTwiml,
   buildConsentWhisperTwiml,
   buildVoiceTwiml,
@@ -35,6 +36,10 @@ function fakeClient(opts: {
   callCreateResult?: { sid: string; status: string };
   callCreateImpl?: (params: unknown) => Promise<unknown>;
   recordingRemoveImpl?: () => Promise<void>;
+  // Slice 14 (#318) — incomingPhoneNumbers.list, used by adoptPortedNumber to
+  // look up an already-ported number's existing SID (instead of buying one).
+  incomingListResult?: Array<{ sid: string; phoneNumber: string }>;
+  incomingListSpy?: ReturnType<typeof vi.fn>;
   listSpy?: ReturnType<typeof vi.fn>;
   createSpy?: ReturnType<typeof vi.fn>;
   removeSpy?: ReturnType<typeof vi.fn>;
@@ -46,6 +51,8 @@ function fakeClient(opts: {
   const create =
     opts.createSpy ??
     vi.fn(async () => opts.createResult ?? { sid: "PNxxx", phoneNumber: "+15555550100" });
+  const incomingList =
+    opts.incomingListSpy ?? vi.fn(async () => opts.incomingListResult ?? []);
   const remove = opts.removeSpy ?? vi.fn(opts.removeImpl ?? (async () => undefined));
   const recordingRemove =
     opts.recordingRemoveSpy ??
@@ -67,7 +74,7 @@ function fakeClient(opts: {
   // can stay byte-identical between fake and real client.
   const incomingPhoneNumbers = Object.assign(
     (_sid: string) => ({ remove }),
-    { create },
+    { create, list: incomingList },
   );
   return {
     availablePhoneNumbers: (_country: string) => ({ local: { list } }),
@@ -168,6 +175,49 @@ describe("provisionNumber", () => {
       /E\.164/i,
     );
     await expect(provisionNumber(client, "")).rejects.toThrow(/E\.164/i);
+  });
+});
+
+// Slice 14 (#318) — adopt a number already ported onto the Twilio account.
+// Unlike `provisionNumber` (which BUYS a new line via `.create`), a ported
+// number already lives on the account; we only need to look up its existing
+// SID with `incomingPhoneNumbers.list({phoneNumber})`. No purchase, no charge.
+describe("adoptPortedNumber", () => {
+  it("looks up an already-ported number by E.164 and returns its existing sid (no purchase)", async () => {
+    const incomingListSpy = vi.fn(async () => [
+      { sid: "PNported", phoneNumber: "+15125559999" },
+    ]);
+    const createSpy = vi.fn();
+    const client = fakeClient({ incomingListSpy, createSpy });
+
+    const result = await adoptPortedNumber(client, "+15125559999");
+
+    expect(result).toEqual({ sid: "PNported", phoneNumber: "+15125559999" });
+    expect(incomingListSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ phoneNumber: "+15125559999" }),
+    );
+    // Adoption must never buy a number — `.create` would incur a charge.
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-E.164 phone numbers (defense before hitting Twilio)", async () => {
+    const incomingListSpy = vi.fn(async () => []);
+    const client = fakeClient({ incomingListSpy });
+
+    await expect(adoptPortedNumber(client, "5125551234")).rejects.toThrow(
+      /E\.164/i,
+    );
+    await expect(adoptPortedNumber(client, "")).rejects.toThrow(/E\.164/i);
+    // The guard runs before the lookup — no wasted Twilio round-trip.
+    expect(incomingListSpy).not.toHaveBeenCalled();
+  });
+
+  it("throws when the number is not on the account yet (port not complete)", async () => {
+    const client = fakeClient({ incomingListResult: [] });
+
+    await expect(
+      adoptPortedNumber(client, "+15125559999"),
+    ).rejects.toThrow(/port not complete/i);
   });
 });
 
