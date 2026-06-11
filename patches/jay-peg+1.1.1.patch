@@ -1,0 +1,32 @@
+diff --git a/node_modules/jay-peg/dist/index.cjs b/node_modules/jay-peg/dist/index.cjs
+index 00897c0..ffabb15 100644
+--- a/node_modules/jay-peg/dist/index.cjs
++++ b/node_modules/jay-peg/dist/index.cjs
+@@ -403,7 +403,11 @@ const $04bcf19210df7b64$var$JFIFMarker = {
+     xDensity: $gXNCa$restructure.uint16be,
+     yDensity: $gXNCa$restructure.uint16be,
+     thumbnailWidth: $gXNCa$restructure.uint8,
+-    thumbnailHeight: $gXNCa$restructure.uint8
++    thumbnailHeight: $gXNCa$restructure.uint8,
++    // Consume the remainder of the declared segment - thumbnail data and
++    // vendor tails (Apple HDR JPEGs append "AMPF" to APP0) - otherwise the
++    // marker stream desyncs and the next read throws "Unknown version".
++    rest: new $gXNCa$restructure.Buffer((parent)=>Math.max(0, parent.length - 16))
+ };
+ var $04bcf19210df7b64$export$2e2bcd8739ae039 = $04bcf19210df7b64$var$JFIFMarker;
+ 
+diff --git a/node_modules/jay-peg/src/markers/jfif.js b/node_modules/jay-peg/src/markers/jfif.js
+index 367de81..4cf2c08 100644
+--- a/node_modules/jay-peg/src/markers/jfif.js
++++ b/node_modules/jay-peg/src/markers/jfif.js
+@@ -10,6 +10,10 @@ const JFIFMarker = {
+   yDensity: r.uint16be,
+   thumbnailWidth: r.uint8,
+   thumbnailHeight: r.uint8,
++  // Consume the remainder of the declared segment — thumbnail data and
++  // vendor tails (Apple HDR JPEGs append "AMPF" to APP0) — otherwise the
++  // marker stream desyncs and the next read throws "Unknown version".
++  rest: new r.Buffer((parent) => Math.max(0, parent.length - 16)),
+ };
+ 
+ export default JFIFMarker;
