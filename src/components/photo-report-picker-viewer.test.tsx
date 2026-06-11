@@ -82,6 +82,17 @@ describe("PickerPhotoViewer — rendering & navigation", () => {
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     expect(props.onIndexChange).toHaveBeenLastCalledWith(0);
   });
+
+  it("pages with arrow keys pressed inside the popup (Base UI stops their bubbling)", () => {
+    // fire keydown on the viewer's select button (focus lives inside the
+    // popup in a real browser; Base UI's DialogPopup stops arrow-key
+    // propagation in the bubble phase, so only a capture listener hears it)
+    const props = renderViewer({ index: 1 });
+    fireEvent.keyDown(screen.getByTestId("viewer-select"), { key: "ArrowRight" });
+    expect(props.onIndexChange).toHaveBeenLastCalledWith(2);
+    fireEvent.keyDown(screen.getByTestId("viewer-select"), { key: "ArrowLeft" });
+    expect(props.onIndexChange).toHaveBeenLastCalledWith(0);
+  });
 });
 
 describe("PickerPhotoViewer — selection & close", () => {

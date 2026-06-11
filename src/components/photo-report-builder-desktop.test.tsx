@@ -924,6 +924,15 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     const img = within(viewer).getByRole("img") as HTMLImageElement;
     expect(img.src).toContain("job-1/p3.jpg");
   });
+
+  it("focuses the grid on open, not the Tags button (whose focus opens the dropdown)", async () => {
+    renderBuilder(pickerReport(), jobPhotos(), orgTags);
+    await act(async () => {
+      openPickerFor(0);
+      await vi.runAllTimersAsync();
+    });
+    expect(document.activeElement).toBe(screen.getByTestId("picker-grid"));
+  });
 });
 
 describe("PhotoReportBuilder — within-Section photo reorder (#552)", () => {

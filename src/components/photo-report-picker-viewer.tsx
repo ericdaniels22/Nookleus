@@ -14,7 +14,7 @@
 // transform, stays interactive, and takes over the focus trap while open.
 // As the topmost dialog in the stack it also receives Escape first.
 
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from "lucide-react";
 
@@ -54,6 +54,12 @@ export interface PickerPhotoViewerProps {
   elsewhereTitle?: string;
   onToggleSelect: (photoId: string) => void;
   onClose: () => void;
+  /**
+   * Where focus lands when the viewer closes. Without it Base UI falls back
+   * to the parent dialog's first tabbable element — the Tags filter button,
+   * whose focus pops the CSS focus-within dropdown open over the grid.
+   */
+  finalFocus?: RefObject<HTMLElement | null>;
 }
 
 export function PickerPhotoViewer({
@@ -66,6 +72,7 @@ export function PickerPhotoViewer({
   elsewhereTitle,
   onToggleSelect,
   onClose,
+  finalFocus,
 }: PickerPhotoViewerProps) {
   const photo = photos[index];
 
@@ -87,6 +94,11 @@ export function PickerPhotoViewer({
 
   // Arrow keys page through the same list the grid shows. Escape is the
   // nested dialog's own dismissal (topmost in the Base UI stack).
+  //
+  // Capture phase, not bubble: Base UI's DialogPopup stops composite-key
+  // (arrow/Home/End) propagation in the bubble phase, and focus always sits
+  // inside the popup while the viewer is open — a bubble-phase window
+  // listener would never hear a real keystroke.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight") {
@@ -95,8 +107,8 @@ export function PickerPhotoViewer({
         onIndexChange(prevPhotoIndex(index));
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [index, photos.length, onIndexChange]);
 
   function viewportCtx(): ViewportContext | null {
@@ -172,6 +184,7 @@ export function PickerPhotoViewer({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Popup
           aria-label="Photo viewer"
+          finalFocus={finalFocus}
           className="fixed inset-0 z-[90] flex flex-col bg-black outline-none"
         >
           <div className="flex items-center justify-end gap-3 p-3">

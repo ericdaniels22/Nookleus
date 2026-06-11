@@ -19,7 +19,7 @@
 // toggles selection, and the photo body, which opens the fullscreen
 // PickerPhotoViewer (a NESTED Base UI dialog — see that file's header).
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { format } from "date-fns";
 import { Plus } from "lucide-react";
 
@@ -109,6 +109,12 @@ export function AddPhotosDialog({
   // Index into the visible flat list of the photo open fullscreen; null = grid.
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
+  // Initial/return focus target. Base UI's default — the first tabbable
+  // element — is the Tags filter button, whose focus alone pops the CSS
+  // focus-within dropdown open over the grid (and steals the first click),
+  // both on dialog open and again when the fullscreen viewer closes.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+
   const target = sections[sectionIndex];
   const targetTitle = target?.title || "Untitled section";
   const inTarget = new Set(target?.photo_ids ?? []);
@@ -178,7 +184,7 @@ export function AddPhotosDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="sm:max-w-4xl" initialFocus={gridRef}>
         <DialogHeader>
           <DialogTitle>Add photos</DialogTitle>
           <DialogDescription>
@@ -235,15 +241,20 @@ export function AddPhotosDialog({
           </div>
         )}
 
-        {visiblePhotos.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            {photos.length === 0
-              ? "No photos on this job yet."
-              : "No photos match the selected tags."}
-          </p>
-        ) : (
-          <div className="max-h-[55vh] space-y-4 overflow-y-auto">
-            {groupByDay(visiblePhotos).map((group) => {
+        <div
+          ref={gridRef}
+          tabIndex={-1}
+          data-testid="picker-grid"
+          className="max-h-[55vh] space-y-4 overflow-y-auto outline-none"
+        >
+          {visiblePhotos.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {photos.length === 0
+                ? "No photos on this job yet."
+                : "No photos match the selected tags."}
+            </p>
+          ) : (
+            groupByDay(visiblePhotos).map((group) => {
               const selectable = group.photos.filter(
                 (p) => !inTarget.has(p.id),
               );
@@ -335,9 +346,9 @@ export function AddPhotosDialog({
                   </div>
                 </section>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -374,6 +385,7 @@ export function AddPhotosDialog({
             elsewhereTitle={usedElsewhere.get(viewerPhoto.id)}
             onToggleSelect={toggle}
             onClose={() => setViewerIndex(null)}
+            finalFocus={gridRef}
           />
         )}
       </DialogContent>
