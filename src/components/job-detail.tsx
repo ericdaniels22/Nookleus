@@ -199,6 +199,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .from("photos")
         .select("*")
         .eq("job_id", jobId)
+        .order("taken_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(12),
       supabase

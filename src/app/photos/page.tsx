@@ -39,6 +39,7 @@ export default function PhotosPage() {
       supabase
         .from("photos")
         .select("*, job:jobs!job_id(id, job_number, property_address)")
+        .order("taken_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false }),
       supabase.from("photo_tags").select("*").order("name"),
       supabase

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { readTakenAt } from "@/lib/mobile/exif-read";
 import { PhotoTag } from "@/lib/types";
 import {
   Dialog,
@@ -146,6 +147,18 @@ export default function PhotoUploadModal({
         ? "video"
         : "photo";
 
+      // Camera-roll uploads carry the capture date in EXIF (#622); without
+      // one, lastModified is the best estimate the browser gives us. Videos
+      // skip EXIF — exifr can't read their containers, and buffering a whole
+      // video to find out is a memory hazard.
+      const exifDate =
+        mediaType === "photo" ? await readTakenAt(filePreview.file) : null;
+      const takenAt =
+        exifDate ??
+        (filePreview.file.lastModified > 0
+          ? new Date(filePreview.file.lastModified)
+          : new Date());
+
       const { data: photoData, error: insertError } = await supabase
         .from("photos")
         .insert({
@@ -154,6 +167,7 @@ export default function PhotoUploadModal({
           storage_path: fileName,
           uploaded_from: "web",
           caption: filePreview.caption || null,
+          taken_at: takenAt.toISOString(),
           taken_by: profile?.full_name || user!.email || "unknown",
           media_type: mediaType,
           file_size: filePreview.file.size,

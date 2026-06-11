@@ -92,15 +92,20 @@ export default function JobPhotosTab({
     else setLoadingMore(true);
 
     const supabase = createClient();
+    // Organized by date taken (#622) — taken_at, with created_at as a
+    // tiebreak so pagination stays deterministic when EXIF dates collide
+    // (1-second resolution). nullsFirst:false keeps any straggler rows
+    // inserted by pre-#622 clients at the end instead of on top.
     let query = supabase
       .from("photos")
       .select("*, photo_tag_assignments(tag_id)")
       .eq("job_id", jobId)
+      .order("taken_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
 
-    if (startDate) query = query.gte("created_at", startDate);
-    if (endDate) query = query.lte("created_at", endDate + "T23:59:59");
+    if (startDate) query = query.gte("taken_at", startDate);
+    if (endDate) query = query.lte("taken_at", endDate + "T23:59:59");
     if (selectedUsers.length > 0) query = query.in("taken_by", selectedUsers);
 
     const { data } = await query;
@@ -148,17 +153,19 @@ export default function JobPhotosTab({
     return () => observer.disconnect();
   }, [hasMore, loadingMore, loading, photos.length, fetchPhotos]);
 
-  // Group photos by date
+  // Group photos by the date they were taken; created_at covers rows from
+  // before taken_at became always-populated (#622).
   const groupedPhotos = photos.reduce<{ date: string; label: string; photos: Photo[] }[]>(
     (groups, photo) => {
-      const dateKey = format(new Date(photo.created_at), "yyyy-MM-dd");
+      const takenDate = new Date(photo.taken_at ?? photo.created_at);
+      const dateKey = format(takenDate, "yyyy-MM-dd");
       const existing = groups.find((g) => g.date === dateKey);
       if (existing) {
         existing.photos.push(photo);
       } else {
         groups.push({
           date: dateKey,
-          label: format(new Date(photo.created_at), "EEEE, MMMM do, yyyy"),
+          label: format(takenDate, "EEEE, MMMM do, yyyy"),
           photos: [photo],
         });
       }

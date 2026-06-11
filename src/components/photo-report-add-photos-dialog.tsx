@@ -59,14 +59,17 @@ interface PhotoGroup {
 
 function groupByDay(photos: Photo[]): PhotoGroup[] {
   return photos.reduce<PhotoGroup[]>((groups, photo) => {
-    const dateKey = format(new Date(photo.created_at), "yyyy-MM-dd");
+    // Days are the date TAKEN; created_at covers rows from before taken_at
+    // became always-populated (#622).
+    const takenDate = new Date(photo.taken_at ?? photo.created_at);
+    const dateKey = format(takenDate, "yyyy-MM-dd");
     const existing = groups.find((g) => g.date === dateKey);
     if (existing) {
       existing.photos.push(photo);
     } else {
       groups.push({
         date: dateKey,
-        label: format(new Date(photo.created_at), "EEEE, MMMM do, yyyy"),
+        label: format(takenDate, "EEEE, MMMM do, yyyy"),
         photos: [photo],
       });
     }
