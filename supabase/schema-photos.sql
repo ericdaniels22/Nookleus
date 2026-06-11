@@ -19,6 +19,12 @@ CREATE TABLE photos (
   storage_path text NOT NULL,
   annotated_path text,
   caption text,
+  -- The date the photo was TAKEN — the organizing date for every photo view
+  -- (#622). Mobile captures stamp it at shutter time; web uploads derive it
+  -- from EXIF DateTimeOriginal, falling back to the file's lastModified, then
+  -- to upload time. Nullable in the schema, but always populated since the
+  -- #622 backfill (scripts/backfill-photo-taken-at.ts) set it to created_at
+  -- where nothing better was known.
   taken_at timestamptz,
   taken_by text NOT NULL DEFAULT 'Eric',
   media_type text NOT NULL DEFAULT 'photo'

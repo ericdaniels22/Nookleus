@@ -63,6 +63,7 @@ export default async function PhotoReportBuilderPage({
     .from("photos")
     .select("*, photo_tag_assignments(tag_id)")
     .eq("job_id", jobId)
+    .order("taken_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .returns<PickerPhoto[]>();
   const photos: PickerPhoto[] = photoData ?? [];
