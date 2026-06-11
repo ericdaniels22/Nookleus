@@ -1227,6 +1227,10 @@ describe("PhotoReportBuilder generate", () => {
     // success toast never fires.
     expect(screen.queryByRole("link", { name: /open pdf/i })).toBeNull();
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+    // The underlying cause must reach the toast, not be swallowed by an empty
+    // catch — that blanket "Failed to generate PDF" once masked a Storage
+    // size-limit rejection and made the failure undiagnosable (#625).
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toContain("boom");
     expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
   });
 
