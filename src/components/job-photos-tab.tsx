@@ -706,7 +706,7 @@ export default function JobPhotosTab({
                       {/* Meta */}
                       <div className="pt-1 px-0.5">
                         <span className="text-[11px] text-muted-foreground">
-                          {format(new Date(photo.created_at), "h:mm a")}
+                          {format(new Date(photo.taken_at ?? photo.created_at), "h:mm a")}
                         </span>
                         <span className="text-[11px] text-muted-foreground/60"> · </span>
                         <span className="text-[11px] text-muted-foreground/60">{photo.taken_by}</span>
