@@ -365,8 +365,16 @@ export default function PhotoReportBuilder({
       const generatedPath = await generateReportPDF(report.id);
       setPdfPath(generatedPath);
       toast.success("PDF generated.");
-    } catch {
-      toast.error("Failed to generate PDF.");
+    } catch (err) {
+      // Surface the real cause (e.g. a Storage size-limit rejection) instead of
+      // swallowing it: an empty catch here once hid the underlying error behind
+      // a blanket toast, making a failure impossible to diagnose (#625).
+      console.error("Failed to generate report PDF", err);
+      toast.error(
+        err instanceof Error
+          ? `Failed to generate PDF: ${err.message}`
+          : "Failed to generate PDF.",
+      );
     } finally {
       setGenerating(false);
     }
@@ -381,8 +389,13 @@ export default function PhotoReportBuilder({
       if (!(await flushPendingEdits())) return;
       const blob = await renderReportPdfBlob(report.id);
       swapPreview(blob);
-    } catch {
-      toast.error("Failed to render preview.");
+    } catch (err) {
+      console.error("Failed to render report preview", err);
+      toast.error(
+        err instanceof Error
+          ? `Failed to render preview: ${err.message}`
+          : "Failed to render preview.",
+      );
     }
   };
 

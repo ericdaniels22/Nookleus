@@ -4,9 +4,10 @@ export interface PhotoUrlSource {
   storage_path: string;
 }
 
-// Where the URL is used: the grid wants a small preview; everywhere else
-// (single-photo detail, annotator, PDF) wants the full-resolution original.
-export type PhotoVariant = "grid" | "full";
+// Where the URL is used: the grid wants a small preview; the report PDF wants a
+// print-sized-but-bounded render; everywhere else (single-photo detail,
+// annotator) wants the full-resolution original.
+export type PhotoVariant = "grid" | "full" | "pdf";
 
 const PHOTOS_OBJECT_PREFIX = "/storage/v1/object/public/photos/";
 const PHOTOS_RENDER_PREFIX = "/storage/v1/render/image/public/photos/";
@@ -17,6 +18,16 @@ const PHOTOS_RENDER_PREFIX = "/storage/v1/render/image/public/photos/";
 // full-height center strip (e.g. 400×4032 for a 3024×4032 portrait), which the
 // tile's CSS `object-cover` then zooms into hard (issue #596).
 const GRID_PREVIEW_QUERY = "?width=400&height=400&quality=60&resize=cover";
+
+// Report-PDF embed transform (#625). @react-pdf embeds JPEGs as raw DCTDecode
+// streams with no recompression, so a report of full-resolution iPhone originals
+// (3–7 MB each) renders a PDF tens of MB large and the upload to Storage 400s
+// past Supabase's 50 MB cap. A 1600px-wide, quality-80 render is sharp at the
+// report's 2/3/4-per-page layout yet ~4× smaller, keeping even large reports
+// well under the cap. Width-only (no height/resize) scales the whole image down
+// without cropping; the server-side re-encode also strips Apple HDR gain-map
+// tails, so resized embeds never hit the jay-peg desync that blanks frames.
+const PDF_EMBED_QUERY = "?width=1600&quality=80";
 
 // Formats Supabase image transformation can resize. A Photo's stored file
 // may be something the transformer rejects — a HEIC original from a web
@@ -39,8 +50,9 @@ function isResizeEnabled(): boolean {
  * Resolve the public image URL for a job's Photo.
  *
  * The single place Photo grid/detail URLs are built (see ADR 0008). The
- * "grid" variant returns a small resized preview when image transformation
- * is enabled, otherwise the original; "full" always returns the original.
+ * "grid" variant returns a small resized preview and "pdf" a print-sized
+ * (1600px) render when image transformation is enabled, otherwise the original;
+ * "full" always returns the original.
  */
 export function photoUrl(
   source: PhotoUrlSource,
@@ -50,6 +62,9 @@ export function photoUrl(
   const path = source.annotated_path || source.storage_path;
   if (variant === "grid" && isResizeEnabled() && isResizable(path)) {
     return `${supabaseUrl}${PHOTOS_RENDER_PREFIX}${path}${GRID_PREVIEW_QUERY}`;
+  }
+  if (variant === "pdf" && isResizeEnabled() && isResizable(path)) {
+    return `${supabaseUrl}${PHOTOS_RENDER_PREFIX}${path}${PDF_EMBED_QUERY}`;
   }
   return `${supabaseUrl}${PHOTOS_OBJECT_PREFIX}${path}`;
 }

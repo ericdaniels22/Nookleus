@@ -267,6 +267,21 @@ describe("generateReportPDF — render-model wiring", () => {
       { bucket: "reports", path: `${h.JOB_NUMBER}/${h.REPORT_ID}.pdf` },
     ]);
   });
+
+  it("embeds downscaled photo URLs, not full-resolution originals (PDF stays under the 50 MB upload cap)", async () => {
+    // Regression for #625: @react-pdf embeds JPEGs as raw DCTDecode streams with
+    // no recompression, so a report of full-resolution iPhone originals (3–7 MB
+    // each) ballooned past Supabase Storage's 50 MB upload limit — the upload
+    // 400'd and the empty catch in the builder surfaced only "Failed to generate
+    // PDF". The generator must hand the render model the resized render URL.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+
+    await generateReportPDF(h.REPORT_ID);
+
+    expect(modelArg().photos["photo-1"].url).toBe(
+      "https://test.supabase.co/storage/v1/render/image/public/photos/p/photo-1.jpg?width=1600&quality=80",
+    );
+  });
 });
 
 describe("renderReportPdfBlob — shared no-drift producer (#554)", () => {
