@@ -43,6 +43,7 @@ export default function JobCoverPicker({
       .from("photos")
       .select("*")
       .eq("job_id", jobId)
+      .order("taken_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .then(({ data }: { data: Photo[] | null }) => {
         setPhotos(data ?? []);

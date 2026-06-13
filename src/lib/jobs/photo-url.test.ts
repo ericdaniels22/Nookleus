@@ -73,6 +73,58 @@ describe("photoUrl — full variant", () => {
   });
 });
 
+describe("photoUrl — pdf variant (report photo embed, #625)", () => {
+  it("returns a downscaled render URL when resize is enabled", () => {
+    // @react-pdf embeds JPEGs uncompressed; a page of full-resolution originals
+    // pushes the PDF past Supabase's 50 MB upload cap. The embed must be resized.
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = photoUrl(
+      { annotated_path: null, storage_path: "originals/abc.jpg" },
+      SUPABASE_URL,
+      "pdf",
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=1600&quality=80",
+    );
+  });
+
+  it("falls back to the original object URL when resize is disabled", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "");
+    const url = photoUrl(
+      { annotated_path: null, storage_path: "originals/abc.jpg" },
+      SUPABASE_URL,
+      "pdf",
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/originals/abc.jpg",
+    );
+  });
+
+  it("serves the original for a format the resizer can't transform (HEIC)", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = photoUrl(
+      { annotated_path: null, storage_path: "originals/img.heic" },
+      SUPABASE_URL,
+      "pdf",
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/originals/img.heic",
+    );
+  });
+
+  it("downscales the annotated copy when present", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = photoUrl(
+      { annotated_path: "annotated/abc.png", storage_path: "originals/abc.jpg" },
+      SUPABASE_URL,
+      "pdf",
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.png?width=1600&quality=80",
+    );
+  });
+});
+
 describe("originalPhotoUrl — the annotator always edits the un-annotated original", () => {
   it("returns the full-resolution original, ignoring any saved annotation", () => {
     // The annotator must re-open the ORIGINAL so it doesn't paint new strokes

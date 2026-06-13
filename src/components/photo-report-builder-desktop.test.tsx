@@ -24,7 +24,7 @@ import {
   within,
 } from "@testing-library/react";
 
-import type { Photo, PhotoReport } from "@/lib/types";
+import type { Photo, PhotoReport, PhotoTag } from "@/lib/types";
 
 const h = vi.hoisted(() => ({
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
@@ -158,22 +158,28 @@ function makeReport(overrides: Partial<PhotoReport> = {}): PhotoReport {
   };
 }
 
-function makePhoto(id: string): Photo {
+function makePhoto(id: string, createdAt = "2026-06-04T12:00:00"): Photo {
   return {
     id,
     storage_path: `job-1/${id}.jpg`,
     annotated_path: null,
     caption: null,
+    created_at: createdAt,
   } as Photo;
 }
 
-function renderBuilder(report = makeReport(), photos: Photo[] = []) {
+function renderBuilder(
+  report = makeReport(),
+  photos: Photo[] = [],
+  tags: PhotoTag[] = [],
+) {
   return render(
     <PhotoReportBuilder
       jobId="job-1"
       report={report}
       photos={photos}
       supabaseUrl="https://example.supabase.co"
+      tags={tags}
     />,
   );
 }
@@ -546,7 +552,34 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
       ],
     });
   }
-  const jobPhotos = () => ["p1", "p2", "p3", "p4"].map(makePhoto);
+  const jobPhotos = () => ["p1", "p2", "p3", "p4"].map((id) => makePhoto(id));
+
+  const orgTags: PhotoTag[] = [
+    {
+      id: "tag-red",
+      organization_id: "org-1",
+      name: "Damage",
+      color: "#ef4444",
+      created_by: "u-1",
+      created_at: "2026-06-01T00:00:00Z",
+    },
+    {
+      id: "tag-blue",
+      organization_id: "org-1",
+      name: "Repaired",
+      color: "#3b82f6",
+      created_by: "u-1",
+      created_at: "2026-06-01T00:00:00Z",
+    },
+  ];
+
+  // The page's join shape: the photo carries its tag assignment ids.
+  function withTags(photo: Photo, ...tagIds: string[]): Photo {
+    return {
+      ...photo,
+      photo_tag_assignments: tagIds.map((tag_id) => ({ tag_id })),
+    } as Photo;
+  }
 
   function openPickerFor(cardIndex: number) {
     fireEvent.click(
@@ -556,22 +589,24 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     );
   }
 
-  it("lists the Job's photos, marking in-this-section (disabled) and used-elsewhere", () => {
+  it("lists the Job's photos, marking in-this-section (dimmed, no checkbox) and used-elsewhere", () => {
     renderBuilder(pickerReport(), jobPhotos());
     openPickerFor(0); // Roof
 
     // The dialog portal renders into document.body, so screen finds it.
     expect(screen.getByText("Add photos")).toBeTruthy();
 
-    // Already in the target Section: disabled — it is already exactly where
-    // the picker would put it.
-    const p1 = screen.getByTestId("picker-photo-p1") as HTMLButtonElement;
-    expect(p1.disabled).toBe(true);
+    // Already in the target Section: dimmed, no selection checkbox — it is
+    // already exactly where the picker would put it. Still viewable.
+    const p1 = screen.getByTestId("picker-photo-p1");
+    expect(p1.className).toContain("opacity-50");
+    expect(within(p1).queryByTestId("picker-select-p1")).toBeNull();
     expect(within(p1).getByText("In this section")).toBeTruthy();
+    expect(within(p1).getByRole("button", { name: "View photo" })).toBeTruthy();
 
     // Used in another Section: selectable, marked with that Section's name.
-    const p2 = screen.getByTestId("picker-photo-p2") as HTMLButtonElement;
-    expect(p2.disabled).toBe(false);
+    const p2 = screen.getByTestId("picker-photo-p2");
+    expect(within(p2).getByTestId("picker-select-p2")).toBeTruthy();
     expect(within(p2).getByText("In Gutters")).toBeTruthy();
 
     // Not in the report: no marking.
@@ -590,14 +625,18 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
       }) as HTMLButtonElement;
     expect(addSelection().disabled).toBe(true);
 
-    // Pick p3, then p2 (currently in Gutters), then p4 — order matters: it is
-    // the append order, hence the PDF numbering order.
-    fireEvent.click(screen.getByTestId("picker-photo-p3"));
-    fireEvent.click(screen.getByTestId("picker-photo-p2"));
-    fireEvent.click(screen.getByTestId("picker-photo-p4"));
+    // Pick p3, then p2 (currently in Gutters), then p4 via the corner
+    // checkboxes — order matters: it is the append order, hence the PDF
+    // numbering order.
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p2"));
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
     expect(
-      screen.getByTestId("picker-photo-p2").getAttribute("aria-pressed"),
+      screen.getByTestId("picker-select-p2").getAttribute("aria-pressed"),
     ).toBe("true");
+    // The checkbox carries the pick number.
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("2");
     expect(addSelection().textContent).toContain("Add 3 photos");
 
     fireEvent.click(addSelection());
@@ -622,7 +661,7 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     renderBuilder(pickerReport(), jobPhotos());
     openPickerFor(0);
 
-    fireEvent.click(screen.getByTestId("picker-photo-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Add photos")).toBeNull();
 
@@ -635,8 +674,264 @@ describe("PhotoReportBuilder — + Add Photos picker (#552)", () => {
     // The dialog mounts per open, so the abandoned selection is gone.
     openPickerFor(0);
     expect(
-      screen.getByTestId("picker-photo-p3").getAttribute("aria-pressed"),
+      screen.getByTestId("picker-select-p3").getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("clicking the photo body opens the fullscreen viewer at that photo", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p3")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+
+    const viewer = screen.getByRole("dialog", { name: "Photo viewer" });
+    const img = within(viewer).getByRole("img") as HTMLImageElement;
+    expect(img.src).toContain(
+      "/storage/v1/object/public/photos/job-1/p3.jpg",
+    );
+  });
+
+  it("the in-viewer checkbox drives the same selection the grid shows", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p3")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+    fireEvent.click(screen.getByTestId("viewer-select"));
+    fireEvent.click(screen.getByRole("button", { name: "Close viewer" }));
+
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+    expect(
+      screen.getByTestId("picker-select-p3").getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: /add \d+ photos?/i }).textContent,
+    ).toContain("Add 1 photo");
+  });
+
+  it("un-checking an earlier pick renumbers the later ones (ordered-selection regression guard)", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("2");
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("1");
+  });
+
+  it("Escape closes the viewer first, the dialog second", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p4")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Photo viewer" })).toBeTruthy();
+
+    // Base UI listens for Escape on the document. The viewer (topmost dialog)
+    // takes the first one; the picker's onOpenChange guard converts any close
+    // request that falls through into "close the viewer" instead.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Photo viewer" })).toBeNull();
+    expect(screen.getByText("Add photos")).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByText("Add photos")).toBeNull();
+  });
+
+  it("groups photos under day headers", () => {
+    const photos = [
+      makePhoto("p1", "2026-06-09T10:00:00"),
+      makePhoto("p2", "2026-06-09T09:00:00"),
+      makePhoto("p3", "2026-06-08T15:00:00"),
+      makePhoto("p4", "2026-06-08T14:00:00"),
+    ];
+    renderBuilder(pickerReport(), photos);
+    openPickerFor(0);
+
+    const tuesday = screen.getByTestId("picker-group-2026-06-09");
+    expect(within(tuesday).getByText("Tuesday, June 9th, 2026")).toBeTruthy();
+    expect(within(tuesday).getByTestId("picker-photo-p1")).toBeTruthy();
+    expect(within(tuesday).getByTestId("picker-photo-p2")).toBeTruthy();
+
+    const monday = screen.getByTestId("picker-group-2026-06-08");
+    expect(within(monday).getByText("Monday, June 8th, 2026")).toBeTruthy();
+    expect(within(monday).getByTestId("picker-photo-p3")).toBeTruthy();
+    expect(within(monday).getByTestId("picker-photo-p4")).toBeTruthy();
+  });
+
+  it("the group checkbox bulk-selects the day's selectable photos in grid order and unselects on second click", () => {
+    // All four photos share the default day; p1 is in Roof (the target),
+    // p2 in Gutters.
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    const groupCheckbox = () =>
+      screen.getByRole("checkbox", {
+        name: /select all photos from/i,
+      }) as HTMLInputElement;
+    expect(groupCheckbox().checked).toBe(false);
+
+    fireEvent.click(groupCheckbox());
+
+    // p1 is "in this section" — excluded; the rest append in grid order.
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("2");
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("3");
+    expect(groupCheckbox().checked).toBe(true);
+
+    fireEvent.click(groupCheckbox());
+    expect(
+      screen.getByTestId("picker-select-p2").getAttribute("aria-pressed"),
+    ).toBe("false");
+    const footer = screen.getByRole("button", {
+      name: /add \d+ photos?/i,
+    }) as HTMLButtonElement;
+    expect(footer.disabled).toBe(true);
+  });
+
+  it("a day-check appends only the day's unselected photos, keeping earlier picks' numbers", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /select all photos from/i }),
+    );
+
+    // A day-check acts like clicking each unselected photo left to right:
+    // p3 keeps its number, p2 and p4 append after it.
+    expect(screen.getByTestId("picker-select-p3").textContent).toBe("1");
+    expect(screen.getByTestId("picker-select-p2").textContent).toBe("2");
+    expect(screen.getByTestId("picker-select-p4").textContent).toBe("3");
+  });
+
+  it("a day whose photos are all in this section gets a disabled group checkbox", () => {
+    const report = makeReport({
+      sections: [
+        { id: "sec-a", title: "Roof", description: "", photo_ids: ["p1", "p2"] },
+        { id: "sec-b", title: "Gutters", description: "", photo_ids: [] },
+      ],
+    });
+    renderBuilder(report, ["p1", "p2"].map((id) => makePhoto(id)));
+    openPickerFor(0);
+
+    const box = screen.getByRole("checkbox", {
+      name: /select all photos from/i,
+    }) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+  });
+
+  it("renders no Tags dropdown when the Organization has no tags", () => {
+    renderBuilder(pickerReport(), jobPhotos());
+    openPickerFor(0);
+    expect(screen.queryByRole("button", { name: /^Tags/ })).toBeNull();
+  });
+
+  it("tag filter hides non-matching photos but keeps the hidden selection for Add", async () => {
+    const photos = [
+      makePhoto("p1"),
+      makePhoto("p2"),
+      withTags(makePhoto("p3"), "tag-red"),
+      makePhoto("p4"),
+    ];
+    renderBuilder(pickerReport(), photos, orgTags);
+    openPickerFor(0);
+
+    // Select p4 BEFORE filtering.
+    fireEvent.click(screen.getByTestId("picker-select-p4"));
+
+    // Filter to "Damage": only p3 carries it. (The dropdown is CSS-gated —
+    // hidden until hover/focus-within — but jsdom ignores CSS, so the
+    // checkbox is reachable directly.)
+    fireEvent.click(screen.getByRole("checkbox", { name: "Damage" }));
+    expect(screen.queryByTestId("picker-photo-p4")).toBeNull();
+    expect(screen.getByTestId("picker-photo-p3")).toBeTruthy();
+
+    // The hidden selection survives the filter (selection is a cart, not a
+    // transient bulk-action target — unlike the Photos tab, on purpose)…
+    fireEvent.click(screen.getByTestId("picker-select-p3"));
+    const addSelection = screen.getByRole("button", {
+      name: /add \d+ photos?/i,
+    });
+    expect(addSelection.textContent).toContain("Add 2 photos");
+
+    // …and Add hands back both, in pick order.
+    fireEvent.click(addSelection);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    const payload = h.updateMock.mock.calls[0][0] as {
+      sections: Array<{ photo_ids: string[] }>;
+    };
+    expect(payload.sections[0].photo_ids).toEqual(["p1", "p4", "p3"]);
+  });
+
+  it("the sort toggle reverses group order", () => {
+    const photos = [
+      makePhoto("p1", "2026-06-09T10:00:00"),
+      makePhoto("p2", "2026-06-08T10:00:00"),
+    ];
+    renderBuilder(makeReport(), photos);
+    openPickerFor(0);
+
+    const groupIds = () =>
+      screen
+        .getAllByTestId(/^picker-group-/)
+        .map((el) => el.getAttribute("data-testid"));
+    expect(groupIds()).toEqual([
+      "picker-group-2026-06-09",
+      "picker-group-2026-06-08",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Newest first" }));
+    expect(screen.getByRole("button", { name: "Oldest first" })).toBeTruthy();
+    expect(groupIds()).toEqual([
+      "picker-group-2026-06-08",
+      "picker-group-2026-06-09",
+    ]);
+  });
+
+  it("the viewer pages through the filtered list only", () => {
+    const photos = [
+      withTags(makePhoto("p1"), "tag-red"),
+      makePhoto("p2"),
+      withTags(makePhoto("p3"), "tag-red"),
+    ];
+    renderBuilder(makeReport(), photos, orgTags);
+    openPickerFor(0);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Damage" }));
+    fireEvent.click(
+      within(screen.getByTestId("picker-photo-p1")).getByRole("button", {
+        name: "View photo",
+      }),
+    );
+
+    // ArrowRight lands on p3 — p2 is filtered out of the flip-through list.
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    const viewer = screen.getByRole("dialog", { name: "Photo viewer" });
+    const img = within(viewer).getByRole("img") as HTMLImageElement;
+    expect(img.src).toContain("job-1/p3.jpg");
+  });
+
+  it("focuses the grid on open, not the Tags button (whose focus opens the dropdown)", async () => {
+    renderBuilder(pickerReport(), jobPhotos(), orgTags);
+    await act(async () => {
+      openPickerFor(0);
+      await vi.runAllTimersAsync();
+    });
+    expect(document.activeElement).toBe(screen.getByTestId("picker-grid"));
   });
 });
 
@@ -661,7 +956,7 @@ describe("PhotoReportBuilder — within-Section photo reorder (#552)", () => {
       ],
     });
   }
-  const jobPhotos = () => ["p1", "p2", "p3"].map(makePhoto);
+  const jobPhotos = () => ["p1", "p2", "p3"].map((id) => makePhoto(id));
 
   it("registers a Section's photos as sortable, so they are reorder drop targets", () => {
     renderBuilder(reorderReport(), jobPhotos());

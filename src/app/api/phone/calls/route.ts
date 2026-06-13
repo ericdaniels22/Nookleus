@@ -60,6 +60,23 @@ interface Body {
 
 const E164_RE = /^\+[1-9]\d{6,14}$/;
 
+// Slice 12 (#316) — Job-page Calls section. The same call shape the Phone-tab
+// thread route (conversations/[id]/calls) returns: every field the row carries
+// plus its voicemail + recording embeds, each flattened from PostgREST's 0-or-1
+// array (UNIQUE per call) to a single `voicemail | null` / `recording | null`.
+const JOB_CALL_FIELDS =
+  "id, organization_id, conversation_id, direction, from_e164, to_e164, twilio_call_sid, status, duration_seconds, job_tag, tagged_by_user_id, initiated_by_user_id, started_at, ended_at, created_at, phone_voicemails(id, audio_storage_path, transcript, transcript_status, duration_seconds), phone_recordings(id, audio_storage_path, consent_notice_played, duration_seconds)";
+
+function flattenChild(
+  row: Record<string, unknown>,
+  embedKey: string,
+  field: string,
+): Record<string, unknown> {
+  const { [embedKey]: embed, ...rest } = row;
+  const value = Array.isArray(embed) ? (embed[0] ?? null) : (embed ?? null);
+  return { ...rest, [field]: value };
+}
+
 function parseSourceContext(input: unknown): SmartAttachSource {
   if (typeof input === "string") {
     if (input === "phone-tab") return { kind: "phone-tab" };
@@ -84,6 +101,37 @@ function parseSourceContext(input: unknown): SmartAttachSource {
   }
   return { kind: "phone-tab" };
 }
+
+// Slice 12 (#316) — Job-page Calls section. Returns every voice call tagged to
+// the given Job (job_tag), chronological, with voicemail + recording flattened.
+// User-client only: RLS (migration-312) enforces the ADR 0003 access matrix, so
+// a row the caller can't see is simply absent — no serviceClient. view_phone
+// gates the section (Crew Members lack it and never reach this route).
+export const GET = withRequestContext(
+  { permission: "view_phone" },
+  async (request, ctx) => {
+    const jobId = new URL(request.url).searchParams.get("jobId");
+    if (!jobId) {
+      return NextResponse.json({ error: "jobId is required" }, { status: 400 });
+    }
+    const { data, error } = await ctx.supabase
+      .from("phone_calls")
+      .select(JOB_CALL_FIELDS)
+      .eq("job_tag", jobId)
+      .order("started_at", { ascending: true });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    const calls = ((data ?? []) as Record<string, unknown>[]).map((row) =>
+      flattenChild(
+        flattenChild(row, "phone_voicemails", "voicemail"),
+        "phone_recordings",
+        "recording",
+      ),
+    );
+    return NextResponse.json(calls);
+  },
+);
 
 export const POST = withRequestContext(
   { permission: "view_phone", serviceClient: true },
@@ -158,7 +206,12 @@ export const POST = withRequestContext(
       organizationId: ctx.orgId ?? "",
       orgNumbers,
     });
-    if (selected.kind === "none") {
+    // Bridge calls always use the default selection rule (Personal-if-active,
+    // else primary Shared) — the per-message override is a messages-only
+    // affordance (#317), so any non-"picked" result here means there is no
+    // usable number to call from. Narrowing on "picked" also covers the
+    // (unreachable, override-only) "forbidden_override" variant.
+    if (selected.kind !== "picked") {
       return NextResponse.json(
         {
           error:

@@ -16,6 +16,8 @@ import {
 } from "@testing-library/react";
 import React from "react";
 
+import { format } from "date-fns";
+
 import type { Photo } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -324,5 +326,46 @@ describe("JobPhotosTab — New report entry point", () => {
       );
     });
     expect(await screen.findByText(/No templates yet/i)).toBeTruthy();
+  });
+});
+
+describe("JobPhotosTab — tile time caption uses the capture time (#622)", () => {
+  beforeEach(() => {
+    h.photos = [];
+    h.templates = [];
+    h.push.mockClear();
+    fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("IntersectionObserver", IO);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  // #622 made taken_at the organizing date: the day-group headers use it, so a
+  // tile's time caption must agree with its header — a camera-roll photo taken
+  // June 1st but uploaded June 10th reads "June 1st … <capture time>", not the
+  // upload time. Expected values are computed with the same date-fns format the
+  // component uses, so the assertion holds in any test-runner timezone.
+  it("captions the tile with taken_at, not the created_at upload time", async () => {
+    const takenAt = "2026-06-01T12:34:00Z";
+    const createdAt = "2026-06-10T09:01:00Z";
+    h.photos = [{ ...makePhoto("p1"), taken_at: takenAt, created_at: createdAt }];
+    renderTab();
+
+    await screen.findByRole("img");
+    expect(screen.getByText(format(new Date(takenAt), "h:mm a"))).toBeTruthy();
+    expect(screen.queryByText(format(new Date(createdAt), "h:mm a"))).toBeNull();
+  });
+
+  it("falls back to created_at for pre-#622 rows with no taken_at", async () => {
+    const createdAt = "2026-06-10T09:01:00Z";
+    h.photos = [{ ...makePhoto("p1"), taken_at: null, created_at: createdAt }];
+    renderTab();
+
+    await screen.findByRole("img");
+    expect(screen.getByText(format(new Date(createdAt), "h:mm a"))).toBeTruthy();
   });
 });

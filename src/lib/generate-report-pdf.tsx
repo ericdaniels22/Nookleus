@@ -214,10 +214,13 @@ async function assembleReportPdf(
     };
     photos[p.id] = {
       ...base,
+      // "pdf" variant: a 1600px render, not the multi-MB original. @react-pdf
+      // embeds JPEGs uncompressed, so full-res originals blow the PDF past
+      // Supabase Storage's 50 MB upload cap (#625).
       url: photoUrl(
         { annotated_path: p.annotated_path, storage_path: p.storage_path },
         supabaseUrl,
-        "full",
+        "pdf",
       ),
       tags,
     };
