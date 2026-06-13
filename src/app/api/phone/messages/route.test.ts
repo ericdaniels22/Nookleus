@@ -452,6 +452,91 @@ describe("POST /api/phone/messages — outbound-number selection", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 3b. Per-message number override (slice 13 / #317)
+//
+// The compose box surfaces a picker so a user can override the default
+// outbound number per message. The chosen id arrives as `fromNumberId`. It
+// must resolve to a number the caller is permitted to send from — a Shared
+// number or the caller's own Personal. An id pointing at a teammate's
+// Personal number (or any non-sendable number) is refused with 403 before
+// Twilio: sending from someone else's Personal line would impersonate them
+// and cross the ADR 0005 content-privacy boundary.
+// ---------------------------------------------------------------------------
+
+const PERSONAL_NUM_ROW = {
+  id: "num-personal",
+  organization_id: ORG,
+  twilio_sid: "PNpersonal",
+  e164: "+15125559999",
+  kind: "personal",
+  user_id: "user-1",
+  released_at: null,
+  is_active: true,
+  created_at: "2026-02-01T00:00:00Z",
+};
+
+describe("POST /api/phone/messages — per-message number override (#317)", () => {
+  it("sends from the chosen fromNumberId, overriding the default Personal pick", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts } = makeServiceClient({
+      // Default rule would pick the caller's own Personal; the override
+      // forces the Shared line for this one message.
+      phone_numbers: [SHARED_NUM_ROW, PERSONAL_NUM_ROW],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "from the shared line",
+        fromNumberId: "num-shared",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(sendSmsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ from: "+15125550000" }),
+    );
+    const msgInsert = inserts.find((i) => i.table === "phone_messages");
+    expect(msgInsert?.row.from_e164).toBe("+15125550000");
+  });
+
+  it("refuses with 403 when fromNumberId is a teammate's Personal number, never calling Twilio", async () => {
+    authed("user-1", "crew_lead");
+    const { client, inserts, upserts } = makeServiceClient({
+      phone_numbers: [
+        SHARED_NUM_ROW,
+        {
+          ...PERSONAL_NUM_ROW,
+          id: "num-other",
+          user_id: "user-2",
+          e164: "+15125558888",
+        },
+      ],
+    });
+    vi.mocked(createServiceClient).mockReturnValue(client as never);
+
+    const res = await POST(
+      sendReq({
+        outsideE164: "+15551234567",
+        body: "trying to send from a teammate's line",
+        fromNumberId: "num-other",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(403);
+    expect(sendSmsMock).not.toHaveBeenCalled();
+    expect(inserts.find((i) => i.table === "phone_messages")).toBeUndefined();
+    expect(
+      upserts.find((u) => u.table === "phone_conversations"),
+    ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4. Opt-out gate (TCPA — the linchpin of this slice)
 // ---------------------------------------------------------------------------
 

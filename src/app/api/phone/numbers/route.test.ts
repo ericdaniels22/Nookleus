@@ -222,3 +222,214 @@ describe("POST /api/phone/numbers — admin-only provision (canManage)", () => {
     expect(res.status).toBe(502);
   });
 });
+
+describe("POST /api/phone/numbers — Personal claim (slice 13, #317)", () => {
+  // Slice 13 makes the same POST endpoint a Crew Lead's self-service claim:
+  // body.kind === 'personal' provisions a number owned by the caller. The
+  // matrix is still delegated to canManage — for a Personal number whose
+  // userId is the caller, canManage(personal) returns true for any member,
+  // so the broader view_phone wrapper gate is the real door (crew_member,
+  // which lacks view_phone by default, never reaches here).
+
+  it("lets a crew_lead with view_phone claim a Personal number owned by themselves", async () => {
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    provisionNumberMock.mockResolvedValue({
+      sid: "PNpers",
+      phoneNumber: "+15125559999",
+    });
+
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_numbers: [
+            {
+              id: "row-p1",
+              organization_id: "org-1",
+              twilio_sid: "PNpers",
+              e164: "+15125559999",
+              label: null,
+              kind: "personal",
+              user_id: "user-1",
+              monthly_cost_cents: null,
+              released_at: null,
+              created_at: "2026-06-10T00:00:00Z",
+            },
+          ],
+        },
+      }) as never,
+    );
+
+    const res = await POST(
+      postReq({ phoneNumber: "+15125559999", kind: "personal" }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    expect(provisionNumberMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "+15125559999",
+    );
+    const body = await res.json();
+    expect(body).toMatchObject({
+      kind: "personal",
+      user_id: "user-1",
+      e164: "+15125559999",
+    });
+  });
+
+  it("owns the claim to the authenticated caller, ignoring any body-supplied owner", async () => {
+    // Privilege-escalation guard (ADR 0005 privacy). A Personal number is
+    // owner-only and hidden from admins, so the owner id is the whole access
+    // boundary. The route must derive it from the session, never the request
+    // body — otherwise a member could claim a number "as" someone else (or an
+    // admin), then read that person's untagged Personal messages. We inspect
+    // the row actually persisted, not just the echoed response.
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    provisionNumberMock.mockResolvedValue({
+      sid: "PNpers",
+      phoneNumber: "+15125559999",
+    });
+
+    const writes: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_numbers: [
+            {
+              id: "row-p1",
+              organization_id: "org-1",
+              twilio_sid: "PNpers",
+              e164: "+15125559999",
+              label: null,
+              kind: "personal",
+              user_id: "user-1",
+              monthly_cost_cents: null,
+              released_at: null,
+              created_at: "2026-06-10T00:00:00Z",
+            },
+          ],
+        },
+        onWrite: (table, _op, payload) =>
+          writes.push({ table, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    const res = await POST(
+      postReq({
+        phoneNumber: "+15125559999",
+        kind: "personal",
+        // A hostile body trying to claim the number for someone else.
+        userId: "victim-2",
+        user_id: "victim-2",
+      }),
+      noParams,
+    );
+
+    expect(res.status).toBe(201);
+    const inserted = writes.find((w) => w.table === "phone_numbers");
+    expect(inserted?.payload.user_id).toBe("user-1");
+    expect(inserted?.payload.kind).toBe("personal");
+  });
+});
+
+describe("POST /api/phone/numbers — re-claim revives a released number (slice 13, #317)", () => {
+  // Offboarding releases a member's Personal line (the release route sets
+  // released_at + is_active=false) but KEEPS the row — e164 carries a UNIQUE
+  // index across ALL rows, released included, so a fresh INSERT of the same
+  // number would collide. Re-claiming therefore revives the existing row in
+  // place: it clears released_at, re-activates the row, re-points twilio_sid
+  // at the freshly re-purchased number, and assigns the NEW caller as owner.
+  // The response surfaces `previously_owned_by` so the claim UI can warn that
+  // the line was previously held by a departed teammate before its new owner
+  // starts texting from it.
+
+  it("revives the released row (update, not insert) and reports the prior owner", async () => {
+    authed({
+      user: { id: "user-carol" },
+      tables: memberTables({
+        userId: "user-carol",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    // Re-claiming re-purchases the same e164 on Twilio, yielding a NEW sid.
+    provisionNumberMock.mockResolvedValue({
+      sid: "PNrevived",
+      phoneNumber: "+15125559999",
+    });
+
+    const writes: Array<{
+      table: string;
+      op: "insert" | "update";
+      payload: Record<string, unknown>;
+    }> = [];
+    vi.mocked(createServiceClient).mockReturnValue(
+      fakeServiceClient({
+        tables: {
+          phone_numbers: [
+            {
+              id: "row-released",
+              organization_id: "org-1",
+              twilio_sid: "PNold",
+              e164: "+15125559999",
+              label: "Bob's line",
+              kind: "personal",
+              user_id: "user-bob", // the departed member who held it
+              monthly_cost_cents: null,
+              is_active: false,
+              released_at: "2026-05-01T00:00:00Z",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        },
+        onWrite: (table, op, payload) =>
+          writes.push({ table, op, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    const res = await POST(
+      postReq({ phoneNumber: "+15125559999", kind: "personal" }),
+      noParams,
+    );
+
+    // 200 (revived an existing row), not 201 (created a new one).
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.previously_owned_by).toBe("user-bob");
+
+    // It UPDATEd the existing row and never INSERTed a duplicate (which the
+    // e164 UNIQUE index would reject anyway).
+    const ops = writes
+      .filter((w) => w.table === "phone_numbers")
+      .map((w) => w.op);
+    expect(ops).toContain("update");
+    expect(ops).not.toContain("insert");
+
+    const updated = writes.find(
+      (w) => w.table === "phone_numbers" && w.op === "update",
+    );
+    expect(updated?.payload).toMatchObject({
+      released_at: null,
+      is_active: true,
+      twilio_sid: "PNrevived",
+      user_id: "user-carol", // the NEW claimant, derived from the session
+    });
+  });
+});

@@ -21,6 +21,7 @@
 import { describe, it, expect } from "vitest";
 import {
   selectOutboundNumber,
+  selectableOutboundNumbers,
   type SelectableNumber,
 } from "./select-outbound-number";
 
@@ -241,6 +242,147 @@ describe("selectOutboundNumber — no eligible number", () => {
       ],
     });
     expect(result.kind).toBe("none");
+  });
+});
+
+describe("selectOutboundNumber — per-message override (slice 13, #317)", () => {
+  it("picks the override number when the caller may send from it, beating the default", () => {
+    // Default rule would pick the caller's own Personal (p1); the override
+    // forces the Shared (s1) for this one message.
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: "s1",
+      orgNumbers: [
+        shared({ id: "s1", e164: "+15125550000" }),
+        personal({ id: "p1", e164: "+15125559999", ownerId: userA }),
+      ],
+    });
+    expect(result.kind).toBe("picked");
+    if (result.kind === "picked") {
+      expect(result.number.id).toBe("s1");
+    }
+  });
+
+  it("allows an override that selects the caller's own Personal number", () => {
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: "p1",
+      orgNumbers: [
+        shared({ id: "s1", e164: "+15125550000" }),
+        personal({ id: "p1", e164: "+15125559999", ownerId: userA }),
+      ],
+    });
+    expect(result.kind).toBe("picked");
+    if (result.kind === "picked") {
+      expect(result.number.id).toBe("p1");
+    }
+  });
+
+  it("refuses an override that points to another user's Personal number", () => {
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: "p2",
+      orgNumbers: [
+        shared({ id: "s1", e164: "+15125550000" }),
+        personal({ id: "p2", e164: "+15125558888", ownerId: "user-b" }),
+      ],
+    });
+    expect(result.kind).toBe("forbidden_override");
+  });
+
+  it("refuses an override that points to a released number", () => {
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: "p1",
+      orgNumbers: [
+        personal({
+          id: "p1",
+          e164: "+15125559999",
+          ownerId: userA,
+          released: true,
+        }),
+        shared({ id: "s1", e164: "+15125550000" }),
+      ],
+    });
+    expect(result.kind).toBe("forbidden_override");
+  });
+
+  it("refuses an override id that is not a number in the caller's org", () => {
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: "ghost",
+      orgNumbers: [shared({ id: "s1", e164: "+15125550000" })],
+    });
+    expect(result.kind).toBe("forbidden_override");
+  });
+
+  it("ignores a null override and applies the default rule", () => {
+    const result = selectOutboundNumber({
+      callerUserId: userA,
+      organizationId: orgX,
+      overrideNumberId: null,
+      orgNumbers: [
+        shared({ id: "s1", e164: "+15125550000" }),
+        personal({ id: "p1", e164: "+15125559999", ownerId: userA }),
+      ],
+    });
+    expect(result.kind).toBe("picked");
+    if (result.kind === "picked") {
+      expect(result.number.id).toBe("p1");
+    }
+  });
+});
+
+describe("selectableOutboundNumbers — picker source list (slice 13, #317)", () => {
+  it("lists the caller's own Personal first, then Shared earliest-created", () => {
+    const list = selectableOutboundNumbers({
+      callerUserId: userA,
+      organizationId: orgX,
+      orgNumbers: [
+        shared({
+          id: "s-new",
+          e164: "+15125552222",
+          createdAt: "2026-03-01T00:00:00Z",
+        }),
+        personal({ id: "p1", e164: "+15125559999", ownerId: userA }),
+        shared({
+          id: "s-old",
+          e164: "+15125551111",
+          createdAt: "2026-01-01T00:00:00Z",
+        }),
+      ],
+    });
+    expect(list.map((n) => n.id)).toEqual(["p1", "s-old", "s-new"]);
+  });
+
+  it("excludes another user's Personal number", () => {
+    const list = selectableOutboundNumbers({
+      callerUserId: userA,
+      organizationId: orgX,
+      orgNumbers: [
+        shared({ id: "s1", e164: "+15125550000" }),
+        personal({ id: "p2", e164: "+15125558888", ownerId: "user-b" }),
+      ],
+    });
+    expect(list.map((n) => n.id)).toEqual(["s1"]);
+  });
+
+  it("excludes released and inactive numbers", () => {
+    const list = selectableOutboundNumbers({
+      callerUserId: userA,
+      organizationId: orgX,
+      orgNumbers: [
+        shared({ id: "s-released", e164: "+15125550000", released: true }),
+        shared({ id: "s-inactive", e164: "+15125551111", active: false }),
+        shared({ id: "s-live", e164: "+15125552222" }),
+      ],
+    });
+    expect(list.map((n) => n.id)).toEqual(["s-live"]);
   });
 });
 

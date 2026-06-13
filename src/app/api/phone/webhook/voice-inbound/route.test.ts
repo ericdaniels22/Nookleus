@@ -122,7 +122,25 @@ function makeServiceClient(tables: BuilderTables) {
     return b;
   }
 
-  return { client: { from: builder }, inserts, upserts, updates };
+  // Slice 13 (#317) — the greeting signer. The webhook signs a Personal
+  // number's stored greeting object before <Play>ing it; the fake records the
+  // (bucket, path) it was asked to sign and returns a deterministic URL.
+  const signed: { bucket: string; path: string }[] = [];
+  const storage = {
+    from(bucket: string) {
+      return {
+        async createSignedUrl(path: string) {
+          signed.push({ bucket, path });
+          return {
+            data: { signedUrl: `https://signed.test/${bucket}/${path}` },
+            error: null,
+          };
+        },
+      };
+    },
+  };
+
+  return { client: { from: builder, storage }, inserts, upserts, updates, signed };
 }
 
 function voiceForm(opts: {
@@ -341,6 +359,48 @@ describe("POST /api/phone/webhook/voice-inbound — Personal number", () => {
     expect(xml).toContain("<Record");
     expect(xml).not.toContain("<Dial");
     expect(inserts.find((i) => i.table === "phone_calls")).toBeDefined();
+  });
+});
+
+describe("POST /api/phone/webhook/voice-inbound — custom voicemail greeting (#317)", () => {
+  it("signs a Personal number's stored greeting and <Play>s it instead of the default <Say>", async () => {
+    const tables = ringAllTables();
+    tables.phone_numbers[0].kind = "personal";
+    tables.phone_numbers[0].user_id = "owner-1";
+    tables.phone_numbers[0].voicemail_greeting_url = "org-1/pn-1.wav";
+    const { client, signed } = makeServiceClient(tables);
+    createServiceClientMock.mockReturnValue(client);
+
+    const res = await POST(voiceForm({}));
+    const xml = await res.text();
+
+    // The stored path was signed on the greetings bucket...
+    expect(signed).toContainEqual({
+      bucket: "phone-voicemail-greetings",
+      path: "org-1/pn-1.wav",
+    });
+    // ...and the signed URL is <Play>ed in place of the default spoken greeting.
+    expect(xml).toContain(
+      "<Play>https://signed.test/phone-voicemail-greetings/org-1/pn-1.wav</Play>",
+    );
+    expect(xml).not.toContain("<Say");
+    expect(xml).toContain("<Record");
+  });
+
+  it("falls back to the default spoken greeting when the number has no custom greeting", async () => {
+    const tables = ringAllTables();
+    tables.phone_numbers[0].kind = "personal";
+    tables.phone_numbers[0].user_id = "owner-1";
+    tables.phone_numbers[0].voicemail_greeting_url = null;
+    const { client, signed } = makeServiceClient(tables);
+    createServiceClientMock.mockReturnValue(client);
+
+    const res = await POST(voiceForm({}));
+    const xml = await res.text();
+
+    expect(signed).toHaveLength(0);
+    expect(xml).toContain("<Say");
+    expect(xml).not.toContain("<Play");
   });
 });
 

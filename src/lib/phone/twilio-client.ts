@@ -404,6 +404,12 @@ export interface VoiceTwimlOptions {
   recordCall?: boolean;
   callRecordingStatusCallback?: string;
   consentWhisperUrl?: string;
+  // Slice 13 (#317) — custom voicemail greeting. A signed, <Play>-compatible
+  // (mp3/wav) URL to the number's recorded greeting. When set, the voicemail
+  // branch <Play>s this audio in place of <Say>ing the default text; the
+  // inbound-voice webhook signs the stored object fresh per call. Omitted →
+  // the default spoken greeting.
+  voicemailGreetingUrl?: string;
 }
 
 // Spoken when an inbound call falls through to voicemail and no custom
@@ -488,7 +494,14 @@ export function buildVoiceTwiml(
     const dial = vr.dial(dialAttrs);
     dialNumberWithConsent(dial, decision.cell, whisperUrl);
   } else {
-    vr.say(DEFAULT_VOICEMAIL_GREETING);
+    // Slice 13 (#317): a number with a custom greeting <Play>s its recorded
+    // audio; otherwise we <Say> the default text. Twilio renders mp3/wav for
+    // <Play>, which the greetings-bucket validation guarantees.
+    if (opts.voicemailGreetingUrl) {
+      vr.play({}, opts.voicemailGreetingUrl);
+    } else {
+      vr.say(DEFAULT_VOICEMAIL_GREETING);
+    }
     const record: NonNullable<Parameters<typeof vr.record>[0]> = {
       playBeep: true,
       maxLength: VOICEMAIL_MAX_LENGTH_SECONDS,

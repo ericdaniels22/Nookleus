@@ -55,6 +55,12 @@ interface Body {
   // /api/phone/attachments. Each entry is the stored path + the media
   // type the upload route validated.
   attachments?: unknown;
+  // Slice 13 (#317) — per-message number picker. When the compose box
+  // surfaces the picker, the chosen phone_numbers.id arrives here and
+  // overrides the default outbound-number selection rule. It must resolve
+  // to a number the caller is permitted to send from (Shared, or their own
+  // Personal); a teammate's Personal number is refused with 403.
+  fromNumberId?: unknown;
 }
 
 interface PersistedAttachment {
@@ -234,11 +240,26 @@ export const POST = withRequestContext(
       SelectableNumber & { twilio_sid: string }
     >;
 
+    const overrideNumberId =
+      typeof body.fromNumberId === "string" ? body.fromNumberId : null;
     const selected = selectOutboundNumber({
       callerUserId: ctx.userId,
       organizationId: ctx.orgId ?? "",
       orgNumbers,
+      overrideNumberId,
     });
+    if (selected.kind === "forbidden_override") {
+      // The picker named a number the caller can't send from — a teammate's
+      // Personal line, or one that's released/inactive/cross-org. Refuse
+      // before Twilio rather than silently sending from the default.
+      return NextResponse.json(
+        {
+          error:
+            "You can't send from the selected number. Pick your own Personal number or a Shared number.",
+        },
+        { status: 403 },
+      );
+    }
     if (selected.kind === "none") {
       return NextResponse.json(
         {

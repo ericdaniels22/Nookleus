@@ -2,8 +2,12 @@
 //
 // GET /api/phone/numbers/available?areaCode=512
 // Returns the Twilio "available local numbers" list, narrowed to the
-// fields the UI needs. Admin-only (the Add Shared Number flow is admin).
-// The Twilio call is mocked.
+// fields the UI needs. Slice 3 gated this admin-only (the Add Shared
+// Number flow is admin); slice 13 (#317) widens it to anyone holding
+// view_phone, because a Crew Lead now searches the same picker to claim a
+// Personal number. The view_phone wrapper gate is the real door — a
+// crew_member (no view_phone) still cannot search. The Twilio call is
+// mocked.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -46,7 +50,7 @@ beforeEach(() => {
   listAvailableLocalNumbersMock.mockResolvedValue([]);
 });
 
-describe("GET /api/phone/numbers/available — admin-only picker", () => {
+describe("GET /api/phone/numbers/available — view_phone picker", () => {
   it("returns 401 when unauthenticated", async () => {
     authed({ user: null });
 
@@ -58,13 +62,13 @@ describe("GET /api/phone/numbers/available — admin-only picker", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 403 when caller is not an admin", async () => {
+  it("returns 403 when the caller lacks view_phone (crew_member)", async () => {
     authed({
       user: { id: "user-1" },
       tables: memberTables({
         userId: "user-1",
-        role: "crew_lead",
-        grants: ["view_phone"],
+        role: "crew_member",
+        grants: [],
       }),
     });
 
@@ -75,6 +79,40 @@ describe("GET /api/phone/numbers/available — admin-only picker", () => {
 
     expect(res.status).toBe(403);
     expect(listAvailableLocalNumbersMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a crew_lead with view_phone search (to claim a Personal number)", async () => {
+    // Slice 13 (#317): the picker is no longer admin-only. A Crew Lead
+    // holding view_phone searches the same endpoint to find a number to
+    // claim as their Personal line.
+    authed({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "crew_lead",
+        grants: ["view_phone"],
+      }),
+    });
+
+    listAvailableLocalNumbersMock.mockResolvedValue([
+      {
+        phoneNumber: "+15125559999",
+        friendlyName: "(512) 555-9999",
+        locality: "Austin",
+        region: "TX",
+      },
+    ]);
+
+    const res = await GET(
+      new Request("http://test/api/phone/numbers/available?areaCode=512"),
+      noParams,
+    );
+
+    expect(res.status).toBe(200);
+    expect(listAvailableLocalNumbersMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "512",
+    );
   });
 
   it("returns 400 when areaCode is missing", async () => {

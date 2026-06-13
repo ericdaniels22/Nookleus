@@ -18,6 +18,7 @@ import {
   type DecideSharedResult,
 } from "@/lib/phone/route-shared-call";
 import { ingestInboundCall } from "@/lib/phone/ingest-inbound-call";
+import { signedUrlForVoicemailGreeting } from "@/lib/phone/voicemail-greeting-storage";
 
 // PRD #304 — Nookleus Phone. Slice 8 (#312) — Inbound voice webhook.
 //
@@ -52,10 +53,17 @@ const ACTIVE_STATUSES = ["new", "in_progress", "pending_invoice"] as const;
 const HANGUP_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
 
 // The phone_numbers slice the voice route needs: the routing fields plus
-// the Shared-only inbound_rule jsonb.
+// the Shared-only inbound_rule jsonb and the optional custom-greeting path.
 interface PhoneNumberForVoiceRoute extends PhoneNumberForRoute {
   inbound_rule: InboundRule | null;
+  voicemail_greeting_url: string | null;
 }
+
+// Slice 13 (#317) — a voicemail greeting plays within seconds of the call
+// reaching the voicemail branch; a generous TTL only guards Twilio retries and
+// clock skew. The bucket is private, so the URL is signed fresh on every call
+// and never persisted.
+const VOICEMAIL_GREETING_SIGNED_URL_TTL_SECONDS = 3600;
 
 // A user_organizations row with the embedded profile cell. Supabase returns
 // the to-one embed as an object (older shapes returned a single-element
@@ -103,7 +111,9 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
   // 1. Resolve the number (org + kind + inbound_rule) from the To address.
   const { data: numberRow } = await supabase
     .from("phone_numbers")
-    .select("id, organization_id, e164, kind, user_id, released_at, inbound_rule")
+    .select(
+      "id, organization_id, e164, kind, user_id, released_at, inbound_rule, voicemail_greeting_url",
+    )
     .eq("e164", toE164)
     .maybeSingle<PhoneNumberForVoiceRoute>();
 
@@ -214,6 +224,24 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
     .maybeSingle<{ recording_enabled_default: boolean }>();
   const recordCall = orgRow?.recording_enabled_default ?? false;
 
+  // Slice 13 (#317) — custom voicemail greeting. When the call routes to
+  // voicemail and the number carries a recorded greeting, sign its private
+  // storage object so the builder <Play>s it instead of <Say>ing the default
+  // text. Signed fresh per call (the bucket is private); a signing failure
+  // falls back to the default greeting rather than dropping the call.
+  let voicemailGreetingUrl: string | undefined;
+  if (result.kind === "voicemail" && numberRow.voicemail_greeting_url) {
+    try {
+      voicemailGreetingUrl = await signedUrlForVoicemailGreeting(
+        supabase,
+        numberRow.voicemail_greeting_url,
+        VOICEMAIL_GREETING_SIGNED_URL_TTL_SECONDS,
+      );
+    } catch {
+      voicemailGreetingUrl = undefined;
+    }
+  }
+
   // Slice 9 (#313) — voicemail callback URLs. Passed on every call (the
   // builder ignores them in the dial branches); the <Record> verb in the
   // voicemail branch posts the finished recording to voicemail-completed and
@@ -221,6 +249,7 @@ export async function POST(request: NextRequest | Request): Promise<Response> {
   // from env, mirroring PHONE_STATUS_CALLBACK_URL for outbound SMS.
   const twiml = buildVoiceTwiml(result, {
     callerId: toE164,
+    voicemailGreetingUrl,
     recordingStatusCallback: process.env.PHONE_VOICEMAIL_CALLBACK_URL || undefined,
     transcribeCallback: process.env.PHONE_TRANSCRIPTION_CALLBACK_URL || undefined,
     // Slice 11 (#315) — answered-call recording + consent (no-op in the

@@ -1,21 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Phone as PhoneIcon, Plus, Trash2, Loader2 } from "lucide-react";
+import {
+  Phone as PhoneIcon,
+  Plus,
+  Trash2,
+  Loader2,
+  Mic,
+  Square,
+  Voicemail,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { formatPhoneNumber } from "@/lib/phone";
+import {
+  startMicWavRecording,
+  type MicWavRecording,
+} from "@/lib/phone/mic-wav-recorder";
 
-// PRD #304 — Nookleus Phone. Slice 3 (#307) — Settings → Phone tab.
+// PRD #304 — Nookleus Phone. Slice 3 (#307) + slice 13 (#317) —
+// Settings → Phone tab.
 //
-// Lists every phone_numbers row in the active org and lets an admin
-// provision a new Shared number from Twilio or release an existing one.
-// Non-admins see the read-only list (the AC allows this — they get the
-// surface; the management affordances are hidden).
+// Lists every phone_numbers row the caller can see (RLS-filtered) and
+// carries two role-scoped actions, per ADR 0005's access matrix:
+//   - Admins provision/release Shared numbers and configure inbound rules.
+//   - Any member holding view_phone claims a single Personal number for
+//     themselves (self-service), shown in the same list under the Owner
+//     column as "You". Untagged Personal lines are owner-only — RLS keeps
+//     them out of an admin's list, so the admin affordances never touch them.
 //
-// Slice 3 lands the Shared path only. Personal numbers (slice 13) will
-// show up in the same list under an "Owner: X" column; the table is
-// already prepared for that — `kind` and `user_id` are surfaced on each
-// row so slice 13 is a UI-extension delivery rather than a rewrite.
+// Non-admins see the read-only Shared list plus their own Personal line; the
+// admin-only management affordances stay hidden.
 
 interface PhoneNumberRow {
   id: string;
@@ -26,6 +40,10 @@ interface PhoneNumberRow {
   kind: "shared" | "personal";
   user_id: string | null;
   inbound_rule: unknown | null;
+  // Slice 13 (#317) — the storage path of the number's custom voicemail
+  // greeting, or null for the default spoken greeting. The list GET returns it
+  // (PHONE_NUMBER_FIELDS); the UI shows set/unset and lets a manager change it.
+  voicemail_greeting_url: string | null;
   monthly_cost_cents: number | null;
   is_active: boolean;
   released_at: string | null;
@@ -133,6 +151,7 @@ function summarizeInboundRule(rule: unknown): string {
 export function PhoneNumbersTab() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const viewerId = profile?.id ?? null;
 
   const [rows, setRows] = useState<PhoneNumberRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,9 +168,41 @@ export function PhoneNumbersTab() {
   const [label, setLabel] = useState("");
   const [provisioning, setProvisioning] = useState(false);
 
+  // Claim-Personal-Number flow state (slice 13, #317). A member's own
+  // self-service claim: search by area code, pick, claim. The number is
+  // always owned by the caller — the route derives the owner from the
+  // session, so the dialog never collects an owner. Its own search/pick state
+  // keeps it independent of the admin Add-Shared dialog above.
+  const [showClaimDialog, setShowClaimDialog] = useState(false);
+  const [claimAreaCode, setClaimAreaCode] = useState("");
+  const [claimSearching, setClaimSearching] = useState(false);
+  const [claimAvailable, setClaimAvailable] = useState<AvailableLocalNumber[]>(
+    [],
+  );
+  const [claimPicked, setClaimPicked] = useState<AvailableLocalNumber | null>(
+    null,
+  );
+  const [claiming, setClaiming] = useState(false);
+  // Re-claim revive notice (#317). When a claim revives a number a departed
+  // teammate had released, the route answers with `previously_owned_by`; we
+  // surface the prior owner here so the new owner knows the line was recycled.
+  const [reclaimNotice, setReclaimNotice] = useState<string | null>(null);
+
   // Release-confirm flow state — the row the admin clicked Release on.
   const [releasing, setReleasing] = useState<PhoneNumberRow | null>(null);
   const [releaseInFlight, setReleaseInFlight] = useState(false);
+
+  // Voicemail-greeting flow state (slice 13, #317). `greetingFor` is the row
+  // whose greeting dialog is open. The pending audio is either an uploaded
+  // File or a Blob the in-browser recorder produced; `recording` is the live
+  // recorder handle while capturing.
+  const [greetingFor, setGreetingFor] = useState<PhoneNumberRow | null>(null);
+  const [greetingFile, setGreetingFile] = useState<Blob | null>(null);
+  const [greetingFileName, setGreetingFileName] = useState<string | null>(null);
+  const [recording, setRecording] = useState<MicWavRecording | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [greetingSaving, setGreetingSaving] = useState(false);
+  const [greetingRemoving, setGreetingRemoving] = useState(false);
 
   // Inbound-rule editor state — the Shared row the admin clicked Configure on.
   const [editing, setEditing] = useState<PhoneNumberRow | null>(null);
@@ -272,6 +323,17 @@ export function PhoneNumbersTab() {
     [rows],
   );
 
+  // ADR 0005: a member gets at most one active Personal line, claimed
+  // self-service. The "Claim Personal Number" affordance shows only when the
+  // viewer owns none — the one-per-member cap is enforced here at the surface
+  // (the route would accept a second, but the UI never offers it).
+  const ownsActivePersonal = useMemo(
+    () =>
+      viewerId !== null &&
+      liveRows.some((r) => r.kind === "personal" && r.user_id === viewerId),
+    [liveRows, viewerId],
+  );
+
   async function handleSearch() {
     setSearching(true);
     setAvailable([]);
@@ -318,6 +380,57 @@ export function PhoneNumbersTab() {
     }
   }
 
+  async function handleClaimSearch() {
+    setClaimSearching(true);
+    setClaimAvailable([]);
+    try {
+      const res = await fetch(
+        `/api/phone/numbers/available?areaCode=${encodeURIComponent(claimAreaCode)}`,
+      );
+      if (!res.ok) {
+        setError("Failed to search for numbers");
+        return;
+      }
+      setClaimAvailable((await res.json()) as AvailableLocalNumber[]);
+    } finally {
+      setClaimSearching(false);
+    }
+  }
+
+  // Claim the picked number as the caller's own Personal line. The body
+  // carries only the number + kind='personal'; the route owns it to the
+  // authenticated caller, so the client never sends (or could spoof) an owner.
+  async function handleClaim() {
+    if (!claimPicked) return;
+    setClaiming(true);
+    try {
+      const res = await fetch("/api/phone/numbers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phoneNumber: claimPicked.phoneNumber,
+          kind: "personal",
+        }),
+      });
+      if (!res.ok) {
+        setError("Failed to claim number");
+        return;
+      }
+      // A revived re-claim carries the prior owner; a brand-new claim doesn't.
+      const result = (await res.json().catch(() => null)) as
+        | { previously_owned_by?: string | null }
+        | null;
+      await load();
+      setShowClaimDialog(false);
+      setClaimAreaCode("");
+      setClaimAvailable([]);
+      setClaimPicked(null);
+      setReclaimNotice(result?.previously_owned_by ?? null);
+    } finally {
+      setClaiming(false);
+    }
+  }
+
   async function handleReleaseConfirm() {
     if (!releasing) return;
     setReleaseInFlight(true);
@@ -336,6 +449,103 @@ export function PhoneNumbersTab() {
     }
   }
 
+  // canManage at the surface: Shared → admin; Personal → owner-self (or admin).
+  // Mirrors the route's gate so the greeting affordance is offered exactly when
+  // a PUT/DELETE would be allowed.
+  function canManageRow(r: PhoneNumberRow): boolean {
+    if (r.kind === "shared") return isAdmin;
+    return isAdmin || r.user_id === viewerId;
+  }
+
+  // Open / close the greeting dialog, resetting any pending audio + recorder.
+  function openGreeting(r: PhoneNumberRow) {
+    setGreetingFor(r);
+    setGreetingFile(null);
+    setGreetingFileName(null);
+    setRecordError(null);
+  }
+  function closeGreeting() {
+    // Drop a live recording if the dialog is dismissed mid-capture.
+    recording?.cancel();
+    setRecording(null);
+    setGreetingFor(null);
+    setGreetingFile(null);
+    setGreetingFileName(null);
+    setRecordError(null);
+  }
+
+  // The selected upload replaces any prior pick (uploaded or recorded).
+  function handleGreetingFileChange(file: File | null) {
+    setGreetingFile(file);
+    setGreetingFileName(file?.name ?? null);
+  }
+
+  async function handleStartRecording() {
+    setRecordError(null);
+    try {
+      const rec = await startMicWavRecording();
+      setRecording(rec);
+    } catch {
+      setRecordError(
+        "Couldn't access the microphone. Check your browser permissions.",
+      );
+    }
+  }
+
+  async function handleStopRecording() {
+    if (!recording) return;
+    const blob = await recording.stop();
+    setRecording(null);
+    setGreetingFile(blob);
+    setGreetingFileName("greeting.wav");
+  }
+
+  // PUT the chosen audio as multipart form-data. A File carries its own name;
+  // a recorded Blob is sent as greeting.wav so the server sees a wav upload.
+  async function handleGreetingSave() {
+    if (!greetingFor || !greetingFile) return;
+    setGreetingSaving(true);
+    try {
+      const form = new FormData();
+      if (greetingFile instanceof File) {
+        form.append("file", greetingFile);
+      } else {
+        form.append("file", greetingFile, greetingFileName ?? "greeting.wav");
+      }
+      const res = await fetch(
+        `/api/phone/numbers/${greetingFor.id}/voicemail-greeting`,
+        { method: "PUT", body: form },
+      );
+      if (!res.ok) {
+        setError("Failed to save voicemail greeting");
+        return;
+      }
+      await load();
+      closeGreeting();
+    } finally {
+      setGreetingSaving(false);
+    }
+  }
+
+  async function handleGreetingRemove() {
+    if (!greetingFor) return;
+    setGreetingRemoving(true);
+    try {
+      const res = await fetch(
+        `/api/phone/numbers/${greetingFor.id}/voicemail-greeting`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        setError("Failed to remove voicemail greeting");
+        return;
+      }
+      await load();
+      closeGreeting();
+    } finally {
+      setGreetingRemoving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -345,21 +555,54 @@ export function PhoneNumbersTab() {
             Phone numbers
           </h2>
         </div>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowAddDialog(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--brand-primary)] text-white text-sm font-medium hover:opacity-90"
-          >
-            <Plus size={16} />
-            Add Shared Number
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!ownsActivePersonal && (
+            <button
+              type="button"
+              onClick={() => {
+                setReclaimNotice(null);
+                setShowClaimDialog(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium hover:bg-[var(--brand-primary)]/5"
+            >
+              <Plus size={16} />
+              Claim Personal Number
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowAddDialog(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--brand-primary)] text-white text-sm font-medium hover:opacity-90"
+            >
+              <Plus size={16} />
+              Add Shared Number
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 text-destructive text-sm px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {reclaimNotice && (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-3 rounded-md border border-amber-400/40 bg-amber-50 text-amber-900 text-sm px-3 py-2 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          <span>
+            {`Heads up — this number was previously owned by ${reclaimNotice}. Its prior calls and messages stay with that member and won't appear on your line.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReclaimNotice(null)}
+            className="shrink-0 font-medium hover:underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -408,7 +651,11 @@ export function PhoneNumbersTab() {
                     {r.label ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {r.kind === "shared" ? "—" : r.user_id ?? "—"}
+                    {r.kind === "shared"
+                      ? "—"
+                      : r.user_id === viewerId
+                        ? "You"
+                        : r.user_id ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground text-xs">
                     <div className="flex items-center gap-2">
@@ -432,16 +679,33 @@ export function PhoneNumbersTab() {
                     {formatCents(r.monthly_cost_cents)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setReleasing(r)}
-                        className="inline-flex items-center gap-1 text-destructive text-xs font-medium hover:underline"
-                      >
-                        <Trash2 size={12} />
-                        Release
-                      </button>
-                    )}
+                    <div className="flex items-center justify-end gap-3">
+                      {canManageRow(r) && (
+                        <button
+                          type="button"
+                          onClick={() => openGreeting(r)}
+                          className="inline-flex items-center gap-1 text-[var(--brand-primary)] text-xs font-medium hover:underline"
+                          title={
+                            r.voicemail_greeting_url
+                              ? "Custom voicemail greeting set"
+                              : "Using the default voicemail greeting"
+                          }
+                        >
+                          <Voicemail size={12} />
+                          Greeting
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setReleasing(r)}
+                          className="inline-flex items-center gap-1 text-destructive text-xs font-medium hover:underline"
+                        >
+                          <Trash2 size={12} />
+                          Release
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -551,6 +815,93 @@ export function PhoneNumbersTab() {
         </div>
       )}
 
+      {/* Claim a Personal Number dialog — area code → pick → claim. The
+          number is owned by the caller (route-enforced); no owner field. */}
+      {showClaimDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-card rounded-xl border border-border w-full max-w-md p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Claim a Personal Number
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              A personal number is your own line — only you can see its calls
+              and messages. Pick a number to claim it for yourself.
+            </p>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="claim-area-code"
+                className="text-sm font-medium text-foreground"
+              >
+                Area code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="claim-area-code"
+                  value={claimAreaCode}
+                  onChange={(e) => setClaimAreaCode(e.target.value)}
+                  placeholder="512"
+                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleClaimSearch}
+                  disabled={claimSearching || !claimAreaCode}
+                  className="rounded-md bg-secondary text-secondary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                >
+                  {claimSearching ? "Searching…" : "Search"}
+                </button>
+              </div>
+            </div>
+
+            {claimAvailable.length > 0 && (
+              <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-auto">
+                {claimAvailable.map((n) => (
+                  <button
+                    key={n.phoneNumber}
+                    type="button"
+                    onClick={() => setClaimPicked(n)}
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent ${
+                      claimPicked?.phoneNumber === n.phoneNumber
+                        ? "bg-accent"
+                        : ""
+                    }`}
+                  >
+                    <div className="font-mono">{n.friendlyName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {n.locality ?? "—"}, {n.region ?? "—"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowClaimDialog(false);
+                  setClaimAreaCode("");
+                  setClaimAvailable([]);
+                  setClaimPicked(null);
+                }}
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClaim}
+                disabled={!claimPicked || claiming}
+                className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              >
+                {claiming ? "Claiming…" : "Claim"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Release confirmation. */}
       {releasing && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
@@ -578,6 +929,112 @@ export function PhoneNumbersTab() {
               >
                 {releaseInFlight ? "Releasing…" : "Confirm"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voicemail-greeting dialog (slice 13, #317) — upload an audio file or
+          record one in the browser (encoded to WAV), then PUT it; or remove an
+          existing greeting (DELETE). Twilio <Play> renders mp3/wav only. */}
+      {greetingFor && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-card rounded-xl border border-border w-full max-w-md p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Voicemail greeting — {formatPhoneNumber(greetingFor.e164)}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {greetingFor.voicemail_greeting_url
+                ? "A custom greeting is set. Upload or record a new one to replace it, or remove it to use the default."
+                : "Using the default spoken greeting. Upload an MP3/WAV file or record one to set a custom greeting."}
+            </p>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="greeting-file"
+                className="text-sm font-medium text-foreground"
+              >
+                Upload audio (MP3 or WAV)
+              </label>
+              <input
+                id="greeting-file"
+                type="file"
+                accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,.mp3,.wav"
+                onChange={(e) =>
+                  handleGreetingFileChange(e.target.files?.[0] ?? null)
+                }
+                className="block w-full text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">or</span>
+              {recording ? (
+                <button
+                  type="button"
+                  onClick={() => void handleStopRecording()}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground"
+                >
+                  <Square size={14} />
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleStartRecording()}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  <Mic size={14} />
+                  Record
+                </button>
+              )}
+              {recording && (
+                <span className="inline-flex items-center gap-1 text-xs text-destructive">
+                  <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                  Recording…
+                </span>
+              )}
+            </div>
+
+            {greetingFileName && !recording && (
+              <p className="text-xs text-muted-foreground">
+                Ready to save: <span className="text-foreground">{greetingFileName}</span>
+              </p>
+            )}
+            {recordError && (
+              <p className="text-xs text-destructive">{recordError}</p>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <div>
+                {greetingFor.voicemail_greeting_url && (
+                  <button
+                    type="button"
+                    onClick={() => void handleGreetingRemove()}
+                    disabled={greetingRemoving}
+                    className="rounded-md px-3 py-1.5 text-sm font-medium text-destructive hover:underline disabled:opacity-50"
+                  >
+                    {greetingRemoving ? "Removing…" : "Remove greeting"}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={closeGreeting}
+                  className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleGreetingSave()}
+                  disabled={!greetingFile || greetingSaving || recording !== null}
+                  className="rounded-md bg-[var(--brand-primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {greetingSaving ? "Saving…" : "Save greeting"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -206,7 +206,12 @@ export const POST = withRequestContext(
       organizationId: ctx.orgId ?? "",
       orgNumbers,
     });
-    if (selected.kind === "none") {
+    // Bridge calls always use the default selection rule (Personal-if-active,
+    // else primary Shared) — the per-message override is a messages-only
+    // affordance (#317), so any non-"picked" result here means there is no
+    // usable number to call from. Narrowing on "picked" also covers the
+    // (unreachable, override-only) "forbidden_override" variant.
+    if (selected.kind !== "picked") {
       return NextResponse.json(
         {
           error:

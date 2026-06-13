@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
-import { canManage } from "@/lib/phone/phone-event-access";
 import {
   createTwilioClient,
   listAvailableLocalNumbers,
@@ -9,27 +8,17 @@ import {
 // PRD #304 — Nookleus Phone. Slice 3 (#307) — number-picker proxy.
 //
 // GET /api/phone/numbers/available?areaCode=512
-// The Add Shared Number flow's step 2: given an area code, show the
-// caller the list of available local numbers Twilio returns. Admin-only —
-// non-admins cannot provision (canManage on Shared = admin-only), so
-// gating the search at the same door avoids leaking number availability
-// to non-admins who could not act on it anyway.
+// Step 2 of both number-claim flows: given an area code, show the caller
+// the list of available local numbers Twilio returns. Gated on view_phone
+// alone — slice 3 narrowed this admin-only because only admins could
+// provision, but slice 13 (#317) makes the same picker serve the Crew
+// Lead's self-service Personal claim. The downstream POST still enforces
+// the ADR-0005 matrix per kind (Shared → admin; Personal → owner-self), so
+// the picker need only confirm the caller is in the phone product at all.
 
 export const GET = withRequestContext(
   { permission: "view_phone" },
-  async (request, ctx) => {
-    const allowed = canManage(
-      {
-        userId: ctx.userId,
-        organizationId: ctx.orgId ?? "",
-        role: ctx.role,
-      },
-      { kind: "shared", organizationId: ctx.orgId ?? "", userId: null },
-    );
-    if (!allowed) {
-      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    }
-
+  async (request) => {
     const areaCode = new URL(request.url).searchParams.get("areaCode");
     if (!areaCode) {
       return NextResponse.json(

@@ -30,6 +30,15 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+// Slice 13 (#317) — the record-in-browser path. The recorder is browser-only
+// Web Audio glue; the component test injects a fake recording that yields a
+// known WAV Blob on stop, so the UI's "record → save" wiring is exercised
+// without a real microphone.
+const startMicWavRecordingMock = vi.fn();
+vi.mock("@/lib/phone/mic-wav-recorder", () => ({
+  startMicWavRecording: (...args: unknown[]) => startMicWavRecordingMock(...args),
+}));
+
 import { PhoneNumbersTab } from "./phone-numbers-tab";
 
 type PhoneNumberRow = {
@@ -41,6 +50,7 @@ type PhoneNumberRow = {
   kind: "shared" | "personal";
   user_id: string | null;
   inbound_rule: unknown | null;
+  voicemail_greeting_url: string | null;
   monthly_cost_cents: number | null;
   is_active: boolean;
   released_at: string | null;
@@ -57,6 +67,7 @@ function row(overrides: Partial<PhoneNumberRow> = {}): PhoneNumberRow {
     kind: "shared",
     user_id: null,
     inbound_rule: null,
+    voicemail_greeting_url: null,
     monthly_cost_cents: 115,
     is_active: true,
     released_at: null,
@@ -83,9 +94,13 @@ function stubFetch(opts: {
   rows?: PhoneNumberRow[];
   available?: Available[];
   members?: Member[];
-  postResult?: PhoneNumberRow;
+  // A revived re-claim returns 200 with `previously_owned_by`; a brand-new
+  // claim returns 201 with a plain row. `postStatus` lets a test pick which.
+  postResult?: PhoneNumberRow & { previously_owned_by?: string | null };
+  postStatus?: number;
   releaseResult?: PhoneNumberRow;
   patchResult?: PhoneNumberRow;
+  greetingResult?: PhoneNumberRow;
 }) {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -99,12 +114,17 @@ function stubFetch(opts: {
     if (url.startsWith("/api/phone/numbers/available")) {
       return json(opts.available ?? []);
     }
+    // Slice 13 (#317) — set (PUT) / clear (DELETE) a number's greeting. Must be
+    // matched before the generic /api/phone/numbers branch below.
+    if (url.match(/\/api\/phone\/numbers\/[^/]+\/voicemail-greeting$/)) {
+      return json(opts.greetingResult ?? row(), 200);
+    }
     if (url.match(/\/api\/phone\/numbers\/[^/]+\/release$/)) {
       return json(opts.releaseResult ?? row({ released_at: "2026-05-27T01:00:00Z" }));
     }
     if (url.startsWith("/api/phone/numbers")) {
       if (init?.method === "POST") {
-        return json(opts.postResult ?? row({ id: "row-new" }), 201);
+        return json(opts.postResult ?? row({ id: "row-new" }), opts.postStatus ?? 201);
       }
       if (init?.method === "PATCH") {
         return json(opts.patchResult ?? row(), 200);
@@ -132,6 +152,7 @@ function asNonAdmin() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  startMicWavRecordingMock.mockReset();
 });
 
 describe("PhoneNumbersTab — list rendering", () => {
@@ -521,6 +542,334 @@ describe("PhoneNumbersTab — inbound-rule editor", () => {
       expect(body).toEqual({
         inbound_rule: { kind: "round-robin", sequence: ["u2", "u1"] },
       });
+    });
+  });
+});
+
+describe("PhoneNumbersTab — Claim Personal Number (slice 13, #317)", () => {
+  // ADR 0005: a Personal number is the member's own line — owner-only, hidden
+  // from admins. Slice 13 gives any member holding view_phone a self-service
+  // claim, scoped to themselves. The affordance is offered only when the
+  // member does not already own an active Personal number ("claim when none").
+
+  it("offers a Claim Personal Number button to a member who owns none", async () => {
+    asNonAdmin(); // crew_lead user-1
+    // Only a Shared number exists; user-1 owns no Personal line.
+    stubFetch({ rows: [row()] });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    ).toBeDefined();
+  });
+
+  it("searches, picks, and claims a Personal number for the caller (POST kind=personal)", async () => {
+    asNonAdmin(); // crew_lead user-1
+    const fetchSpy = stubFetch({
+      rows: [],
+      available: [
+        {
+          phoneNumber: "+15125559999",
+          friendlyName: "(512) 555-9999",
+          locality: "Austin",
+          region: "TX",
+        },
+      ],
+      postResult: row({
+        id: "pers-new",
+        kind: "personal",
+        user_id: "user-1",
+        e164: "+15125559999",
+        label: null,
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    );
+
+    const areaCode = screen.getByLabelText(/area code/i);
+    fireEvent.change(areaCode, { target: { value: "512" } });
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    fireEvent.click(await screen.findByText("(512) 555-9999"));
+    fireEvent.click(screen.getByRole("button", { name: /^claim$/i }));
+
+    await waitFor(() => {
+      const postCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers" &&
+          (c[1] as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeDefined();
+      // The claim never sends an owner — the route derives it from the
+      // session. It carries only the picked number and kind='personal'.
+      const body = JSON.parse(String((postCall![1] as RequestInit).body));
+      expect(body).toEqual({
+        phoneNumber: "+15125559999",
+        kind: "personal",
+      });
+    });
+  });
+
+  it("hides the Claim button once the member already owns an active Personal number", async () => {
+    asNonAdmin(); // user-1
+    stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("(512) 555-9999");
+    // One active Personal line per member: the affordance is gone.
+    expect(
+      screen.queryByRole("button", { name: /claim personal number/i }),
+    ).toBeNull();
+  });
+
+  it("labels the viewer's own Personal number owner as You", async () => {
+    asNonAdmin(); // user-1
+    stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("(512) 555-9999");
+    // The owner column reads "You" for the caller's own line, not a raw id.
+    expect(screen.getByText("You")).toBeDefined();
+  });
+
+  it("warns that a re-claimed number was previously owned by a departed member", async () => {
+    asNonAdmin(); // crew_lead user-1
+    // The picked number was released by a teammate during offboarding, so the
+    // claim revives that row — the route answers 200 with `previously_owned_by`
+    // naming the prior owner. The UI must surface that so the new owner knows
+    // the line was recycled (its prior calls/messages stay with that member).
+    stubFetch({
+      rows: [],
+      available: [
+        {
+          phoneNumber: "+15125559999",
+          friendlyName: "(512) 555-9999",
+          locality: "Austin",
+          region: "TX",
+        },
+      ],
+      postStatus: 200,
+      postResult: {
+        ...row({
+          id: "pers-revived",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+        previously_owned_by: "user-bob",
+      },
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /claim personal number/i }),
+    );
+    fireEvent.change(screen.getByLabelText(/area code/i), {
+      target: { value: "512" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /search/i }));
+    fireEvent.click(await screen.findByText("(512) 555-9999"));
+    fireEvent.click(screen.getByRole("button", { name: /^claim$/i }));
+
+    // A notice that names the prior owner appears after the claim resolves.
+    expect(
+      await screen.findByText(/previously owned by user-bob/i),
+    ).toBeDefined();
+  });
+});
+
+describe("PhoneNumbersTab — Voicemail greeting (slice 13, #317)", () => {
+  // canManage governs who may set a greeting: Shared → admin; Personal →
+  // owner-self (or admin). The affordance mirrors that gate at the surface.
+
+  it("offers a Greeting button to an admin on a Shared number", async () => {
+    asAdmin();
+    stubFetch({ rows: [row({ id: "pn-1", kind: "shared" })] });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(
+      screen.getByRole("button", { name: /^greeting$/i }),
+    ).toBeDefined();
+  });
+
+  it("offers a Greeting button to the owner of a Personal number", async () => {
+    asNonAdmin(); // user-1
+    stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          e164: "+15125559999",
+          label: null,
+        }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("(512) 555-9999");
+    expect(
+      screen.getByRole("button", { name: /^greeting$/i }),
+    ).toBeDefined();
+  });
+
+  it("hides the Greeting button from a non-admin on a Shared number", async () => {
+    asNonAdmin();
+    stubFetch({ rows: [row({ id: "pn-1", kind: "shared" })] });
+
+    render(<PhoneNumbersTab />);
+
+    await screen.findByText("Marketing");
+    expect(screen.queryByRole("button", { name: /^greeting$/i })).toBeNull();
+  });
+
+  it("uploads an audio file: PUTs multipart form-data with the file to the greeting route", async () => {
+    asNonAdmin(); // user-1 owns the Personal line
+    const fetchSpy = stubFetch({
+      rows: [
+        row({ id: "p1", kind: "personal", user_id: "user-1", label: null }),
+      ],
+      greetingResult: row({
+        id: "p1",
+        kind: "personal",
+        user_id: "user-1",
+        voicemail_greeting_url: "org-1/p1.wav",
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^greeting$/i }));
+
+    const fileInput = await screen.findByLabelText(/upload audio/i);
+    const file = new File([new Uint8Array(64)], "greeting.wav", {
+      type: "audio/wav",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^save greeting$/i }));
+
+    await waitFor(() => {
+      const putCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/p1/voicemail-greeting" &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(putCall).toBeDefined();
+      const body = (putCall![1] as RequestInit).body as FormData;
+      expect(body).toBeInstanceOf(FormData);
+      const sent = body.get("file") as File;
+      expect(sent.name).toBe("greeting.wav");
+      expect(sent.type).toBe("audio/wav");
+    });
+  });
+
+  it("records in the browser and PUTs the encoded WAV blob as the greeting", async () => {
+    asNonAdmin(); // user-1 owns the Personal line
+    const wavBlob = new Blob([new Uint8Array(44)], { type: "audio/wav" });
+    const stop = vi.fn(async () => wavBlob);
+    startMicWavRecordingMock.mockResolvedValue({ stop, cancel: vi.fn() });
+    const fetchSpy = stubFetch({
+      rows: [
+        row({ id: "p1", kind: "personal", user_id: "user-1", label: null }),
+      ],
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^greeting$/i }));
+
+    // Start, then stop the in-browser recording.
+    fireEvent.click(await screen.findByRole("button", { name: /^record$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^stop$/i }));
+
+    // Once stopped, the recorder yielded a WAV blob — Save is now possible.
+    fireEvent.click(await screen.findByRole("button", { name: /^save greeting$/i }));
+
+    await waitFor(() => {
+      expect(startMicWavRecordingMock).toHaveBeenCalled();
+      expect(stop).toHaveBeenCalled();
+      const putCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/p1/voicemail-greeting" &&
+          (c[1] as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(putCall).toBeDefined();
+      const body = (putCall![1] as RequestInit).body as FormData;
+      const sent = body.get("file") as File;
+      // The recorded blob is uploaded as a .wav file (audio/wav).
+      expect(sent.type).toBe("audio/wav");
+      expect(sent.name).toMatch(/\.wav$/);
+    });
+  });
+
+  it("removes an existing greeting via DELETE", async () => {
+    asNonAdmin(); // user-1 owns the Personal line
+    const fetchSpy = stubFetch({
+      rows: [
+        row({
+          id: "p1",
+          kind: "personal",
+          user_id: "user-1",
+          label: null,
+          voicemail_greeting_url: "org-1/p1.wav",
+        }),
+      ],
+      greetingResult: row({
+        id: "p1",
+        kind: "personal",
+        user_id: "user-1",
+        voicemail_greeting_url: null,
+      }),
+    });
+
+    render(<PhoneNumbersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^greeting$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /remove greeting/i }),
+    );
+
+    await waitFor(() => {
+      const delCall = fetchSpy.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/phone/numbers/p1/voicemail-greeting" &&
+          (c[1] as RequestInit | undefined)?.method === "DELETE",
+      );
+      expect(delCall).toBeDefined();
     });
   });
 });

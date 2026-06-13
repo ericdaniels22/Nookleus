@@ -117,9 +117,25 @@ interface StagedAttachment {
   error?: string;
 }
 
+// Slice 13 (#317) — one option in the compose-box "Send from" picker: a
+// number the caller is permitted to send from (their own Personal, or a
+// Shared org number). The server computes the permitted set via
+// `selectableOutboundNumbers`, own-Personal first; the first entry is the
+// default the route would otherwise pick.
+export interface OutboundNumberOption {
+  id: string;
+  e164: string;
+  kind: "shared" | "personal";
+}
+
 export interface PhonePageClientProps {
   organizationId: string;
   initialConversations: PhoneConversationItem[];
+  // Slice 13 (#317) — the numbers this caller may send from. Empty or a
+  // single entry means there's nothing to choose, so no picker renders and
+  // the route's default selection stands. Defaults to [] for callers (and
+  // tests) that don't supply it.
+  selectableNumbers?: OutboundNumberOption[];
 }
 
 function sortConversations(
@@ -143,6 +159,7 @@ function conversationLabel(c: PhoneConversationItem): string {
 export function PhonePageClient({
   organizationId,
   initialConversations,
+  selectableNumbers = [],
 }: PhonePageClientProps) {
   const [conversations, setConversations] = useState(
     sortConversations(initialConversations),
@@ -153,6 +170,15 @@ export function PhonePageClient({
   // once that thread's calls load.
   const deepLinkConversation = searchParams?.get("conversation") ?? null;
   const deepLinkCallId = searchParams?.get("call") ?? null;
+  // Slice 13 (#317) — per-message picker. Only meaningful with 2+ options;
+  // the selection defaults to the first (the route's default pick) and is
+  // sent as `fromNumberId` so an override is explicit. State holds the
+  // currently-chosen id; resetting it per message is unnecessary — the
+  // sender almost always wants the same line for a whole thread.
+  const hasNumberPicker = selectableNumbers.length >= 2;
+  const [fromNumberId, setFromNumberId] = useState<string>(
+    selectableNumbers[0]?.id ?? "",
+  );
   const [selectedId, setSelectedId] = useState<string | null>(
     deepLinkConversation,
   );
@@ -369,6 +395,7 @@ export function PhonePageClient({
           outsideE164: normalized,
           body: newConv.body,
           sourceContext: { kind: "phone-tab" },
+          ...(hasNumberPicker && fromNumberId ? { fromNumberId } : {}),
         }),
       });
       if (!res.ok) {
@@ -402,7 +429,7 @@ export function PhonePageClient({
     } finally {
       setCreatingConv(false);
     }
-  }, [newConv, organizationId]);
+  }, [newConv, organizationId, hasNumberPicker, fromNumberId]);
 
   const readyAttachments = useMemo(
     () =>
@@ -435,6 +462,7 @@ export function PhonePageClient({
           conversationId: selected.id,
           body: draft,
           sourceContext: { kind: "phone-tab" },
+          ...(hasNumberPicker && fromNumberId ? { fromNumberId } : {}),
           ...(outAttachments.length > 0
             ? { attachments: outAttachments }
             : {}),
@@ -479,7 +507,15 @@ export function PhonePageClient({
     } finally {
       setSending(false);
     }
-  }, [selected, draft, readyAttachments, anyUploading, attachments]);
+  }, [
+    selected,
+    draft,
+    readyAttachments,
+    anyUploading,
+    attachments,
+    hasNumberPicker,
+    fromNumberId,
+  ]);
 
   // Slice 10 (#314) — place an outbound bridge call from the open thread.
   // Twilio rings the Crew Lead's own cell (resolved server-side from their
@@ -680,6 +716,35 @@ export function PhonePageClient({
     [],
   );
 
+  // Slice 13 (#317) — the "Send from" picker, rendered in both composers.
+  // `idSuffix` keeps the label/select id unique when both the new-conversation
+  // form (left pane) and the thread composer (right pane) are on screen at
+  // once. Hidden entirely when there's nothing to choose.
+  const renderNumberPicker = (idSuffix: string) =>
+    hasNumberPicker ? (
+      <div className="flex items-center gap-2 text-xs">
+        <label
+          htmlFor={`phone-from-${idSuffix}`}
+          className="text-muted-foreground"
+        >
+          Send from
+        </label>
+        <select
+          id={`phone-from-${idSuffix}`}
+          value={fromNumberId}
+          onChange={(e) => setFromNumberId(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40"
+        >
+          {selectableNumbers.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {formatPhoneNumber(opt.e164)} ·{" "}
+              {opt.kind === "personal" ? "Personal" : "Shared"}
+            </option>
+          ))}
+        </select>
+      </div>
+    ) : null;
+
   const newConvForm = newConv ? (
     <div className="border-b border-border p-3 space-y-2 bg-muted/30">
       <h2 className="text-sm font-semibold text-foreground">New conversation</h2>
@@ -713,6 +778,7 @@ export function PhonePageClient({
           className="mt-1 block w-full resize-none rounded-md border border-border bg-background p-2 text-sm"
         />
       </label>
+      {renderNumberPicker("new")}
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -993,6 +1059,7 @@ export function PhonePageClient({
                     This message will be smart-attached when sent.
                   </p>
                 ) : null}
+                {renderNumberPicker("thread")}
                 {attachments.length > 0 ? (
                   <ul className="flex flex-wrap gap-2">
                     {attachments.map((a) => (

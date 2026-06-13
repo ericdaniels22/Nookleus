@@ -20,7 +20,15 @@ interface QueryResult {
 // A chainable builder: every filter/modifier returns `this`, and the
 // builder is awaitable (thenable). `single`/`maybeSingle` resolve to one
 // row; awaiting the builder directly resolves to the row list.
-function queryBuilder(rows: Row[]): Record<string, unknown> {
+//
+// `onWrite`, when supplied, records the payload handed to insert/update so
+// a write-path test can assert WHAT the route persisted (e.g. that an owner
+// id was computed server-side, never honored from the request body) rather
+// than only that the call returned a row.
+function queryBuilder(
+  rows: Row[],
+  onWrite?: (op: "insert" | "update", payload: Row | Row[]) => void,
+): Record<string, unknown> {
   let filtered = [...rows];
   const builder: Record<string, unknown> = {};
   const passthrough = [
@@ -29,6 +37,16 @@ function queryBuilder(rows: Row[]): Record<string, unknown> {
   ];
   for (const m of passthrough) {
     builder[m] = () => builder;
+  }
+  if (onWrite) {
+    builder.insert = (payload: Row | Row[]) => {
+      onWrite("insert", payload);
+      return builder;
+    };
+    builder.update = (payload: Row | Row[]) => {
+      onWrite("update", payload);
+      return builder;
+    };
   }
   builder.eq = (col: string, val: unknown) => {
     filtered = filtered.filter((r) => r[col] === val);
@@ -80,12 +98,21 @@ export function fakeUserClient(opts: {
   };
 }
 
-// A fake Service client for `serviceClient: true` routes.
-export function fakeServiceClient(opts: { tables?: Record<string, Row[]> } = {}) {
+// A fake Service client for `serviceClient: true` routes. Pass `onWrite` to
+// capture the payloads the route inserts/updates, tagged with the table —
+// useful for pinning that a write owns a row to the authenticated caller and
+// not to an attacker-supplied id.
+export function fakeServiceClient(opts: {
+  tables?: Record<string, Row[]>;
+  onWrite?: (table: string, op: "insert" | "update", payload: Row | Row[]) => void;
+} = {}) {
   const tables = opts.tables ?? {};
   return {
     from(table: string) {
-      return queryBuilder(tables[table] ?? []);
+      return queryBuilder(
+        tables[table] ?? [],
+        opts.onWrite ? (op, payload) => opts.onWrite!(table, op, payload) : undefined,
+      );
     },
     async rpc() {
       return { data: [], error: null };
