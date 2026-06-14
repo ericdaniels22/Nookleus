@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useReducer } from "react";
+import { useState, useEffect, useMemo, useRef, useReducer, useCallback } from "react";
 import {
   Loader2,
   Send,
@@ -8,7 +8,7 @@ import {
   Paperclip,
   X,
   FileIcon,
-  Save,
+  Check,
   Minus,
   Maximize2,
   Minimize2,
@@ -19,6 +19,12 @@ import TiptapEditor from "@/components/tiptap-editor";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import ContactPicker from "@/components/email/contact-picker";
 import { htmlToText } from "@/lib/email/html-to-text";
+import {
+  createDraftAutosaveScheduler,
+  type DraftAutosaveScheduler,
+  type DraftSnapshot,
+  type DraftSaveStatus,
+} from "@/lib/email/draft-autosave";
 import {
   composeWindowReducer,
   initialComposeWindowState,
@@ -90,7 +96,7 @@ export default function ComposeEmailModal({
   const [subject, setSubject] = useState(defaultSubject);
   const [bodyHtml, setBodyHtml] = useState("");
   const [sending, setSending] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState<DraftSaveStatus>("idle");
   const [draftId, setDraftId] = useState<string | null>(initialDraftId || null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -111,6 +117,46 @@ export default function ComposeEmailModal({
   ccRecipientsRef.current = ccRecipients;
   const bccRecipientsRef = useRef(bccRecipients);
   bccRecipientsRef.current = bccRecipients;
+
+  // Automatic draft autosave (issue #641). The decision logic lives in the pure
+  // scheduler; this component is the thin shell that baselines on open, feeds
+  // edits, flushes on close, cancels on send, and renders the status. The
+  // scheduler instance is created once and reused across opens (reset() re-
+  // baselines each open). `armedRef` gates edits until the opened content has
+  // settled, so opening (incl. an auto-inserted signature) never autosaves.
+  const armedRef = useRef(false);
+  const schedulerRef = useRef<DraftAutosaveScheduler | null>(null);
+  if (schedulerRef.current === null) {
+    schedulerRef.current = createDraftAutosaveScheduler({
+      onStatusChange: setAutosaveStatus,
+      save: async (payload) => {
+        const res = await fetch("/api/email/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Draft autosave failed");
+        const data = await res.json();
+        setDraftId(data.id);
+        return { id: data.id };
+      },
+    });
+  }
+
+  const buildSnapshot = useCallback(
+    (): DraftSnapshot => ({
+      accountId: selectedAccountId,
+      to: toRecipients.map((r) => r.email).join(", "),
+      cc: ccRecipients.length > 0 ? ccRecipients.map((r) => r.email).join(", ") : undefined,
+      bcc: bccRecipients.length > 0 ? bccRecipients.map((r) => r.email).join(", ") : undefined,
+      subject,
+      bodyText: htmlToText(bodyHtml),
+      bodyHtml,
+      jobId: jobId || undefined,
+      replyToMessageId,
+    }),
+    [selectedAccountId, toRecipients, ccRecipients, bccRecipients, subject, bodyHtml, jobId, replyToMessageId],
+  );
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === selectedAccountId),
@@ -144,41 +190,37 @@ export default function ComposeEmailModal({
     if (open) {
       // Each fresh open starts as the corner-docked panel.
       dispatchWindow({ type: "reset" });
+      // Disarm autosave until the opened content has settled (see the baseline
+      // reset in the fetch below).
+      armedRef.current = false;
       setSubject(defaultSubject);
       setUploadedFiles(defaultAttachments);
       setDraftId(initialDraftId || null);
 
+      const parseRecipients = (raw: string): Recipient[] =>
+        raw
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+          .map((email) => ({ email, name: "" }));
+
       // Set To recipients
-      if (defaultTo) {
-        const toEmails = defaultTo.split(",").map((e) => e.trim()).filter(Boolean);
-        setToRecipients(toEmails.map((email) => ({ email, name: "" })));
-      } else {
-        setToRecipients([]);
-      }
+      const toList = defaultTo ? parseRecipients(defaultTo) : [];
+      setToRecipients(toList);
 
       setShowContactPicker(false);
 
       // Set CC recipients (for Reply All) — reveal the Cc row only when there's
       // something to show.
-      if (defaultCc) {
-        const ccEmails = defaultCc.split(",").map((e) => e.trim()).filter(Boolean);
-        setCcRecipients(ccEmails.map((email) => ({ email, name: "" })));
-        setShowCc(true);
-      } else {
-        setCcRecipients([]);
-        setShowCc(false);
-      }
+      const ccList = defaultCc ? parseRecipients(defaultCc) : [];
+      setCcRecipients(ccList);
+      setShowCc(!!defaultCc);
 
       // Set BCC recipients (for draft resume) — reveal the Bcc row only when
       // there's something to show.
-      if (defaultBcc) {
-        const bccEmails = defaultBcc.split(",").map((e) => e.trim()).filter(Boolean);
-        setBccRecipients(bccEmails.map((email) => ({ email, name: "" })));
-        setShowBcc(true);
-      } else {
-        setBccRecipients([]);
-        setShowBcc(false);
-      }
+      const bccList = defaultBcc ? parseRecipients(defaultBcc) : [];
+      setBccRecipients(bccList);
+      setShowBcc(!!defaultBcc);
 
       // Fetch accounts and signatures
       Promise.all([
@@ -205,14 +247,63 @@ export default function ComposeEmailModal({
           || active.find((a: EmailAccountData) => a.is_default)
           || active[0];
         if (defaultAcc) {
+          const initialBody = buildInitialBody(defaultAcc, defaultBody, sigs);
           setSelectedAccountId(defaultAcc.id);
-          setBodyHtml(buildInitialBody(defaultAcc, defaultBody, sigs));
+          setBodyHtml(initialBody);
           setEditorKey((k) => k + 1);
+
+          // Baseline the autosave scheduler to the just-opened content so the
+          // opened state (including any auto-inserted signature, and a resumed
+          // draft's id) is never treated as a user edit. Only edits past this
+          // baseline mark the draft dirty and schedule a save.
+          schedulerRef.current?.reset(
+            {
+              accountId: defaultAcc.id,
+              to: toList.map((r) => r.email).join(", "),
+              cc: ccList.length > 0 ? ccList.map((r) => r.email).join(", ") : undefined,
+              bcc: bccList.length > 0 ? bccList.map((r) => r.email).join(", ") : undefined,
+              subject: defaultSubject,
+              bodyText: htmlToText(initialBody),
+              bodyHtml: initialBody,
+              jobId: jobId || undefined,
+              replyToMessageId,
+            },
+            initialDraftId || null,
+          );
+          armedRef.current = true;
         }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultTo, defaultCc, defaultBcc, defaultSubject, defaultBody, defaultAccountId, initialDraftId]);
+
+  // Feed every settled compose snapshot into the scheduler. Inert until the
+  // baseline is armed (above), then each edit schedules a debounced save.
+  useEffect(() => {
+    if (!open || !armedRef.current) return;
+    schedulerRef.current?.notifyChange(buildSnapshot());
+  }, [open, buildSnapshot]);
+
+  // On close, flush any pending edit so the last change is kept as a draft
+  // (issue #641: closing the compose window keeps the draft). Send takes a
+  // different path — it cancels first (below) so this never recreates a draft
+  // for an already-sent message.
+  useEffect(() => {
+    if (open) return;
+    if (armedRef.current) {
+      void schedulerRef.current?.flush();
+      armedRef.current = false;
+    }
+  }, [open]);
+
+  // Belt-and-suspenders: if the component unmounts while still armed (parent
+  // tears it down without toggling `open`), flush the pending edit too.
+  useEffect(() => {
+    const scheduler = schedulerRef.current;
+    return () => {
+      if (armedRef.current) void scheduler?.flush();
+    };
+  }, []);
 
   // Handle file upload
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -248,54 +339,6 @@ export default function ComposeEmailModal({
 
   function removeFile(index: number) {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  // Save draft
-  async function handleSaveDraft() {
-    if (!selectedAccountId) {
-      toast.error("No email account selected.");
-      return;
-    }
-    toRef.current?.flush();
-    ccRef.current?.flush();
-    bccRef.current?.flush();
-    const currentTo = toRecipientsRef.current;
-    const currentCc = ccRecipientsRef.current;
-    const currentBcc = bccRecipientsRef.current;
-
-    const bodyText = htmlToText(bodyHtml);
-
-    setSavingDraft(true);
-    try {
-      const res = await fetch("/api/email/drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          draftId: draftId || undefined,
-          accountId: selectedAccountId,
-          to: currentTo.map((r) => r.email).join(", "),
-          cc: currentCc.length > 0 ? currentCc.map((r) => r.email).join(", ") : undefined,
-          bcc: currentBcc.length > 0 ? currentBcc.map((r) => r.email).join(", ") : undefined,
-          subject,
-          bodyText,
-          bodyHtml,
-          jobId: jobId || undefined,
-          replyToMessageId,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setDraftId(data.id);
-        toast.success("Draft saved.");
-        onOpenChange(false);
-        onSent?.();
-      } else {
-        toast.error(data.error || "Failed to save draft.");
-      }
-    } catch {
-      toast.error("Failed to save draft.");
-    }
-    setSavingDraft(false);
   }
 
   // Update signature when account changes
@@ -360,6 +403,11 @@ export default function ComposeEmailModal({
       }
 
       if (res.ok) {
+        // The message was sent and the server deletes the backing draft (it was
+        // passed `draftId`). Cancel and disarm so the close handler below does
+        // NOT flush a pending edit back into a new draft for a sent message.
+        schedulerRef.current?.cancel();
+        armedRef.current = false;
         toast.success("Email sent successfully.");
         onOpenChange(false);
         onSent?.();
@@ -660,24 +708,31 @@ export default function ComposeEmailModal({
           </button>
           <button
             type="button"
-            onClick={handleSaveDraft}
-            disabled={savingDraft || accounts.length === 0}
-            className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {savingDraft ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Save size={14} />
-            )}
-            Save Draft
-          </button>
-          <button
-            type="button"
             onClick={() => onOpenChange(false)}
             className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50"
           >
             Cancel
           </button>
+
+          {/* Autosave status — drafts now save automatically (issue #641); the
+              manual "Save Draft" button is gone. */}
+          <div
+            className="ml-auto flex items-center gap-1.5 text-xs text-[#999]"
+            aria-live="polite"
+          >
+            {autosaveStatus === "saving" && (
+              <>
+                <Loader2 size={12} className="animate-spin" />
+                <span>Saving…</span>
+              </>
+            )}
+            {autosaveStatus === "saved" && (
+              <>
+                <Check size={12} className="text-green-600" />
+                <span>Saved</span>
+              </>
+            )}
+          </div>
         </div>
       </form>
     </div>
