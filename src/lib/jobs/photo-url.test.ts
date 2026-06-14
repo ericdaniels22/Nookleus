@@ -84,7 +84,7 @@ describe("photoUrl — pdf variant (report photo embed, #625)", () => {
       "pdf",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=1600&quality=80",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/abc.jpg?width=1600&quality=72",
     );
   });
 
@@ -120,7 +120,7 @@ describe("photoUrl — pdf variant (report photo embed, #625)", () => {
       "pdf",
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.png?width=1600&quality=80",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/abc.png?width=1600&quality=72",
     );
   });
 });
@@ -146,25 +146,50 @@ describe("reportCoverPhotoUrl — the PDF cover photo", () => {
     expect(reportCoverPhotoUrl(null, SUPABASE_URL)).toBeNull();
   });
 
-  it("uses the annotated copy at full resolution when the cover is annotated", () => {
-    // Resize on must not shrink the cover: reports stay print-quality.
+  it("embeds the annotated cover as a bounded 2000px render when resize is on", () => {
+    // The cover is the report's full-page hero. A full-resolution original adds
+    // 3–7 MB of uncompressed JPEG to the PDF on its own; a bounded 2000px render
+    // stays crisp yet keeps the download emailable (well under ~10 MB).
     vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
     const url = reportCoverPhotoUrl(
       { annotated_path: "annotated/cover.jpg", storage_path: "originals/cover.jpg" },
       SUPABASE_URL,
     );
     expect(url).toBe(
-      "https://proj.supabase.co/storage/v1/object/public/photos/annotated/cover.jpg",
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/annotated/cover.jpg?width=2000&quality=80",
     );
   });
 
-  it("falls back to the stored original when the cover has no annotation", () => {
+  it("embeds the stored original as a bounded render when the cover has no annotation", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = reportCoverPhotoUrl(
+      { annotated_path: null, storage_path: "originals/cover.jpg" },
+      SUPABASE_URL,
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/render/image/public/photos/originals/cover.jpg?width=2000&quality=80",
+    );
+  });
+
+  it("serves the original object URL when resize is disabled", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "");
     const url = reportCoverPhotoUrl(
       { annotated_path: null, storage_path: "originals/cover.jpg" },
       SUPABASE_URL,
     );
     expect(url).toBe(
       "https://proj.supabase.co/storage/v1/object/public/photos/originals/cover.jpg",
+    );
+  });
+
+  it("serves the original for a cover the resizer can't transform (HEIC)", () => {
+    vi.stubEnv("NEXT_PUBLIC_PHOTO_RESIZE_ENABLED", "true");
+    const url = reportCoverPhotoUrl(
+      { annotated_path: null, storage_path: "originals/cover.heic" },
+      SUPABASE_URL,
+    );
+    expect(url).toBe(
+      "https://proj.supabase.co/storage/v1/object/public/photos/originals/cover.heic",
     );
   });
 });

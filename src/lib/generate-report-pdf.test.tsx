@@ -279,7 +279,7 @@ describe("generateReportPDF — render-model wiring", () => {
     await generateReportPDF(h.REPORT_ID);
 
     expect(modelArg().photos["photo-1"].url).toBe(
-      "https://test.supabase.co/storage/v1/render/image/public/photos/p/photo-1.jpg?width=1600&quality=80",
+      "https://test.supabase.co/storage/v1/render/image/public/photos/p/photo-1.jpg?width=1600&quality=72",
     );
   });
 });
