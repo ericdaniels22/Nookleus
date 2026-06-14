@@ -14,6 +14,7 @@ import {
   Minimize2,
   Users,
   PenLine,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
@@ -23,6 +24,7 @@ import {
   swapSignature,
   renderSignatureRegion,
 } from "@/lib/email/signature-swap";
+import { insertTemplateBody } from "@/lib/email/insert-template";
 import { type Editor } from "@tiptap/react";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import ContactPicker from "@/components/email/contact-picker";
@@ -51,6 +53,17 @@ interface EmailAccountData {
 interface Recipient {
   email: string;
   name: string;
+}
+
+// An email template the user may drop into the message body (issue #644). The
+// list comes from /api/email/templates, which already returns only what this
+// caller may see — Organization-wide templates plus their own Personal ones
+// (owner_user_id distinguishes the two: null = organization, set = personal).
+interface ComposeTemplate {
+  id: string;
+  name: string;
+  body_html: string;
+  owner_user_id: string | null;
 }
 
 interface UploadedFile {
@@ -115,6 +128,11 @@ export default function ComposeEmailModal({
   // signature is currently in the body, or null for "No signature".
   const [showSignaturePicker, setShowSignaturePicker] = useState(false);
   const [activeSignatureId, setActiveSignatureId] = useState<string | null>(null);
+  // Template picker (issue #644). Templates load lazily the first time the
+  // picker opens; null means "not fetched yet". Inserting a template drops its
+  // body into the message above the signature, never clobbering typed content.
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templates, setTemplates] = useState<ComposeTemplate[] | null>(null);
   // Opt-in rich-formatting extensions for the bottom toolbar. Stable across
   // renders so the shared editor isn't rebuilt; only compose loads these.
   const richExtensions = useMemo(() => composeRichExtensions(), []);
@@ -261,6 +279,41 @@ export default function ComposeEmailModal({
     applySignature(resolveSignatureHtml(account, false), id);
   }
 
+  // Insert a template's body into the message above the signature region,
+  // preserving the user's typed content (issue #644). Pushes into the live
+  // editor so the change survives without a remount; falls back to state when
+  // the editor isn't ready (mirrors applySignature).
+  function applyTemplate(templateHtml: string) {
+    if (!editor) {
+      setBodyHtml((prev) => insertTemplateBody(prev, templateHtml));
+      return;
+    }
+    const next = insertTemplateBody(editor.getHTML(), templateHtml);
+    editor.commands.setContent(next, { emitUpdate: false });
+    setBodyHtml(editor.getHTML());
+  }
+
+  function handlePickTemplate(t: ComposeTemplate) {
+    setShowTemplatePicker(false);
+    applyTemplate(t.body_html);
+  }
+
+  // Toggle the picker, lazily fetching the visible templates the first time it
+  // opens. The server returns only Organization-wide + the caller's own
+  // Personal templates, so whatever comes back is safe to render as-is.
+  async function toggleTemplatePicker() {
+    const next = !showTemplatePicker;
+    setShowTemplatePicker(next);
+    if (next && templates === null) {
+      try {
+        const res = await fetch("/api/email/templates");
+        setTemplates(res.ok ? await res.json() : []);
+      } catch {
+        setTemplates([]);
+      }
+    }
+  }
+
   useEffect(() => {
     if (open) {
       // Each fresh open starts as the corner-docked panel.
@@ -284,6 +337,7 @@ export default function ComposeEmailModal({
       setToRecipients(toList);
 
       setShowContactPicker(false);
+      setShowTemplatePicker(false);
 
       // Set CC recipients (for Reply All) — reveal the Cc row only when there's
       // something to show.
@@ -852,6 +906,87 @@ export default function ComposeEmailModal({
                       <span className="truncate">{opt.label}</span>
                     </button>
                   ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Template picker (issue #644) — drop an Organization or Personal
+              template body into the message, above the signature, without
+              clobbering what's already typed. */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Insert template"
+              aria-haspopup="menu"
+              aria-expanded={showTemplatePicker}
+              onClick={toggleTemplatePicker}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5"
+            >
+              <FileText size={14} />
+              Template
+            </button>
+            {showTemplatePicker && (
+              <>
+                {/* Click-away backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowTemplatePicker(false)}
+                />
+                <div
+                  role="menu"
+                  className="absolute bottom-full left-0 z-50 mb-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                >
+                  {templates === null ? (
+                    <div className="px-3 py-2 text-sm text-[#999]">Loading…</div>
+                  ) : templates.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-[#999]">
+                      No templates yet.
+                    </div>
+                  ) : (
+                    <>
+                      {templates.some((t) => t.owner_user_id === null) && (
+                        <>
+                          <div className="px-3 pt-1.5 pb-0.5 text-xs font-semibold uppercase tracking-wide text-[#999]">
+                            Organization
+                          </div>
+                          {templates
+                            .filter((t) => t.owner_user_id === null)
+                            .map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => handlePickTemplate(t)}
+                                className="block w-full truncate px-3 py-2 text-left text-sm text-[#333] hover:bg-gray-50"
+                              >
+                                {t.name}
+                              </button>
+                            ))}
+                        </>
+                      )}
+                      {templates.some((t) => t.owner_user_id !== null) && (
+                        <>
+                          <div className="px-3 pt-1.5 pb-0.5 text-xs font-semibold uppercase tracking-wide text-[#999]">
+                            Personal
+                          </div>
+                          {templates
+                            .filter((t) => t.owner_user_id !== null)
+                            .map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => handlePickTemplate(t)}
+                                className="block w-full truncate px-3 py-2 text-left text-sm text-[#333] hover:bg-gray-50"
+                              >
+                                {t.name}
+                              </button>
+                            ))}
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             )}
