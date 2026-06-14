@@ -701,3 +701,85 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
   });
 });
+
+// Issue #630 — the editor panel's touch-accessible "Delete line item" button,
+// wired to the builder's delete handler at all three call sites. These prove the
+// button reaches the same optimistic-remove pathway the row's hover trash uses,
+// so a line can be deleted by tapping the panel — the only delete path on touch.
+//
+// The row ALSO carries a "Delete line item" button (the hover one), so the
+// panel button is queried scoped to the editor aside, never globally.
+describe("EstimateBuilder × editor delete button (#630)", () => {
+  function panelDeleteButton() {
+    return within(screen.getByTestId("builder-editor-panel")).getByRole(
+      "button",
+      { name: /delete line item/i },
+    );
+  }
+
+  it("deletes the selected estimate line via the panel button and closes the editor", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
+
+    fireEvent.click(panelDeleteButton());
+
+    // The line is optimistically removed from the document, and the selection
+    // clears as it leaves the live id set, so the panel unmounts.
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Tear-off")).toBeNull();
+    expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("deletes the selected invoice line via the panel button and closes the editor", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    render(<EstimateBuilder entity={makeInvoiceEntity()} />);
+
+    selectRowByName("Soffit repair");
+    expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
+
+    fireEvent.click(panelDeleteButton());
+
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Soffit repair")).toBeNull();
+    expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("deletes the selected template line via the panel button and closes the editor", () => {
+    // Template delete is local-only (no HTTP) — rootPut auto-save persists.
+    render(<EstimateBuilder entity={makeTemplateEntity()} />);
+
+    selectRowByName("Install shingles");
+    expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
+
+    fireEvent.click(panelDeleteButton());
+
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Install shingles")).toBeNull();
+    expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
+  });
+
+  it("hides the panel delete button on a voided (read-only) estimate", () => {
+    render(<EstimateBuilder entity={makeVoidedEstimateEntity()} />);
+
+    // Disabled inputs swallow clicks — select via the row container.
+    clickRowContainer("Tear-off");
+
+    const panel = screen.getByTestId("builder-editor-panel");
+    expect(
+      within(panel).queryByRole("button", { name: /delete line item/i }),
+    ).toBeNull();
+  });
+});

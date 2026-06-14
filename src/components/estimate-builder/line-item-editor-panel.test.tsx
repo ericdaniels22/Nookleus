@@ -420,3 +420,89 @@ describe("LineItemEditorPanel", () => {
     );
   });
 });
+
+// Issue #630 — touch-accessible delete. The row's only delete control is a
+// hover-only trash icon, invisible on a touchscreen. The editor panel gains a
+// prominent "Delete line item" button so a line can be removed by tapping. This
+// slice ships WITHOUT a confirmation step (that's the #631 follow-up): the
+// button calls onDelete directly. Builder wiring (optimistic removal, totals,
+// rollback, toasts, editor auto-close) is the existing onLineItemDelete handler
+// and is exercised separately; here we pin the panel's affordance in isolation.
+describe("LineItemEditorPanel — delete affordance (#630)", () => {
+  it("renders a Delete line item button when onDelete is provided and editable", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /delete line item/i }),
+    ).toBeDefined();
+  });
+
+  it("calls onDelete exactly once when the button is tapped", () => {
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /delete line item/i }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the delete button on a read-only (voided) entity", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        readOnly
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /delete line item/i }),
+    ).toBeNull();
+  });
+
+  it("renders no delete button when onDelete is omitted", () => {
+    render(
+      <LineItemEditorPanel item={makeItem()} onChange={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /delete line item/i }),
+    ).toBeNull();
+  });
+
+  it("shows the delete button in the phone slide-up sheet too, and it fires", () => {
+    setMatchMedia(false); // phone viewport
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    // The footer lives outside the desktop/phone class branch, so the
+    // destructive action is reachable in the slide-up sheet, not only the dock.
+    expect(
+      screen.getByTestId("line-item-editor-panel").getAttribute("data-variant"),
+    ).toBe("phone");
+    fireEvent.click(screen.getByRole("button", { name: /delete line item/i }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+});
