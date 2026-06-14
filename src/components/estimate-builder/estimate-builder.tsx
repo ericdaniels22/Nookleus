@@ -1779,6 +1779,7 @@ export function EstimateBuilder({
                   onLineItemChange(selectedInvoiceItem.id, partial)
                 }
                 onClose={lineSelection.clear}
+                onDelete={() => onLineItemDelete(selectedInvoiceItem.id)}
                 readOnly={isVoided}
                 mode={invMode}
               />
@@ -1894,6 +1895,7 @@ export function EstimateBuilder({
                   onLineItemChange(selectedTemplateItem.id, partial)
                 }
                 onClose={lineSelection.clear}
+                onDelete={() => onLineItemDelete(selectedTemplateItem.id)}
                 mode={tmplMode}
               />
             )
@@ -2029,6 +2031,7 @@ export function EstimateBuilder({
               item={selectedItem}
               onChange={(partial) => onLineItemChange(selectedItem.id, partial)}
               onClose={lineSelection.clear}
+              onDelete={() => onLineItemDelete(selectedItem.id)}
               readOnly={isVoided}
               mode={mode}
             />

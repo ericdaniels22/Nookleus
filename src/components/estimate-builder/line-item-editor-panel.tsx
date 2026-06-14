@@ -9,7 +9,7 @@
 // scrim sits behind the sheet. (Built up test-first — fields/behaviors per cycle.)
 
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { MoneyInput } from "./money-input";
@@ -60,6 +60,14 @@ export interface LineItemEditorPanelProps {
   onChange: (partial: Partial<BuilderLineItem>) => void;
   /** Close the editor (clears selection). */
   onClose: () => void;
+  /**
+   * Delete the selected line (#630). Optional — callers that omit it (and the
+   * isolated field tests) simply render no delete control. Already bound to this
+   * line's id by the parent, which runs the optimistic-remove + persist +
+   * rollback + toast pathway. After a successful delete the selection clears as
+   * the line leaves the live id set, so the panel unmounts itself.
+   */
+  onDelete?: () => void;
   /** Voided / read-only entity — fields render disabled. */
   readOnly?: boolean;
   mode?: BuilderMode;
@@ -69,6 +77,7 @@ export function LineItemEditorPanel({
   item,
   onChange,
   onClose,
+  onDelete,
   readOnly = false,
 }: LineItemEditorPanelProps) {
   // Each field holds its own draft, seeded from the item, and commits on blur
@@ -337,6 +346,25 @@ export function LineItemEditorPanel({
             </span>
           </div>
         </div>
+
+        {/* ── Footer: delete (#630) ─────────────────────────────────────────
+            A pinned (shrink-0) footer outside the scrollable body so the
+            destructive action stays visible in both the desktop dock and the
+            phone slide-up sheet. A large, full-width finger target for touch.
+            Hidden on read-only entities and when no onDelete is supplied. This
+            slice deletes directly; the #631 confirmation guard wraps it next. */}
+        {onDelete && !readOnly && (
+          <div className="shrink-0 border-t border-border p-4">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+            >
+              <Trash2 size={16} />
+              Delete line item
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
