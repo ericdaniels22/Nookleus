@@ -860,6 +860,69 @@ describe("PhotoViewer — navigation across the Job's Photos", () => {
   });
 });
 
+// Issue #636 — "the photo I selected isn't the one that gets pulled up". The
+// viewer is always mounted (the parent toggles `open`), so its internal index
+// survives across opens. The position must be seeded for the opened Photo on the
+// first render, never inherited from where the previous open was left.
+describe("PhotoViewer — opens on the selected Photo (#636)", () => {
+  const a = makePhoto({ id: "a", storage_path: "job-1/a.jpg", created_at: "2026-05-03T10:00:00Z" });
+  const b = makePhoto({ id: "b", storage_path: "job-1/b.jpg", created_at: "2026-05-02T10:00:00Z" });
+  const c = makePhoto({ id: "c", storage_path: "job-1/c.jpg", created_at: "2026-05-01T10:00:00Z" });
+  const trio = [a, b, c];
+
+  const src = () => (screen.getByRole("img") as HTMLImageElement).getAttribute("src");
+
+  // The always-mounted props, minus the two that the parent flips per open.
+  const stableProps = {
+    onOpenChange: vi.fn(),
+    onUpdated: vi.fn(),
+    onAnnotate: vi.fn(),
+    photos: trio,
+    allTags: [],
+    supabaseUrl: SUPABASE_URL,
+    coverPhotoId: null,
+  };
+
+  it("shows the newly opened Photo, not the one left from the previous open", async () => {
+    // Open on the oldest Photo.
+    const { rerender } = render(
+      <PhotoViewer open initialPhotoIndex={2} {...stableProps} />,
+    );
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(c, SUPABASE_URL, "full"));
+
+    // Close (the instance stays mounted, keeping its internal index)…
+    rerender(<PhotoViewer open={false} initialPhotoIndex={2} {...stableProps} />);
+    await act(async () => {});
+
+    // …then reopen on the newest. It must be the Photo on screen, not the
+    // oldest left over from last time.
+    rerender(<PhotoViewer open initialPhotoIndex={0} {...stableProps} />);
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(a, SUPABASE_URL, "full"));
+  });
+
+  it("re-seeds when reopening on the same Photo after paging away", async () => {
+    // Open on the newest, then page to the next (older) Photo.
+    const { rerender } = render(
+      <PhotoViewer open initialPhotoIndex={0} {...stableProps} />,
+    );
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    expect(src()).toBe(photoUrl(b, SUPABASE_URL, "full"));
+
+    // Close, then reopen on the newest again — the same Photo it first opened
+    // on. Reopening must return to it, not stay where paging left off.
+    rerender(<PhotoViewer open={false} initialPhotoIndex={0} {...stableProps} />);
+    await act(async () => {});
+    rerender(<PhotoViewer open initialPhotoIndex={0} {...stableProps} />);
+    await act(async () => {});
+    expect(src()).toBe(photoUrl(a, SUPABASE_URL, "full"));
+  });
+});
+
 describe("PhotoViewer — zoom", () => {
   // jsdom gives every element a 0×0 rect; the zoom math needs a real viewport.
   // Stub a 1000×800 surface (origin 0,0) so focal points equal clientX/clientY,
