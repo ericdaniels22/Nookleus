@@ -22,6 +22,12 @@ interface TiptapEditorProps {
   placeholder?: string;
   extraExtensions?: Array<unknown>;
   onReady?: (editor: Editor) => void;
+  /**
+   * Hide the built-in top toolbar. Opt-in for consumers (e.g. the compose
+   * window) that render their own toolbar elsewhere; defaults to false so every
+   * existing consumer keeps the top toolbar unchanged.
+   */
+  hideToolbar?: boolean;
 }
 
 export default function TiptapEditor({
@@ -30,6 +36,7 @@ export default function TiptapEditor({
   placeholder = "Type your message...",
   extraExtensions,
   onReady,
+  hideToolbar = false,
 }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -73,6 +80,7 @@ export default function TiptapEditor({
   return (
     <div className="border border-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[var(--brand-primary)]/30 focus-within:border-[var(--brand-primary)]">
       {/* Toolbar */}
+      {!hideToolbar && (
       <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-muted/50">
         <ToolbarButton
           active={editor.isActive("bold")}
@@ -127,6 +135,7 @@ export default function TiptapEditor({
           <Redo size={15} />
         </ToolbarButton>
       </div>
+      )}
 
       {/* Editor */}
       <EditorContent editor={editor} />
