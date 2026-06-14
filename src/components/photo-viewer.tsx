@@ -146,16 +146,25 @@ export default function PhotoViewer({
 
   const initialId = photos[initialPhotoIndex]?.id ?? null;
   const [currentIndex, setCurrentIndex] = useState(0);
-  // Seed the position when the viewer opens on a Photo. Keyed on the opened
-  // Photo (not the `photos` array) so a background refetch doesn't yank the
-  // user back to where they started.
-  useEffect(() => {
-    if (!open) return;
+  // Seed the position when the viewer opens on a Photo — DURING render, not in a
+  // post-paint effect (#636). The viewer instance is always mounted (the parent
+  // just toggles `open`), so `currentIndex` survives across opens; seeding it in
+  // an effect let the first frame paint the Photo left over from the previous
+  // open before the effect corrected it — on a slow connection the wrong photo
+  // visibly "pulled up". Correcting during render (the picker viewer does the
+  // same for its zoom) makes the first paint the opened Photo. Keyed on the
+  // opened Photo's id, not the `photos` array, so a background refetch doesn't
+  // yank the user back to where they started; reset on close so the next open
+  // re-seeds even onto the same Photo.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (open && seededFor !== initialId) {
+    setSeededFor(initialId);
     setRemovedIds(new Set());
     const idx = ordered.findIndex((p) => p.id === initialId);
     setCurrentIndex(idx >= 0 ? idx : 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialId]);
+  } else if (!open && seededFor !== null) {
+    setSeededFor(null);
+  }
 
   const safeIndex = Math.min(currentIndex, visiblePhotos.length - 1);
   const currentPhoto = visiblePhotos[safeIndex];
