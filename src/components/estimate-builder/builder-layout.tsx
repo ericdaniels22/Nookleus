@@ -24,7 +24,13 @@ export function BuilderLayout({
 }: BuilderLayoutProps) {
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+      {/*
+        Default `items-stretch` (no `items-start`): the <aside> stretches to the
+        document column's full height so the docked editor's `sticky top-6` has
+        room to travel and pin while scrolling (#629). With `items-start` the
+        aside collapses to content height and the sticky editor scrolls away.
+      */}
+      <div className="flex flex-col lg:flex-row gap-4">
         <main
           data-testid="builder-document"
           onClick={onBackgroundClick}
