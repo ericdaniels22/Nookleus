@@ -2,6 +2,7 @@ import { TextStyle, FontSize, Color } from "@tiptap/extension-text-style";
 import Highlight from "@tiptap/extension-highlight";
 import Image from "@tiptap/extension-image";
 import { IndentExtension } from "./compose-indent-extension";
+import { SignatureBlockExtension } from "./signature-block-extension";
 
 /**
  * The opt-in rich-formatting extensions for the compose editor's bottom toolbar
@@ -16,6 +17,10 @@ import { IndentExtension } from "./compose-indent-extension";
  *
  * FontSize and Color both decorate the `textStyle` mark, so TextStyle must be
  * present for them to attach.
+ *
+ * SignatureBlockExtension (issue #643) preserves the delimited signature
+ * region's marker across editor round-trips so the signature can be located and
+ * swapped without clobbering the user's typed message.
  */
 export function composeRichExtensions() {
   return [
@@ -25,5 +30,6 @@ export function composeRichExtensions() {
     Highlight.configure({ multicolor: true }),
     Image.configure({ allowBase64: true }),
     IndentExtension,
+    SignatureBlockExtension,
   ];
 }
