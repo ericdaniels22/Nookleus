@@ -18,6 +18,13 @@ interface EmailAddressInputProps {
   recipients: EmailRecipient[];
   onChange: (recipients: EmailRecipient[]) => void;
   placeholder?: string;
+  /**
+   * "boxed" (default) draws the original bordered field with a stacked label.
+   * "inline" drops the border and stacked label so the field flows inside a
+   * hairline-separated compose row (PRD #634, issue #640); the parent row
+   * supplies the visible label and the input is aria-labelled instead.
+   */
+  variant?: "boxed" | "inline";
 }
 
 const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputProps>(
@@ -27,6 +34,7 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
     recipients,
     onChange,
     placeholder = "Type name or email...",
+    variant = "boxed",
   },
   ref
 ) {
@@ -131,13 +139,21 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
     }
   }
 
+  const isInline = variant === "inline";
+
   return (
-    <div ref={containerRef} className="relative">
-      <label className="block text-sm font-medium text-[#333] mb-1">
-        {label}
-      </label>
+    <div ref={containerRef} className={isInline ? "relative flex-1 min-w-0" : "relative"}>
+      {!isInline && (
+        <label className="block text-sm font-medium text-[#333] mb-1">
+          {label}
+        </label>
+      )}
       <div
-        className="flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2 py-1.5 min-h-[38px] cursor-text focus-within:ring-2 focus-within:ring-[#2B5EA7]/30 focus-within:border-[#2B5EA7]"
+        className={
+          isInline
+            ? "flex flex-wrap items-center gap-1.5 min-h-[28px] cursor-text"
+            : "flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2 py-1.5 min-h-[38px] cursor-text focus-within:ring-2 focus-within:ring-[#2B5EA7]/30 focus-within:border-[#2B5EA7]"
+        }
         onClick={() => inputRef.current?.focus()}
       >
         {recipients.map((r, i) => (
@@ -161,6 +177,7 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
         <input
           ref={inputRef}
           type="text"
+          aria-label={isInline ? label : undefined}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

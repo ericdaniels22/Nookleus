@@ -1,11 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useReducer } from "react";
-import { Input } from "@/components/ui/input";
 import {
   Loader2,
   Send,
-  ChevronDown,
   ChevronUp,
   Paperclip,
   X,
@@ -14,10 +12,12 @@ import {
   Minus,
   Maximize2,
   Minimize2,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
+import ContactPicker from "@/components/email/contact-picker";
 import { htmlToText } from "@/lib/email/html-to-text";
 import {
   composeWindowReducer,
@@ -84,7 +84,9 @@ export default function ComposeEmailModal({
   const [toRecipients, setToRecipients] = useState<Recipient[]>([]);
   const [ccRecipients, setCcRecipients] = useState<Recipient[]>([]);
   const [bccRecipients, setBccRecipients] = useState<Recipient[]>([]);
-  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
+  const [showContactPicker, setShowContactPicker] = useState(false);
   const [subject, setSubject] = useState(defaultSubject);
   const [bodyHtml, setBodyHtml] = useState("");
   const [sending, setSending] = useState(false);
@@ -154,23 +156,28 @@ export default function ComposeEmailModal({
         setToRecipients([]);
       }
 
-      // Set CC recipients (for Reply All)
+      setShowContactPicker(false);
+
+      // Set CC recipients (for Reply All) — reveal the Cc row only when there's
+      // something to show.
       if (defaultCc) {
         const ccEmails = defaultCc.split(",").map((e) => e.trim()).filter(Boolean);
         setCcRecipients(ccEmails.map((email) => ({ email, name: "" })));
-        setShowCcBcc(true);
+        setShowCc(true);
       } else {
         setCcRecipients([]);
-        setShowCcBcc(false);
+        setShowCc(false);
       }
 
-      // Set BCC recipients (for draft resume)
+      // Set BCC recipients (for draft resume) — reveal the Bcc row only when
+      // there's something to show.
       if (defaultBcc) {
         const bccEmails = defaultBcc.split(",").map((e) => e.trim()).filter(Boolean);
         setBccRecipients(bccEmails.map((email) => ({ email, name: "" })));
-        setShowCcBcc(true);
+        setShowBcc(true);
       } else {
         setBccRecipients([]);
+        setShowBcc(false);
       }
 
       // Fetch accounts and signatures
@@ -444,90 +451,136 @@ export default function ComposeEmailModal({
         onSubmit={handleSend}
         className={`flex-1 min-h-0 flex flex-col ${isMinimized ? "hidden" : ""}`}
       >
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
-          {/* From account */}
-          <div>
-            <label className="block text-sm font-medium text-[#333] mb-1">
-              From
-            </label>
-            {accounts.length === 0 ? (
-              <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-                No email accounts configured.{" "}
-                <a href="/settings/email" className="underline font-medium">
-                  Add one in Settings.
-                </a>
-              </p>
-            ) : (
-              <select
-                value={selectedAccountId}
-                onChange={(e) => handleAccountChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2B5EA7]/30 focus:border-[#2B5EA7]"
-              >
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.display_name || acc.label} &lt;{acc.email_address}&gt;
-                  </option>
-                ))}
-              </select>
+        <div className="flex-1 min-h-0 overflow-y-auto bg-white">
+          {/* Header fields — inline rows separated by hairlines, Outlook-style */}
+          <div className="px-4">
+            {/* From */}
+            <div className="flex items-center gap-3 border-b border-gray-200 py-2">
+              <span className="w-14 shrink-0 text-sm text-[#666]">From</span>
+              {accounts.length === 0 ? (
+                <p className="flex-1 text-sm text-red-600">
+                  No email accounts configured.{" "}
+                  <a href="/settings/email" className="underline font-medium">
+                    Add one in Settings.
+                  </a>
+                </p>
+              ) : (
+                <select
+                  aria-label="From account"
+                  value={selectedAccountId}
+                  onChange={(e) => handleAccountChange(e.target.value)}
+                  className="flex-1 min-w-0 bg-transparent text-sm text-[#333] outline-none cursor-pointer"
+                >
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.display_name || acc.label} &lt;{acc.email_address}&gt;
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* To — chips + type-ahead, with Cc/Bcc reveals and a contact picker */}
+            <div className="relative flex items-start gap-3 border-b border-gray-200 py-2">
+              <span className="w-14 shrink-0 pt-1 text-sm text-[#666]">To</span>
+              <EmailAddressInput
+                ref={toRef}
+                variant="inline"
+                label="To"
+                recipients={toRecipients}
+                onChange={setToRecipients}
+                placeholder="Type name or email..."
+              />
+              <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                {!showCc && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCc(true)}
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                  >
+                    Cc
+                  </button>
+                )}
+                {!showBcc && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBcc(true)}
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                  >
+                    Bcc
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-label="Browse contacts"
+                  onClick={() => setShowContactPicker((v) => !v)}
+                  className="rounded p-1 text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                >
+                  <Users size={16} />
+                </button>
+              </div>
+
+              {showContactPicker && (
+                <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <ContactPicker
+                    addedRecipients={toRecipients}
+                    onSelect={(r) => {
+                      setToRecipients([...toRecipients, r]);
+                      setShowContactPicker(false);
+                    }}
+                    onClose={() => setShowContactPicker(false)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Cc */}
+            {showCc && (
+              <div className="flex items-start gap-3 border-b border-gray-200 py-2">
+                <span className="w-14 shrink-0 pt-1 text-sm text-[#666]">Cc</span>
+                <EmailAddressInput
+                  ref={ccRef}
+                  variant="inline"
+                  label="Cc"
+                  recipients={ccRecipients}
+                  onChange={setCcRecipients}
+                  placeholder="Add Cc recipients..."
+                />
+              </div>
             )}
+
+            {/* Bcc */}
+            {showBcc && (
+              <div className="flex items-start gap-3 border-b border-gray-200 py-2">
+                <span className="w-14 shrink-0 pt-1 text-sm text-[#666]">Bcc</span>
+                <EmailAddressInput
+                  ref={bccRef}
+                  variant="inline"
+                  label="Bcc"
+                  recipients={bccRecipients}
+                  onChange={setBccRecipients}
+                  placeholder="Add Bcc recipients..."
+                />
+              </div>
+            )}
+
+            {/* Subject — borderless inline field, placeholder only */}
+            <div className="flex items-center gap-3 border-b border-gray-200 py-2">
+              <span className="w-14 shrink-0 text-sm text-[#666]">Subject</span>
+              <input
+                required
+                type="text"
+                aria-label="Subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Add a subject"
+                className="flex-1 min-w-0 bg-transparent text-sm text-[#333] outline-none placeholder:text-[#999]"
+              />
+            </div>
           </div>
 
-          {/* To */}
-          <EmailAddressInput
-            ref={toRef}
-            label="To"
-            recipients={toRecipients}
-            onChange={setToRecipients}
-            placeholder="Type name or email..."
-          />
-
-          {/* CC/BCC toggle */}
-          <button
-            type="button"
-            onClick={() => setShowCcBcc(!showCcBcc)}
-            className="flex items-center gap-1 text-xs text-[#2B5EA7] hover:underline"
-          >
-            {showCcBcc ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {showCcBcc ? "Hide CC/BCC" : "Add CC/BCC"}
-          </button>
-
-          {showCcBcc && (
-            <>
-              <EmailAddressInput
-                ref={ccRef}
-                label="CC"
-                recipients={ccRecipients}
-                onChange={setCcRecipients}
-                placeholder="Add CC recipients..."
-              />
-              <EmailAddressInput
-                ref={bccRef}
-                label="BCC"
-                recipients={bccRecipients}
-                onChange={setBccRecipients}
-                placeholder="Add BCC recipients..."
-              />
-            </>
-          )}
-
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-[#333] mb-1">
-              Subject
-            </label>
-            <Input
-              required
-              placeholder="Email subject"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            />
-          </div>
-
-          {/* Rich text body */}
-          <div>
-            <label className="block text-sm font-medium text-[#333] mb-1">
-              Message
-            </label>
+          {/* White message canvas */}
+          <div className="px-4 py-4">
             <TiptapEditor
               key={editorKey}
               content={bodyHtml}
@@ -537,7 +590,7 @@ export default function ComposeEmailModal({
           </div>
 
           {/* Attachments */}
-          <div>
+          <div className="px-4 pb-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -568,15 +621,14 @@ export default function ComposeEmailModal({
                 ))}
               </div>
             )}
+
+            {/* Signature preview */}
+            {selectedAccount?.signature && (
+              <p className="text-xs text-[#999]">
+                Signature from &quot;{selectedAccount.label}&quot; will be included.
+              </p>
+            )}
           </div>
-
-          {/* Signature preview */}
-          {selectedAccount?.signature && (
-            <p className="text-xs text-[#999]">
-              Signature from &quot;{selectedAccount.label}&quot; will be included.
-            </p>
-          )}
-
         </div>
 
         {/* Footer action / send bar */}
