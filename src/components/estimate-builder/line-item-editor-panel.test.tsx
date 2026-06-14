@@ -322,6 +322,19 @@ describe("LineItemEditorPanel", () => {
     expect(screen.queryByTestId("editor-scrim")).toBeNull();
   });
 
+  it("docks with sticky positioning so it can follow scroll (#629)", () => {
+    render(
+      <LineItemEditorPanel item={makeItem()} onChange={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    const panel = screen.getByTestId("line-item-editor-panel");
+    expect(panel.getAttribute("data-variant")).toBe("desktop");
+    // The scroll-follow fix (#629) hinges on the dock keeping `sticky top-6`;
+    // jsdom can't observe real pinning, so guard the class against regression.
+    expect(panel.className).toContain("sticky");
+    expect(panel.className).toContain("top-6");
+  });
+
   it("renders as a slide-up sheet with a dismiss scrim on phone", () => {
     setMatchMedia(false); // phone viewport
     const onClose = vi.fn();
@@ -469,6 +482,22 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
     ).toBeNull();
   });
 
+  it("gives the delete button a finger-friendly tap target (AC 3)", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    // jsdom can't measure layout; guard the 44px min-height class (iOS minimum).
+    expect(
+      screen.getByRole("button", { name: /delete line item/i }).className,
+    ).toContain("min-h-[44px]");
+  });
+
   it("shows the delete button in the phone slide-up sheet too", () => {
     setMatchMedia(false); // phone viewport
     render(
@@ -605,5 +634,34 @@ describe("LineItemEditorPanel — delete confirmation (#631)", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the confirmation, not the editor, when Escape is pressed while it is open", () => {
+    const onClose = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={onClose}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(deleteButton());
+    expect(
+      screen.getByRole("dialog", { name: /delete line item/i }),
+    ).toBeDefined();
+
+    // Escape must dismiss the confirm only. The panel's own window-level
+    // Escape-to-close must NOT fire and tear the editor down underneath the
+    // open confirm (the #631 layering bug). The confirm owns Escape now.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(
+      screen.queryByRole("dialog", { name: /delete line item/i }),
+    ).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });
