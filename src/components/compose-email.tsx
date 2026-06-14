@@ -24,6 +24,7 @@ import { SendShortcutExtension } from "@/components/email/send-shortcut-extensio
 import {
   swapSignature,
   renderSignatureRegion,
+  hasSignatureRegion,
 } from "@/lib/email/signature-swap";
 import { insertTemplateBody } from "@/lib/email/insert-template";
 import { isSendShortcut } from "@/lib/email/send-shortcut";
@@ -207,11 +208,6 @@ export default function ComposeEmailModal({
     [selectedAccountId, toRecipients, ccRecipients, bccRecipients, subject, bodyHtml, jobId, replyToMessageId],
   );
 
-  const selectedAccount = useMemo(
-    () => accounts.find((a) => a.id === selectedAccountId),
-    [accounts, selectedAccountId]
-  );
-
   // Signature data from email_signatures table
   const [signaturesMap, setSignaturesMap] = useState<Record<string, { signature_html: string; auto_insert: boolean }>>({});
 
@@ -238,11 +234,15 @@ export default function ComposeEmailModal({
 
   // Build initial body with signature, wrapped in the delimited region so it can
   // later be located and swapped without touching the user's typed content.
+  // A resumed draft already carries its own signature region, so it is treated
+  // as authoritative: we never prepend a second region (issue #656). Otherwise a
+  // resume → edit → autosave cycle would accumulate a fresh duplicate every time.
   function buildInitialBody(account: EmailAccountData | undefined, quotedHtml: string, sigs?: typeof signaturesMap) {
-    let html = quotedHtml || "";
+    const html = quotedHtml || "";
+    if (hasSignatureRegion(html)) return html;
     const rendered = resolveSignatureHtml(account, true, sigs);
     if (rendered) {
-      html = `<p></p><br>${renderSignatureRegion(rendered)}${html ? `<br>${html}` : ""}`;
+      return `<p></p><br>${renderSignatureRegion(rendered)}${html ? `<br>${html}` : ""}`;
     }
     return html;
   }
@@ -261,6 +261,25 @@ export default function ComposeEmailModal({
     }
     return opts;
   }, [accounts, signaturesMap]);
+
+  // Label of the signature currently in the body, or null when none is active
+  // ("No signature"). Drives the preview hint from the live selection instead of
+  // the From account's legacy column, so the hint stays truthful after the user
+  // picks "No signature" or a non-default signature (issue #656). Falls back to
+  // the account's own label for a legacy-column signature not in the picker.
+  const activeSignatureLabel = useMemo(() => {
+    if (activeSignatureId === null) return null;
+    const opt = signatureOptions.find((o) => o.id === activeSignatureId);
+    if (opt) return opt.label;
+    const acc = accounts.find((a) => a.id === activeSignatureId);
+    return acc?.label || acc?.email_address || null;
+  }, [activeSignatureId, signatureOptions, accounts]);
+
+  // Whether the body actually still holds a signature region right now. Gating
+  // the preview hint on this keeps it from claiming a signature the body no
+  // longer has — e.g. after the user deletes the signature block directly in the
+  // editor rather than via the "No signature" picker option (issue #656).
+  const bodyHasSignature = useMemo(() => hasSignatureRegion(bodyHtml), [bodyHtml]);
 
   // Swap (or remove, when null) the signature region in place, preserving the
   // user's typed message (issue #643). Pushes into the live editor so the change
@@ -392,10 +411,12 @@ export default function ComposeEmailModal({
         if (defaultAcc) {
           const initialBody = buildInitialBody(defaultAcc, defaultBody, sigs);
           setSelectedAccountId(defaultAcc.id);
-          // The initial body carries defaultAcc's signature iff one resolved
-          // (respecting its auto_insert default), so seed the picker to match.
+          // Seed the picker from whether the opened body actually has a
+          // signature region — true for a fresh auto-insert AND for a resumed
+          // draft that already carried one — so the preview hint never claims a
+          // signature that isn't there, or omits one that is (issue #656).
           setActiveSignatureId(
-            resolveSignatureHtml(defaultAcc, true, sigs) ? defaultAcc.id : null,
+            hasSignatureRegion(initialBody) ? defaultAcc.id : null,
           );
           setBodyHtml(initialBody);
           setEditorKey((k) => k + 1);
@@ -853,10 +874,14 @@ export default function ComposeEmailModal({
               </div>
             )}
 
-            {/* Signature preview */}
-            {selectedAccount?.signature && (
+            {/* Signature preview — reflects the active signature selection
+                (issue #656), not the From account's legacy column, and only when
+                the body actually still holds a region, so it stays truthful
+                after the user picks "No signature" or deletes the signature
+                block in the editor. */}
+            {activeSignatureLabel && bodyHasSignature && (
               <p className="text-xs text-[#999]">
-                Signature from &quot;{selectedAccount.label}&quot; will be included.
+                Signature from &quot;{activeSignatureLabel}&quot; will be included.
               </p>
             )}
           </div>

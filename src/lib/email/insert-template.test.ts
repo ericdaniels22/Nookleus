@@ -31,6 +31,20 @@ describe("insertTemplateBody", () => {
     );
   });
 
+  it("does not treat the marker substring as the region when inserting a template", () => {
+    // Pasted/quoted email HTML whose class merely CONTAINS the marker substring
+    // is not the real region. With no real region present, the template must
+    // append after the existing content — never split the pasted block by being
+    // spliced "above" a phantom region.
+    const pasted =
+      '<div class="data-signature-block-quote"><p>Pasted thread</p></div>';
+    const result = insertTemplateBody(pasted, "<p>Template body</p>");
+    expect(result).toContain("Pasted thread");
+    expect(result.indexOf("Pasted thread")).toBeLessThan(
+      result.indexOf("Template body"),
+    );
+  });
+
   it("inserts above the signature even with nested signature markup and a quoted reply below", () => {
     // The realistic forward/reply shape: a logo signature (nested <div>s) with a
     // quoted thread below it. The template must land above the whole signature
