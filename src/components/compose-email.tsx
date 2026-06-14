@@ -13,11 +13,16 @@ import {
   Maximize2,
   Minimize2,
   Users,
+  PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
 import ComposeFormattingToolbar from "@/components/email/compose-formatting-toolbar";
 import { composeRichExtensions } from "@/components/email/compose-editor-extensions";
+import {
+  swapSignature,
+  renderSignatureRegion,
+} from "@/lib/email/signature-swap";
 import { type Editor } from "@tiptap/react";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import ContactPicker from "@/components/email/contact-picker";
@@ -106,6 +111,10 @@ export default function ComposeEmailModal({
   const [editorKey, setEditorKey] = useState(0);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [toolbarVisible, setToolbarVisible] = useState(true);
+  // Signature picker (issue #643). `activeSignatureId` is the account id whose
+  // signature is currently in the body, or null for "No signature".
+  const [showSignaturePicker, setShowSignaturePicker] = useState(false);
+  const [activeSignatureId, setActiveSignatureId] = useState<string | null>(null);
   // Opt-in rich-formatting extensions for the bottom toolbar. Stable across
   // renders so the shared editor isn't rebuilt; only compose loads these.
   const richExtensions = useMemo(() => composeRichExtensions(), []);
@@ -174,24 +183,82 @@ export default function ComposeEmailModal({
   // Signature data from email_signatures table
   const [signaturesMap, setSignaturesMap] = useState<Record<string, { signature_html: string; auto_insert: boolean }>>({});
 
-  // Build initial body with signature
-  function buildInitialBody(account: EmailAccountData | undefined, quotedHtml: string, sigs?: typeof signaturesMap) {
-    let html = "";
-    if (quotedHtml) {
-      html = quotedHtml;
-    }
+  // Resolve the signature HTML to drop into the body for an account, or null if
+  // it has none. When `respectAutoInsert` (account switch / initial insert) an
+  // auto_insert=false signature is skipped; an explicit picker choice passes
+  // false to force the signature in regardless of its default.
+  function resolveSignatureHtml(
+    account: EmailAccountData | undefined,
+    respectAutoInsert: boolean,
+    sigs?: typeof signaturesMap,
+  ): string | null {
     const sigData = (sigs || signaturesMap)[account?.id || ""];
-    const sigHtml = sigData?.auto_insert !== false ? sigData?.signature_html : null;
-    const fallbackSig = account?.signature;
-    const effectiveSig = sigHtml || fallbackSig;
+    const sigHtml =
+      !respectAutoInsert || sigData?.auto_insert !== false
+        ? sigData?.signature_html
+        : null;
+    const effectiveSig = sigHtml || account?.signature;
+    if (!effectiveSig) return null;
+    return effectiveSig.includes("<")
+      ? effectiveSig
+      : `<p>${effectiveSig.replace(/\n/g, "<br>")}</p>`;
+  }
 
-    if (effectiveSig) {
-      const rendered = effectiveSig.includes("<")
-        ? effectiveSig
-        : `<p>${effectiveSig.replace(/\n/g, "<br>")}</p>`;
-      html = `<p></p><br><div style="border-top: 1px solid #ccc; padding-top: 8px; margin-top: 16px; color: #666;">${rendered}</div>${html ? `<br>${html}` : ""}`;
+  // Build initial body with signature, wrapped in the delimited region so it can
+  // later be located and swapped without touching the user's typed content.
+  function buildInitialBody(account: EmailAccountData | undefined, quotedHtml: string, sigs?: typeof signaturesMap) {
+    let html = quotedHtml || "";
+    const rendered = resolveSignatureHtml(account, true, sigs);
+    if (rendered) {
+      html = `<p></p><br>${renderSignatureRegion(rendered)}${html ? `<br>${html}` : ""}`;
     }
     return html;
+  }
+
+  // Options for the signature picker: every account that has a saved signature,
+  // plus "No signature" — so any signature can be dropped in regardless of the
+  // From account (issue #643).
+  const signatureOptions = useMemo(() => {
+    const opts: { id: string | null; label: string }[] = [
+      { id: null, label: "No signature" },
+    ];
+    for (const acc of accounts) {
+      if (signaturesMap[acc.id]?.signature_html) {
+        opts.push({ id: acc.id, label: acc.label || acc.email_address });
+      }
+    }
+    return opts;
+  }, [accounts, signaturesMap]);
+
+  // Swap (or remove, when null) the signature region in place, preserving the
+  // user's typed message (issue #643). Pushes into the live editor so the change
+  // survives without a remount; falls back to state when the editor isn't ready.
+  function applySignature(
+    nextSignatureHtml: string | null,
+    signatureId: string | null,
+  ) {
+    setActiveSignatureId(signatureId);
+    if (!editor) {
+      setBodyHtml((prev) => swapSignature(prev, nextSignatureHtml));
+      return;
+    }
+    const next = swapSignature(editor.getHTML(), nextSignatureHtml);
+    editor.commands.setContent(next, { emitUpdate: false });
+    // Mirror the editor's reserialized HTML into state so bodyHtml, the autosave
+    // snapshot, and the sent body all see exactly what the editor holds.
+    setBodyHtml(editor.getHTML());
+  }
+
+  // Explicit picker choice — force the chosen signature in (ignoring its
+  // auto_insert default), or clear it when "No signature".
+  function handlePickSignature(id: string | null) {
+    setShowSignaturePicker(false);
+    if (id === null) {
+      applySignature(null, null);
+      return;
+    }
+    const account = accounts.find((a) => a.id === id);
+    applySignature(resolveSignatureHtml(account, false), id);
   }
 
   useEffect(() => {
@@ -257,6 +324,11 @@ export default function ComposeEmailModal({
         if (defaultAcc) {
           const initialBody = buildInitialBody(defaultAcc, defaultBody, sigs);
           setSelectedAccountId(defaultAcc.id);
+          // The initial body carries defaultAcc's signature iff one resolved
+          // (respecting its auto_insert default), so seed the picker to match.
+          setActiveSignatureId(
+            resolveSignatureHtml(defaultAcc, true, sigs) ? defaultAcc.id : null,
+          );
           setBodyHtml(initialBody);
           setEditorKey((k) => k + 1);
 
@@ -349,12 +421,15 @@ export default function ComposeEmailModal({
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // Update signature when account changes
+  // Switch the From account. Swap ONLY the signature block for the new account's
+  // signature (honoring its auto_insert default), leaving the user's typed
+  // message intact — previously this rebuilt the whole body and discarded any
+  // typed content (issue #643).
   function handleAccountChange(accountId: string) {
     setSelectedAccountId(accountId);
     const account = accounts.find((a) => a.id === accountId);
-    // Reset body with new signature (preserve user content before sig)
-    setBodyHtml(buildInitialBody(account, defaultBody));
+    const nextSig = resolveSignatureHtml(account, true);
+    applySignature(nextSig, nextSig ? accountId : null);
   }
 
   async function handleSend(e: React.FormEvent) {
@@ -731,6 +806,56 @@ export default function ComposeEmailModal({
           >
             Cancel
           </button>
+
+          {/* Signature picker (issue #643) — choose which signature to drop in;
+              swaps the block in place, never clobbering the typed message. */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Choose signature"
+              aria-haspopup="menu"
+              aria-expanded={showSignaturePicker}
+              onClick={() => setShowSignaturePicker((v) => !v)}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5"
+            >
+              <PenLine size={14} />
+              Signature
+            </button>
+            {showSignaturePicker && (
+              <>
+                {/* Click-away backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowSignaturePicker(false)}
+                />
+                <div
+                  role="menu"
+                  className="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                >
+                  {signatureOptions.map((opt) => (
+                    <button
+                      key={opt.id ?? "__none__"}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={activeSignatureId === opt.id}
+                      onClick={() => handlePickSignature(opt.id)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#333] hover:bg-gray-50"
+                    >
+                      <Check
+                        size={14}
+                        className={
+                          activeSignatureId === opt.id
+                            ? "text-[#2B5EA7]"
+                            : "invisible"
+                        }
+                      />
+                      <span className="truncate">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Autosave status — drafts now save automatically (issue #641); the
               manual "Save Draft" button is gone. */}
