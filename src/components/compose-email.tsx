@@ -814,6 +814,7 @@ export default function ComposeEmailModal({
               onChange={setBodyHtml}
               placeholder="Type your message..."
               hideToolbar
+              lightSurface
               extraExtensions={richExtensions}
               onReady={setEditor}
             />

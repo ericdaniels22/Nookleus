@@ -183,7 +183,7 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
           onKeyDown={handleKeyDown}
           onFocus={() => input.length >= 1 && setShowSuggestions(true)}
           placeholder={recipients.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[120px] text-sm outline-none bg-transparent py-0.5"
+          className="flex-1 min-w-[120px] text-sm text-[#333] outline-none bg-transparent py-0.5 placeholder:text-[#999]"
         />
       </div>
 

@@ -28,6 +28,15 @@ interface TiptapEditorProps {
    * existing consumer keeps the top toolbar unchanged.
    */
   hideToolbar?: boolean;
+  /**
+   * Render content for a fixed light surface instead of following the app
+   * theme. Opt-in for consumers (e.g. the compose window) that draw their own
+   * always-white canvas: in dark mode the themed `text-foreground` +
+   * `dark:prose-invert` would paint light text onto that white canvas, leaving
+   * it unreadable. Defaults to false so every existing consumer keeps the
+   * theme-aware colors unchanged.
+   */
+  lightSurface?: boolean;
 }
 
 export default function TiptapEditor({
@@ -37,6 +46,7 @@ export default function TiptapEditor({
   extraExtensions,
   onReady,
   hideToolbar = false,
+  lightSurface = false,
 }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -53,8 +63,14 @@ export default function TiptapEditor({
     },
     editorProps: {
       attributes: {
-        class:
-          "prose prose-sm dark:prose-invert max-w-none min-h-[160px] px-3 py-2 focus:outline-none text-foreground [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1",
+        class: [
+          "prose prose-sm max-w-none min-h-[160px] px-3 py-2 focus:outline-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1",
+          // A fixed light surface keeps the light-mode prose palette (dark text)
+          // and pins an explicit dark color; otherwise follow the app theme.
+          lightSurface
+            ? "text-[#333]"
+            : "dark:prose-invert text-foreground",
+        ].join(" "),
       },
     },
   });
