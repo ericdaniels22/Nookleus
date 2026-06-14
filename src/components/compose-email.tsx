@@ -1,19 +1,28 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { flushSync } from "react-dom";
+import { useState, useEffect, useMemo, useRef, useReducer } from "react";
 import { Input } from "@/components/ui/input";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Loader2, Send, ChevronDown, ChevronUp, Paperclip, X, FileIcon, Save } from "lucide-react";
+  Loader2,
+  Send,
+  ChevronDown,
+  ChevronUp,
+  Paperclip,
+  X,
+  FileIcon,
+  Save,
+  Minus,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import { htmlToText } from "@/lib/email/html-to-text";
+import {
+  composeWindowReducer,
+  initialComposeWindowState,
+} from "@/components/email/compose-window-state";
 
 interface EmailAccountData {
   id: string;
@@ -84,6 +93,10 @@ export default function ComposeEmailModal({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
+  const [windowState, dispatchWindow] = useReducer(
+    composeWindowReducer,
+    initialComposeWindowState,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toRef = useRef<EmailAddressInputHandle>(null);
   const ccRef = useRef<EmailAddressInputHandle>(null);
@@ -127,6 +140,8 @@ export default function ComposeEmailModal({
 
   useEffect(() => {
     if (open) {
+      // Each fresh open starts as the corner-docked panel.
+      dispatchWindow({ type: "reset" });
       setSubject(defaultSubject);
       setUploadedFiles(defaultAttachments);
       setDraftId(initialDraftId || null);
@@ -353,13 +368,83 @@ export default function ComposeEmailModal({
   const title =
     mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "Compose Email";
 
+  if (!open) return null;
+
+  const isMaximized = windowState.mode === "maximized";
+  const isMinimized = windowState.mode === "minimized";
+
+  const panelClass = [
+    "fixed z-50 flex flex-col bg-white shadow-2xl border border-gray-200 overflow-hidden",
+    isMinimized
+      ? "bottom-0 left-0 right-0 sm:left-auto sm:right-6 sm:w-[600px] rounded-t-xl"
+      : isMaximized
+        ? "inset-0 sm:inset-4 sm:rounded-xl"
+        : "inset-0 sm:inset-auto sm:bottom-0 sm:right-6 sm:w-[600px] sm:h-[85vh] sm:max-h-[760px] sm:rounded-t-xl",
+  ].join(" ");
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSend} className="space-y-3">
+    <div
+      role="dialog"
+      aria-modal={false}
+      aria-label={title}
+      className={panelClass}
+    >
+      {/* Title bar — window chrome with minimize / maximize / close */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-[#2B5EA7] text-white shrink-0 select-none">
+        {isMinimized ? (
+          <button
+            type="button"
+            onClick={() => dispatchWindow({ type: "restore" })}
+            className="min-w-0 flex-1 text-left text-sm font-semibold truncate"
+            title="Restore"
+          >
+            {title}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 text-sm font-semibold truncate">
+            {title}
+          </span>
+        )}
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() =>
+              dispatchWindow({ type: isMinimized ? "restore" : "minimize" })
+            }
+            title={isMinimized ? "Restore" : "Minimize"}
+            aria-label={isMinimized ? "Restore" : "Minimize"}
+            className="p-1.5 rounded hover:bg-white/15 transition-colors"
+          >
+            {isMinimized ? <ChevronUp size={15} /> : <Minus size={15} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatchWindow({ type: "toggleMaximize" })}
+            title={isMaximized ? "Restore down" : "Maximize"}
+            aria-label={isMaximized ? "Restore down" : "Maximize"}
+            className="p-1.5 rounded hover:bg-white/15 transition-colors"
+          >
+            {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            title="Close"
+            aria-label="Close"
+            className="p-1.5 rounded hover:bg-white/15 transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Body + footer stay mounted while minimized (hidden via CSS) so the
+          in-progress draft — recipients, subject, body, attachments — survives. */}
+      <form
+        onSubmit={handleSend}
+        className={`flex-1 min-h-0 flex flex-col ${isMinimized ? "hidden" : ""}`}
+      >
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
           {/* From account */}
           <div>
             <label className="block text-sm font-medium text-[#333] mb-1">
@@ -492,56 +577,57 @@ export default function ComposeEmailModal({
             </p>
           )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={sending || uploading || accounts.length === 0}
-              className="px-5 py-2.5 bg-[#2B5EA7] text-white rounded-lg text-sm font-medium hover:bg-[#234b87] disabled:opacity-50 flex items-center gap-2"
-            >
-              {sending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Send size={16} />
-              )}
-              Send Email
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {uploading ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Paperclip size={14} />
-              )}
-              Attach
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={savingDraft || accounts.length === 0}
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {savingDraft ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Save size={14} />
-              )}
-              Save Draft
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </div>
+
+        {/* Footer action / send bar */}
+        <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-gray-200 bg-white">
+          <button
+            type="submit"
+            disabled={sending || uploading || accounts.length === 0}
+            className="px-5 py-2.5 bg-[#2B5EA7] text-white rounded-lg text-sm font-medium hover:bg-[#234b87] disabled:opacity-50 flex items-center gap-2"
+          >
+            {sending ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Send size={16} />
+            )}
+            Send Email
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {uploading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Paperclip size={14} />
+            )}
+            Attach
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            disabled={savingDraft || accounts.length === 0}
+            className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {savingDraft ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Save size={14} />
+            )}
+            Save Draft
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-[#666666] hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
