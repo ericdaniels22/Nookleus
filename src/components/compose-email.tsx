@@ -20,11 +20,13 @@ import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
 import ComposeFormattingToolbar from "@/components/email/compose-formatting-toolbar";
 import { composeRichExtensions } from "@/components/email/compose-editor-extensions";
+import { SendShortcutExtension } from "@/components/email/send-shortcut-extension";
 import {
   swapSignature,
   renderSignatureRegion,
 } from "@/lib/email/signature-swap";
 import { insertTemplateBody } from "@/lib/email/insert-template";
+import { isSendShortcut } from "@/lib/email/send-shortcut";
 import { type Editor } from "@tiptap/react";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import ContactPicker from "@/components/email/contact-picker";
@@ -133,9 +135,21 @@ export default function ComposeEmailModal({
   // body into the message above the signature, never clobbering typed content.
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [templates, setTemplates] = useState<ComposeTemplate[] | null>(null);
+  // Cmd/Ctrl+Enter sends from anywhere in compose (issue #645). The in-editor
+  // chord is handled by SendShortcutExtension; this ref lets that extension —
+  // built once below — always reach the latest handleSend without rebuilding the
+  // editor. `sendingRef` dedupes so a held/repeated chord can't fire twice.
+  const handleSendRef = useRef<() => void>(() => {});
+  const sendingRef = useRef(false);
   // Opt-in rich-formatting extensions for the bottom toolbar. Stable across
   // renders so the shared editor isn't rebuilt; only compose loads these.
-  const richExtensions = useMemo(() => composeRichExtensions(), []);
+  const richExtensions = useMemo(
+    () => [
+      ...composeRichExtensions(),
+      SendShortcutExtension.configure({ onSend: () => handleSendRef.current() }),
+    ],
+    [],
+  );
   const [windowState, dispatchWindow] = useReducer(
     composeWindowReducer,
     initialComposeWindowState,
@@ -486,8 +500,12 @@ export default function ComposeEmailModal({
     applySignature(nextSig, nextSig ? accountId : null);
   }
 
-  async function handleSend(e: React.FormEvent) {
-    e.preventDefault();
+  // Accepts the form submit event, the Cmd/Ctrl+Enter keydown, or no event at
+  // all (the in-editor send chord). `sendingRef` makes a held/repeated chord or
+  // a double-click idempotent: a second call while a send is in flight no-ops.
+  async function handleSend(e?: { preventDefault?: () => void }) {
+    e?.preventDefault?.();
+    if (sendingRef.current) return;
     // Commit any typed-but-uncommitted email addresses
     toRef.current?.flush();
     ccRef.current?.flush();
@@ -510,6 +528,7 @@ export default function ComposeEmailModal({
       return;
     }
 
+    sendingRef.current = true;
     setSending(true);
     try {
       const res = await fetch("/api/email/send", {
@@ -535,7 +554,6 @@ export default function ComposeEmailModal({
         data = await res.json();
       } catch {
         toast.error(`Server error (${res.status}). Check email settings and try again.`);
-        setSending(false);
         return;
       }
 
@@ -553,9 +571,13 @@ export default function ComposeEmailModal({
       }
     } catch {
       toast.error("Network error sending email.");
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
-    setSending(false);
   }
+  // Keep the ref the SendShortcutExtension calls pointed at the latest closure.
+  handleSendRef.current = () => void handleSend();
 
   const title =
     mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "Compose Email";
@@ -581,8 +603,18 @@ export default function ComposeEmailModal({
       aria-label={title}
       className={panelClass}
     >
-      {/* Title bar — window chrome with minimize / maximize / close */}
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-[#2B5EA7] text-white shrink-0 select-none">
+      {/* Title bar — window chrome with minimize / maximize / close. On the
+          full-screen mobile sheet the bar sits at the very top, so it takes the
+          iOS safe-area top inset to clear the status bar/notch (issue #645). The
+          minimized mini-sheet docks at the bottom and the desktop window is
+          inset, so both keep the normal 10px top padding. */}
+      <div
+        className={`flex items-center justify-between gap-2 px-4 pb-2.5 bg-[#2B5EA7] text-white shrink-0 select-none ${
+          isMinimized
+            ? "pt-2.5"
+            : "pt-[max(env(safe-area-inset-top),10px)] sm:pt-2.5"
+        }`}
+      >
         {isMinimized ? (
           <button
             type="button"
@@ -634,6 +666,16 @@ export default function ComposeEmailModal({
           in-progress draft — recipients, subject, body, attachments — survives. */}
       <form
         onSubmit={handleSend}
+        onKeyDown={(e) => {
+          // Cmd/Ctrl+Enter sends from the header fields (To/Cc/Bcc/Subject).
+          // The body has its own SendShortcutExtension, so skip keystrokes that
+          // originate inside the editor — otherwise the chord would fire twice.
+          if (editor?.view.dom.contains(e.target as Node)) return;
+          if (isSendShortcut(e)) {
+            e.preventDefault();
+            void handleSend(e);
+          }
+        }}
         className={`flex-1 min-h-0 flex flex-col ${isMinimized ? "hidden" : ""}`}
       >
         <div className="flex-1 min-h-0 overflow-y-auto bg-white">
@@ -826,8 +868,10 @@ export default function ComposeEmailModal({
           onToggleVisible={() => setToolbarVisible((v) => !v)}
         />
 
-        {/* Footer action / send bar */}
-        <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-gray-200 bg-white">
+        {/* Footer action / send bar. Bottom inset keeps the Send button clear of
+            the iOS home indicator on the full-screen sheet (issue #645); resolves
+            to the normal 12px on desktop where the safe area is 0. */}
+        <div className="shrink-0 flex items-center gap-3 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] border-t border-gray-200 bg-white">
           <button
             type="submit"
             disabled={sending || uploading || accounts.length === 0}
