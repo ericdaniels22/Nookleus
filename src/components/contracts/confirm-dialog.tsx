@@ -1,13 +1,23 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 
-// Shared destructive-confirm modal used by DeleteDraftDialog (#61) and
-// PermanentlyDeleteDialog (#63). VoidContractDialog deliberately stays on
-// its own chrome — it carries a reason textarea, not a binary confirm.
+// Shared destructive-confirm modal used by DeleteDraftDialog (#61),
+// PermanentlyDeleteDialog (#63), and the Estimate Builder's line-item delete
+// guard (#631). VoidContractDialog deliberately stays on its own chrome — it
+// carries a reason textarea, not a binary confirm.
 //
 // The dialog is fully controlled: pass `open` to render, supply `onCancel`
 // and `onConfirm`. Backdrop click and Cancel both invoke onCancel.
+//
+// Keyboard + focus contract (#631): when this was layered in front of the touch
+// editor — which runs its own window-level Escape-to-close handler — a bare
+// modal let Escape fall through and tear down the whole editor instead of just
+// the confirm. So the dialog now owns its keyboard: Escape cancels via a
+// CAPTURE-phase window listener that stops the event before any surrounding
+// handler sees it, focus moves onto Cancel on open and is restored to the opener
+// on close, and Tab is trapped between the two actions (aria-modal kept honest).
 
 interface Props {
   open: boolean;
@@ -30,14 +40,69 @@ export default function ConfirmDialog({
   onCancel,
   onConfirm,
 }: Props) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Read onCancel through a ref so the capture listener binds once per open
+  // rather than re-binding on every parent re-render.
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    // Remember the opener so focus can return to it when the dialog closes.
+    const opener = document.activeElement as HTMLElement | null;
+    // Park focus on the non-destructive action — safest default for a
+    // destructive confirm, and it seats focus inside the dialog subtree.
+    cancelRef.current?.focus();
+
+    // Escape cancels. Capture-phase + stopPropagation so the event never reaches
+    // a surrounding window listener (e.g. the editor panel's own Escape-to-close),
+    // which would otherwise close the surface behind us.
+    function onEscapeCapture(e: KeyboardEvent) {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancelRef.current();
+      }
+    }
+    window.addEventListener("keydown", onEscapeCapture, true);
+    return () => {
+      window.removeEventListener("keydown", onEscapeCapture, true);
+      opener?.focus?.();
+    };
+  }, [open]);
+
   if (!open) return null;
+
+  // Keep Tab within the two actions so focus can't wander to the fields behind
+  // the aria-modal dialog.
+  function onKeyDownTrap(e: ReactKeyboardEvent) {
+    if (e.key !== "Tab") return;
+    const buttons = overlayRef.current?.querySelectorAll<HTMLElement>("button");
+    if (!buttons || buttons.length === 0) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div
+      ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
       onClick={onCancel}
+      onKeyDown={onKeyDownTrap}
     >
       <div
         className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-2xl"
@@ -47,18 +112,22 @@ export default function ConfirmDialog({
           {title}
         </h2>
         <div className="mt-2 text-sm text-muted-foreground">{body}</div>
+        {/* min-h-[44px]: finger-friendly tap targets for the touch surfaces this
+            now backs (the iPad estimate builder), where a destructive mis-tap
+            matters most (AC 3). */}
         <div className="mt-5 flex items-center justify-end gap-2">
           <button
+            ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 border border-border text-foreground hover:bg-accent transition-colors"
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 min-h-[44px] border border-border text-foreground hover:bg-accent transition-colors"
           >
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-red-500/90 text-white hover:bg-red-500 transition-colors"
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 min-h-[44px] bg-red-500/90 text-white hover:bg-red-500 transition-colors"
           >
             {confirmLabel}
           </button>

@@ -11,7 +11,8 @@
 // the panel must show up on the inline row, and vice-versa.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 
 import type {
   BuilderEntity,
@@ -799,5 +800,105 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(
       within(panel).queryByRole("button", { name: /delete line item/i }),
     ).toBeNull();
+  });
+
+  it("keeps the editor open (cancels only the confirm) when Escape is pressed with the confirm up", () => {
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    // The #631 guard is up.
+    within(screen.getByTestId("builder-editor-panel")).getByRole("dialog", {
+      name: /delete line item/i,
+    });
+
+    // Before the keyboard fix, this window-level Escape closed the WHOLE editor
+    // out from under the open confirm. It must now cancel the confirm only.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    const panel = screen.getByTestId("builder-editor-panel");
+    expect(
+      within(panel).queryByRole("dialog", { name: /delete line item/i }),
+    ).toBeNull();
+    // Editor still open, line still present.
+    expect(
+      within(screen.getByTestId("builder-document")).queryByText("Tear-off"),
+    ).not.toBeNull();
+  });
+
+  it("recomputes the totals and shows a success toast after a successful delete (AC 12, AC 18)", async () => {
+    vi.mocked(toast.success).mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$150.00").length).toBeGreaterThan(0);
+
+    // Delete Tear-off ($100 of the $150 subtotal).
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
+    // AC 12: totals recompute optimistically ($150 → $50); the editor auto-closes
+    // so the full breakdown is shown again.
+    expect(within(totals).queryByText("$150.00")).toBeNull();
+    expect(within(totals).getAllByText("$50.00").length).toBeGreaterThan(0);
+
+    // AC 18: a success toast confirms the removal once the DELETE resolves.
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Line item deleted"),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("restores the line and shows an error toast when the delete request fails (AC 19)", async () => {
+    vi.mocked(toast.error).mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, json: async () => ({ error: "nope" }) })),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
+    // Optimistically removed first, then the failed DELETE rolls the line back in.
+    const doc = screen.getByTestId("builder-document");
+    await waitFor(() => {
+      expect(within(doc).queryByText("Tear-off")).not.toBeNull();
+    });
+    expect(toast.error).toHaveBeenCalledWith("nope");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("restores the line and shows a network error toast when the delete request throws (AC 19)", async () => {
+    vi.mocked(toast.error).mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
+    const doc = screen.getByTestId("builder-document");
+    await waitFor(() => {
+      expect(within(doc).queryByText("Tear-off")).not.toBeNull();
+    });
+    expect(toast.error).toHaveBeenCalledWith(
+      "Network error — could not delete line item",
+    );
+
+    vi.unstubAllGlobals();
   });
 });

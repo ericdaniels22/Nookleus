@@ -363,7 +363,7 @@ export function LineItemEditorPanel({
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+              className="flex w-full min-h-[44px] items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
             >
               <Trash2 size={16} />
               Delete line item
