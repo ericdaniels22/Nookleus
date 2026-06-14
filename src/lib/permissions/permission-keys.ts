@@ -68,6 +68,7 @@ export const PERMISSION_CATALOG = [
 
   { key: "manage_templates", label: "Manage Estimate Templates", group: "Templates" },
   { key: "manage_contract_templates", label: "Manage Contract Templates", group: "Templates" },
+  { key: "manage_email_templates", label: "Manage Email Templates", group: "Templates" },
 
   { key: "manage_item_library", label: "Manage Item Library", group: "Catalogs" },
   { key: "manage_vendors", label: "Manage Vendors", group: "Catalogs" },
