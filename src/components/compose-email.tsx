@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
+import ComposeFormattingToolbar from "@/components/email/compose-formatting-toolbar";
+import { composeRichExtensions } from "@/components/email/compose-editor-extensions";
+import { type Editor } from "@tiptap/react";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
 import ContactPicker from "@/components/email/contact-picker";
 import { htmlToText } from "@/lib/email/html-to-text";
@@ -101,6 +104,11 @@ export default function ComposeEmailModal({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+  // Opt-in rich-formatting extensions for the bottom toolbar. Stable across
+  // renders so the shared editor isn't rebuilt; only compose loads these.
+  const richExtensions = useMemo(() => composeRichExtensions(), []);
   const [windowState, dispatchWindow] = useReducer(
     composeWindowReducer,
     initialComposeWindowState,
@@ -634,6 +642,9 @@ export default function ComposeEmailModal({
               content={bodyHtml}
               onChange={setBodyHtml}
               placeholder="Type your message..."
+              hideToolbar
+              extraExtensions={richExtensions}
+              onReady={setEditor}
             />
           </div>
 
@@ -678,6 +689,13 @@ export default function ComposeEmailModal({
             )}
           </div>
         </div>
+
+        {/* Bottom formatting toolbar (issue #642) — below the body, above send */}
+        <ComposeFormattingToolbar
+          editor={editor}
+          visible={toolbarVisible}
+          onToggleVisible={() => setToolbarVisible((v) => !v)}
+        />
 
         {/* Footer action / send bar */}
         <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-gray-200 bg-white">
