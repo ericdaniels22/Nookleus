@@ -42,6 +42,29 @@ describe("BuilderLayout — document body", () => {
   });
 });
 
+describe("BuilderLayout — sticky-editor travel room (#629)", () => {
+  it("does not pin the document/editor row to content height", () => {
+    // Acceptance (#629): the docked editor uses `position: sticky` and can only
+    // travel within its parent's box. The row that holds the document <main> and
+    // the editor <aside> must NOT align its children to the top (`items-start`),
+    // which would collapse the <aside> to content height and leave the sticky
+    // editor with zero room to travel — so it scrolls away instead of pinning.
+    // Default `stretch` alignment lets the <aside> span the document height.
+    //
+    // jsdom computes no layout, so the pinned-while-scrolling behavior itself is
+    // verified in the browser; this guards the layout contract from regressing,
+    // mirroring the `max-w-`/`mx-auto` negation guard above.
+    render(
+      <BuilderLayout editorSlot={<p>Editor</p>}>
+        <p>doc</p>
+      </BuilderLayout>,
+    );
+
+    const row = screen.getByTestId("builder-document").parentElement;
+    expect(row?.className).not.toContain("items-start");
+  });
+});
+
 describe("BuilderLayout — editor panel slot", () => {
   it("renders the editor panel content when an editorSlot is provided", () => {
     render(
