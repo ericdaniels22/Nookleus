@@ -423,11 +423,10 @@ describe("LineItemEditorPanel", () => {
 
 // Issue #630 — touch-accessible delete. The row's only delete control is a
 // hover-only trash icon, invisible on a touchscreen. The editor panel gains a
-// prominent "Delete line item" button so a line can be removed by tapping. This
-// slice ships WITHOUT a confirmation step (that's the #631 follow-up): the
-// button calls onDelete directly. Builder wiring (optimistic removal, totals,
-// rollback, toasts, editor auto-close) is the existing onLineItemDelete handler
-// and is exercised separately; here we pin the panel's affordance in isolation.
+// prominent "Delete line item" button so a line can be removed by tapping.
+// These cases pin the panel's affordance in isolation — that it renders, and
+// when it's gated. What tapping it *does* (open the #631 confirm, then run the
+// existing onLineItemDelete pathway) is covered by the #631 block below.
 describe("LineItemEditorPanel — delete affordance (#630)", () => {
   it("renders a Delete line item button when onDelete is provided and editable", () => {
     render(
@@ -442,21 +441,6 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
     expect(
       screen.getByRole("button", { name: /delete line item/i }),
     ).toBeDefined();
-  });
-
-  it("calls onDelete exactly once when the button is tapped", () => {
-    const onDelete = vi.fn();
-    render(
-      <LineItemEditorPanel
-        item={makeItem()}
-        onChange={vi.fn()}
-        onClose={vi.fn()}
-        onDelete={onDelete}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /delete line item/i }));
-    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
   it("hides the delete button on a read-only (voided) entity", () => {
@@ -485,7 +469,121 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
     ).toBeNull();
   });
 
-  it("shows the delete button in the phone slide-up sheet too, and it fires", () => {
+  it("shows the delete button in the phone slide-up sheet too", () => {
+    setMatchMedia(false); // phone viewport
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    // The footer lives outside the desktop/phone class branch, so the
+    // destructive action is reachable in the slide-up sheet, not only the dock.
+    // (What tapping it does — open the confirm guard — is covered by #631.)
+    expect(
+      screen.getByTestId("line-item-editor-panel").getAttribute("data-variant"),
+    ).toBe("phone");
+    expect(
+      screen.getByRole("button", { name: /delete line item/i }),
+    ).toBeDefined();
+  });
+});
+
+// Issue #631 — confirmation guard. The #630 delete button now opens a shared
+// "Delete line item?" confirm instead of deleting on the first tap, so an
+// accidental touch can't silently remove work. Cancel aborts; Confirm runs the
+// existing delete pathway. The confirm renders inside the panel's own stacking
+// context so it layers above both the docked editor and the z-50 phone sheet.
+describe("LineItemEditorPanel — delete confirmation (#631)", () => {
+  function deleteButton() {
+    return screen.getByRole("button", { name: /delete line item/i });
+  }
+
+  it("opens a confirmation instead of deleting on the first tap", () => {
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(deleteButton());
+
+    // Nothing is deleted yet — the destructive action is guarded.
+    expect(onDelete).not.toHaveBeenCalled();
+    // A confirmation appears, stating the action can't be undone.
+    const dialog = screen.getByRole("dialog", { name: /delete line item/i });
+    expect(within(dialog).getByText(/can't be undone/i)).toBeDefined();
+  });
+
+  it("deletes the line exactly once when the confirmation is confirmed", () => {
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(deleteButton());
+    const dialog = screen.getByRole("dialog", { name: /delete line item/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+    // Confirm runs the delete pathway exactly once and dismisses the prompt.
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: /delete line item/i })).toBeNull();
+  });
+
+  it("closes the confirmation without deleting when cancelled", () => {
+    const onDelete = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(deleteButton());
+    const dialog = screen.getByRole("dialog", { name: /delete line item/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /cancel/i }));
+
+    // Cancel aborts: no delete, and the prompt is gone (the line survives).
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: /delete line item/i })).toBeNull();
+  });
+
+  it("renders the confirmation within the editor panel's stacking context", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(deleteButton());
+
+    // The confirm is a descendant of the panel — not a detached sibling — so it
+    // inherits the panel's stacking context and paints above it in both the
+    // docked variant and the z-50 phone sheet (real layering isn't observable in
+    // jsdom; DOM containment is the structural contract that guarantees it).
+    const panel = screen.getByTestId("line-item-editor-panel");
+    const dialog = screen.getByRole("dialog", { name: /delete line item/i });
+    expect(panel.contains(dialog)).toBe(true);
+  });
+
+  it("guards delete in the phone slide-up sheet too", () => {
     setMatchMedia(false); // phone viewport
     const onDelete = vi.fn();
     render(
@@ -497,12 +595,15 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
       />,
     );
 
-    // The footer lives outside the desktop/phone class branch, so the
-    // destructive action is reachable in the slide-up sheet, not only the dock.
-    expect(
-      screen.getByTestId("line-item-editor-panel").getAttribute("data-variant"),
-    ).toBe("phone");
-    fireEvent.click(screen.getByRole("button", { name: /delete line item/i }));
+    const panel = screen.getByTestId("line-item-editor-panel");
+    expect(panel.getAttribute("data-variant")).toBe("phone");
+
+    fireEvent.click(deleteButton());
+    const dialog = screen.getByRole("dialog", { name: /delete line item/i });
+    // Nested in the z-50 sheet's stacking context — not hidden behind it.
+    expect(panel.contains(dialog)).toBe(true);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 });

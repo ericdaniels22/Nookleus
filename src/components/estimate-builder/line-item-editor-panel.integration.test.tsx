@@ -707,14 +707,27 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
 // button reaches the same optimistic-remove pathway the row's hover trash uses,
 // so a line can be deleted by tapping the panel — the only delete path on touch.
 //
-// The row ALSO carries a "Delete line item" button (the hover one), so the
-// panel button is queried scoped to the editor aside, never globally.
+// Since #631 the panel button opens a confirmation first, so these drive the
+// full guarded flow: tap the panel button, then confirm. (The trigger reads
+// "Delete line item"; the confirm button reads "Delete", so the two never
+// collide.) The row ALSO carries a "Delete line item" button (the hover one),
+// so the panel button is queried scoped to the editor aside, never globally.
 describe("EstimateBuilder × editor delete button (#630)", () => {
   function panelDeleteButton() {
     return within(screen.getByTestId("builder-editor-panel")).getByRole(
       "button",
       { name: /delete line item/i },
     );
+  }
+
+  // Confirm the #631 guard: the panel's confirmation lives inside the editor
+  // aside, with a "Delete" confirm button distinct from the trigger.
+  function confirmPanelDelete() {
+    const dialog = within(screen.getByTestId("builder-editor-panel")).getByRole(
+      "dialog",
+      { name: /delete line item/i },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
   }
 
   it("deletes the selected estimate line via the panel button and closes the editor", () => {
@@ -727,11 +740,14 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     selectRowByName("Tear-off");
     expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
 
+    // First tap only opens the #631 guard — the line is still present.
     fireEvent.click(panelDeleteButton());
-
-    // The line is optimistically removed from the document, and the selection
-    // clears as it leaves the live id set, so the panel unmounts.
     const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Tear-off")).not.toBeNull();
+
+    // Confirming runs the optimistic removal; the selection clears as the line
+    // leaves the live id set, so the panel unmounts.
+    confirmPanelDelete();
     expect(within(doc).queryByText("Tear-off")).toBeNull();
     expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
 
@@ -749,6 +765,7 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
 
     fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
 
     const doc = screen.getByTestId("builder-document");
     expect(within(doc).queryByText("Soffit repair")).toBeNull();
@@ -765,6 +782,7 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
 
     fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
 
     const doc = screen.getByTestId("builder-document");
     expect(within(doc).queryByText("Install shingles")).toBeNull();

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
+import ConfirmDialog from "@/components/contracts/confirm-dialog";
 import { MoneyInput } from "./money-input";
 import type { BuilderLineItem } from "./line-item-row";
 import type { BuilderMode } from "@/lib/types";
@@ -112,6 +113,10 @@ export function LineItemEditorPanel({
   }
 
   const isDesktop = useIsDesktop();
+
+  // #631: the delete button opens a confirmation rather than deleting on the
+  // first tap, so an accidental touch can't silently remove work.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Opening the panel (and swapping to another line) drops the cursor into the
   // name field so the user can type immediately — required for the add-line flow
@@ -351,13 +356,13 @@ export function LineItemEditorPanel({
             A pinned (shrink-0) footer outside the scrollable body so the
             destructive action stays visible in both the desktop dock and the
             phone slide-up sheet. A large, full-width finger target for touch.
-            Hidden on read-only entities and when no onDelete is supplied. This
-            slice deletes directly; the #631 confirmation guard wraps it next. */}
+            Hidden on read-only entities and when no onDelete is supplied. The
+            #631 confirmation guard sits in front: a tap opens the confirm. */}
         {onDelete && !readOnly && (
           <div className="shrink-0 border-t border-border p-4">
             <button
               type="button"
-              onClick={onDelete}
+              onClick={() => setConfirmOpen(true)}
               className="flex w-full items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
             >
               <Trash2 size={16} />
@@ -365,6 +370,24 @@ export function LineItemEditorPanel({
             </button>
           </div>
         )}
+
+        {/* ── Delete confirmation (#631) ──────────────────────────────────
+            Rendered INSIDE the panel (not as a detached sibling) so it joins
+            the panel's stacking context and paints above it in both the docked
+            variant and the z-50 phone slide-up sheet. The fixed-overlay confirm
+            still covers the viewport; nesting only governs which layer wins. */}
+        <ConfirmDialog
+          open={confirmOpen}
+          ariaLabel="Delete line item"
+          title="Delete line item?"
+          body="This removes the line item. This can't be undone."
+          confirmLabel="Delete"
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            onDelete?.();
+          }}
+        />
       </div>
     </>
   );
