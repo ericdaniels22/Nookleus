@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
 
 // POST /api/email/drafts — save or update a draft
 // Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId?, attachments? }
@@ -60,7 +61,11 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     bcc_addresses: bccAddresses,
     subject: subject || "(no subject)",
     body_text: bodyText || null,
-    body_html: bodyHtml || null,
+    // Allowlist-sanitize before storage so a body POSTed directly (bypassing
+    // the client Tiptap round-trip) can't smuggle script/handlers into a
+    // resumed draft or the eventual send (issue #658 M3). Storage variant keeps
+    // the signature round-trip markers so a resumed draft can still swap them.
+    body_html: bodyHtml ? sanitizeEmailHtmlForStorage(bodyHtml) : null,
     snippet: snippet || null,
     is_read: true,
     is_starred: false,

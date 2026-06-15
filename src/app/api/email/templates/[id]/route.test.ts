@@ -89,6 +89,34 @@ describe("PUT /api/email/templates/[id] — scope-conditional permission", () =>
   });
 });
 
+// Issue #658 M3: editing a template body must apply the same allowlist
+// sanitization as create before storage.
+describe("PUT /api/email/templates/[id] — sanitizes body_html before storage", () => {
+  it("neutralizes a <script> payload in the persisted body_html", async () => {
+    const writes: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "u" },
+        tables: tablesFor({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+        onWrite: (table, _op, payload) =>
+          writes.push({ table, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    await PUT(
+      putReq({ body_html: '<p>Body</p><script>steal()</script>' }),
+      params("t-mine"),
+    );
+
+    const write = writes.find((w) => w.table === "email_templates");
+    expect(write).toBeTruthy();
+    const html = write!.payload.body_html as string;
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("steal");
+    expect(html).toContain("<p>Body</p>");
+  });
+});
+
 describe("DELETE /api/email/templates/[id] — scope-conditional permission", () => {
   it("denies deleting an Organization-wide template without manage_email_templates", async () => {
     authed({

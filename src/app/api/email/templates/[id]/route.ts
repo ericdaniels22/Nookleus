@@ -5,6 +5,7 @@ import {
   authorizeTemplateMutation,
   type EmailTemplateScope,
 } from "@/lib/email/authorize-template-mutation";
+import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
 
 // Both handlers derive the template's scope from the existing row (owner_user_id
 // NULL → Organization-wide; set → Personal), then apply the same scope gate as
@@ -60,7 +61,10 @@ export const PUT = withRequestContext<{ id: string }>(
     const body = await request.json().catch(() => ({}));
     const patch: Record<string, unknown> = {};
     if (typeof body?.name === "string") patch.name = body.name.trim().slice(0, 200);
-    if (typeof body?.body_html === "string") patch.body_html = body.body_html;
+    // Same allowlist sanitization as create — body HTML POSTed directly here
+    // bypasses the client editor too (issue #658 M3).
+    if (typeof body?.body_html === "string")
+      patch.body_html = sanitizeEmailHtmlForStorage(body.body_html);
 
     const { data, error } = await ctx.supabase
       .from("email_templates")

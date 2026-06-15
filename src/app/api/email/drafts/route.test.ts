@@ -26,8 +26,11 @@ function authed(opts: Parameters<typeof fakeUserClient>[0]) {
   );
 }
 
-function postReq() {
-  return new Request("http://test", { method: "POST", body: "{}" });
+function postReq(body: Record<string, unknown> = {}) {
+  return new Request("http://test", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 beforeEach(() => {
@@ -85,5 +88,47 @@ describe("POST /api/email/drafts — gated on send_email (#105)", () => {
     const res = await POST(postReq(), noParams);
 
     expect(res.status).not.toBe(403);
+  });
+});
+
+// Issue #658 M3: a draft body POSTed directly bypasses the client Tiptap
+// round-trip, so the route must allowlist-sanitize body HTML before storage.
+describe("POST /api/email/drafts — sanitizes body HTML before storage", () => {
+  it("neutralizes a <script> payload in the persisted body_html", async () => {
+    const writes: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: {
+          ...memberTables({ userId: "user-1", role: "crew_member", grants: ["send_email"] }),
+          email_accounts: [
+            {
+              id: "acc-1",
+              email_address: "rep@aaa.test",
+              display_name: "Rep",
+              organization_id: "org-1",
+            },
+          ],
+        },
+        onWrite: (table, _op, payload) =>
+          writes.push({ table, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    await POST(
+      postReq({
+        accountId: "acc-1",
+        bodyText: "Hi",
+        bodyHtml: '<p>Hi</p><script>steal()</script>',
+      }),
+      noParams,
+    );
+
+    const draftWrite = writes.find((w) => w.table === "emails");
+    expect(draftWrite).toBeTruthy();
+    const html = draftWrite!.payload.body_html as string;
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("steal");
+    expect(html).toContain("<p>Hi</p>");
   });
 });

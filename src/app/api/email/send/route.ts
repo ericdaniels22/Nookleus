@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
+import { sanitizeEmailHtmlForSend } from "@/lib/email/sanitize-email-html";
 import nodemailer from "nodemailer";
 
 interface UploadedAttachment {
@@ -55,6 +56,14 @@ export const POST = withRequestContext(
     return NextResponse.json({ error: "Email account not found" }, { status: 404 });
   }
 
+  // Allowlist-sanitize the body HTML at the send boundary: a body POSTed
+  // directly here bypasses the client Tiptap round-trip, so this is the last
+  // line before it goes out over SMTP. The send variant also strips the
+  // internal signature round-trip markers (data-signature-block) so they never
+  // leave the building (issue #658 M3/L5). The sent copy stored below uses the
+  // same value, so the record mirrors what was actually sent.
+  const sanitizedHtml = bodyHtml ? sanitizeEmailHtmlForSend(bodyHtml) : null;
+
   let password: string;
   try {
     password = decrypt(account.encrypted_password);
@@ -93,7 +102,7 @@ export const POST = withRequestContext(
 
     if (cc) mailOptions.cc = cc;
     if (bcc) mailOptions.bcc = bcc;
-    if (bodyHtml) mailOptions.html = bodyHtml;
+    if (sanitizedHtml) mailOptions.html = sanitizedHtml;
 
     // Attach files from storage
     if (attachments && attachments.length > 0) {
@@ -147,7 +156,7 @@ export const POST = withRequestContext(
         bcc_addresses: bccAddresses,
         subject,
         body_text: body,
-        body_html: bodyHtml || null,
+        body_html: sanitizedHtml,
         snippet,
         is_read: true,
         is_starred: false,

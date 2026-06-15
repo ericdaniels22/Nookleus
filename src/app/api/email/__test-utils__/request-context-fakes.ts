@@ -65,10 +65,14 @@ function queryBuilder(
 // A fake User client — what `withRequestContext` authenticates against.
 // `tables` seeds whatever the wrapper or route reads; at minimum
 // `user_organizations` (membership) and `user_organization_permissions`
-// (grants), built conveniently via `memberTables`.
+// (grants), built conveniently via `memberTables`. Pass `onWrite` to capture
+// the payloads a route inserts/updates through the User client — useful for
+// pinning WHAT a route persists (e.g. that body HTML is sanitized before
+// storage), the same capability `fakeServiceClient` offers.
 export function fakeUserClient(opts: {
   user: { id: string } | null;
   tables?: Record<string, Row[]>;
+  onWrite?: (table: string, op: "insert" | "update", payload: Row | Row[]) => void;
 }) {
   const tables = opts.tables ?? {};
   return {
@@ -78,7 +82,10 @@ export function fakeUserClient(opts: {
       },
     },
     from(table: string) {
-      return queryBuilder(tables[table] ?? []);
+      return queryBuilder(
+        tables[table] ?? [],
+        opts.onWrite ? (op, payload) => opts.onWrite!(table, op, payload) : undefined,
+      );
     },
     storage: {
       from() {

@@ -5,6 +5,7 @@ import {
   authorizeTemplateMutation,
   type EmailTemplateScope,
 } from "@/lib/email/authorize-template-mutation";
+import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
 
 // GET /api/email/templates — list the templates this Request Context may see:
 // Organization-wide templates for the Active Organization plus the caller's
@@ -53,7 +54,11 @@ export const POST = withRequestContext({ permission: "access_settings" }, async 
       organization_id: ctx.orgId,
       owner_user_id: scope === "organization" ? null : ctx.userId,
       name: name.slice(0, 200),
-      body_html: (body?.body_html ?? "").toString(),
+      // Allowlist-sanitize before storage: an org-shared template body flows
+      // into other members' outgoing email, so a body POSTed directly must not
+      // carry script/handlers (issue #658 M3). Storage variant keeps the
+      // round-trip markers; the send path strips them.
+      body_html: sanitizeEmailHtmlForStorage((body?.body_html ?? "").toString()),
       created_by: ctx.userId,
     })
     .select()
