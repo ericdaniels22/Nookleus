@@ -15,6 +15,7 @@ import {
   Users,
   PenLine,
   FileText,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import TiptapEditor from "@/components/tiptap-editor";
@@ -175,6 +176,11 @@ export default function ComposeEmailModal({
   // baselines each open). `armedRef` gates edits until the opened content has
   // settled, so opening (incl. an auto-inserted signature) never autosaves.
   const armedRef = useRef(false);
+  // Guards full re-initialization to the open transition only. A parent
+  // re-rendering with changed default props while the window is already open
+  // must NOT re-run the reset — that blew away the user's in-progress content,
+  // the draft id, and any pending autosave (issue #657 M5).
+  const initializedRef = useRef(false);
   const schedulerRef = useRef<DraftAutosaveScheduler | null>(null);
   if (schedulerRef.current === null) {
     schedulerRef.current = createDraftAutosaveScheduler({
@@ -204,9 +210,18 @@ export default function ComposeEmailModal({
       bodyHtml,
       jobId: jobId || undefined,
       replyToMessageId,
+      // Carry uploaded attachments so attaching one marks the draft dirty and
+      // the saved draft reports its attachments honestly (issue #657 L1).
+      attachments: uploadedFiles.length > 0 ? uploadedFiles : undefined,
     }),
-    [selectedAccountId, toRecipients, ccRecipients, bccRecipients, subject, bodyHtml, jobId, replyToMessageId],
+    [selectedAccountId, toRecipients, ccRecipients, bccRecipients, subject, bodyHtml, jobId, replyToMessageId, uploadedFiles],
   );
+  // Always-current snapshot builder for imperative callers (handleSend's failure
+  // paths), so resuming autosave after a failed send persists the LATEST content
+  // — including edits typed while the send was in flight — rather than the
+  // snapshot captured when handleSend's closure was created (issue #657 review).
+  const buildSnapshotRef = useRef(buildSnapshot);
+  buildSnapshotRef.current = buildSnapshot;
 
   // Signature data from email_signatures table
   const [signaturesMap, setSignaturesMap] = useState<Record<string, { signature_html: string; auto_insert: boolean }>>({});
@@ -348,7 +363,11 @@ export default function ComposeEmailModal({
   }
 
   useEffect(() => {
-    if (open) {
+    // Initialize ONLY on the open transition. Prop changes while the window is
+    // already open must not re-initialize and discard in-progress edits (#657
+    // M5); the close effect below re-arms this for the next open.
+    if (open && !initializedRef.current) {
+      initializedRef.current = true;
       // Each fresh open starts as the corner-docked panel.
       dispatchWindow({ type: "reset" });
       // Disarm autosave until the opened content has settled (see the baseline
@@ -436,6 +455,8 @@ export default function ComposeEmailModal({
               bodyHtml: initialBody,
               jobId: jobId || undefined,
               replyToMessageId,
+              attachments:
+                defaultAttachments.length > 0 ? defaultAttachments : undefined,
             },
             initialDraftId || null,
           );
@@ -463,6 +484,8 @@ export default function ComposeEmailModal({
       void schedulerRef.current?.flush();
       armedRef.current = false;
     }
+    // Allow a full re-initialization on the next open (issue #657 M5).
+    initializedRef.current = false;
   }, [open]);
 
   // Belt-and-suspenders: if the component unmounts while still armed (parent
@@ -551,6 +574,16 @@ export default function ComposeEmailModal({
 
     sendingRef.current = true;
     setSending(true);
+    // Settle autosave BEFORE sending: cancel() drops the pending edit (we're
+    // sending, not drafting), waits for any in-flight create to resolve, and
+    // returns the persisted draft id. This closes the race where sending during
+    // the first create-autosave read a null draftId (deleting nothing) while the
+    // in-flight create then inserted an orphan draft (issue #657 M1). Disarm so
+    // no autosave fires during the send; re-armed below only if the send fails.
+    const settledDraftId = (await schedulerRef.current?.cancel()) ?? null;
+    armedRef.current = false;
+    if (settledDraftId) setDraftId(settledDraftId);
+    const draftIdToDelete = settledDraftId ?? draftId ?? undefined;
     try {
       const res = await fetch("/api/email/send", {
         method: "POST",
@@ -566,7 +599,7 @@ export default function ComposeEmailModal({
           bodyHtml,
           replyToMessageId,
           attachments: uploadedFiles.length > 0 ? uploadedFiles : undefined,
-          draftId: draftId || undefined,
+          draftId: draftIdToDelete,
         }),
       });
 
@@ -575,23 +608,29 @@ export default function ComposeEmailModal({
         data = await res.json();
       } catch {
         toast.error(`Server error (${res.status}). Check email settings and try again.`);
+        // Resume autosave so the in-progress draft keeps saving after the error.
+        armedRef.current = true;
+        schedulerRef.current?.notifyChange(buildSnapshotRef.current());
         return;
       }
 
       if (res.ok) {
-        // The message was sent and the server deletes the backing draft (it was
-        // passed `draftId`). Cancel and disarm so the close handler below does
-        // NOT flush a pending edit back into a new draft for a sent message.
-        schedulerRef.current?.cancel();
-        armedRef.current = false;
+        // Sent — the server deleted the backing draft (passed `draftIdToDelete`).
+        // Autosave is already cancelled/disarmed above, so the close handler
+        // won't flush a pending edit back into a new draft for a sent message.
         toast.success("Email sent successfully.");
         onOpenChange(false);
         onSent?.();
       } else {
         toast.error(data.error || "Failed to send email.");
+        // The user stays in compose — resume autosave so further edits persist.
+        armedRef.current = true;
+        schedulerRef.current?.notifyChange(buildSnapshotRef.current());
       }
     } catch {
       toast.error("Network error sending email.");
+      armedRef.current = true;
+      schedulerRef.current?.notifyChange(buildSnapshotRef.current());
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -1079,6 +1118,14 @@ export default function ComposeEmailModal({
                 <Check size={12} className="text-green-600" />
                 <span>Saved</span>
               </>
+            )}
+            {autosaveStatus === "error" && (
+              // A failed autosave must read as a distinct, visible "not saved"
+              // state — never silently fall back to idle (issue #657 L2).
+              <span className="flex items-center gap-1.5 text-red-600">
+                <AlertCircle size={12} />
+                <span>Not saved — will retry</span>
+              </span>
             )}
           </div>
         </div>
