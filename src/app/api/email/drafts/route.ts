@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // POST /api/email/drafts — save or update a draft
-// Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId? }
+// Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId?, attachments? }
 // Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
 // gate the #85 Request-Context conversion gave this previously-ungated route.
 export const POST = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
@@ -17,6 +17,7 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     bodyHtml,
     jobId,
     replyToMessageId,
+    attachments,
   } = await request.json();
 
   if (!accountId) {
@@ -63,7 +64,11 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     snippet: snippet || null,
     is_read: true,
     is_starred: false,
-    has_attachments: false,
+    // Report attachments honestly so the Drafts list shows the paperclip and
+    // doesn't claim "no attachments" for a draft that has them (issue #657 L1).
+    // NOTE: this only records the FLAG; persisting the email_attachments rows so
+    // a resumed draft re-hydrates its files is tracked as a follow-up.
+    has_attachments: Array.isArray(attachments) && attachments.length > 0,
     matched_by: jobId ? ("job_id" as const) : null,
     received_at: new Date().toISOString(),
   };
