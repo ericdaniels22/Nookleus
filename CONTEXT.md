@@ -135,6 +135,26 @@ two-party-consent jurisdictions. The initiating party hears it before the dial;
 the answering party hears the same line via a per-leg whisper.
 _Avoid_: disclaimer, warning, disclosure
 
+**Intake**:
+The hand-logging of a new customer lead: a member fills out the **New Customer
+Intake** form (`/intake`, `intake-form.tsx`) when a lead comes in, and a single
+submit creates the **Job** along with its **Contact**, any adjuster link, custom
+fields, and a first "Intake notes" activity. "An intake" means both the act and
+the Job it produces — the moment a Job is born by hand, distinct from Jobs created
+as a side effect elsewhere (e.g. from a payment or a Referral Partner's job list).
+Submitting an intake is the event that buzzes the rest of the team — see
+[ADR 0016](docs/adr/0016-new-intake-push-notifications.md).
+_Avoid_: lead, prospect, enquiry, ticket; "new job" (that names the resulting record, not the act)
+
+**Urgency**:
+A Job's response-time tier — one of three fixed values, `emergency`, `urgent`, or
+`scheduled` (the default) — chosen on the **Intake** form and shown thereafter as a
+colored badge (shared `urgencyLabels`/`urgencyColors`). It says how fast the team
+must move, not where the Job sits in its lifecycle (that is its **status**): the
+Jobs page floats emergencies to the top, and the new-intake notification speaks the
+tier — an 🚨 emergency leads the title, and each tier carries its own sound.
+_Avoid_: priority, severity, importance (fine in UI copy)
+
 **Active job**:
 A job that is still alive — its status is neither `completed` nor `cancelled`,
 and it has not been trashed (`deleted_at IS NULL`). A cancelled job is dead,
@@ -354,6 +374,7 @@ _Avoid_: site integration, WP hookup, website sync
 - A **Job tag** ties one text or call event to exactly zero or one **Job**. A single Conversation may contain events with several different Job tags (or none).
 - A **Call recording** belongs to exactly one answered voice call (one recording per call); deleting the call cascades the recording, and deleting the recording also hard-deletes it on Twilio. Whether a call records is governed per **Organization** by `recording_enabled_default`, overridable per call on the outbound bridge — see [ADR 0006](docs/adr/0006-twilio-as-telephony-backbone.md).
 - A row on the Referral Partners call list belongs to one **Organization** and is called either a **Target** or a **Referral Partner** depending on its **Lifecycle status** — same row, different name.
+- An **Intake** produces exactly one **Job** (and the **Contact** it belongs to) in a single submit; that submission is what notifies the rest of the team of the new Job, carrying its **Urgency** tier — see [ADR 0016](docs/adr/0016-new-intake-push-notifications.md).
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
 - An **Estimate** or **Invoice** has zero or one **PDF layout** of its own; with none it renders using its Organization's **default preset**. A document's own layout always wins over the default, resolved by a pure precedence rule, and is locked once the document is frozen (Estimate converted, Invoice paid or voided). A **PDF preset** belongs to one **Organization** and seeds a document's layout; applying one copies its preferences in, it is not a binding link.
