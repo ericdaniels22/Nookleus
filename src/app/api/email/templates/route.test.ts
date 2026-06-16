@@ -113,3 +113,36 @@ describe("POST /api/email/templates — scope-conditional permission", () => {
     ).not.toBe(403);
   });
 });
+
+// Issue #658 M3: an org-shared template body flows into OTHER members' outgoing
+// email, so the create path must allowlist-sanitize body_html before storage —
+// making the migration-572 "stored as sanitized HTML" comment true.
+describe("POST /api/email/templates — sanitizes body_html before storage", () => {
+  it("neutralizes a <script> payload in the persisted body_html", async () => {
+    const writes: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "u" },
+        tables: memberTables({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+        onWrite: (table, _op, payload) =>
+          writes.push({ table, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+
+    await POST(
+      postReq({
+        scope: "personal",
+        name: "T",
+        body_html: '<p>Body</p><script>steal()</script>',
+      }),
+      noParams,
+    );
+
+    const write = writes.find((w) => w.table === "email_templates");
+    expect(write).toBeTruthy();
+    const html = write!.payload.body_html as string;
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("steal");
+    expect(html).toContain("<p>Body</p>");
+  });
+});
