@@ -69,6 +69,34 @@ const ALLOWED_STYLES: sanitizeHtml.IOptions["allowedStyles"] = {
   },
 };
 
+// Characters a browser silently strips when it RESOLVES a clicked URL, but
+// which defeat sanitize-html's up-front scheme check: C0 controls + tab/CR/LF
+// (U+0000–U+001F), DEL (U+007F), NBSP (U+00A0), the zero-width / word-joiner /
+// bidi-control range (U+200B–U+200F, U+202A–U+202E, U+2060, U+2066–U+2069), and
+// the BOM (U+FEFF). Left in the value, a leading-BOM "U+FEFF javascript:" or a
+// zero-width "java U+200B script:" href has no recognized scheme, so
+// sanitize-html keeps it as if it were relative — then it re-forms into an
+// executable `javascript:` in the renderer. That is a classic
+// parser-differential XSS, and it survives the allowlist below until the noise
+// is removed. We strip these from href/src BEFORE the scheme allowlist runs
+// (issue #658 adversarial review). A real URL never contains them, so the strip
+// is lossless for legitimate content.
+const URL_NOISE =
+  /[\u0000-\u001F\u007F\u00A0\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+function cleanUrlAttr(value: string): string {
+  return value.replace(URL_NOISE, "").trim();
+}
+
+// `data:` is allowed for <img> src (pasted base64), but sanitize-html's scheme
+// check does not inspect the media type — so `data:image/svg+xml` (a
+// script/markup container) and `data:text/html` both pass it. The compose
+// editor only ever emits raster screenshots/photos, so an <img> data URI must
+// additionally be a genuine raster type; an http(s) URL is always fine. This
+// drops SVG — the one image type that can carry markup/active content — at no
+// legitimate-use cost (issue #658 adversarial review).
+const IMG_SRC_OK =
+  /^(?:https?:\/\/|data:image\/(?:png|jpe?g|gif|webp);base64,)/i;
+
 // Internal markers the compose editor round-trips: the signature region's
 // delimiter (#643) and the indent level (#642). They must SURVIVE storage so a
 // resumed draft can re-locate and swap its signature region, but must NOT ship
@@ -97,6 +125,30 @@ function buildOptions(preserveInternalMarkers: boolean): sanitizeHtml.IOptions {
     // Pasted images come through as base64 data URIs (editor allowBase64);
     // `data:` is only ever honored for <img> src, never for links.
     allowedSchemesByTag: { img: ["http", "https", "data"] },
+    // Strip URL-noise from href/src BEFORE sanitize-html evaluates the scheme,
+    // so invisible-character scheme smuggling collapses to the real scheme and
+    // is then rejected by the allowlist above (issue #658 adversarial review).
+    transformTags: {
+      a: (tagName, attribs) => {
+        if (typeof attribs.href === "string") {
+          attribs.href = cleanUrlAttr(attribs.href);
+        }
+        return { tagName, attribs };
+      },
+      img: (tagName, attribs) => {
+        if (typeof attribs.src === "string") {
+          attribs.src = cleanUrlAttr(attribs.src);
+        }
+        return { tagName, attribs };
+      },
+    },
+    // Reject any <img> whose src is not a remote URL or a genuine raster data
+    // URI — drops SVG / data:text/html images (see IMG_SRC_OK). Runs after the
+    // transformTags noise-strip above, so it tests the cleaned src.
+    exclusiveFilter: (frame) =>
+      frame.tag === "img" &&
+      typeof frame.attribs.src === "string" &&
+      !IMG_SRC_OK.test(frame.attribs.src.trim()),
   };
 }
 
