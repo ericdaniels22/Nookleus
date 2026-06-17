@@ -11,8 +11,15 @@ export interface WriteNotificationInput {
   priority?: "normal" | "high";
   jobId?: string | null;
   metadata?: Record<string, unknown>;
-  // If provided, notify only this user. Default: fan out to all active admins.
+  // If provided, notify only this user. Default: fan out per `audience`.
   userId?: string | null;
+  // Who the fan-out reaches (ignored when `userId` is set):
+  //   "admins"  — active admins only (default; preserves the original behavior)
+  //   "members" — every active member of the org, any role (e.g. new-intake)
+  audience?: "admins" | "members";
+  // When fanning out, omit this user — e.g. the submitter who triggered the
+  // event and need not be told of their own action. See ADR 0016.
+  excludeUserId?: string | null;
   // Org scope for the notification row(s). Required — writeNotification uses a
   // service client, so it cannot resolve the active org from a session JWT.
   // Callers in webhook context source this from the row they're reacting to
@@ -46,25 +53,30 @@ export async function writeNotification(
     return;
   }
 
-  // Fan out: one row per active admin of this org. Role lives on
+  // Fan out: one row per active member of this org. Role lives on
   // user_organizations; joined through user_profiles for the is_active filter.
-  const { data: admins, error: adminsErr } = await supabase
+  // "admins" keeps the role gate; "members" reaches every active member.
+  let query = supabase
     .from("user_organizations")
     .select("user_id, user_profiles:user_id(is_active)")
-    .eq("organization_id", orgId)
-    .eq("role", "admin");
-  if (adminsErr) throw new Error(`admin lookup: ${adminsErr.message}`);
+    .eq("organization_id", orgId);
+  if ((input.audience ?? "admins") === "admins") {
+    query = query.eq("role", "admin");
+  }
+  const { data: members, error: membersErr } = await query;
+  if (membersErr) throw new Error(`member lookup: ${membersErr.message}`);
 
-  const activeAdminIds = (admins ?? [])
-    .filter((a) => {
-      const profile = Array.isArray(a.user_profiles) ? a.user_profiles[0] : a.user_profiles;
+  const recipientIds = (members ?? [])
+    .filter((m) => {
+      const profile = Array.isArray(m.user_profiles) ? m.user_profiles[0] : m.user_profiles;
       return profile?.is_active === true;
     })
-    .map((a) => a.user_id);
+    .map((m) => m.user_id)
+    .filter((userId) => userId !== input.excludeUserId);
 
-  if (activeAdminIds.length === 0) return;
+  if (recipientIds.length === 0) return;
 
-  const rows = activeAdminIds.map((userId: string) => ({ ...row, user_id: userId }));
+  const rows = recipientIds.map((userId: string) => ({ ...row, user_id: userId }));
   const { error } = await supabase.from("notifications").insert(rows);
   if (error) throw new Error(`notifications bulk insert: ${error.message}`);
 }
