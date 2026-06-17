@@ -447,6 +447,69 @@ describe("IntakeForm — referrer left blank (#302)", () => {
   });
 });
 
+// ─── New-intake notifications (#669) ────────────────────────────────────────
+// After a Job is created, the form fires a best-effort POST to
+// /api/intake/notify so the rest of the Organization gets an in-app bell. The
+// call must never block or break Intake submission (the Job is already saved).
+// See docs/adr/0016-new-intake-push-notifications.md.
+
+function notifyCalls() {
+  const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+  return fetchMock.mock.calls.filter(([url]) => url === "/api/intake/notify");
+}
+
+describe("IntakeForm — fires new-intake notifications after submit (#669)", () => {
+  it("POSTs the new Job's id to /api/intake/notify on a successful submit", async () => {
+    render(<IntakeForm />);
+
+    fireEvent.change(await screen.findByPlaceholderText("name-input"), {
+      target: { value: "Jane Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("damage-input"), {
+      target: { value: "Water" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("address-input"), {
+      target: { value: "12 Oak St" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => expect(notifyCalls()).toHaveLength(1));
+    const [, init] = notifyCalls()[0];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ jobId: "job-1" });
+  });
+
+  it("still navigates and shows success when the notify call fails (best-effort)", async () => {
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/intake/notify") return Promise.reject(new Error("network down"));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ config: formConfigFixture }),
+      });
+    });
+
+    render(<IntakeForm />);
+
+    fireEvent.change(await screen.findByPlaceholderText("name-input"), {
+      target: { value: "Jane Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("damage-input"), {
+      target: { value: "Water" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("address-input"), {
+      target: { value: "12 Oak St" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/jobs/job-1"));
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/created successfully/i));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
 describe("IntakeForm — toggle off: referrer field absent (#302)", () => {
   it("does not render the picker and submits exactly as today when the field is omitted from the config", async () => {
     // Default `makeConfig()` is the today-shape (no referrer field).

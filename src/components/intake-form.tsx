@@ -315,6 +315,19 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         });
       }
 
+      // Best-effort: fan out the in-app bell to the rest of the Organization.
+      // The Job is already saved, so a failed notify must never surface to the
+      // office user or block navigation. See ADR 0016 (#669).
+      try {
+        await fetch("/api/intake/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: job.id }),
+        });
+      } catch {
+        // Swallowed by contract — notifications are non-critical.
+      }
+
       toast.success(`Job ${job.job_number} created successfully!`);
       router.push(`/jobs/${job.id}`);
     } catch (err) {
