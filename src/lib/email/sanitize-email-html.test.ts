@@ -115,3 +115,66 @@ describe("sanitizeEmailHtmlForStorage", () => {
     expect(swapped).toContain("Hello");
   });
 });
+
+// Regressions from the #658 adversarial review: payloads that survived the
+// first cut of the allowlist (PR #665) and drove two follow-up hardenings —
+// invisible-character scheme smuggling, and SVG/non-raster data-URI images.
+describe("sanitizeEmailHtml — adversarial hardenings (#658 review)", () => {
+  it("drops a scheme hidden behind a leading BOM / zero-width char", () => {
+    // A leading U+FEFF (or a U+200B inside the scheme) defeats sanitize-html's
+    // scheme check, but a browser strips it on click — a parser-differential XSS.
+    const bom = sanitizeEmailHtmlForSend(
+      '<a href="\uFEFFjavascript:alert(1)">c</a>',
+    );
+    expect(bom).not.toMatch(/javascript:/i);
+    expect(bom).not.toContain("alert");
+    expect(bom).toContain("c");
+
+    const zwsp = sanitizeEmailHtmlForSend(
+      '<a href="java\u200Bscript:alert(1)">c</a>',
+    );
+    expect(zwsp).not.toMatch(/javascript:/i);
+
+    const vb = sanitizeEmailHtmlForSend(
+      '<a href="\uFEFFvbscript:msgbox(1)">c</a>',
+    );
+    expect(vb).not.toMatch(/vbscript:/i);
+  });
+
+  it("leaves a clean URL untouched (the noise-strip is lossless)", () => {
+    const ok = sanitizeEmailHtmlForSend(
+      '<a href="https://example.com/path?q=1">c</a>',
+    );
+    expect(ok).toContain('href="https://example.com/path?q=1"');
+  });
+
+  it("also hardens the storage path (shared buildOptions)", () => {
+    const out = sanitizeEmailHtmlForStorage(
+      '<a href="\uFEFFjavascript:alert(1)">c</a>',
+    );
+    expect(out).not.toMatch(/javascript:/i);
+  });
+
+  it("drops SVG and other non-raster data-URI images, keeps raster", () => {
+    // <img>-loaded SVG runs script-disabled in browsers and most mail clients
+    // block it, but SVG is the one markup/script-bearing image type, so the
+    // allowlist no longer admits it (the editor only ever emits raster images).
+    const svg = sanitizeEmailHtmlForSend(
+      '<img src="data:image/svg+xml;base64,PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+PC9zdmc+"><p>after</p>',
+    );
+    expect(svg).not.toMatch(/svg\+xml/i);
+    expect(svg).not.toContain("<img");
+    expect(svg).toContain("<p>after</p>");
+
+    const texthtml = sanitizeEmailHtmlForSend(
+      '<img src="data:text/html;base64,PHNjcmlwdD4="><p>after</p>',
+    );
+    expect(texthtml).not.toContain("<img");
+    expect(texthtml).toContain("<p>after</p>");
+
+    const png = sanitizeEmailHtmlForSend(
+      '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==">',
+    );
+    expect(png).toContain("data:image/png;base64,");
+  });
+});
