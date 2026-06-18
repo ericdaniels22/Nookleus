@@ -362,6 +362,98 @@ connection or an Email account: per-Organization, opt-in, never a shared
 admin login. An Organization without one simply has no site publishing.
 _Avoid_: site integration, WP hookup, website sync
 
+**Job timesheet**:
+A document an Organization generates from a Job's recorded labor — per-worker
+totals plus a chronological list of sessions over a chosen date range — and
+exports as a PDF to send alongside an **Invoice**, built to stand up to a harsh
+insurance review. Belongs to exactly one Job. Records **hours only**: it carries
+no billing rates and no location stamp — its weight comes from auditable time and
+an owner/lead **certification**, not GPS (see [ADR 0019](docs/adr/0019-timesheets-record-defensible-hours-not-location.md)).
+Generated, certified, and listed on the Job like a numbered **Photo Report**;
+once signed its PDF is frozen and never regenerated (the signed-contract rule —
+[ADR 0011](docs/adr/0011-signed-contract-pdfs-are-immutable.md)).
+_Avoid_: timecard, time report, labor report, payroll (it is explicitly not payroll)
+
+**Certification** (of a Job timesheet):
+The owner's or lead's sign-off that closes a **Job timesheet** — a printed
+attestation that the recorded hours are accurate, stamped with their drawn or
+saved signature at generation time. It is what gives the sheet its evidentiary
+weight for an insurer, in place of GPS (see [ADR 0019](docs/adr/0019-timesheets-record-defensible-hours-not-location.md)),
+and signing it **freezes** the PDF (the signed-contract rule —
+[ADR 0011](docs/adr/0011-signed-contract-pdfs-are-immutable.md)). v1 is a single
+owner/lead Certification, not a per-worker signature.
+_Avoid_: sign-off, approval, e-signature (that names the mechanism, not the act)
+
+**Time session**:
+The atomic unit of recorded labor: one worker, on one Job, from a **Clock in** to
+a **Clock out** — the hours are the span between. The worker is either an app
+**User** or an **Off-app worker**, never both. A person has at most one **Open
+session** at a time; clocking into a different Job closes the previous one. The
+hours of a session split into **Regular** and **Premium** (see [ADR 0020](docs/adr/0020-labor-hour-classification-and-org-timezone.md)).
+_Avoid_: shift (implies a scheduled workday), punch, time entry, clock event
+
+**Open session**:
+A **Time session** that has a clock-in but no clock-out yet — someone currently
+working. A person has at most one across all Jobs. The presence surfaces ("On the
+clock", "On site now") are built from the set of Open sessions.
+_Avoid_: active session, current clock, open punch
+
+**Clock in / Clock out**:
+The acts of starting and ending one's own **Time session** by tapping in the app
+on site. **Crew members can only live-clock themselves** in and out — they can
+never type or edit a time; changing a recorded time is a **Correction**
+(leads/admins only).
+_Avoid_: punch in/out, check in/out, sign in (that is authentication)
+
+**Regular hours**:
+Labor hours at the base rate: worked Monday–Friday between 7am and 5pm, up to 8
+hours in a calendar day. Everything outside that window is **Premium hours**.
+Bucketed in the **Organization timezone**, not the device's. See [ADR 0020](docs/adr/0020-labor-hour-classification-and-org-timezone.md).
+_Avoid_: standard hours, straight time, normal time
+
+**Premium hours**:
+Labor hours above the base rate — a single tier covering both overtime and
+after-hours, because the Organization bills them at one rate. Premium = before
+7am or after 5pm on a weekday, all hours on Saturdays, Sundays, and US federal
+holidays, or any hours past 8 in a calendar day. Each premium stretch is labelled
+with its reason (overtime / evening / weekend / holiday), but the reason never
+changes the rate — premiums do **not** stack. See [ADR 0020](docs/adr/0020-labor-hour-classification-and-org-timezone.md).
+_Avoid_: overtime (that is one reason for Premium, not the whole tier), OT,
+after-hours (likewise), time-and-a-half
+
+**Off-app worker**:
+A person whose hours appear on a **Job timesheet** but who is not an app
+**User** — e.g. day labor or a sub helping for a day. Entered by name by a lead,
+carries hand-entered hours only, and never self-clocks or shows on a live
+presence board. Distinct from a **vendor subcontractor** (an outside *company*
+whose bills the Organization records as expenses — a `vendor` type); the two are
+unrelated despite both meaning "outside help" — see Flagged ambiguities.
+_Avoid_: subcontractor (collides with the vendor sense), sub, guest, contractor
+
+**Correction** (of a Time session):
+A lead's or admin's edit to a session's times — or a session created entirely by
+hand — used when someone forgot to clock in or out, a phone died, or an **Off-app
+worker**'s day must be recorded. Times are **never auto-fabricated**; every
+Correction is audit-logged (who, when, old → new) and the session is marked
+hand-entered so it is visibly distinguishable on the **Job timesheet** from a live
+clock.
+_Avoid_: edit, adjustment, override, manual entry (use "hand-entered")
+
+**On the clock**:
+The set of people with an **Open session** right now. Surfaced two ways: per-Job
+("On site now", visible to anyone who can view the Job) and company-wide ("On the
+clock now" on the owner's dashboard, a leads/admins view). **Off-app workers**
+never appear here — only on the printed **Job timesheet**.
+_Avoid_: online, present, active, checked in
+
+**Organization timezone**:
+The single timezone an Organization's labor hours are bucketed and classified
+against — defaulted from its business address, set in Settings. It is
+authoritative: **Regular**/**Premium** classification is computed server-side
+against this zone, never an individual device's clock, so the same session yields
+the same hours no matter whose phone recorded it. See [ADR 0020](docs/adr/0020-labor-hour-classification-and-org-timezone.md).
+_Avoid_: local time, device time, user timezone
+
 ## Relationships
 
 - A **User** belongs to one or more **Organizations**; each membership carries a role.
@@ -382,6 +474,10 @@ _Avoid_: site integration, WP hookup, website sync
 - A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
 - A **Job** has zero or one **Showcase**; a Showcase belongs to exactly one Job and gathers that Job's **Photos** plus a write-up for public marketing.
 - An **Organization** has one **Report layout default**; it seeds every new Photo Report's **Report Settings** at creation and is not a binding link (the report keeps its own copy). Distinct from a **Photo Report template**, which seeds Sections rather than look.
+- A **Time session** belongs to one **Organization** and one **Job** and names exactly one worker — either an app **User** or an **Off-app worker**, never both. A person has at most one **Open session** across all Jobs; clocking into another Job closes the prior session. An **Off-app worker** has no record of its own — it is just the typed name carried on its sessions.
+- A **Job** has zero or more **Time sessions** and zero or more **Job timesheets**; each Job timesheet is generated from that Job's sessions over a chosen date range, numbered per Job (like a **Photo Report**), and frozen once certified-and-signed (see [ADR 0011](docs/adr/0011-signed-contract-pdfs-are-immutable.md), [ADR 0019](docs/adr/0019-timesheets-record-defensible-hours-not-location.md)).
+- A **Time session**'s hours split into **Regular** and **Premium**, classified against the **Organization timezone** (see [ADR 0020](docs/adr/0020-labor-hour-classification-and-org-timezone.md)); a session crossing midnight is split at the calendar-day boundary.
+- An **Organization** has exactly one **Organization timezone**, defaulted from its business address.
 
 ## Example dialogue
 
@@ -395,3 +491,4 @@ _Avoid_: site integration, WP hookup, website sync
 - "section" is used for two unrelated concepts: an **Estimate** Section (a group of priced line items) and a **Photo Report** Section (a heading + one-page write-up + photos). Resolved: both keep the word but are always qualified by their document ("Estimate section" vs "Photo Report section"); they share no table, type, or component.
 - "template" is likewise overloaded: an **Estimate** template (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)) and a **Photo Report** template. Resolved: always qualify by document. Note the older Photo-Report builder UI also called these "presets" — the canonical term is **Photo Report template**; "preset" is an alias to retire _there_.
 - "preset" and "layout" are overloaded across domains. On the **Photo Report** side both are words to avoid (canonical term: **Photo Report template**). On the **billing-PDF** side they are first-class and canonical — a **PDF preset** (reusable saved look) and a **PDF layout** (the look stuck to one Estimate/Invoice). Resolved the same way as "section"/"template": always qualify by document, so bare "preset"/"layout" never appear unqualified. The billing-PDF preset has lived in the code (`pdf_presets`) since before this was written; ADR 0007 explicitly left that system out of its scope.
+- "subcontractor" is overloaded. In the existing code it is a **`vendor` type** (`VendorType`, `src/lib/types.ts`) — an outside *company* whose bills the Organization records as job expenses. The new time-tracking feature also has outside help — an individual hired for a day whose *hours* go on a **Job timesheet** — but that is a different thing entirely (a person's labor, not a company's invoice). Resolved: the timesheet person is an **Off-app worker**; "subcontractor" stays reserved for the vendor sense, and the two never share a table or term.
