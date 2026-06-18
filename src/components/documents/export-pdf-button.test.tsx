@@ -5,8 +5,14 @@
 // from the inline preview. The new button has no picker: it POSTs the pdf route
 // with NO preset_id, so the route falls back to the org default preset and
 // resolves the document's effective layout (ADR 0012) — byte-for-byte the look
-// the preview already shows. These tests pin that parity contract plus the
-// download / error / one-click-no-modal behavior.
+// the preview already shows. These tests pin that parity contract.
+//
+// Delivery: the pdf route returns a *cross-origin* Supabase signed URL, for
+// which browsers ignore <a download> and instead navigate the current tab —
+// ejecting the SPA. So on desktop we open the PDF in a new tab (pre-opened
+// synchronously inside the click so the popup blocker lets it through), and in
+// the installed iOS app we hand it to the native Share sheet. These tests pin
+// that split plus the parity / error / one-click-no-modal behavior.
 //
 // Mirrors the fetch-mock + sonner-stub pattern from live-layout-panel.test.tsx.
 
@@ -14,14 +20,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/share/share-or-download", () => ({
+  inStandaloneApp: vi.fn(() => false),
+  shareOrDownloadFile: vi.fn(() => Promise.resolve()),
+}));
 
 import { ExportPdfButton } from "./export-pdf-button";
 import { toast } from "sonner";
+import { inStandaloneApp, shareOrDownloadFile } from "@/lib/share/share-or-download";
 
 let fetchMock: ReturnType<typeof vi.fn>;
+let openMock: ReturnType<typeof vi.fn>;
+let fakeTab: { location: { href: string }; close: ReturnType<typeof vi.fn>; document: { write: ReturnType<typeof vi.fn> } };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(inStandaloneApp).mockReturnValue(false);
   fetchMock = vi.fn(() =>
     Promise.resolve({
       ok: true,
@@ -30,6 +44,9 @@ beforeEach(() => {
     } as Response),
   );
   vi.stubGlobal("fetch", fetchMock);
+  fakeTab = { location: { href: "" }, close: vi.fn(), document: { write: vi.fn() } };
+  openMock = vi.fn(() => fakeTab);
+  vi.stubGlobal("open", openMock);
 });
 
 afterEach(() => {
@@ -64,43 +81,50 @@ describe("ExportPdfButton (#487 one-click export)", () => {
     expect(body.preset_id).toBeUndefined();
   });
 
-  it("downloads the returned signed URL as <filenameHint>.pdf on success", async () => {
-    let downloadedHref = "";
-    let downloadName = "";
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        downloadedHref = this.href;
-        downloadName = this.download;
-      });
-
+  it("on desktop, opens the signed URL in a new tab instead of navigating away", async () => {
     renderButton();
     fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
 
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
-    expect(downloadedHref).toBe("https://signed.example/EST-001.pdf");
-    expect(downloadName).toBe("EST-001.pdf");
-    expect(toast.success).toHaveBeenCalled();
-    clickSpy.mockRestore();
+    // Tab is pre-opened synchronously (before the await) so the popup blocker
+    // lets it through, then pointed at the PDF once the route responds.
+    expect(openMock).toHaveBeenCalledWith("", "_blank");
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(fakeTab.location.href).toBe("https://signed.example/EST-001.pdf");
+    // Desktop never touches the native Share sheet.
+    expect(shareOrDownloadFile).not.toHaveBeenCalled();
   });
 
-  it("surfaces an error and triggers no download when the route fails", async () => {
+  it("closes the pre-opened tab and navigates nowhere when the route fails", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 400,
       json: async () => ({ error: "no default preset configured" }),
     } as Response);
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
 
     renderButton();
     fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(clickSpy).not.toHaveBeenCalled();
+    expect(fakeTab.close).toHaveBeenCalled();
+    expect(fakeTab.location.href).toBe(""); // never sent anywhere
     expect(toast.success).not.toHaveBeenCalled();
-    clickSpy.mockRestore();
+  });
+
+  it("in the installed app, hands the file to the Share sheet — no tab", async () => {
+    vi.mocked(inStandaloneApp).mockReturnValue(true);
+
+    renderButton();
+    fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
+
+    await waitFor(() => expect(shareOrDownloadFile).toHaveBeenCalled());
+    expect(shareOrDownloadFile).toHaveBeenCalledWith({
+      url: "https://signed.example/EST-001.pdf",
+      filename: "EST-001.pdf",
+      mode: "share",
+    });
+    // No tab is opened inside the WebView.
+    expect(openMock).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it("targets the invoice pdf route for an invoice (still no preset_id)", async () => {

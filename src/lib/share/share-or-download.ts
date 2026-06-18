@@ -55,9 +55,11 @@ function canShareFile(file: File): boolean {
 /**
  * Whether we're running inside an installed shell — a standalone PWA, an iOS
  * Add-to-Home-Screen page, or a Capacitor WKWebView — where tapping a download
- * anchor navigates the SPA to the file instead of saving it.
+ * anchor (or opening a tab) navigates the SPA to the file instead of saving it.
+ * Exported because the Export PDF action needs the same branch (its third
+ * consumer, alongside DownloadPdfButton's inline copy).
  */
-function inStandaloneApp(): boolean {
+export function inStandaloneApp(): boolean {
   if (typeof window === "undefined") return false;
   const cap = (window as Window & {
     Capacitor?: { isNativePlatform?: () => boolean };
