@@ -8,7 +8,7 @@
 //
 // This slice only fills the registry — no buzz is sent here. The new-intake
 // dispatcher will later read it via listDeviceTokensForUsers. See
-// docs/adr/0016-new-intake-push-notifications.md and issue #671.
+// docs/adr/0018-new-intake-push-notifications.md and issue #671.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 

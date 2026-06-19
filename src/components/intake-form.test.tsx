@@ -451,7 +451,7 @@ describe("IntakeForm — referrer left blank (#302)", () => {
 // After a Job is created, the form fires a best-effort POST to
 // /api/intake/notify so the rest of the Organization gets an in-app bell. The
 // call must never block or break Intake submission (the Job is already saved).
-// See docs/adr/0016-new-intake-push-notifications.md.
+// See docs/adr/0018-new-intake-push-notifications.md.
 
 function notifyCalls() {
   const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;

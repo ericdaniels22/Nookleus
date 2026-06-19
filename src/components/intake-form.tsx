@@ -317,7 +317,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
 
       // Best-effort: fan out the in-app bell to the rest of the Organization.
       // The Job is already saved, so a failed notify must never surface to the
-      // office user or block navigation. See ADR 0016 (#669).
+      // office user or block navigation. See ADR 0018 (#669).
       try {
         await fetch("/api/intake/notify", {
           method: "POST",

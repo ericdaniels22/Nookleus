@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 // owner is the authenticated caller (`ctx.userId`) and the write goes through
 // the Service client (RLS bypassed): the route must never trust a
 // client-supplied user id. No push is sent here — this slice only fills the
-// device-address registry. See docs/adr/0016-new-intake-push-notifications.md.
+// device-address registry. See docs/adr/0018-new-intake-push-notifications.md.
 export const POST = withRequestContext(
   { serviceClient: true },
   async (request, ctx) => {
