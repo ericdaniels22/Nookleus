@@ -1,7 +1,7 @@
 // Buzz-wording for a new-intake notification: the pure mapping from a Job's
 // customer-facing facts to the title/body/sound/deep-link a bell row (and a
 // later push) carries. Title and sound vary by the Job's **Urgency** tier; an
-// 🚨 emergency leads the title. See docs/adr/0016-new-intake-push-notifications.md.
+// 🚨 emergency leads the title. See docs/adr/0018-new-intake-push-notifications.md.
 
 export type IntakeUrgency = "emergency" | "urgent" | "scheduled";
 

@@ -5,7 +5,7 @@ import { dispatchNewIntakeNotifications } from "@/lib/notifications/dispatch-new
 
 // POST /api/intake/notify — the client calls this best-effort right after an
 // Intake's Job is inserted, to fan out the in-app bell to the rest of the
-// Organization (see docs/adr/0016-new-intake-push-notifications.md).
+// Organization (see docs/adr/0018-new-intake-push-notifications.md).
 //
 // Logged-in only: any member who just logged an Intake may trigger its
 // notifications. The fan-out itself runs with the Service client (RLS
