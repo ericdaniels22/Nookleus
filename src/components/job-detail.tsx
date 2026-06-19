@@ -569,6 +569,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               invoiced,
               collected,
               expenses: expensesTotal,
+              crew_labor: crewLabor,
               gross_margin,
               margin_pct,
               in_progress: job.status !== "completed",
