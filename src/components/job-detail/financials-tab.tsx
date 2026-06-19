@@ -4,6 +4,7 @@ import type { Payment } from "@/lib/types";
 import BillingSection from "@/components/billing/billing-section";
 import ExpensesSection from "@/components/expenses/expenses-section";
 import { FinancialsInvoiceList, type FinancialsInvoice } from "./financials-invoice-list";
+import { profitFigure, type ProfitPalette } from "./profit-figure";
 
 type Props = {
   jobId: string;
@@ -43,6 +44,7 @@ export default function FinancialsTab({
   onExpenseLogged,
   stripeConnected = false,
 }: Props) {
+  const profit = profitFigure(summary);
   return (
     <div className="space-y-6">
       {/* Summary metrics row — 4 pills */}
@@ -51,16 +53,10 @@ export default function FinancialsTab({
         <SummaryPill label="Collected" value={fmtCurrency(summary.collected)} />
         <SummaryPill label="Expenses" value={fmtCurrency(summary.expenses)} />
         <SummaryPill
-          label="Gross margin"
+          label={profit.label}
           value={fmtCurrency(summary.gross_margin)}
-          highlight
-          caption={
-            summary.in_progress
-              ? "(in progress)"
-              : summary.margin_pct !== null
-              ? `${summary.margin_pct.toFixed(1)}% margin`
-              : undefined
-          }
+          palette={profit.palette}
+          caption={profit.caption}
         />
       </div>
 
@@ -81,42 +77,38 @@ export default function FinancialsTab({
 function SummaryPill({
   label,
   value,
-  highlight,
+  palette,
   caption,
 }: {
   label: string;
   value: string;
-  highlight?: boolean;
+  /** when set, the pill is the highlighted figure tinted by sign (green/red) */
+  palette?: ProfitPalette;
   caption?: string;
 }) {
-  const hl = highlight
-    ? {
-        background: "rgba(29, 158, 117, 0.12)",
-        border: "1px solid rgba(29, 158, 117, 0.35)",
-        color: "#5DCAA5",
-      }
-    : undefined;
   return (
     <div
       className="rounded-lg p-4"
       style={
-        hl ?? {
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.08)",
-        }
+        palette
+          ? { background: palette.background, border: `1px solid ${palette.border}` }
+          : {
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }
       }
     >
       <div className="text-xs uppercase tracking-wide text-neutral-400">{label}</div>
       <div
         className="mt-1 text-2xl font-semibold"
-        style={hl ? { color: "#5DCAA5" } : undefined}
+        style={palette ? { color: palette.text } : undefined}
       >
         {value}
       </div>
       {caption && (
         <div
           className="mt-1 text-xs"
-          style={{ color: highlight ? "#9FE1CB" : "#a3a3a3" }}
+          style={{ color: palette ? palette.caption : "#a3a3a3" }}
         >
           {caption}
         </div>
