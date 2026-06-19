@@ -6,6 +6,7 @@ import { getFirstName } from "@/lib/first-name";
 import { StatStrip } from "@/components/dashboard/stat-strip";
 import { NewJobsSection } from "@/components/dashboard/new-jobs-section";
 import { UnreadResponsesSection } from "@/components/dashboard/unread-responses-section";
+import HomeClockControl from "@/components/time/home-clock-control";
 
 export default function DashboardPage() {
   const { profile } = useAuth();
@@ -30,6 +31,8 @@ export default function DashboardPage() {
           {firstName ? `Welcome back, ${firstName}.` : "Welcome back."}
         </p>
       </div>
+
+      <HomeClockControl />
 
       <StatStrip
         newJobsCount={newJobsCount}

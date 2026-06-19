@@ -64,6 +64,10 @@ export const PERMISSION_CATALOG = [
   // Defaults live in `role-defaults.ts`: Admin ON, Crew Lead ON, Crew Member OFF.
   { key: "view_phone", label: "View Phone", group: "Phone" },
 
+  // #701 (epic #699) — per-Job timesheets: clock in / out of a Job.
+  // Defaults live in `role-defaults.ts`: Admin ON, Crew Lead ON, Crew Member ON.
+  { key: "track_time", label: "Track Time", group: "Time" },
+
   { key: "manage_reports", label: "Manage Reports", group: "Reports" },
 
   { key: "manage_templates", label: "Manage Estimate Templates", group: "Templates" },
