@@ -18,7 +18,7 @@ export interface WriteNotificationInput {
   //   "members" — every active member of the org, any role (e.g. new-intake)
   audience?: "admins" | "members";
   // When fanning out, omit this user — e.g. the submitter who triggered the
-  // event and need not be told of their own action. See ADR 0016.
+  // event and need not be told of their own action. See ADR 0018.
   excludeUserId?: string | null;
   // Org scope for the notification row(s). Required — writeNotification uses a
   // service client, so it cannot resolve the active org from a session JWT.
@@ -28,9 +28,15 @@ export interface WriteNotificationInput {
   organizationId: string;
 }
 
+/**
+ * Write the notification row(s) and return the user ids actually notified — the
+ * single source of truth for "who got told". A best-effort follow-on (e.g. the
+ * new-intake push fan-out in #673) reuses this exact set so the audience can't
+ * drift between the in-app bell and the buzz.
+ */
 export async function writeNotification(
   input: WriteNotificationInput,
-): Promise<void> {
+): Promise<string[]> {
   const supabase = createServiceClient();
   const orgId = input.organizationId;
 
@@ -50,7 +56,7 @@ export async function writeNotification(
       .from("notifications")
       .insert({ ...row, user_id: input.userId });
     if (error) throw new Error(`notifications insert: ${error.message}`);
-    return;
+    return [input.userId];
   }
 
   // Fan out: one row per active member of this org. Role lives on
@@ -74,9 +80,10 @@ export async function writeNotification(
     .map((m) => m.user_id)
     .filter((userId) => userId !== input.excludeUserId);
 
-  if (recipientIds.length === 0) return;
+  if (recipientIds.length === 0) return [];
 
   const rows = recipientIds.map((userId: string) => ({ ...row, user_id: userId }));
   const { error } = await supabase.from("notifications").insert(rows);
   if (error) throw new Error(`notifications bulk insert: ${error.message}`);
+  return recipientIds;
 }
