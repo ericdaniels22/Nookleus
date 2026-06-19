@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getJobStatusOptions,
   getJobStatusPresentation,
   isOpenJobStatus,
   JOB_STATUS_PRESENTATION,
@@ -113,5 +114,78 @@ describe("unknown status keys", () => {
     expect(p.accentColor.trim().length).toBeGreaterThan(0);
     expect(p.badge.bg.trim().length).toBeGreaterThan(0);
     expect(p.badge.text.trim().length).toBeGreaterThan(0);
+  });
+});
+
+// Issue #722 (PRD #719) — the Job-detail status picker reads its five options
+// from config instead of a hardcoded <option> list. getJobStatusOptions builds
+// that list: the five frozen stages in pipeline order, each labelled by the
+// org's display_label when present, else the canonical label. One source of
+// truth, so the picker never drifts from the badges shown elsewhere.
+describe("getJobStatusOptions", () => {
+  it("returns the five stages in pipeline order", () => {
+    const options = getJobStatusOptions();
+    expect(options.map((o) => o.value)).toEqual([
+      "new",
+      "in_progress",
+      "pending_invoice",
+      "completed",
+      "cancelled",
+    ]);
+  });
+
+  it("labels the stages with the canonical pipeline labels when given no config", () => {
+    expect(getJobStatusOptions().map((o) => o.label)).toEqual([
+      "Lead",
+      "Active",
+      "Collections",
+      "Closed",
+      "Lost 😢",
+    ]);
+  });
+
+  it("uses an org's display_label override for a stage when config provides it", () => {
+    const options = getJobStatusOptions([
+      { name: "new", display_label: "Prospect" },
+    ]);
+    const lead = options.find((o) => o.value === "new");
+    expect(lead?.label).toBe("Prospect");
+    // Stages without an override keep their canonical label.
+    expect(options.find((o) => o.value === "in_progress")?.label).toBe("Active");
+  });
+
+  it("ignores config rows for keys outside the five frozen stages", () => {
+    const options = getJobStatusOptions([
+      { name: "archived", display_label: "Archived" },
+      { name: "on_hold", display_label: "On Hold" },
+    ]);
+    expect(options).toHaveLength(5);
+    expect(options.map((o) => o.value)).not.toContain("archived");
+    expect(options.map((o) => o.value)).not.toContain("on_hold");
+  });
+
+  it("falls back to the canonical label for stages a partial config omits", () => {
+    // Config carries only Collections — the other four keep canonical labels.
+    const options = getJobStatusOptions([
+      { name: "pending_invoice", display_label: "Awaiting Payment" },
+    ]);
+    expect(options.map((o) => o.label)).toEqual([
+      "Lead",
+      "Active",
+      "Awaiting Payment",
+      "Closed",
+      "Lost 😢",
+    ]);
+  });
+
+  it("falls back to the canonical label when a config override is blank or whitespace-only", () => {
+    // A blank/whitespace display_label must never erase a stage's visible label
+    // — the picker always shows the five stages, so an empty override is ignored.
+    const options = getJobStatusOptions([
+      { name: "new", display_label: "" },
+      { name: "in_progress", display_label: "   " },
+    ]);
+    expect(options.find((o) => o.value === "new")?.label).toBe("Lead");
+    expect(options.find((o) => o.value === "in_progress")?.label).toBe("Active");
   });
 });
