@@ -10,6 +10,7 @@ import { NavOrderProvider } from "@/lib/nav-order-context";
 import { SidebarCollapseProvider } from "@/lib/sidebar-collapse-context";
 import AppShell from "@/components/app-shell";
 import DeepLinkListener from "@/components/mobile/deep-link-listener";
+import PushRegistration from "@/components/mobile/push-registration";
 import { UploadQueueProvider } from "@/lib/mobile/upload-queue-context";
 
 const inter = Inter({
@@ -60,6 +61,7 @@ export default function RootLayout({
                   <SidebarCollapseProvider>
                     <BrandColorsProvider />
                     <DeepLinkListener />
+                    <PushRegistration />
                     <AppShell>{children}</AppShell>
                     <Toaster />
                   </SidebarCollapseProvider>
