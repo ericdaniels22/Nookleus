@@ -45,3 +45,44 @@ describe("ROLE_DEFAULTS — view_phone defaults (PRD #304)", () => {
     expect(entry?.group).toBe("Phone");
   });
 });
+
+// issue #701 (parent epic #699) — per-Job timesheets.
+//
+// Pins the role-default grants for `track_time`, the permission that gates
+// clocking in / out of a Job:
+//
+//   | Role        | Default |
+//   | ----------- | ------- |
+//   | Admin       | ON      |
+//   | Crew Lead   | ON      |
+//   | Crew Member | ON      |   <- unlike view_phone: workers clock themselves in
+//   | Custom      | OFF     |
+//
+// Crew Member is ON here because tracking time on a Job is core crew work —
+// the whole point of the feature is the people doing the labor recording it.
+// `custom` stays empty (admins hand-pick). The SQL `set_default_permissions`
+// mirrors this; the migration shipping with #701 keeps the two in sync.
+
+describe("ROLE_DEFAULTS — track_time defaults (#701)", () => {
+  it("includes track_time in admin's defaults (admins get every catalog key)", () => {
+    expect(ROLE_DEFAULTS.admin).toContain("track_time");
+  });
+
+  it("includes track_time in crew_lead's defaults", () => {
+    expect(ROLE_DEFAULTS.crew_lead).toContain("track_time");
+  });
+
+  it("includes track_time in crew_member's defaults (workers clock themselves in)", () => {
+    expect(ROLE_DEFAULTS.crew_member).toContain("track_time");
+  });
+
+  it("excludes track_time from custom (the empty default)", () => {
+    expect(ROLE_DEFAULTS.custom).not.toContain("track_time");
+  });
+
+  it("registers track_time in the permission catalog under the Time group", () => {
+    const entry = PERMISSION_CATALOG.find((p) => p.key === "track_time");
+    expect(entry).toBeDefined();
+    expect(entry?.group).toBe("Time");
+  });
+});

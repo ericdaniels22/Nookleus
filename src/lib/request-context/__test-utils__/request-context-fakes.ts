@@ -22,6 +22,7 @@ export interface QueryBuilder {
   select(cols?: string, opts?: { count?: "exact"; head?: boolean }): QueryBuilder;
   eq(col: string, val: unknown): QueryBuilder;
   is(col: string, val: unknown): QueryBuilder;
+  not(col: string, op: string, val: unknown): QueryBuilder;
   in(col: string, vals: unknown[]): QueryBuilder;
   gte(col: string, val: unknown): QueryBuilder;
   lte(col: string, val: unknown): QueryBuilder;
@@ -51,6 +52,17 @@ function makeBuilder(rows: Row[]): QueryBuilder {
     },
     is(col, val) {
       filtered = filtered.filter((r) => (r[col] ?? null) === val);
+      return builder;
+    },
+    not(col, op, val) {
+      // PostgREST negation. We support the ops the routes actually chain —
+      // `.not(col, "eq", v)` and `.not(col, "is", v)` — and leave others as a
+      // no-op (the same pragmatic stance the range/order fakes take).
+      if (op === "eq") {
+        filtered = filtered.filter((r) => r[col] !== val);
+      } else if (op === "is") {
+        filtered = filtered.filter((r) => (r[col] ?? null) !== val);
+      }
       return builder;
     },
     in(col, vals) {
@@ -102,11 +114,20 @@ function makeBuilder(rows: Row[]): QueryBuilder {
 // A fake Supabase client. `user` is what `auth.getUser()` resolves; pass
 // `null` to simulate an unauthenticated request. `tables` seeds whatever
 // the wrapper or the route handler reads — an unseeded table reads empty.
+//
+// `rpc(name, args)` records every call on the returned client's `rpcCalls`
+// array (in order) and resolves to `{ data: null, error: rpcError ?? null }`.
+// `rpcCalls` is a test-only handle — not part of the supabase-js surface —
+// so a test can positively assert which atomic-transition RPC a mutation
+// route invoked via `ctx.supabase`, and with what decided writes. Set
+// `rpcError` to make the next RPC fail.
 export function fakeClient(opts: {
   user?: { id: string } | null;
   tables?: Record<string, Row[]>;
+  rpcError?: { message: string } | null;
 }) {
   const tables = opts.tables ?? {};
+  const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
   return {
     auth: {
       async getUser() {
@@ -116,6 +137,11 @@ export function fakeClient(opts: {
     from(table: string) {
       return makeBuilder(tables[table] ?? []);
     },
+    async rpc(name: string, args: Record<string, unknown>) {
+      rpcCalls.push({ name, args });
+      return { data: null, error: opts.rpcError ?? null };
+    },
+    rpcCalls,
   };
 }
 

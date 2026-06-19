@@ -78,6 +78,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import JobPhotosTab from "@/components/job-photos-tab";
+import JobTimeTab from "@/components/job-time-tab";
 import PhotoPreloader from "@/components/photo-preloader";
 import { useAuth } from "@/lib/auth-context";
 
@@ -547,6 +548,17 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           )}>
             {photoCount}
           </span>
+        </button>
+        <button
+          onClick={() => setActiveTab("time")}
+          className={cn(
+            "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
+            activeTab === "time"
+              ? "text-[#2B5EA7] border-[#2B5EA7] font-semibold"
+              : "text-muted-foreground border-transparent hover:text-foreground"
+          )}
+        >
+          Time
         </button>
       </div>
 
@@ -1076,6 +1088,16 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           onSelectPhoto={(photo, orderedPhotos) => {
             setViewerPhotos(orderedPhotos);
             setSelectedPhoto(photo);
+          }}
+        />
+      )}
+
+      {activeTab === "time" && (
+        <JobTimeTab
+          job={{
+            id: jobId,
+            property_address: job.property_address,
+            job_number: job.job_number,
           }}
         />
       )}

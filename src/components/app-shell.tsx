@@ -4,6 +4,8 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/nav";
 import { useSidebarCollapse } from "@/lib/sidebar-collapse-context";
+import { OnTheClockProvider } from "@/lib/on-the-clock-context";
+import OnTheClockBar from "@/components/time/on-the-clock-bar";
 import { cn } from "@/lib/utils";
 
 const AUTH_ROUTES = ["/login", "/logout", "/set-password"];
@@ -52,8 +54,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // navbar when the rail is open); elsewhere it follows the persisted pref.
   const effectiveCollapsed = isBuilderRoute ? !railExpanded : collapsed;
 
+  // The On-the-clock state + persistent status bar live inside the app chrome
+  // (issue #701) — never on the auth / public / fullscreen routes handled by
+  // the early return above, so the bar can't surface on the login screen or the
+  // customer-facing handoff surfaces.
   return (
-    <>
+    <OnTheClockProvider>
       <Sidebar
         forceCollapsed={isBuilderRoute ? !railExpanded : undefined}
         onToggleRail={
@@ -68,6 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       >
         {isFullBleed ? children : <div className="p-6 lg:p-8">{children}</div>}
       </main>
-    </>
+      <OnTheClockBar />
+    </OnTheClockProvider>
   );
 }
