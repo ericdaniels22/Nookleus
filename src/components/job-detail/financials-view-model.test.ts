@@ -131,10 +131,10 @@ describe("financialsViewModel — cash-flow waterfall", () => {
   });
 });
 
-// #717 — the deriver also produces the phone collection ring's state: a
-// discriminated union (collection-rate / not-invoiced-yet / clamped) carrying
-// the ring geometry, so the component renders without any branch logic of its
-// own. Invoiced is billing context here, separate from the waterfall math.
+// #717/#718 — the deriver also produces the phone collection ring's state: a
+// discriminated union (collection-rate / not-invoiced-yet / paid-ahead)
+// carrying the ring geometry, so the component renders without any branch logic
+// of its own. Invoiced is billing context here, separate from the waterfall math.
 describe("financialsViewModel — collection ring", () => {
   it("derives a collection-rate ring with Outstanding when Invoiced > 0", () => {
     const vm = financialsViewModel({
@@ -172,10 +172,13 @@ describe("financialsViewModel — collection ring", () => {
     }
   });
 
-  it("clamps an over-collected Job (Collected > Invoiced) to a full ring", () => {
+  // #718 — over-collection is its own "paid ahead" state: the ring still caps
+  // at a full 100% (never overflowing), and it carries the over-amount so the
+  // component can frame it as good news rather than a maxed-out bill.
+  it("flags an over-collected Job (Collected > Invoiced) as paid ahead, ring still full", () => {
     const vm = financialsViewModel({
       invoiced: 1000,
-      collected: 1200, // paid ahead — the dedicated annotation comes in #718
+      collected: 1200, // paid ahead
       expenses: 0,
       crew_labor: 0,
       margin_pct: 120,
@@ -183,11 +186,12 @@ describe("financialsViewModel — collection ring", () => {
     });
 
     const ring = vm.collectionRing;
-    expect(ring.kind).toBe("clamped");
-    if (ring.kind === "clamped") {
-      // a full ring, not a 120%-overflowing one
+    expect(ring.kind).toBe("paid-ahead");
+    if (ring.kind === "paid-ahead") {
+      // capped — a full ring, not a 120%-overflowing one
       expect(ring.geometry.percent).toBe(100);
       expect(ring.geometry.fraction).toBe(1);
+      expect(ring.overCollected).toBe(200); // Collected − Invoiced, paid ahead
     }
   });
 

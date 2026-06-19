@@ -171,4 +171,17 @@ describe("FinancialsTab phone collection ring", () => {
     expect(ring.queryByText(/Outstanding/)).toBeNull();
     expect(ring.queryByText(/-\$/)).toBeNull();
   });
+
+  // #718 — over-collection is framed as the good-news "paid ahead" state.
+  it("annotates an over-collected Job 'paid ahead' with the over-amount, in green", () => {
+    renderTab({ invoiced: 1000, collected: 1200 }); // $200 paid ahead
+
+    const ring = within(screen.getByTestId("collection-ring"));
+    expect(ring.getByText(/paid ahead/i)).toBeTruthy();
+
+    // Collected − Invoiced, a positive figure, coloured green so it reads as
+    // good news rather than a maxed-out bill
+    const amount = ring.getByText("$200");
+    expect(amount.style.color).toBe("rgb(93, 202, 165)"); // #5DCAA5
+  });
 });
