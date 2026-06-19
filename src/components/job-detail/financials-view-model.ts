@@ -1,4 +1,5 @@
 import { profitFigure, type ProfitFigure } from "./profit-figure";
+import { ringGeometry, type RingGeometry } from "./ring-geometry";
 
 export type WaterfallRow = {
   label: string;
@@ -9,12 +10,68 @@ export type WaterfallRow = {
   note?: string;
 };
 
+// The phone collection ring's state. Invoiced is billing context — how much of
+// what's been billed has come in — and is deliberately separate from the
+// waterfall's profit math.
+export type CollectionRing =
+  | {
+      /** Invoiced > 0: the ring fills to Collected ÷ Invoiced. */
+      kind: "collection-rate";
+      rate: number;
+      collected: number;
+      invoiced: number;
+      /** Invoiced − Collected, the amount still owed */
+      outstanding: number;
+      geometry: RingGeometry;
+    }
+  | {
+      /** Invoiced is $0 — deposits before billing; no ring, just the collected total. */
+      kind: "not-invoiced-yet";
+      collected: number;
+    }
+  | {
+      /** Collected > Invoiced: a full ring this slice; "paid ahead" lands in #718. */
+      kind: "clamped";
+      collected: number;
+      invoiced: number;
+      geometry: RingGeometry;
+    };
+
 export type FinancialsViewModel = {
   profit: ProfitFigure;
   waterfall: WaterfallRow[];
+  collectionRing: CollectionRing;
 };
 
+function collectionRing(invoiced: number, collected: number): CollectionRing {
+  // Nothing billed yet — deposits routinely precede billing, so draw no ring
+  // and just report what's come in.
+  if (invoiced <= 0) {
+    return { kind: "not-invoiced-yet", collected };
+  }
+
+  const rate = collected / invoiced;
+  const geometry = ringGeometry(rate);
+
+  // Paid ahead: clamp to a full ring this slice. The "paid ahead" annotation
+  // (and a meaningful over-amount) arrives in #718; Outstanding would be
+  // negative here, so it is deliberately omitted.
+  if (collected > invoiced) {
+    return { kind: "clamped", collected, invoiced, geometry };
+  }
+
+  return {
+    kind: "collection-rate",
+    rate,
+    collected,
+    invoiced,
+    outstanding: invoiced - collected,
+    geometry,
+  };
+}
+
 export function financialsViewModel(summary: {
+  invoiced: number;
   collected: number;
   expenses: number;
   crew_labor: number;
@@ -53,5 +110,6 @@ export function financialsViewModel(summary: {
       in_progress: summary.in_progress,
     }),
     waterfall,
+    collectionRing: collectionRing(summary.invoiced, summary.collected),
   };
 }

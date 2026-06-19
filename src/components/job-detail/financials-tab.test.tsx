@@ -131,3 +131,44 @@ describe("FinancialsTab phone cash-flow waterfall", () => {
     expect(profitValue.style.color).toBe("rgb(240, 149, 149)"); // #F09595
   });
 });
+
+// #717 — above the waterfall (phone only), a collection ring shows how much of
+// what's been Invoiced has been Collected, with the two common states.
+describe("FinancialsTab phone collection ring", () => {
+  it("draws the ring (phone only) with Outstanding when Invoiced > 0", () => {
+    renderTab({ invoiced: 1000, collected: 600 });
+
+    const block = screen.getByTestId("collection-ring");
+    // same CSS-breakpoint split as the waterfall — phone only, no JS check
+    expect(block.className).toContain("lg:hidden");
+    // a hand-rolled SVG arc, not a charting dependency
+    expect(block.querySelector("svg")).not.toBeNull();
+
+    const ring = within(block);
+    expect(ring.getByText("Outstanding")).toBeTruthy();
+    expect(ring.getByText("$400")).toBeTruthy(); // Invoiced − Collected
+  });
+
+  it("draws no ring and reads 'Collected $X · not invoiced yet' when Invoiced is $0", () => {
+    renderTab({ invoiced: 0, collected: 500 }); // a deposit before billing
+
+    const block = screen.getByTestId("collection-ring");
+    expect(block.querySelector("svg")).toBeNull(); // no ring
+
+    const ring = within(block);
+    expect(ring.getByText("Collected $500")).toBeTruthy();
+    expect(ring.getByText(/not invoiced yet/)).toBeTruthy();
+  });
+
+  it("clamps an over-collected Job to a full ring with no negative Outstanding", () => {
+    renderTab({ invoiced: 1000, collected: 1200 }); // paid ahead
+
+    const block = screen.getByTestId("collection-ring");
+    expect(block.querySelector("svg")).not.toBeNull(); // a full ring, no error
+
+    // Outstanding would be negative here, so it is omitted (not "-$200")
+    const ring = within(block);
+    expect(ring.queryByText(/Outstanding/)).toBeNull();
+    expect(ring.queryByText(/-\$/)).toBeNull();
+  });
+});
