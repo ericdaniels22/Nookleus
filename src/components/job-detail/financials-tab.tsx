@@ -5,6 +5,9 @@ import BillingSection from "@/components/billing/billing-section";
 import ExpensesSection from "@/components/expenses/expenses-section";
 import { FinancialsInvoiceList, type FinancialsInvoice } from "./financials-invoice-list";
 import { profitFigure, type ProfitPalette } from "./profit-figure";
+import { financialsViewModel } from "./financials-view-model";
+import CashFlowWaterfall from "./cash-flow-waterfall";
+import { fmtCurrency } from "./format-currency";
 
 type Props = {
   jobId: string;
@@ -14,6 +17,7 @@ type Props = {
     invoiced: number;
     collected: number;
     expenses: number;
+    crew_labor: number;
     gross_margin: number;
     margin_pct: number | null;
     in_progress: boolean;
@@ -22,18 +26,6 @@ type Props = {
   onExpenseLogged: () => void;
   stripeConnected?: boolean;
 };
-
-function fmtCurrency(n: number): string {
-  // Show cents when the value has a non-zero fractional part (so small test
-  // invoices don't collapse to $0); otherwise keep the clean integer display.
-  const hasCents = Math.round(n * 100) % 100 !== 0;
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: hasCents ? 2 : 0,
-    maximumFractionDigits: hasCents ? 2 : 0,
-  });
-}
 
 export default function FinancialsTab({
   jobId,
@@ -45,10 +37,16 @@ export default function FinancialsTab({
   stripeConnected = false,
 }: Props) {
   const profit = profitFigure(summary);
+  const vm = financialsViewModel(summary);
   return (
     <div className="space-y-6">
-      {/* Summary metrics row — 4 pills */}
-      <div className="grid grid-cols-4 gap-3">
+      {/* Phone (below lg): cash-flow waterfall in place of the four-across. */}
+      <div data-testid="cashflow-waterfall" className="lg:hidden">
+        <CashFlowWaterfall rows={vm.waterfall} profit={vm.profit} />
+      </div>
+
+      {/* Desktop (lg and up): the existing four-across summary row. */}
+      <div data-testid="summary-cards" className="hidden grid-cols-4 gap-3 lg:grid">
         <SummaryPill label="Invoiced" value={fmtCurrency(summary.invoiced)} />
         <SummaryPill label="Collected" value={fmtCurrency(summary.collected)} />
         <SummaryPill label="Expenses" value={fmtCurrency(summary.expenses)} />

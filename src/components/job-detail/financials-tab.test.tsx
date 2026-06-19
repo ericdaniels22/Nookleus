@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import FinancialsTab from "./financials-tab";
 
@@ -12,6 +12,7 @@ type Summary = {
   invoiced: number;
   collected: number;
   expenses: number;
+  crew_labor: number;
   gross_margin: number;
   margin_pct: number | null;
   in_progress: boolean;
@@ -27,6 +28,7 @@ function renderTab(summary: Partial<Summary> = {}) {
         invoiced: 0,
         collected: 0,
         expenses: 0,
+        crew_labor: 0,
         gross_margin: 0,
         margin_pct: null,
         in_progress: false,
@@ -39,40 +41,93 @@ function renderTab(summary: Partial<Summary> = {}) {
 }
 
 // #715 — the headline figure is "Profit", coloured by sign on both the number
-// and the card tint, on the four-across summary row (phone + desktop).
-describe("FinancialsTab summary figure", () => {
+// and the card tint, on the four-across summary row (desktop). Scoped to the
+// desktop region since the same labels now also appear in the phone waterfall.
+describe("FinancialsTab desktop summary figure", () => {
   it("labels the headline figure 'Profit', not 'Gross margin'", () => {
     renderTab({ gross_margin: 1200, margin_pct: 34, in_progress: false });
 
-    expect(screen.getByText("Profit")).toBeTruthy();
-    expect(screen.queryByText("Gross margin")).toBeNull();
+    const cards = within(screen.getByTestId("summary-cards"));
+    expect(cards.getByText("Profit")).toBeTruthy();
+    expect(cards.queryByText("Gross margin")).toBeNull();
   });
 
   it("renders a negative Profit red — figure and card tint — not green", () => {
     renderTab({ gross_margin: -800, margin_pct: -20, in_progress: false });
 
-    const value = screen.getByText("-$800");
+    const cards = within(screen.getByTestId("summary-cards"));
+    const value = cards.getByText("-$800");
     expect(value.style.color).toBe("rgb(240, 149, 149)"); // #F09595
 
-    const card = screen.getByText("Profit").closest(".rounded-lg") as HTMLElement;
+    const card = cards.getByText("Profit").closest(".rounded-lg") as HTMLElement;
     expect(card.style.background).toContain("rgba(240, 149, 149"); // red tint
   });
 
   it("renders a positive Profit green with a profit-percent caption", () => {
     renderTab({ gross_margin: 3400, margin_pct: 34, in_progress: false });
 
-    const value = screen.getByText("$3,400");
+    const cards = within(screen.getByTestId("summary-cards"));
+    const value = cards.getByText("$3,400");
     expect(value.style.color).toBe("rgb(93, 202, 165)"); // #5DCAA5
 
-    const card = screen.getByText("Profit").closest(".rounded-lg") as HTMLElement;
+    const card = cards.getByText("Profit").closest(".rounded-lg") as HTMLElement;
     expect(card.style.background).toContain("rgba(29, 158, 117"); // green tint
-    expect(screen.getByText("34.0% profit")).toBeTruthy();
+    expect(cards.getByText("34.0% profit")).toBeTruthy();
   });
 
   it("captions an in-progress Job '(in progress)'", () => {
     renderTab({ gross_margin: 3400, margin_pct: 34, in_progress: true });
 
-    expect(screen.getByText("(in progress)")).toBeTruthy();
-    expect(screen.queryByText("34.0% profit")).toBeNull();
+    const cards = within(screen.getByTestId("summary-cards"));
+    expect(cards.getByText("(in progress)")).toBeTruthy();
+    expect(cards.queryByText("34.0% profit")).toBeNull();
+  });
+});
+
+// #716 — on the phone the four-across is replaced (via a CSS breakpoint) by a
+// cash-flow waterfall; the desktop four-across stays.
+describe("FinancialsTab phone cash-flow waterfall", () => {
+  it("renders the waterfall on phone (below lg) and keeps the four-across for desktop", () => {
+    renderTab({ collected: 1000, expenses: 300, crew_labor: 0, gross_margin: 700, margin_pct: 70 });
+
+    const waterfall = screen.getByTestId("cashflow-waterfall");
+    const cards = screen.getByTestId("summary-cards");
+
+    // layout switches on viewport width (CSS), not a JS platform/Capacitor check
+    expect(waterfall.className).toContain("lg:hidden");
+    expect(cards.className).toContain("hidden");
+    expect(cards.className).toContain("lg:grid");
+
+    const w = within(waterfall);
+    expect(w.getByText("Collected")).toBeTruthy();
+    expect(w.getByText("Expenses")).toBeTruthy();
+    expect(w.getByText("Profit")).toBeTruthy();
+  });
+
+  it("shows a '(est.)' Crew labor line and full seven-figure amounts, right-aligned", () => {
+    renderTab({
+      collected: 1_500_000,
+      expenses: 200_000,
+      crew_labor: 300_000,
+      gross_margin: 1_000_000,
+      margin_pct: 66.7,
+    });
+
+    const w = within(screen.getByTestId("cashflow-waterfall"));
+    expect(w.getByText("Crew labor")).toBeTruthy();
+    expect(w.getByText("(est.)")).toBeTruthy();
+
+    // full precision — never abbreviated to $1.5M / $1M — and right-aligned
+    const collectedValue = w.getByText("$1,500,000");
+    expect(collectedValue.className).toContain("text-right");
+    expect(w.getByText("$1,000,000")).toBeTruthy(); // Profit subtotal, in full
+  });
+
+  it("colours a negative Profit subtotal red in the waterfall", () => {
+    renderTab({ collected: 100, expenses: 900, crew_labor: 0, gross_margin: -800, margin_pct: -800 });
+
+    const w = within(screen.getByTestId("cashflow-waterfall"));
+    const profitValue = w.getByText("-$800");
+    expect(profitValue.style.color).toBe("rgb(240, 149, 149)"); // #F09595
   });
 });
