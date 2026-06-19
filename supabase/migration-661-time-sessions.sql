@@ -54,7 +54,7 @@
 --             nookleus.active_organization_id(), update_updated_at()), jobs,
 --             auth.users.
 --
--- Smoke test: supabase/migration-660-smoke-test.sql.
+-- Smoke test: supabase/migration-661-smoke-test.sql.
 --
 -- Revert:    see -- ROLLBACK --- block at the bottom.
 

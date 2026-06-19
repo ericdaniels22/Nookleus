@@ -1,4 +1,4 @@
--- migration-661-track-time-permission.sql
+-- migration-662-track-time-permission.sql
 --
 -- issue #701 (parent epic #699) — per-Job timesheets: clock in / out of a Job.
 --
@@ -162,7 +162,7 @@ begin
    where uop.id is null;
 
   if v_unset_count <> 0 then
-    raise exception 'migration-661: % memberships missing track_time row after backfill', v_unset_count;
+    raise exception 'migration-662: % memberships missing track_time row after backfill', v_unset_count;
   end if;
 
   select count(*) into v_expected_on_off_count
@@ -174,7 +174,7 @@ begin
      and uop.granted = false;
 
   if v_expected_on_off_count > 0 then
-    raise notice 'migration-661: % admin/crew_lead/crew_member memberships hold track_time OFF (likely pre-existing manual toggle, not aborted)', v_expected_on_off_count;
+    raise notice 'migration-662: % admin/crew_lead/crew_member memberships hold track_time OFF (likely pre-existing manual toggle, not aborted)', v_expected_on_off_count;
   end if;
 
   select count(*) into v_unexpected_on_count
@@ -186,6 +186,6 @@ begin
      and uop.granted = true;
 
   if v_unexpected_on_count > 0 then
-    raise notice 'migration-661: % custom/other memberships hold track_time ON (likely pre-existing manual toggle, not aborted)', v_unexpected_on_count;
+    raise notice 'migration-662: % custom/other memberships hold track_time ON (likely pre-existing manual toggle, not aborted)', v_unexpected_on_count;
   end if;
 end $$;
