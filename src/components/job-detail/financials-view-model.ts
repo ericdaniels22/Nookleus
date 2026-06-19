@@ -30,10 +30,12 @@ export type CollectionRing =
       collected: number;
     }
   | {
-      /** Collected > Invoiced: a full ring this slice; "paid ahead" lands in #718. */
-      kind: "clamped";
+      /** Collected > Invoiced: the ring caps at a full 100% and reads "paid ahead". */
+      kind: "paid-ahead";
       collected: number;
       invoiced: number;
+      /** Collected − Invoiced, the amount paid ahead of what's been billed */
+      overCollected: number;
       geometry: RingGeometry;
     };
 
@@ -53,11 +55,11 @@ function collectionRing(invoiced: number, collected: number): CollectionRing {
   const rate = collected / invoiced;
   const geometry = ringGeometry(rate);
 
-  // Paid ahead: clamp to a full ring this slice. The "paid ahead" annotation
-  // (and a meaningful over-amount) arrives in #718; Outstanding would be
-  // negative here, so it is deliberately omitted.
+  // Paid ahead: the ring caps at a full 100% (ringGeometry clamps the fraction)
+  // and we surface the over-amount so the component can frame it as good news.
+  // Outstanding would be negative here, so it is deliberately omitted.
   if (collected > invoiced) {
-    return { kind: "clamped", collected, invoiced, geometry };
+    return { kind: "paid-ahead", collected, invoiced, overCollected: collected - invoiced, geometry };
   }
 
   return {

@@ -7,6 +7,10 @@ const NEUTRAL = {
   border: "1px solid rgba(255,255,255,0.08)",
 };
 
+// Paid-ahead is good news, not a maxed-out bill — tint it the same green as the
+// ring fill so it reads positively.
+const GOOD_NEWS = { color: "#5DCAA5" };
+
 // Presentational only — which state to show, the ring geometry, and the
 // numbers are all decided by the view-model deriver; this just lays them out.
 // The ring is a hand-rolled SVG arc, deliberately no charting dependency.
@@ -21,8 +25,9 @@ export default function CollectionRing({ ring }: { ring: CollectionRingState }) 
     );
   }
 
-  // collection-rate | clamped — both paint a ring; only collection-rate has a
-  // meaningful Outstanding (clamped/over-collected defers that to #718).
+  // collection-rate | paid-ahead — both paint a ring. collection-rate shows the
+  // Outstanding still owed; paid-ahead (Collected > Invoiced) shows the
+  // good-news over-amount instead.
   return (
     <div className="flex items-center gap-4 rounded-lg p-4" style={NEUTRAL}>
       <RingArc geometry={ring.geometry} />
@@ -35,6 +40,14 @@ export default function CollectionRing({ ring }: { ring: CollectionRingState }) 
           <div className="mt-0.5 text-xs text-neutral-400">
             <span>Outstanding</span>{" "}
             <span className="tabular-nums">{fmtCurrency(ring.outstanding)}</span>
+          </div>
+        )}
+        {ring.kind === "paid-ahead" && (
+          <div className="mt-0.5 text-xs">
+            <span style={GOOD_NEWS}>Paid ahead</span>{" "}
+            <span className="tabular-nums" style={GOOD_NEWS}>
+              {fmtCurrency(ring.overCollected)}
+            </span>
           </div>
         )}
       </div>
