@@ -3,23 +3,20 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase";
 import type { JobStatus, DamageType } from "@/lib/types";
+import { JOB_STATUS_PRESENTATION } from "@/lib/job-status-presentation";
 
-// Fallback defaults used before DB data loads
-const DEFAULT_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  new: { bg: "#FAEEDA", text: "#633806" },
-  in_progress: { bg: "#E1F5EE", text: "#085041" },
-  pending_invoice: { bg: "#EEEDFE", text: "#3C3489" },
-  completed: { bg: "#F1EFE8", text: "#5F5E5A" },
-  cancelled: { bg: "#F1EFE8", text: "#5F5E5A" },
-};
+// Fallback defaults used before DB data loads. Derived from the single
+// code-side source of truth (issue #720) so the pre-load labels/colors —
+// Lead / Active / Collections / Closed / Lost — can never drift from the
+// presentation module or the relabel migration.
+const DEFAULT_STATUS_COLORS: Record<string, { bg: string; text: string }> =
+  Object.fromEntries(
+    Object.values(JOB_STATUS_PRESENTATION).map((p) => [p.key, p.badge]),
+  );
 
-const DEFAULT_STATUS_LABELS: Record<string, string> = {
-  new: "New",
-  in_progress: "In Progress",
-  pending_invoice: "Pending Invoice",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
+const DEFAULT_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(JOB_STATUS_PRESENTATION).map((p) => [p.key, p.label]),
+);
 
 const DEFAULT_DAMAGE_COLORS: Record<string, { bg: string; text: string }> = {
   water: { bg: "#E6F1FB", text: "#0C447C" },
