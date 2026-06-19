@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { advanceJobOnContractSigned } from "@/lib/job-status-transitions";
 import { writeContractEvent } from "./audit";
 import { resolveMergeValues } from "./resolve-merge-values";
 import { resolveEmailTemplate } from "./email-merge-fields";
@@ -391,6 +392,13 @@ export async function finalizeSignedContract(
   }
 
   const sealed = await sealContract(args);
+
+  // The one automatic Job-status move (#721): a signed contract advances a
+  // Lead or Lost Job to Active. Best-effort and idempotent — placed after the
+  // seal so a re-finalize early-returns above and never re-advances; a status
+  // hiccup must never break a legally-completed signing.
+  await advanceJobOnContractSigned(supabase, contract.job_id);
+
   const notifications = await dispatchNotifications(
     supabase,
     contract,
