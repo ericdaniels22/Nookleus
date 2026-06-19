@@ -231,20 +231,37 @@ function buildClient(state: {
 
   function updateBuilder(table: string, values: Record<string, unknown>) {
     const filters: Filters = {};
+    // Apply the update to every row matching every `.eq()` filter (the same
+    // atomic guard Postgres applies), returning the affected rows.
+    function apply(): { affected: Record<string, unknown>[]; error: PendingError | null } {
+      state.updates[table] = state.updates[table] ?? [];
+      state.updates[table].push({ values, filters });
+      const err = state.errors[`${table}.update`];
+      if (err) return { affected: [], error: err };
+      const affected = (state.rows[table] ?? []).filter((r) => matchesFilters(r, filters));
+      for (const row of affected) Object.assign(row, values);
+      return { affected, error: null };
+    }
     const builder = {
       eq(col: string, val: unknown) {
         filters[col] = val;
         return builder;
       },
+      // `.update(...).eq(...).select(...).maybeSingle()` — returns the affected
+      // row so a guarded update can tell whether it actually landed.
+      select(_cols?: string) {
+        void _cols;
+        return {
+          async maybeSingle() {
+            const { affected, error } = apply();
+            if (error) return { data: null, error };
+            return { data: affected[0] ?? null, error: null };
+          },
+        };
+      },
       then(resolve: (v: { data: unknown; error: PendingError | null }) => unknown) {
-        state.updates[table] = state.updates[table] ?? [];
-        state.updates[table].push({ values, filters });
-        const err = state.errors[`${table}.update`];
-        if (err) return resolve({ data: null, error: err });
-        for (const row of state.rows[table] ?? []) {
-          if (matchesFilters(row, filters)) Object.assign(row, values);
-        }
-        return resolve({ data: null, error: null });
+        const { error } = apply();
+        return resolve({ data: null, error });
       },
     };
     return builder;
@@ -751,6 +768,118 @@ describe("finalizeSignedContract — signer with null email", () => {
       signer_id: "sig-empty",
       skipped_reason: "no_signer_email",
     });
+  });
+});
+
+describe("finalizeSignedContract — job auto-advance (#721)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("advances a Lead (new) Job to in_progress when the contract is finalized", async () => {
+    const fake = makeSupabaseFake();
+    const { contract, signers } = seedHappyPathFake(fake);
+    fake.seed("jobs", [{ id: contract.job_id, status: "new" }]);
+
+    const result = await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers,
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    expect(result.wasAlreadyFinalized).toBe(false);
+    const jobUpdates = fake.updates["jobs"] ?? [];
+    expect(jobUpdates).toHaveLength(1);
+    expect(jobUpdates[0]).toMatchObject({
+      values: { status: "in_progress" },
+      filters: { id: contract.job_id },
+    });
+  });
+
+  it("revives a Lost (cancelled) Job to in_progress when the contract is finalized", async () => {
+    const fake = makeSupabaseFake();
+    const { contract, signers } = seedHappyPathFake(fake);
+    fake.seed("jobs", [{ id: contract.job_id, status: "cancelled" }]);
+
+    await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers,
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    const jobUpdates = fake.updates["jobs"] ?? [];
+    expect(jobUpdates).toHaveLength(1);
+    expect(jobUpdates[0]).toMatchObject({ values: { status: "in_progress" } });
+  });
+
+  it("leaves an Active (in_progress) Job unchanged — signing never moves it backward", async () => {
+    const fake = makeSupabaseFake();
+    const { contract, signers } = seedHappyPathFake(fake);
+    fake.seed("jobs", [{ id: contract.job_id, status: "in_progress" }]);
+
+    await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers,
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    expect(fake.updates["jobs"] ?? []).toHaveLength(0);
+  });
+
+  it("does not touch the Job when re-finalizing an already-signed contract (idempotent)", async () => {
+    const fake = makeSupabaseFake();
+    fake.seed("contracts", [
+      {
+        id: "c-1",
+        organization_id: "org-1",
+        status: "signed",
+        signed_pdf_path: "org-1/contracts/c-1-signed.pdf",
+      },
+    ]);
+    // A Job that has since moved on (e.g. Collections) must stay put.
+    fake.seed("jobs", [{ id: "job-1", status: "pending_invoice" }]);
+    const stale = makeContract({ id: "c-1", status: "viewed", signed_pdf_path: null });
+
+    const result = await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract: stale,
+      template: makeTemplate(),
+      signers: [makeSigner()],
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    expect(result.wasAlreadyFinalized).toBe(true);
+    expect(fake.updates["jobs"] ?? []).toHaveLength(0);
+  });
+
+  it("still finalizes the contract when the Job update is rejected (best-effort)", async () => {
+    const fake = makeSupabaseFake();
+    const { contract, signers } = seedHappyPathFake(fake);
+    fake.seed("jobs", [{ id: contract.job_id, status: "new" }]);
+    fake.setError("jobs.update", { message: "rls denied" });
+
+    const result = await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers,
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    // Signing succeeded end-to-end even though the status nudge failed.
+    expect(result.wasAlreadyFinalized).toBe(false);
+    expect(result.signedPdfPath).toBe("org-1/contracts/c-1-signed.pdf");
   });
 });
 
