@@ -490,11 +490,11 @@ export default function JobDetail({ jobId }: { jobId: string }) {
             onChange={(e) => updateStatus(e.target.value)}
             className="w-[180px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           >
-            <option value="new">New</option>
-            <option value="in_progress">In Progress</option>
-            <option value="pending_invoice">Pending Invoice</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="new">Lead</option>
+            <option value="in_progress">Active</option>
+            <option value="pending_invoice">Collections</option>
+            <option value="completed">Closed</option>
+            <option value="cancelled">Lost 😢</option>
           </select>
           {showJobDeleteAffordances && !job.deleted_at && (
             <button
