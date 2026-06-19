@@ -5,11 +5,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { Job } from "@/lib/types";
 import JobCard from "@/components/job-card";
-import JobListRow, { JobListHeader } from "@/components/job-list-row";
+import JobListRow from "@/components/job-list-row";
 import JobComfortableRow from "@/components/job-comfortable-row";
 import JobsViewToggle from "@/components/jobs-view-toggle";
+import { JobStageSections } from "@/components/job-stage-sections";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
+import { buildJobSections, countOpenJobs } from "@/lib/jobs/build-job-sections";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/lib/config-context";
@@ -63,7 +65,7 @@ export default function JobsPage() {
 
   // Compute stats from all active (non-trashed) jobs.
   const [stats, setStats] = useState({
-    active: 0,
+    open: 0,
     emergency: 0,
     pendingInvoice: 0,
     thisMonth: 0,
@@ -83,9 +85,7 @@ export default function JobsPage() {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
       setStats({
-        active: allJobs.filter(
-          (j) => j.status !== "completed" && j.status !== "cancelled"
-        ).length,
+        open: countOpenJobs(allJobs),
         emergency: allJobs.filter(
           (j) =>
             j.urgency === "emergency" &&
@@ -103,16 +103,37 @@ export default function JobsPage() {
     fetchStats();
   }, []);
 
-  // Sort: emergencies first, then by date — except in trash, where the
-  // API has already sorted by deletion time (most recent first).
-  const sortedJobs =
-    filter === "trash"
-      ? jobs
-      : [...jobs].sort((a, b) => {
-          if (a.urgency === "emergency" && b.urgency !== "emergency") return -1;
-          if (b.urgency === "emergency" && a.urgency !== "emergency") return 1;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
+  // Each stage section renders its Jobs in the page's current view-mode layout.
+  // (buildJobSections orders Jobs newest-first within a section; emergency
+  // pinning across sections is #726 and the hide-Closed/Lost toggle is #728 —
+  // both out of scope here.)
+  const renderJobsForMode = (sectionJobs: Job[]) => {
+    if (mode === "list") {
+      return (
+        <div className="space-y-2">
+          {sectionJobs.map((job) => (
+            <JobListRow key={job.id} job={job} />
+          ))}
+        </div>
+      );
+    }
+    if (mode === "comfortable") {
+      return (
+        <div className="space-y-2">
+          {sectionJobs.map((job) => (
+            <JobComfortableRow key={job.id} job={job} />
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {sectionJobs.map((job) => (
+          <JobCard key={job.id} job={job} />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-6xl animate-fade-slide-up">
@@ -128,8 +149,8 @@ export default function JobsPage() {
       {/* Stat cards — gradient hero style */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          label="Active Jobs"
-          value={stats.active}
+          label="Open jobs"
+          value={stats.open}
           icon={Briefcase}
           gradient="gradient-primary"
         />
@@ -184,7 +205,7 @@ export default function JobsPage() {
       {/* Job list */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground/60">Loading jobs...</div>
-      ) : sortedJobs.length === 0 ? (
+      ) : jobs.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground text-lg">
             {filter === "trash" ? "Trash is empty" : "No jobs found"}
@@ -197,29 +218,15 @@ export default function JobsPage() {
         </div>
       ) : filter === "trash" ? (
         <div className="space-y-3">
-          {sortedJobs.map((job) => (
+          {jobs.map((job) => (
             <TrashRow key={job.id} job={job} onChange={fetchJobs} />
           ))}
         </div>
-      ) : mode === "list" ? (
-        <div className="space-y-2">
-          <JobListHeader />
-          {sortedJobs.map((job) => (
-            <JobListRow key={job.id} job={job} />
-          ))}
-        </div>
-      ) : mode === "comfortable" ? (
-        <div className="space-y-2">
-          {sortedJobs.map((job) => (
-            <JobComfortableRow key={job.id} job={job} />
-          ))}
-        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {sortedJobs.map((job) => (
-            <JobCard key={job.id} job={job} />
-          ))}
-        </div>
+        <JobStageSections
+          sections={buildJobSections(jobs)}
+          renderJobs={renderJobsForMode}
+        />
       )}
     </div>
   );
