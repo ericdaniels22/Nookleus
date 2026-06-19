@@ -7,6 +7,7 @@ import { FinancialsInvoiceList, type FinancialsInvoice } from "./financials-invo
 import { profitFigure, type ProfitPalette } from "./profit-figure";
 import { financialsViewModel } from "./financials-view-model";
 import CashFlowWaterfall from "./cash-flow-waterfall";
+import CollectionRing from "./collection-ring";
 import { fmtCurrency } from "./format-currency";
 
 type Props = {
@@ -40,6 +41,11 @@ export default function FinancialsTab({
   const vm = financialsViewModel(summary);
   return (
     <div className="space-y-6">
+      {/* Phone (below lg): collection ring above the cash-flow waterfall. */}
+      <div data-testid="collection-ring" className="lg:hidden">
+        <CollectionRing ring={vm.collectionRing} />
+      </div>
+
       {/* Phone (below lg): cash-flow waterfall in place of the four-across. */}
       <div data-testid="cashflow-waterfall" className="lg:hidden">
         <CashFlowWaterfall rows={vm.waterfall} profit={vm.profit} />
