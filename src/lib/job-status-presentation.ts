@@ -101,3 +101,37 @@ export function getJobStatusPresentation(key: string): JobStatusPresentation {
 export function isOpenJobStatus(key: string): boolean {
   return getJobStatusPresentation(key).isOpen;
 }
+
+/** One selectable option for the Job-detail status picker (#722). */
+export interface JobStatusOption {
+  /** Frozen snake_case status key — the value persisted on the Job. */
+  value: string;
+  /** Display label shown in the picker. */
+  label: string;
+}
+
+/**
+ * The five frozen lifecycle stages, in pipeline order, as picker options (#722).
+ *
+ * Drives the Job-detail status dropdown from one source of truth so it never
+ * drifts from the badges shown elsewhere. Always returns exactly the five
+ * canonical stages (ordered by sortRank), so extra/unknown org rows can't leak
+ * into the picker and a missing row can't drop a stage. When `configStatuses`
+ * (the org's job_statuses rows) provides a non-blank `display_label` for a
+ * stage, that label wins — so a per-org rename shows in the picker with no code
+ * change. A blank/whitespace-only override is ignored (it must never erase a
+ * stage's visible label), falling back to the canonical label.
+ */
+export function getJobStatusOptions(
+  configStatuses?: ReadonlyArray<{ name: string; display_label: string }>,
+): JobStatusOption[] {
+  const overrides = new Map(
+    (configStatuses ?? []).map((s) => [s.name, s.display_label]),
+  );
+  return Object.values(JOB_STATUS_PRESENTATION)
+    .sort((a, b) => a.sortRank - b.sortRank)
+    .map((p) => {
+      const override = overrides.get(p.key);
+      return { value: p.key, label: override?.trim() ? override : p.label };
+    });
+}

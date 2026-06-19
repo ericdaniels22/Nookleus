@@ -33,6 +33,7 @@ import { JobEmailRow } from "@/components/email/job-email-row";
 import { buildQuotedReply } from "@/components/email/build-quoted-reply";
 import { JobMessagesSection } from "@/components/job-detail/job-messages-section";
 import { JobCallsSection } from "@/components/job-detail/job-calls-section";
+import { JobStatusSelect } from "@/components/job-detail/job-status-select";
 import { buildJobTextContacts } from "@/components/job-detail/job-text-contacts";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
@@ -65,13 +66,12 @@ import {
 } from "lucide-react";
 import { canDeleteJobs } from "@/lib/jobs/auth";
 import {
-  statusColors,
-  statusLabels,
   urgencyColors,
   urgencyLabels,
   damageTypeColors,
   damageTypeLabels,
 } from "@/lib/badge-colors";
+import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -97,6 +97,7 @@ const SCREENFUL_PRELOAD = 12;
 
 export default function JobDetail({ jobId }: { jobId: string }) {
   const { hasPermission, profile } = useAuth();
+  const { getStatusColor, getStatusLabel } = useConfig();
   const showJobDeleteAffordances = canDeleteJobs(profile?.role);
   const [job, setJob] = useState<Job | null>(null);
   const [activities, setActivities] = useState<JobActivity[]>([]);
@@ -303,7 +304,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     if (error) {
       toast.error("Failed to update status.");
     } else {
-      toast.success(`Status updated to ${statusLabels[newStatus]}.`);
+      toast.success(`Status updated to ${getStatusLabel(newStatus)}.`);
       fetchData();
     }
   }
@@ -448,10 +449,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
             <Badge
               className={cn(
                 "text-xs font-medium px-2 py-0.5 rounded-md",
-                statusColors[job.status]
+                getStatusColor(job.status)
               )}
             >
-              {statusLabels[job.status]}
+              {getStatusLabel(job.status)}
             </Badge>
             {job.has_signed_contract ? (
               <Badge
@@ -485,17 +486,11 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               damageType: job.damage_type,
             }}
           />
-          <select
+          <JobStatusSelect
             value={job.status}
-            onChange={(e) => updateStatus(e.target.value)}
+            onChange={updateStatus}
             className="w-[180px] rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-          >
-            <option value="new">Lead</option>
-            <option value="in_progress">Active</option>
-            <option value="pending_invoice">Collections</option>
-            <option value="completed">Closed</option>
-            <option value="cancelled">Lost 😢</option>
-          </select>
+          />
           {showJobDeleteAffordances && !job.deleted_at && (
             <button
               type="button"
