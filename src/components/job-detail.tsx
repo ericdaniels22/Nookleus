@@ -406,8 +406,26 @@ export default function JobDetail({ jobId }: { jobId: string }) {
 
   const contactName = job.contact ? job.contact.full_name : "Unknown";
 
+  // Stand the page-level swipe-to-refresh down while any overlay is open on top
+  // of the Job — the full-screen photo viewer (and the annotator it hands off
+  // to), the edit dialogs, and the compose-email / photo-upload modals. They
+  // render as children of <PullToRefresh>, so their touches bubble up to its
+  // handlers; disabling the gesture lets a swipe drive the overlay's own
+  // gestures (e.g. the photo viewer keeps navigating photos) instead of
+  // refreshing the Job underneath. Closing the overlay clears this and
+  // re-enables the gesture (#678).
+  const overlayOpen =
+    !!selectedPhoto ||
+    annotatorOpen ||
+    composeOpen ||
+    photoUploadOpen ||
+    editJobOpen ||
+    editContactOpen ||
+    editInsuranceOpen ||
+    addAdjusterOpen;
+
   return (
-    <PullToRefresh onRefresh={refreshJob}>
+    <PullToRefresh onRefresh={refreshJob} disabled={overlayOpen}>
       <div className="max-w-6xl animate-fade-slide-up">
       <CaptureFab jobId={jobId} />
       {/* Back link */}

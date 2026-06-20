@@ -79,6 +79,61 @@ describe("usePullToRefresh", () => {
     expect(result.current.pullDistance).toBe(0);
   });
 
+  it("stands down while disabled: a full pull past the threshold does not refresh", async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() =>
+      usePullToRefresh({
+        onRefresh,
+        threshold: 64,
+        getScrollTop: () => 0,
+        disabled: true,
+      }),
+    );
+
+    await act(async () => {
+      result.current.onTouchStart(start(100));
+      result.current.onTouchMove(move(200)); // 100px down > 64, but an overlay is open
+      result.current.onTouchEnd(end(200));
+    });
+
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  it("re-enables the gesture once disabled flips back to false (overlay closed)", async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    // Stable references (as in production, where the wrapper omits getScrollTop
+    // and passes a memoized onRefresh) so the only dependency that changes
+    // across the rerender is `disabled` — this pins it to the handler's deps.
+    const atTop = () => 0;
+    const { result, rerender } = renderHook(
+      ({ disabled }) =>
+        usePullToRefresh({
+          onRefresh,
+          threshold: 64,
+          getScrollTop: atTop,
+          disabled,
+        }),
+      { initialProps: { disabled: true } },
+    );
+
+    // Overlay open: a full pull does nothing.
+    await act(async () => {
+      result.current.onTouchStart(start(100));
+      result.current.onTouchMove(move(200));
+      result.current.onTouchEnd(end(200));
+    });
+    expect(onRefresh).not.toHaveBeenCalled();
+
+    // Overlay closes — the page-level gesture works again.
+    rerender({ disabled: false });
+    await act(async () => {
+      result.current.onTouchStart(start(100));
+      result.current.onTouchMove(move(200));
+      result.current.onTouchEnd(end(200));
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores a second pull while a refresh is already in flight", async () => {
     let resolveRefresh: () => void = () => {};
     const onRefresh = vi.fn(

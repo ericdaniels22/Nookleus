@@ -22,15 +22,21 @@ const DEFAULT_ERROR_MESSAGE = "Couldn't refresh — check your connection.";
  * the top and runs `onRefresh` once past the threshold. Everywhere else
  * (mobile Safari, home-screen PWA) it is a plain passthrough, leaving the
  * browser's own pull-to-refresh untouched.
+ *
+ * Pass `disabled` to stand the gesture down while an overlay is open on top of
+ * the page (photo viewer, edit dialogs, compose-email) so swipes drive the
+ * overlay's own gestures instead of refreshing the page underneath (#678).
  */
 export function PullToRefresh({
   onRefresh,
   children,
   errorMessage = DEFAULT_ERROR_MESSAGE,
+  disabled = false,
 }: {
   onRefresh: () => Promise<void>;
   children: ReactNode;
   errorMessage?: string;
+  disabled?: boolean;
 }) {
   const { isNative, ready } = useCapacitor();
   const native = ready && isNative === true;
@@ -49,7 +55,7 @@ export function PullToRefresh({
   }, [onRefresh, errorMessage]);
 
   const { onTouchStart, onTouchMove, onTouchEnd, pullDistance, refreshing } =
-    usePullToRefresh({ onRefresh: handleRefresh });
+    usePullToRefresh({ onRefresh: handleRefresh, disabled });
 
   if (!native) return <>{children}</>;
 

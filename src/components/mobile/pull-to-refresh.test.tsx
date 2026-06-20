@@ -124,4 +124,21 @@ describe("PullToRefresh", () => {
 
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
+
+  it("stands down on the native app while disabled (an overlay is open)", async () => {
+    useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PullToRefresh onRefresh={onRefresh} disabled>
+        <div data-testid="child">job</div>
+      </PullToRefresh>,
+    );
+    await act(async () => {});
+
+    // A full downward pull past the threshold is inert: the overlay on top
+    // gets the gesture, the job underneath does not refresh (#678).
+    await pullDown(screen.getByTestId("child"));
+
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
 });
