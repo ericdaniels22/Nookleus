@@ -16,6 +16,7 @@ import {
   buildJobSections,
   buildJobsPageSections,
   countOpenJobs,
+  openStageKeys,
 } from "./build-job-sections";
 
 function makeJob(over: Partial<Job> = {}): Job {
@@ -183,6 +184,19 @@ describe("buildJobsPageSections — pinned emergencies (#726)", () => {
       "middle",
       "older",
     ]);
+  });
+});
+
+// Issue #728 — the default Jobs-page fetch defers Closed & Lost. openStageKeys
+// names the live stages the default fetch is scoped to, derived from the frozen
+// #720 lifecycle (ADR 0022) so it can never drift from the Open-vs-dead verdict.
+describe("openStageKeys (#728)", () => {
+  it("names exactly the live stages — Lead, Active, Collections — never Closed or Lost", () => {
+    const keys = openStageKeys();
+
+    expect([...keys].sort()).toEqual(["in_progress", "new", "pending_invoice"]);
+    expect(keys).not.toContain("completed");
+    expect(keys).not.toContain("cancelled");
   });
 });
 

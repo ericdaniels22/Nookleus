@@ -29,7 +29,15 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/config-context", () => ({
-  useConfig: () => ({ statuses: h.statuses }),
+  useConfig: () => ({
+    statuses: h.statuses,
+    // Job rows render in the #728 tests below; these keep JobComfortableRow's
+    // status / damage-type badge lookups from blowing up under the mock.
+    getStatusColor: () => "",
+    getStatusLabel: (key: string) => key,
+    getDamageTypeColor: () => "",
+    getDamageTypeLabel: (key: string) => key,
+  }),
 }));
 
 vi.mock("@/lib/auth-context", () => ({
@@ -65,12 +73,20 @@ vi.mock("@/lib/supabase", () => ({
 
 import JobsPage from "./page";
 import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
+import type { Job } from "@/lib/types";
 
 const loadJobs = vi.mocked(loadJobsWithCover);
 
 /** The stage key fetched by the most recent loadJobsWithCover call. */
 function lastFilter(): unknown {
   return loadJobs.mock.lastCall?.[1];
+}
+
+/** The options object passed to the most recent loadJobsWithCover call. */
+function lastOptions(): { includeClosedLost?: boolean } | undefined {
+  return loadJobs.mock.lastCall?.[2] as
+    | { includeClosedLost?: boolean }
+    | undefined;
 }
 
 /** Render the page and wait for its initial ("all") fetch to settle. */
@@ -82,6 +98,9 @@ async function renderMounted() {
 beforeEach(() => {
   h.role = "admin";
   loadJobs.mockClear();
+  // Default seam: no jobs. The #728 tests override this with a loader that
+  // returns Closed & Lost only when asked, so the override can't leak forward.
+  loadJobs.mockImplementation(async () => []);
 });
 
 afterEach(() => {
@@ -196,5 +215,109 @@ describe("Jobs page — five-stage filter pills (#725)", () => {
     ]) {
       expect(screen.getByTestId(`filter-pill-${key}`)).toBeTruthy();
     }
+  });
+});
+
+// A job fixture complete enough to render through JobComfortableRow (the
+// "comfortable" view-mode the harness mocks): it reads updated_at via date-fns
+// format(), plus contact / cover_photo / the two counts — so all are supplied.
+function makeJob(over: Partial<Job> = {}): Job {
+  return {
+    id: "job-1",
+    job_number: "J-0001",
+    contact_id: "c-1",
+    contact: null,
+    status: "in_progress",
+    urgency: "scheduled",
+    damage_type: "water",
+    property_address: "1 Test St",
+    cover_photo: null,
+    cover_photo_id: null,
+    photo_count: 0,
+    file_count: 0,
+    created_at: "2026-05-27T10:00:00Z",
+    updated_at: "2026-05-27T10:00:00Z",
+    ...over,
+  } as Job;
+}
+
+// Issue #728 — the default ("all") Jobs view hides Closed & Lost behind a "show
+// Closed & Lost" toggle. The seam already defers the fetch (loadJobsWithCover
+// excludes those stages unless includeClosedLost is set); here we drive the
+// page-level behavior: default load shows only live stages, with the toggle
+// present to reveal the rest.
+describe("Jobs page — hide Closed & Lost by default (#728)", () => {
+  const LIVE = makeJob({ id: "active-1", status: "in_progress" });
+  const CLOSED = makeJob({ id: "closed-1", status: "completed" });
+  const LOST = makeJob({ id: "lost-1", status: "cancelled" });
+
+  beforeEach(() => {
+    // Mirror the seam: Closed & Lost come back only when explicitly asked for.
+    loadJobs.mockImplementation(async (_sb, _filter, opts) =>
+      (opts as { includeClosedLost?: boolean } | undefined)?.includeClosedLost
+        ? [LIVE, CLOSED, LOST]
+        : [LIVE],
+    );
+  });
+
+  it("hides the Closed & Lost sections by default, behind a 'show Closed & Lost' toggle", async () => {
+    await renderMounted();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("section-in_progress")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("section-completed")).toBeNull();
+    expect(screen.queryByTestId("section-cancelled")).toBeNull();
+    expect(screen.getByTestId("toggle-closed-lost")).toBeTruthy();
+  });
+
+  it("reveals the Closed & Lost sections when the toggle is turned on", async () => {
+    await renderMounted();
+    await waitFor(() =>
+      expect(screen.getByTestId("section-in_progress")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByTestId("toggle-closed-lost"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("section-completed")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("section-cancelled")).toBeTruthy();
+  });
+
+  it("defers the fetch — the default load never asks for Closed & Lost; turning the toggle on does", async () => {
+    await renderMounted();
+    await waitFor(() =>
+      expect(screen.getByTestId("section-in_progress")).toBeTruthy(),
+    );
+
+    // The default load scopes to the live stages — it must not pay to fetch
+    // Closed & Lost (the whole point of the toggle, #728).
+    expect(lastOptions()?.includeClosedLost).toBeFalsy();
+
+    fireEvent.click(screen.getByTestId("toggle-closed-lost"));
+
+    // Revealing them triggers the deferred fetch, now including those stages.
+    await waitFor(() => expect(lastOptions()?.includeClosedLost).toBe(true));
+  });
+
+  it("hides the Closed & Lost sections again when the toggle is turned back off", async () => {
+    await renderMounted();
+    await waitFor(() =>
+      expect(screen.getByTestId("section-in_progress")).toBeTruthy(),
+    );
+
+    // On — Closed & Lost revealed.
+    fireEvent.click(screen.getByTestId("toggle-closed-lost"));
+    await waitFor(() =>
+      expect(screen.getByTestId("section-completed")).toBeTruthy(),
+    );
+
+    // Off again — they hide once more.
+    fireEvent.click(screen.getByTestId("toggle-closed-lost"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("section-completed")).toBeNull(),
+    );
+    expect(screen.queryByTestId("section-cancelled")).toBeNull();
   });
 });

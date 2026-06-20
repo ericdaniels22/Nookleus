@@ -42,6 +42,9 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  // The "all" view defers Closed & Lost until this is on (#728). Not persisted —
+  // it resets to off on each visit so the default load stays fast.
+  const [showClosedLost, setShowClosedLost] = useState(false);
   const { mode, setMode } = useJobsViewMode();
 
   const fetchJobs = useCallback(async () => {
@@ -59,10 +62,16 @@ export default function JobsPage() {
 
     // One batched query joins each job to its cover photo, so the
     // Comfortable view needs no per-job lookup; Cards and List ignore it.
+    // Closed & Lost are deferred until the toggle reveals them, so toggling it
+    // on re-fetches with those stages included (#728).
     const supabase = createClient();
-    setJobs(await loadJobsWithCover(supabase, filter));
+    setJobs(
+      await loadJobsWithCover(supabase, filter, {
+        includeClosedLost: showClosedLost,
+      }),
+    );
     setLoading(false);
-  }, [filter]);
+  }, [filter, showClosedLost]);
 
   useEffect(() => {
     fetchJobs();
@@ -110,8 +119,9 @@ export default function JobsPage() {
 
   // Each stage section renders its Jobs in the page's current view-mode layout.
   // (buildJobsPageSections orders Jobs newest-first within a section and floats
-  // open emergencies into a pinned section above the groups, #726; the
-  // hide-Closed/Lost toggle is #728 — out of scope here.)
+  // open emergencies into a pinned section above the groups, #726. Closed & Lost
+  // are deferred from the fetch until the toggle reveals them, #728, so they
+  // simply have no section here until then.)
   const renderJobsForMode = (sectionJobs: Job[]) => {
     if (mode === "list") {
       return (
@@ -232,11 +242,31 @@ export default function JobsPage() {
         (() => {
           const { pinnedEmergencies, sections } = buildJobsPageSections(jobs);
           return (
-            <JobStageSections
-              sections={sections}
-              pinnedEmergencies={pinnedEmergencies}
-              renderJobs={renderJobsForMode}
-            />
+            <>
+              <JobStageSections
+                sections={sections}
+                pinnedEmergencies={pinnedEmergencies}
+                renderJobs={renderJobsForMode}
+              />
+              {/* The "all" view defers Closed & Lost (#728); the toggle reveals
+                  them. A single stage / Emergency filter fetches that stage
+                  directly, so no toggle there. */}
+              {filter === "all" && (
+                <div className="mt-8 flex justify-center">
+                  <button
+                    type="button"
+                    data-testid="toggle-closed-lost"
+                    onClick={() => {
+                      setShowClosedLost((shown) => !shown);
+                      setLoading(true);
+                    }}
+                    className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground hover:border-primary/30 hover:shadow-sm"
+                  >
+                    {showClosedLost ? "Hide" : "Show"} Closed &amp; Lost
+                  </button>
+                </div>
+              )}
+            </>
           );
         })()
       )}

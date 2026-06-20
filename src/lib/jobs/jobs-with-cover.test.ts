@@ -54,11 +54,40 @@ function fakeSupabase(
     from: (table: string) => {
       fromTables.push(table);
       const result = tables[table] ?? { data: [], error: null };
-      const builder: Record<string, unknown> = {};
-      for (const method of ["select", "is", "order", "eq", "in"]) {
-        builder[method] = () => builder;
-      }
-      builder.then = (resolve: (r: unknown) => void) => resolve(result);
+      // Captured .eq("status", v) / .in("status", [...]) constraints. A row that
+      // declares a `status` is returned only if it satisfies them; a fixture row
+      // without a `status` is unconstrained (it exercises some other behavior,
+      // like cover shaping or batching) and always passes — so existing tests,
+      // whose rows omit status, are unaffected.
+      let allowedStatuses: string[] | null = null;
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        is: () => builder,
+        order: () => builder,
+        eq: (col: string, val: string) => {
+          if (col === "status") allowedStatuses = [val];
+          return builder;
+        },
+        in: (col: string, vals: string[]) => {
+          if (col === "status") allowedStatuses = vals;
+          return builder;
+        },
+      };
+      builder.then = (resolve: (r: unknown) => void) => {
+        const rows = result.data;
+        if (allowedStatuses && Array.isArray(rows)) {
+          const allow = new Set(allowedStatuses);
+          resolve({
+            ...result,
+            data: rows.filter((row) => {
+              const status = (row as { status?: unknown })?.status;
+              return typeof status !== "string" || allow.has(status);
+            }),
+          });
+        } else {
+          resolve(result);
+        }
+      };
       return builder;
     },
     get fromTables() {
@@ -194,6 +223,48 @@ describe("loadJobsWithCover", () => {
       ["job-A", 2, 0],
       ["job-B", 1, 0],
       ["job-C", 0, 1],
+    ]);
+  });
+});
+
+// Issue #728 — the default ("all") Jobs-page view defers Closed & Lost: those
+// dead stages aren't fetched until the "show Closed & Lost" toggle reveals
+// them, so the default load stays fast as Closed/Lost accumulate.
+describe("loadJobsWithCover — deferred Closed & Lost (#728)", () => {
+  const fiveStages = {
+    jobs: {
+      data: [
+        { id: "lead", status: "new" },
+        { id: "active", status: "in_progress" },
+        { id: "collections", status: "pending_invoice" },
+        { id: "closed", status: "completed" },
+        { id: "lost", status: "cancelled" },
+      ],
+      error: null,
+    },
+  };
+
+  it("excludes Closed & Lost from the default view — they aren't fetched", async () => {
+    const supabase = fakeSupabase(fiveStages);
+
+    const jobs = await loadJobsWithCover(supabase, "all");
+
+    expect(jobs.map((j) => j.id)).toEqual(["lead", "active", "collections"]);
+  });
+
+  it("includes Closed & Lost once revealed — includeClosedLost fetches every stage", async () => {
+    const supabase = fakeSupabase(fiveStages);
+
+    const jobs = await loadJobsWithCover(supabase, "all", {
+      includeClosedLost: true,
+    });
+
+    expect(jobs.map((j) => j.id)).toEqual([
+      "lead",
+      "active",
+      "collections",
+      "closed",
+      "lost",
     ]);
   });
 });

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Job, Photo } from "@/lib/types";
+import { openStageKeys } from "./build-job-sections";
 
 /**
  * Normalize a raw jobs row so its joined cover photo is a single object,
@@ -58,10 +59,17 @@ export function attachJobCounts(
  * first; an optional filter narrows them to emergencies or one status,
  * mirroring the Jobs tab's filter pills. Returns `[]` if the jobs query
  * fails.
+ *
+ * The default ("all") view defers Closed & Lost: it scopes the fetch to the
+ * live stages so the page doesn't pay to load dead jobs until the "show Closed
+ * & Lost" toggle reveals them (`includeClosedLost`, #728). An explicit stage or
+ * emergency filter is unaffected — picking the Closed/Lost pill still fetches
+ * that stage directly.
  */
 export async function loadJobsWithCover(
   supabase: SupabaseClient,
   filter: string = "all",
+  { includeClosedLost = false }: { includeClosedLost?: boolean } = {},
 ): Promise<Job[]> {
   let query = supabase
     .from("jobs")
@@ -74,6 +82,10 @@ export async function loadJobsWithCover(
     query = query.eq("urgency", "emergency");
   } else if (filter !== "all") {
     query = query.eq("status", filter);
+  } else if (!includeClosedLost) {
+    // Default "all" view defers Closed & Lost — scope to the live stages so the
+    // page doesn't pay to fetch dead jobs until the toggle reveals them (#728).
+    query = query.in("status", openStageKeys());
   }
 
   const { data, error } = await query.order("created_at", {
