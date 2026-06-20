@@ -1077,6 +1077,10 @@ export function EstimateBuilder({
           } as BuilderEntity,
         };
       });
+      // US18 parity (#743): the local synthesis always succeeds, so confirm the
+      // removal with the same discrete toast the estimate/invoice HTTP path
+      // emits on success — template deletes were previously silent.
+      toast.success("Line item deleted");
       return;
     }
     // Estimate or invoice: HTTP path with entityBase substituted.
