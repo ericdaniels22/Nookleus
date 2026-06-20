@@ -8,6 +8,7 @@ import { Job } from "@/lib/types";
 import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
+import { JobStageStripe } from "@/components/job-stage-stripe";
 
 export default function JobCard({ job }: { job: Job }) {
   const { getStatusColor, getStatusLabel, getDamageTypeColor, getDamageTypeLabel, damageTypes } = useConfig();
@@ -22,10 +23,13 @@ export default function JobCard({ job }: { job: Job }) {
     <Link
       href={`/jobs/${job.id}`}
       className={cn(
-        "block bg-card rounded-xl border border-border overflow-hidden card-vibrant p-5 transition-all hover:-translate-y-1",
+        "relative block bg-card rounded-xl border border-border overflow-hidden card-vibrant p-5 transition-all hover:-translate-y-1",
         isCompleted && "opacity-60"
       )}
     >
+      {/* Stage color stripe — overflow-hidden clips it to the card's corners */}
+      <JobStageStripe status={job.status} />
+
       {/* Gradient top strip */}
       <div
         className="h-[3px] -mx-5 -mt-5 mb-4"

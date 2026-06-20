@@ -12,6 +12,7 @@ import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import type { Job, Photo } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { JobStageStripe } from "@/components/job-stage-stripe";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
@@ -48,10 +49,15 @@ export default function JobComfortableRow({ job }: { job: Job }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-4 rounded-xl border border-border bg-card p-3 transition-all hover:border-primary/30 hover:shadow-sm",
+        "relative flex items-center gap-4 rounded-xl border border-border bg-card p-3 transition-all hover:border-primary/30 hover:shadow-sm",
         isCompleted && "opacity-60",
       )}
     >
+      {/* Always-on stage color stripe at the row's left edge. The row has no
+          overflow-hidden (it hosts the cover-picker dialog), so the stripe
+          rounds its own left corners to match. */}
+      <JobStageStripe status={job.status} className="rounded-l-xl" />
+
       {/* The cover thumbnail is a button: clicking it (or the gray
           placeholder, when no cover is set) opens the photo picker. */}
       <button

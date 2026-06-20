@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import type { Job, Photo } from "@/lib/types";
+import { getJobStatusPresentation } from "@/lib/job-status-presentation";
 
 // JobComfortableRow reads status/damage colors + labels from the config
 // context. Stub it so the row renders without a ConfigProvider; the
@@ -59,6 +60,7 @@ vi.mock("@/lib/supabase", () => {
 });
 
 import JobComfortableRow from "./job-comfortable-row";
+import { asRenderedColor } from "./jobs-test-helpers";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -134,6 +136,17 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     ...overrides,
   };
 }
+
+describe("JobComfortableRow — stage color stripe (#724)", () => {
+  it("renders a left-edge stripe colored for the job's stage", () => {
+    render(<JobComfortableRow job={makeJob({ status: "cancelled" })} />);
+
+    const stripe = screen.getByTestId("stage-stripe");
+    expect(stripe.style.backgroundColor).toBe(
+      asRenderedColor(getJobStatusPresentation("cancelled").accentColor),
+    );
+  });
+});
 
 describe("JobComfortableRow — status / urgency / damage badges (#163)", () => {
   it("renders colored status, urgency, and damage-type badges", () => {
