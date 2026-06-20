@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertOctagon } from "lucide-react";
 import { toast } from "sonner";
@@ -360,6 +360,10 @@ export function EstimateBuilder({
   const lineSelection = useLineItemSelection(
     collectLineItemIds(state.entity.data.sections),
   );
+
+  // #745: the document surface, so onLineItemDelete can park focus on a stable,
+  // still-mounted element when deleting the open line unmounts the editor panel.
+  const builderDocumentRef = useRef<HTMLElement>(null);
 
   async function handleConvertConfirm() {
     if (state.entity.kind !== "estimate") return;
@@ -1044,6 +1048,15 @@ export function EstimateBuilder({
   // ── Slot 5: line-item delete ───────────────────────────────────────────
 
   async function onLineItemDelete(id: string) {
+    // #745 (WCAG 2.4.3): when the line open in the editor is deleted, the panel
+    // and its confirm dialog unmount. The dialog restores focus to its opener
+    // (the panel's Delete button), now a detached node — so focus would fall to
+    // <body>. Move focus to the stable document surface *before* the optimistic
+    // removal so it survives the unmount. Deleting a *different* (non-selected)
+    // line leaves the panel — and its focus restore — alone.
+    if (lineSelection.selectedId === id) {
+      builderDocumentRef.current?.focus();
+    }
     // Template mode: local synthesis; rootPut auto-save persists.
     if (state.entity.kind === "template") {
       setState((prev) => {
@@ -1785,6 +1798,7 @@ export function EstimateBuilder({
               />
             )
           }
+          documentRef={builderDocumentRef}
           onBackgroundClick={lineSelection.clear}
         >
           {/* ── HeaderCard — identity + dates/PO in one card (#574) ── */}
@@ -1900,6 +1914,7 @@ export function EstimateBuilder({
               />
             )
           }
+          documentRef={builderDocumentRef}
           onBackgroundClick={lineSelection.clear}
         >
           {/* ── HeaderCard — Save Template / Cancel-edit per spec §4.1 ── */}
@@ -2037,6 +2052,7 @@ export function EstimateBuilder({
             />
           )
         }
+        documentRef={builderDocumentRef}
         onBackgroundClick={lineSelection.clear}
       >
 
