@@ -10,6 +10,11 @@ export interface PullToRefreshOptions {
   onRefresh: () => Promise<void>;
   threshold?: number;
   getScrollTop?: () => number;
+  // When true, the gesture stands down: a touch never arms, so move/end are
+  // inert and no reload fires. Used to yield to an overlay open on top of the
+  // page (photo viewer, edit dialogs, compose-email) so swipes drive the
+  // overlay's own gestures instead of refreshing the page underneath (#678).
+  disabled?: boolean;
 }
 
 export interface PullToRefreshState {
@@ -24,6 +29,7 @@ export function usePullToRefresh({
   onRefresh,
   threshold = DEFAULT_THRESHOLD,
   getScrollTop,
+  disabled = false,
 }: PullToRefreshOptions): PullToRefreshState {
   // In-flight gesture state lives in a ref so mid-gesture reads don't re-render;
   // pullDistance/refreshing are state because they drive the spinner.
@@ -34,6 +40,12 @@ export function usePullToRefresh({
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
+      // Stand down while an overlay is open: never arm, so this whole gesture
+      // is inert and the page can't refresh under the overlay (#678).
+      if (disabled) {
+        startY.current = null;
+        return;
+      }
       // Arm only when the page is scrolled to the very top.
       const scrollTop = getScrollTop
         ? getScrollTop()
@@ -46,7 +58,7 @@ export function usePullToRefresh({
       }
       startY.current = e.touches[0]?.clientY ?? null;
     },
-    [getScrollTop],
+    [getScrollTop, disabled],
   );
 
   const onTouchMove = useCallback((e: ReactTouchEvent) => {
