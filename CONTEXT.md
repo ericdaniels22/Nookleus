@@ -402,7 +402,11 @@ _Avoid_: active session, current clock, open punch
 The acts of starting and ending one's own **Time session** by tapping in the app
 on site. **Crew members can only live-clock themselves** in and out — they can
 never type or edit a time; changing a recorded time is a **Correction**
-(leads/admins only).
+(leads/admins only). A tap is **device-stamped** at the moment it happens and
+**survives being offline**: it is queued on the device with a client-generated id
+and drains when the network returns, so the recorded time is always the device
+tap instant — never the later instant the sync reached the server (which is kept
+only as audit metadata). See [ADR 0023](docs/adr/0023-device-tap-instant-authoritative-for-session-times.md).
 _Avoid_: punch in/out, check in/out, sign in (that is authentication)
 
 **Regular hours**:
