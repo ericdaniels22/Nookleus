@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 interface BuilderLayoutProps {
   children: ReactNode;
@@ -14,6 +14,13 @@ interface BuilderLayoutProps {
    * this handler.
    */
   onBackgroundClick?: () => void;
+  /**
+   * #745: ref to the document surface. Deleting the open line unmounts the editor
+   * panel (and its confirm dialog), which would otherwise drop focus to <body>.
+   * The builder focuses this stable, still-mounted element instead — so <main>
+   * carries tabIndex={-1} to be a programmatic focus target (WCAG 2.4.3).
+   */
+  documentRef?: Ref<HTMLElement>;
 }
 
 export function BuilderLayout({
@@ -21,6 +28,7 @@ export function BuilderLayout({
   editorSlot,
   totalsSlot,
   onBackgroundClick,
+  documentRef,
 }: BuilderLayoutProps) {
   return (
     <div className="flex flex-col">
@@ -32,9 +40,14 @@ export function BuilderLayout({
       */}
       <div className="flex flex-col lg:flex-row gap-4">
         <main
+          ref={documentRef}
+          // tabIndex={-1}: not a Tab stop, but a valid target for the builder's
+          // programmatic focus move after a delete (#745). outline-none suppresses
+          // the focus ring on this transient, non-keyboard-reachable container.
+          tabIndex={-1}
           data-testid="builder-document"
           onClick={onBackgroundClick}
-          className="flex-1 min-w-0 px-4 py-6 pb-24 space-y-4"
+          className="flex-1 min-w-0 px-4 py-6 pb-24 space-y-4 outline-none"
         >
           {children}
         </main>

@@ -902,3 +902,72 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// Issue #745 — focus management after a confirmed line-item delete (WCAG 2.4.3,
+// Focus Order). Deleting the line that's open in the editor unmounts the panel
+// AND its ConfirmDialog. The dialog restores focus to its remembered opener (the
+// panel's Delete button), but that node is detached by the unmount, so focus
+// would fall to <body> — a Focus Order gap for keyboard / AT users. The builder
+// instead moves focus to the still-mounted document surface. The Escape/Cancel
+// restore (opener still mounted) must be unchanged.
+describe("EstimateBuilder × delete focus management (#745)", () => {
+  function panelDeleteButton() {
+    return within(screen.getByTestId("builder-editor-panel")).getByRole(
+      "button",
+      { name: /delete line item/i },
+    );
+  }
+
+  function confirmPanelDelete() {
+    const dialog = within(screen.getByTestId("builder-editor-panel")).getByRole(
+      "dialog",
+      { name: /delete line item/i },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+  }
+
+  it("moves focus to the document surface (not <body>) after the selected line is deleted", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
+    // The panel + its confirm dialog have unmounted…
+    expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
+    // …and focus landed on the still-mounted document surface, not <body>.
+    const doc = screen.getByTestId("builder-document");
+    expect(document.activeElement).toBe(doc);
+    expect(document.activeElement).not.toBe(document.body);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the editor open with focus restored inside it when the confirm is cancelled", () => {
+    // AC: the Escape/Cancel restore — opener still mounted — must be unchanged.
+    // Cancelling never reaches onLineItemDelete, so the #745 focus move does not
+    // run; the dialog hands focus back inside the still-open panel as before.
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+
+    fireEvent.click(panelDeleteButton());
+    const dialog = within(panel).getByRole("dialog", {
+      name: /delete line item/i,
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /cancel/i }));
+
+    // Editor still open, line untouched, focus back inside the panel.
+    expect(screen.getByTestId("builder-editor-panel")).toBeDefined();
+    expect(
+      within(screen.getByTestId("builder-document")).queryByText("Tear-off"),
+    ).not.toBeNull();
+    expect(panel.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+});
