@@ -12,7 +12,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { Job } from "@/lib/types";
-import { buildJobSections, countOpenJobs } from "./build-job-sections";
+import {
+  buildJobSections,
+  buildJobsPageSections,
+  countOpenJobs,
+} from "./build-job-sections";
 
 function makeJob(over: Partial<Job> = {}): Job {
   return {
@@ -122,6 +126,63 @@ describe("buildJobSections", () => {
     ]);
     // Only Active and Lead are populated — Collections/Closed/Lost are hidden.
     expect(sections.map((s) => s.key)).toEqual(["in_progress", "new"]);
+  });
+});
+
+// Issue #726 — open emergencies float to a pinned section above the stage
+// groups. buildJobsPageSections wraps buildJobSections: it lifts the open
+// emergency Jobs out into `pinnedEmergencies` (newest-first) and de-dupes them
+// from their stage groups, so each Job renders exactly once.
+describe("buildJobsPageSections — pinned emergencies (#726)", () => {
+  it("pins an open emergency Job into the pinned section", () => {
+    const { pinnedEmergencies } = buildJobsPageSections([
+      makeJob({ id: "e1", status: "in_progress", urgency: "emergency" }),
+    ]);
+
+    expect(pinnedEmergencies.map((j) => j.id)).toEqual(["e1"]);
+  });
+
+  it("de-dupes a pinned emergency out of its stage group", () => {
+    const { pinnedEmergencies, sections } = buildJobsPageSections([
+      makeJob({ id: "e1", status: "in_progress", urgency: "emergency" }),
+      makeJob({ id: "a1", status: "in_progress", urgency: "scheduled" }),
+    ]);
+
+    expect(pinnedEmergencies.map((j) => j.id)).toEqual(["e1"]);
+    // The Active group keeps the non-emergency Job but not the pinned one.
+    const active = sections.find((s) => s.key === "in_progress");
+    expect(active?.jobs.map((j) => j.id)).toEqual(["a1"]);
+  });
+
+  it("does not pin a Closed or Lost emergency — only open stages float", () => {
+    const { pinnedEmergencies, sections } = buildJobsPageSections([
+      makeJob({ id: "closed-e", status: "completed", urgency: "emergency" }),
+      makeJob({ id: "lost-e", status: "cancelled", urgency: "emergency" }),
+    ]);
+
+    expect(pinnedEmergencies).toEqual([]);
+    // A dead emergency keeps showing in its own stage group, never pinned.
+    expect(
+      sections.find((s) => s.key === "completed")?.jobs.map((j) => j.id),
+    ).toEqual(["closed-e"]);
+    expect(
+      sections.find((s) => s.key === "cancelled")?.jobs.map((j) => j.id),
+    ).toEqual(["lost-e"]);
+  });
+
+  it("orders the pinned emergencies newest-first, across stages", () => {
+    const { pinnedEmergencies } = buildJobsPageSections([
+      makeJob({ id: "older", status: "in_progress", urgency: "emergency", created_at: "2026-05-01T00:00:00Z" }),
+      makeJob({ id: "newest", status: "new", urgency: "emergency", created_at: "2026-05-30T00:00:00Z" }),
+      makeJob({ id: "middle", status: "pending_invoice", urgency: "emergency", created_at: "2026-05-15T00:00:00Z" }),
+    ]);
+
+    // Pinned order is pure recency — the originating stage doesn't matter here.
+    expect(pinnedEmergencies.map((j) => j.id)).toEqual([
+      "newest",
+      "middle",
+      "older",
+    ]);
   });
 });
 

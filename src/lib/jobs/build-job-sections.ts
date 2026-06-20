@@ -55,6 +55,35 @@ export function buildJobSections(jobs: Job[]): JobSection[] {
   }).filter((section) => section.count > 0);
 }
 
+/** The Jobs page's full section model: pinned emergencies + the stage groups. */
+export interface JobsPageSections {
+  /**
+   * Open emergency Jobs, newest-first, shown in a pinned section above every
+   * stage group (#726). These are de-duped out of `sections`, so a pinned Job
+   * never also appears in its stage group. Empty when there are none.
+   */
+  pinnedEmergencies: Job[];
+  /** The stage groups, with any pinned emergencies removed. */
+  sections: JobSection[];
+}
+
+/**
+ * Build the Jobs page's section model: open emergencies float into a pinned
+ * section above the stage groups (#726), de-duped from their stage group so
+ * each Job renders exactly once.
+ */
+export function buildJobsPageSections(jobs: Job[]): JobsPageSections {
+  const pinnedEmergencies = jobs
+    .filter((job) => job.urgency === "emergency" && isOpenJobStatus(job.status))
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  const pinnedIds = new Set(pinnedEmergencies.map((job) => job.id));
+  const remaining = jobs.filter((job) => !pinnedIds.has(job.id));
+  return { pinnedEmergencies, sections: buildJobSections(remaining) };
+}
+
 /**
  * Count of Open jobs — the headline "Open jobs" stat. Open = the Lead, Active,
  * and Collections stages (per the #720 module's isOpen verdict); Closed and
