@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useCapacitor } from "@/lib/mobile/use-capacitor";
 import { usePullToRefresh } from "@/lib/mobile/use-pull-to-refresh";
@@ -9,6 +10,11 @@ import { usePullToRefresh } from "@/lib/mobile/use-pull-to-refresh";
 // Height the spinner row settles to while a reload runs; the pull reveals it
 // gradually (with light resistance) on the way there.
 const SPINNER_ROW = 56;
+
+// Shown when a pull-triggered reload can't reach the server (e.g. weak signal
+// on a job site). The on-screen data is left untouched; the user can pull
+// again to retry. Overridable per surface via the `errorMessage` prop.
+const DEFAULT_ERROR_MESSAGE = "Couldn't refresh — check your connection.";
 
 /**
  * Native-only swipe-to-refresh shell. On the Capacitor app it wraps its
@@ -20,14 +26,30 @@ const SPINNER_ROW = 56;
 export function PullToRefresh({
   onRefresh,
   children,
+  errorMessage = DEFAULT_ERROR_MESSAGE,
 }: {
   onRefresh: () => Promise<void>;
   children: ReactNode;
+  errorMessage?: string;
 }) {
   const { isNative, ready } = useCapacitor();
   const native = ready && isNative === true;
+
+  // Own the failure *policy* here so it's shared by every surface that uses
+  // pull-to-refresh: if the reload rejects, keep the children on screen
+  // (we never unmount them) and toast. Catching here also means the hook only
+  // ever sees a resolved promise, so its spinner retracts cleanly and the
+  // rejection never escapes as unhandled.
+  const handleRefresh = useCallback(async () => {
+    try {
+      await onRefresh();
+    } catch {
+      toast.error(errorMessage);
+    }
+  }, [onRefresh, errorMessage]);
+
   const { onTouchStart, onTouchMove, onTouchEnd, pullDistance, refreshing } =
-    usePullToRefresh({ onRefresh });
+    usePullToRefresh({ onRefresh: handleRefresh });
 
   if (!native) return <>{children}</>;
 

@@ -173,7 +173,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     if (trashedReports.length === 0) setTrashOpen(false);
   }, [trashedReports.length]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async ({ surfaceErrors = false }: { surfaceErrors?: boolean } = {}) => {
     const supabase = createClient();
 
     const [jobRes, activitiesRes, paymentsRes, invoicesRes, photosRes, photoCountRes, tagsRes, reportsRes, emailsRes] = await Promise.all([
@@ -224,6 +224,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .eq("job_id", jobId)
         .order("received_at", { ascending: false }),
     ]);
+
+    // Supabase resolves with `error` rather than rejecting, so a weak-signal
+    // reload is otherwise a silent no-op. Swipe-to-refresh opts in to surface a
+    // failed core fetch (#676) so it can keep the on-screen data and toast;
+    // throwing here — before any setState — leaves all current data intact.
+    // Every other caller (mount, mutation-success hooks) keeps that silent
+    // behavior so a failed background re-fetch never becomes a crash.
+    if (surfaceErrors && jobRes.error) throw jobRes.error;
 
     if (jobRes.data) setJob(jobRes.data as Job);
     if (activitiesRes.data) setActivities(activitiesRes.data as JobActivity[]);
@@ -279,6 +287,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
 
     setLoading(false);
   }, [jobId]);
+
+  // Swipe-to-refresh reload: opt in to surfacing a failed fetch so PullToRefresh
+  // keeps the page and toasts (#676). The mount load below stays silent.
+  const refreshJob = useCallback(() => fetchData({ surfaceErrors: true }), [fetchData]);
 
   useEffect(() => {
     fetchData();
@@ -395,7 +407,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const contactName = job.contact ? job.contact.full_name : "Unknown";
 
   return (
-    <PullToRefresh onRefresh={fetchData}>
+    <PullToRefresh onRefresh={refreshJob}>
       <div className="max-w-6xl animate-fade-slide-up">
       <CaptureFab jobId={jobId} />
       {/* Back link */}
