@@ -18,7 +18,7 @@ vi.mock("@/lib/config-context", () => ({
 }));
 
 import JobCard from "./job-card";
-import { asRenderedColor } from "./jobs-test-helpers";
+import { asRenderedColor, expectedStageIconGeometry } from "./jobs-test-helpers";
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -78,5 +78,18 @@ describe("JobCard — stage color stripe (#724)", () => {
     expect(stripe.style.backgroundColor).toBe(
       asRenderedColor(getJobStatusPresentation("cancelled").accentColor),
     );
+  });
+});
+
+describe("JobCard — stage icon (#727)", () => {
+  it("renders the job's stage icon so the stage reads at a glance", () => {
+    const { container } = render(
+      <JobCard job={makeJob({ status: "pending_invoice" })} />,
+    );
+
+    const icon = container.querySelector('[data-testid="stage-icon"]');
+    // Present, and the right glyph for the job's own stage (Collections).
+    expect(icon).not.toBeNull();
+    expect(icon!.innerHTML).toBe(expectedStageIconGeometry("pending_invoice"));
   });
 });

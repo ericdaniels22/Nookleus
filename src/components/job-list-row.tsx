@@ -8,6 +8,7 @@ import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
 import { JobStageStripe } from "@/components/job-stage-stripe";
+import { JobStageIcon } from "@/components/job-stage-icon";
 
 // Column widths shared by the header and the rows so the two stay aligned.
 // The three badge columns collapse below the sm breakpoint (phone width).
@@ -15,7 +16,10 @@ const columns = {
   jobNumber: "w-20 shrink-0",
   contact: "w-44 shrink-0",
   address: "min-w-0 flex-1",
-  status: "hidden w-28 shrink-0 sm:block",
+  // The status column is a flex row so the stage icon (#727) and status badge
+  // sit together. It still collapses below sm — the stage stripe carries the
+  // stage on a phone — so the header label keeps the same width and alignment.
+  status: "hidden w-28 shrink-0 sm:flex sm:items-center sm:gap-1.5",
   urgency: "hidden w-24 shrink-0 sm:block",
   damage: "hidden w-24 shrink-0 sm:block",
 };
@@ -112,6 +116,7 @@ export default function JobListRow({ job }: { job: Job }) {
         {job.property_address}
       </span>
       <span className={columns.status}>
+        <JobStageIcon status={job.status} className="text-muted-foreground" />
         <Badge
           variant="secondary"
           className={cn(badgeClass, getStatusColor(job.status))}

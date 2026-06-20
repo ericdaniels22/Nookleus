@@ -9,6 +9,7 @@ import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
 import { JobStageStripe } from "@/components/job-stage-stripe";
+import { JobStageIcon } from "@/components/job-stage-icon";
 
 export default function JobCard({ job }: { job: Job }) {
   const { getStatusColor, getStatusLabel, getDamageTypeColor, getDamageTypeLabel, damageTypes } = useConfig();
@@ -93,15 +94,21 @@ export default function JobCard({ job }: { job: Job }) {
           <Calendar size={12} />
           <span>{format(new Date(job.created_at), "MMM d, yyyy")}</span>
         </div>
-        <Badge
-          variant="secondary"
-          className={cn(
-            "text-[11px] font-medium px-2 py-0.5 rounded-md",
-            getStatusColor(job.status)
-          )}
-        >
-          {getStatusLabel(job.status)}
-        </Badge>
+        {/* Stage icon + status badge read together as "🔨 Active". The icon
+            is decorative (the badge carries the label) and stays neutral so
+            its glyph — not another color — is the at-a-glance stage cue. */}
+        <div className="flex items-center gap-1.5">
+          <JobStageIcon status={job.status} className="text-muted-foreground" />
+          <Badge
+            variant="secondary"
+            className={cn(
+              "text-[11px] font-medium px-2 py-0.5 rounded-md",
+              getStatusColor(job.status)
+            )}
+          >
+            {getStatusLabel(job.status)}
+          </Badge>
+        </div>
       </div>
     </Link>
   );

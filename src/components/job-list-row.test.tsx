@@ -18,7 +18,7 @@ vi.mock("@/lib/config-context", () => ({
 }));
 
 import JobListRow, { JobListHeader } from "./job-list-row";
-import { asRenderedColor } from "./jobs-test-helpers";
+import { asRenderedColor, expectedStageIconGeometry } from "./jobs-test-helpers";
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -105,10 +105,13 @@ describe("JobListRow — status / urgency / damage badges (#161)", () => {
     const statusCell = screen.getByText("In Progress").parentElement;
     const damageCell = screen.getByText("Water").parentElement;
 
-    for (const cell of [statusCell, damageCell]) {
-      expect(cell?.className).toContain("hidden");
-      expect(cell?.className).toContain("sm:block");
-    }
+    // Both columns collapse on a phone-width row...
+    expect(statusCell?.className).toContain("hidden");
+    expect(damageCell?.className).toContain("hidden");
+    // ...and return at sm+. The status column is a flex row (so its stage icon
+    // and badge sit together, #727); the damage column stays a plain block.
+    expect(statusCell?.className).toContain("sm:flex");
+    expect(damageCell?.className).toContain("sm:block");
   });
 });
 
@@ -154,6 +157,26 @@ describe("JobListRow — stage color stripe (#724)", () => {
     expect(stage.className).toContain("left-0");
     expect(urgency.className).toContain("left-1");
     expect(urgency.className).not.toContain("left-0");
+  });
+});
+
+describe("JobListRow — stage icon (#727)", () => {
+  it("renders the job's stage icon alongside the status badge", () => {
+    const { container } = render(<JobListRow job={makeJob({ status: "new" })} />);
+
+    const icon = container.querySelector('[data-testid="stage-icon"]');
+    // Present, and the right glyph for the job's own stage (Lead → sprout).
+    expect(icon).not.toBeNull();
+    expect(icon!.innerHTML).toBe(expectedStageIconGeometry("new"));
+  });
+
+  it("pairs the icon with the status badge in the status column", () => {
+    render(<JobListRow job={makeJob({ status: "new" })} />);
+
+    // The icon shares the (phone-hidden) status column with the badge, so the
+    // two read together and the stripe still carries the stage on a phone.
+    const statusCell = screen.getByText("new").parentElement;
+    expect(statusCell?.querySelector('[data-testid="stage-icon"]')).not.toBeNull();
   });
 });
 
