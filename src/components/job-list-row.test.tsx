@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import type { Job } from "@/lib/types";
+import { getJobStatusPresentation } from "@/lib/job-status-presentation";
 
 // JobListRow reads status/damage colors + labels from the config context.
 // Stub it so the row renders without a ConfigProvider; the stubbed color
@@ -17,6 +18,7 @@ vi.mock("@/lib/config-context", () => ({
 }));
 
 import JobListRow, { JobListHeader } from "./job-list-row";
+import { asRenderedColor } from "./jobs-test-helpers";
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -126,6 +128,32 @@ describe("JobListRow — mobile urgency edge stripe (#161)", () => {
     expect(screen.getByTestId("urgency-stripe").className).toContain(
       "bg-red-500",
     );
+  });
+});
+
+describe("JobListRow — stage color stripe (#724)", () => {
+  it("renders an always-on left-edge stripe colored for the job's stage", () => {
+    render(<JobListRow job={makeJob({ status: "cancelled" })} />);
+
+    const stripe = screen.getByTestId("stage-stripe");
+    expect(stripe.style.backgroundColor).toBe(
+      asRenderedColor(getJobStatusPresentation("cancelled").accentColor),
+    );
+    // Unlike the urgency stripe, the stage stripe shows at every breakpoint.
+    expect(stripe.className).not.toContain("sm:hidden");
+  });
+
+  it("sits the phone urgency stripe just inside the stage stripe (no overlap)", () => {
+    render(<JobListRow job={makeJob({ urgency: "emergency" })} />);
+
+    const stage = screen.getByTestId("stage-stripe");
+    const urgency = screen.getByTestId("urgency-stripe");
+
+    // The stage stripe owns the very edge; the urgency stripe is shifted one
+    // stripe-width inward so on a phone both colors read side by side.
+    expect(stage.className).toContain("left-0");
+    expect(urgency.className).toContain("left-1");
+    expect(urgency.className).not.toContain("left-0");
   });
 });
 

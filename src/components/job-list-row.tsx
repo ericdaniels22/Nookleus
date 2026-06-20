@@ -7,6 +7,7 @@ import type { Job } from "@/lib/types";
 import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
+import { JobStageStripe } from "@/components/job-stage-stripe";
 
 // Column widths shared by the header and the rows so the two stay aligned.
 // The three badge columns collapse below the sm breakpoint (phone width).
@@ -73,13 +74,16 @@ export default function JobListRow({ job }: { job: Job }) {
         isCompleted && "opacity-60",
       )}
     >
-      {/* Phone-only urgency edge stripe — the stand-in for the urgency
-          badge, which is hidden below the sm breakpoint. */}
+      {/* Always-on stage color stripe at the very left edge. */}
+      <JobStageStripe status={job.status} className="rounded-l-lg" />
+      {/* Phone-only urgency stripe — the stand-in for the urgency badge that
+          is hidden below the sm breakpoint. It sits just inside the stage
+          stripe (left-1, no corner rounding) so both read side by side. */}
       <span
         aria-hidden
         data-testid="urgency-stripe"
         className={cn(
-          "absolute inset-y-0 left-0 w-1 rounded-l-lg sm:hidden",
+          "absolute inset-y-0 left-1 w-1 sm:hidden",
           urgencyStripeColors[job.urgency],
         )}
       />
