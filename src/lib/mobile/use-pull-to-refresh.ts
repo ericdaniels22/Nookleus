@@ -6,6 +6,12 @@ import type { TouchEvent as ReactTouchEvent } from "react";
 // px a downward drag from the top must travel before release triggers a reload
 const DEFAULT_THRESHOLD = 64;
 
+// Minimum time the spinner stays visible once a reload starts. A refresh that
+// resolves instantly (warm cache, fast signal) would otherwise blink the
+// spinner in and out — reading as a glitch rather than "working". Holding it
+// for ~0.5s makes even an instant reload feel deliberate (#677).
+const DEFAULT_MIN_SPIN_MS = 500;
+
 export interface PullToRefreshOptions {
   onRefresh: () => Promise<void>;
   threshold?: number;
@@ -15,6 +21,10 @@ export interface PullToRefreshOptions {
   // page (photo viewer, edit dialogs, compose-email) so swipes drive the
   // overlay's own gestures instead of refreshing the page underneath (#678).
   disabled?: boolean;
+  // Minimum ms the spinner stays up after a reload starts, so an instant
+  // refresh never flashes (#677). A reload that takes longer retracts as soon
+  // as it resolves — this only pads the fast case.
+  minSpinMs?: number;
 }
 
 export interface PullToRefreshState {
@@ -30,6 +40,7 @@ export function usePullToRefresh({
   threshold = DEFAULT_THRESHOLD,
   getScrollTop,
   disabled = false,
+  minSpinMs = DEFAULT_MIN_SPIN_MS,
 }: PullToRefreshOptions): PullToRefreshState {
   // In-flight gesture state lives in a ref so mid-gesture reads don't re-render;
   // pullDistance/refreshing are state because they drive the spinner.
@@ -81,13 +92,25 @@ export function usePullToRefresh({
       if (dy >= threshold && !inFlight.current) {
         inFlight.current = true;
         setRefreshing(true);
+        const startedAt = Date.now();
         void onRefresh().finally(() => {
-          inFlight.current = false;
-          setRefreshing(false);
+          // Hold the spinner for the rest of the minimum spin if the reload
+          // beat it; otherwise retract right away. inFlight stays set until the
+          // spinner actually retracts, so a pull during the hold is ignored too.
+          const settle = () => {
+            inFlight.current = false;
+            setRefreshing(false);
+          };
+          const remaining = minSpinMs - (Date.now() - startedAt);
+          if (remaining > 0) {
+            setTimeout(settle, remaining);
+          } else {
+            settle();
+          }
         });
       }
     },
-    [onRefresh, threshold],
+    [onRefresh, threshold, minSpinMs],
   );
 
   return { onTouchStart, onTouchMove, onTouchEnd, pullDistance, refreshing };
