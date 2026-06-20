@@ -39,6 +39,7 @@ import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
 import JobFiles from "@/components/job-files";
 import ContractsSection from "@/components/contracts/contracts-section";
 import CaptureFab from "@/components/mobile/capture-fab";
+import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import InsuranceCompanyPicker from "@/components/insurance-company-picker";
 import ReferrerPicker, {
   type ReferrerPickerPartner,
@@ -394,7 +395,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const contactName = job.contact ? job.contact.full_name : "Unknown";
 
   return (
-    <div className="max-w-6xl animate-fade-slide-up">
+    <PullToRefresh onRefresh={fetchData}>
+      <div className="max-w-6xl animate-fade-slide-up">
       <CaptureFab jobId={jobId} />
       {/* Back link */}
       <Link
@@ -1151,7 +1153,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         initialPhotoIndex={viewerPhotos.findIndex((p) => p.id === annotatorPhoto?.id)}
         onSaved={fetchData}
       />
-    </div>
+      </div>
+    </PullToRefresh>
   );
 }
 
