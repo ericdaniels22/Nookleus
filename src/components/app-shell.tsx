@@ -6,6 +6,7 @@ import Sidebar from "@/components/nav";
 import { useSidebarCollapse } from "@/lib/sidebar-collapse-context";
 import { OnTheClockProvider } from "@/lib/on-the-clock-context";
 import OnTheClockBar from "@/components/time/on-the-clock-bar";
+import AwayNudgeWatcher from "@/components/time/away-nudge-watcher";
 import { cn } from "@/lib/utils";
 
 const AUTH_ROUTES = ["/login", "/logout", "/set-password"];
@@ -75,6 +76,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {isFullBleed ? children : <div className="p-6 lg:p-8">{children}</div>}
       </main>
       <OnTheClockBar />
+      <AwayNudgeWatcher />
     </OnTheClockProvider>
   );
 }

@@ -116,15 +116,18 @@ function makeBuilder(rows: Row[]): QueryBuilder {
 // the wrapper or the route handler reads — an unseeded table reads empty.
 //
 // `rpc(name, args)` records every call on the returned client's `rpcCalls`
-// array (in order) and resolves to `{ data: null, error: rpcError ?? null }`.
-// `rpcCalls` is a test-only handle — not part of the supabase-js surface —
-// so a test can positively assert which atomic-transition RPC a mutation
-// route invoked via `ctx.supabase`, and with what decided writes. Set
-// `rpcError` to make the next RPC fail.
+// array (in order) and resolves to `{ data: rpcData ?? null, error: rpcError ??
+// null }`. `rpcCalls` is a test-only handle — not part of the supabase-js
+// surface — so a test can positively assert which atomic-transition RPC a
+// mutation route invoked via `ctx.supabase`, and with what decided writes. Set
+// `rpcError` to make the next RPC fail; set `rpcData` to model the value an RPC
+// returns (e.g. the session id `clock_in_to_job` resolves — the original one on
+// an idempotent replay).
 export function fakeClient(opts: {
   user?: { id: string } | null;
   tables?: Record<string, Row[]>;
   rpcError?: { message: string } | null;
+  rpcData?: unknown;
 }) {
   const tables = opts.tables ?? {};
   const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
@@ -139,7 +142,7 @@ export function fakeClient(opts: {
     },
     async rpc(name: string, args: Record<string, unknown>) {
       rpcCalls.push({ name, args });
-      return { data: null, error: opts.rpcError ?? null };
+      return { data: opts.rpcData ?? null, error: opts.rpcError ?? null };
     },
     rpcCalls,
   };

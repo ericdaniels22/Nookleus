@@ -170,3 +170,87 @@ describe("POST /api/time/clock-in — clocking in (#701)", () => {
     expect(body.error).toBeTruthy();
   });
 });
+
+// issue #702 — the offline path. A tap is device-stamped (takenAt) and carries
+// a client-generated idempotency key (clientCaptureId). The route honors the
+// device tap instant as the recorded session start (device time is authoritative
+// for the tap instant) and forwards the key so a replay is idempotent server-side.
+describe("POST /api/time/clock-in — offline-resilient tap (#702)", () => {
+  it("records the device takenAt as the session start, not a server clock", async () => {
+    const client = trackTimeClient({ openSession: null });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const takenAt = "2026-06-19T07:30:00.000Z";
+    const res = await POST(req({ jobId: "job-1", takenAt }), noParams);
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body.startedAt).toBe(takenAt);
+    expect(client.rpcCalls[0].args.p_started_at).toBe(takenAt);
+  });
+
+  it("forwards the clientCaptureId so a replayed tap is idempotent server-side", async () => {
+    const client = trackTimeClient({ openSession: null });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const clientCaptureId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const res = await POST(req({ jobId: "job-1", clientCaptureId }), noParams);
+    expect(res.status).toBe(201);
+
+    expect(client.rpcCalls[0].args.p_client_capture_id).toBe(clientCaptureId);
+  });
+
+  it("a direct (online) tap with no capture id sends a null p_client_capture_id", async () => {
+    const client = trackTimeClient({ openSession: null });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(req({ jobId: "job-1" }), noParams);
+    expect(res.status).toBe(201);
+
+    expect(client.rpcCalls[0].args.p_client_capture_id).toBeNull();
+  });
+
+  it("uses a device-provided sessionId as the new session's id, so a fully-offline clock-out can reference it before the clock-in ever syncs", async () => {
+    // Design A: the device commits to the session id at tap time (the migration
+    // inserts the row with id = p_session_id). A queued clock-out names that same
+    // id; strict-FIFO drain guarantees the clock-in row exists first.
+    const client = trackTimeClient({ openSession: null });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const sessionId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const res = await POST(
+      req({ jobId: "job-1", sessionId, clientCaptureId: "cap-x" }),
+      noParams,
+    );
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body.sessionId).toBe(sessionId);
+    expect(client.rpcCalls[0].args.p_session_id).toBe(sessionId);
+  });
+
+  it("reports the session id the RPC resolved, so a replayed tap returns the original session — not the freshly proposed id", async () => {
+    // On a replay the idempotent clock_in_to_job returns the ORIGINAL session id,
+    // which differs from the new id the route proposed. The route must surface
+    // the RPC's id so the device records the real session (and its later
+    // clock-out can find it).
+    const client = fakeClient({
+      user: { id: "u-1" },
+      tables: memberTables({ userId: "u-1", role: "crew_member", grants: ["track_time"] }),
+      rpcData: "original-session-9",
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(
+      req({ jobId: "job-1", clientCaptureId: "cccccccc-cccc-cccc-cccc-cccccccccccc" }),
+      noParams,
+    );
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body.sessionId).toBe("original-session-9");
+    // The proposed id was a fresh UUID the route generated; it is not what the
+    // RPC resolved, so it must not be what the route reports.
+    expect(client.rpcCalls[0].args.p_session_id).not.toBe("original-session-9");
+  });
+});

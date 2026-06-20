@@ -19,8 +19,11 @@ import {
 } from "@/lib/request-context/__test-utils__/request-context-fakes";
 
 const noParams = { params: Promise.resolve({}) };
-function req(): Request {
-  return new Request("http://test/api/time/clock-out", { method: "POST" });
+function req(body?: unknown): Request {
+  return new Request("http://test/api/time/clock-out", {
+    method: "POST",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 function useUser(opts: Parameters<typeof fakeClient>[0]) {
@@ -126,5 +129,57 @@ describe("POST /api/time/clock-out — clocking out (#701)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBeTruthy();
+  });
+});
+
+// issue #702 — the offline path. A queued clock-out is device-stamped (takenAt)
+// and names the ORIGINAL session it was tapped for (sessionId), because by the
+// time it drains the worker may have clocked into a different Job. It carries a
+// clientCaptureId so a replay — or a late tap against a session already resolved
+// by a lead — is an idempotent no-op server-side, never a back-date.
+describe("POST /api/time/clock-out — offline-resilient tap (#702)", () => {
+  it("closes the named original session at the device takenAt, forwarding the capture id", async () => {
+    const client = trackTimeClient({ openSession: null });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const takenAt = "2026-06-19T17:45:00.000Z";
+    const res = await POST(
+      req({ sessionId: "orig-1", takenAt, clientCaptureId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" }),
+      noParams,
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.closed).toBe(true);
+    expect(body.sessionId).toBe("orig-1");
+    expect(body.endedAt).toBe(takenAt);
+
+    expect(client.rpcCalls).toHaveLength(1);
+    expect(client.rpcCalls[0].name).toBe("clock_out_session");
+    const args = client.rpcCalls[0].args;
+    expect(args.p_session_id).toBe("orig-1");
+    expect(args.p_ended_at).toBe(takenAt);
+    expect(args.p_organization_id).toBe("org-1");
+    expect(args.p_actor).toBe("u-1");
+    expect(args.p_client_capture_id).toBe("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+  });
+
+  it("targets the named session even when the worker has since clocked into a different Job", async () => {
+    // The worker is currently Open on a DIFFERENT session (they switched Jobs
+    // after the offline clock-out was tapped). The queued tap must still close
+    // the original session it named — not the current Open one.
+    const client = trackTimeClient({
+      openSession: { id: "current-2", job_id: "job-2", started_at: "2026-06-19T18:00:00Z" },
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await POST(
+      req({ sessionId: "orig-1", takenAt: "2026-06-19T17:45:00.000Z" }),
+      noParams,
+    );
+    expect(res.status).toBe(200);
+
+    expect(client.rpcCalls).toHaveLength(1);
+    expect(client.rpcCalls[0].args.p_session_id).toBe("orig-1");
   });
 });
