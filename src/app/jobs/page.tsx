@@ -11,7 +11,10 @@ import JobsViewToggle from "@/components/jobs-view-toggle";
 import { JobStageSections } from "@/components/job-stage-sections";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
-import { buildJobSections, countOpenJobs } from "@/lib/jobs/build-job-sections";
+import {
+  buildJobsPageSections,
+  countOpenJobs,
+} from "@/lib/jobs/build-job-sections";
 import { getJobStatusOptions } from "@/lib/job-status-presentation";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -106,9 +109,9 @@ export default function JobsPage() {
   }, []);
 
   // Each stage section renders its Jobs in the page's current view-mode layout.
-  // (buildJobSections orders Jobs newest-first within a section; emergency
-  // pinning across sections is #726 and the hide-Closed/Lost toggle is #728 —
-  // both out of scope here.)
+  // (buildJobsPageSections orders Jobs newest-first within a section and floats
+  // open emergencies into a pinned section above the groups, #726; the
+  // hide-Closed/Lost toggle is #728 — out of scope here.)
   const renderJobsForMode = (sectionJobs: Job[]) => {
     if (mode === "list") {
       return (
@@ -226,10 +229,16 @@ export default function JobsPage() {
           ))}
         </div>
       ) : (
-        <JobStageSections
-          sections={buildJobSections(jobs)}
-          renderJobs={renderJobsForMode}
-        />
+        (() => {
+          const { pinnedEmergencies, sections } = buildJobsPageSections(jobs);
+          return (
+            <JobStageSections
+              sections={sections}
+              pinnedEmergencies={pinnedEmergencies}
+              renderJobs={renderJobsForMode}
+            />
+          );
+        })()
       )}
     </div>
   );

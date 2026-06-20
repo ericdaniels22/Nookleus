@@ -101,3 +101,82 @@ describe("<JobStageSections>", () => {
     expect(within(activeSection).queryByText("lead-1")).toBeNull();
   });
 });
+
+// Issue #726 — open emergencies render in a pinned section above the stage
+// groups. The pinned Jobs arrive via the optional `pinnedEmergencies` prop
+// (the page lifts them out with buildJobsPageSections); the component just
+// renders them first.
+describe("<JobStageSections> — pinned emergencies (#726)", () => {
+  const renderIds = (jobs: Job[]) => (
+    <ul>
+      {jobs.map((j) => (
+        <li key={j.id}>{j.id}</li>
+      ))}
+    </ul>
+  );
+
+  it("renders the pinned emergencies in their own section", () => {
+    render(
+      <JobStageSections
+        sections={buildJobSections([
+          makeJob({ id: "active-1", status: "in_progress" }),
+        ])}
+        pinnedEmergencies={[
+          makeJob({ id: "emg-1", status: "in_progress", urgency: "emergency" }),
+        ]}
+        renderJobs={renderIds}
+      />,
+    );
+
+    const pinned = screen.getByTestId("section-emergency");
+    expect(within(pinned).getByText("emg-1")).toBeTruthy();
+  });
+
+  it("renders the pinned section above the stage groups", () => {
+    render(
+      <JobStageSections
+        sections={buildJobSections([
+          makeJob({ id: "active-1", status: "in_progress" }),
+        ])}
+        pinnedEmergencies={[
+          makeJob({ id: "emg-1", status: "in_progress", urgency: "emergency" }),
+        ]}
+        renderJobs={renderIds}
+      />,
+    );
+
+    const pinned = screen.getByTestId("section-emergency");
+    const stage = screen.getByTestId("section-in_progress");
+    // DOCUMENT_POSITION_FOLLOWING is set when `stage` comes after `pinned`.
+    expect(
+      pinned.compareDocumentPosition(stage) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders no pinned section when there are no emergencies", () => {
+    const { rerender } = render(
+      <JobStageSections
+        sections={buildJobSections([
+          makeJob({ id: "active-1", status: "in_progress" }),
+        ])}
+        pinnedEmergencies={[]}
+        renderJobs={renderIds}
+      />,
+    );
+
+    expect(screen.queryByTestId("section-emergency")).toBeNull();
+
+    // …and the prop is genuinely optional — omitting it renders nothing too.
+    rerender(
+      <JobStageSections
+        sections={buildJobSections([
+          makeJob({ id: "active-1", status: "in_progress" }),
+        ])}
+        renderJobs={renderIds}
+      />,
+    );
+
+    expect(screen.queryByTestId("section-emergency")).toBeNull();
+  });
+});
