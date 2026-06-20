@@ -224,6 +224,36 @@ function findLineItem<T extends { id: string }>(
   return null;
 }
 
+// #747 — locate a line item together with WHERE it lives: its section, optional
+// subsection, and index within that items array. The delete-rollback uses this
+// to re-insert ONLY the removed line into the *current* state at its original
+// slot, instead of overwriting all of entity.data with a pre-delete snapshot
+// (which silently reverts a concurrent edit to another row). The item is
+// returned as `unknown` — the caller re-inserts it inside an already-narrowed
+// estimate/invoice branch, where it casts to the concrete line-item type.
+function locateLineItem(
+  sections: ReadonlyArray<{
+    id: string;
+    items: ReadonlyArray<{ id: string }>;
+    subsections?: ReadonlyArray<{ id: string; items: ReadonlyArray<{ id: string }> }>;
+  }>,
+  id: string,
+): { sectionId: string; subsectionId: string | null; index: number; item: unknown } | null {
+  for (const sec of sections) {
+    const i = sec.items.findIndex((it) => it.id === id);
+    if (i !== -1) {
+      return { sectionId: sec.id, subsectionId: null, index: i, item: sec.items[i] };
+    }
+    for (const sub of sec.subsections ?? []) {
+      const j = sub.items.findIndex((it) => it.id === id);
+      if (j !== -1) {
+        return { sectionId: sec.id, subsectionId: sub.id, index: j, item: sub.items[j] };
+      }
+    }
+  }
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1087,6 +1117,9 @@ export function EstimateBuilder({
     const entityBase = state.entity.kind === "invoice" ? "invoices" : "estimates";
     const entityId = state.entity.data.id;
     const snapshot = state.entity.data; // capture before mutation
+    // #747 — locate the line being removed *before* mutating, so a failed DELETE
+    // can re-insert only it into the live state (see rollbackDelete below).
+    const removed = locateLineItem(snapshot.sections, id);
     // Remove from local state (works for items in sections OR subsections).
     // Task 43 fix: previously early-returned for non-estimate, dropping the
     // optimistic update for invoice mode.
@@ -1133,6 +1166,94 @@ export function EstimateBuilder({
       }
       return prev;
     });
+    // #747 — merge-rollback: re-insert ONLY the deleted line back into the LIVE
+    // state (at its original slot) and recompute totals, instead of replacing
+    // entity.data with the pre-delete `snapshot`. The DELETE is fire-and-forget,
+    // so a wholesale restore would silently revert any edit the user committed to
+    // another row while it was in flight.
+    function rollbackDelete() {
+      setState((prev) => {
+        if (prev.entity.kind === "template") return prev;
+        // Defensive: the line should always be in the pre-delete snapshot (we
+        // just removed it from there). If not, fall back to the whole restore.
+        if (!removed) {
+          return {
+            ...prev,
+            entity: { ...prev.entity, data: snapshot } as BuilderEntity,
+          };
+        }
+        if (prev.entity.kind === "estimate") {
+          const sections_after = prev.entity.data.sections.map((s) => {
+            if (s.id !== removed.sectionId) return s;
+            if (removed.subsectionId === null) {
+              const items = [...s.items];
+              items.splice(
+                Math.min(removed.index, items.length),
+                0,
+                removed.item as EstimateLineItem,
+              );
+              return { ...s, items };
+            }
+            return {
+              ...s,
+              subsections: s.subsections.map((sub) => {
+                if (sub.id !== removed.subsectionId) return sub;
+                const items = [...sub.items];
+                items.splice(
+                  Math.min(removed.index, items.length),
+                  0,
+                  removed.item as EstimateLineItem,
+                );
+                return { ...sub, items };
+              }),
+            };
+          });
+          const subtotal = sumLineItemsFromSections(sections_after);
+          const next_estimate = { ...prev.entity.data, sections: sections_after, subtotal };
+          const totals = computeEstimateTotals(next_estimate);
+          return {
+            ...prev,
+            entity: { ...prev.entity, data: { ...next_estimate, ...totals } },
+          };
+        }
+        // invoice
+        const sections_after = prev.entity.data.sections.map((s) => {
+          if (s.id !== removed.sectionId) return s;
+          if (removed.subsectionId === null) {
+            const items = [...s.items];
+            items.splice(
+              Math.min(removed.index, items.length),
+              0,
+              removed.item as import("@/lib/types").InvoiceLineItem,
+            );
+            return { ...s, items };
+          }
+          return {
+            ...s,
+            subsections: s.subsections.map((sub) => {
+              if (sub.id !== removed.subsectionId) return sub;
+              const items = [...sub.items];
+              items.splice(
+                Math.min(removed.index, items.length),
+                0,
+                removed.item as import("@/lib/types").InvoiceLineItem,
+              );
+              return { ...sub, items };
+            }),
+          };
+        });
+        const subtotal = sumLineItemsFromSections(sections_after);
+        const next_invoice = applyInvoiceTotals({
+          ...prev.entity.data,
+          sections: sections_after,
+          subtotal,
+        });
+        return {
+          ...prev,
+          entity: { ...prev.entity, data: next_invoice },
+        };
+      });
+    }
     try {
       const res = await fetch(
         `/api/${entityBase}/${entityId}/line-items/${id}`,
@@ -1141,25 +1262,13 @@ export function EstimateBuilder({
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         toast.error(body.error || "Failed to delete line item");
-        setState((prev) => {
-          if (prev.entity.kind === "template") return prev;
-          return {
-            ...prev,
-            entity: { ...prev.entity, data: snapshot } as BuilderEntity,
-          };
-        });
+        rollbackDelete();
       } else {
         toast.success("Line item deleted");
       }
     } catch {
       toast.error("Network error — could not delete line item");
-      setState((prev) => {
-        if (prev.entity.kind === "template") return prev;
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: snapshot } as BuilderEntity,
-        };
-      });
+      rollbackDelete();
     }
   }
 
