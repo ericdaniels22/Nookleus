@@ -122,4 +122,33 @@ describe("ConfirmDialog", () => {
     fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(confirm);
   });
+
+  // Click contract (#744). The shared modal backs the contracts delete /
+  // permanently-delete modals and the estimate builder's line-item guard, so a
+  // silent break in any of these — e.g. dropping the inner card's
+  // stopPropagation so a click inside it bubbles to the overlay and dismisses —
+  // would land across every caller. These pin all three behaviors.
+  it("dismisses via onCancel when the overlay backdrop is clicked", () => {
+    const { onCancel, onConfirm } = renderDialog();
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("does not dismiss when a click lands inside the inner card", () => {
+    const { onCancel, onConfirm } = renderDialog();
+    // The card stops propagation so clicks inside it never reach the overlay's
+    // dismiss handler. Click the card itself (the dialog's only child).
+    const card = screen.getByRole("dialog").firstElementChild as HTMLElement;
+    fireEvent.click(card);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("fires onConfirm once (and never onCancel) when Confirm is clicked", () => {
+    const { onCancel, onConfirm } = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });
