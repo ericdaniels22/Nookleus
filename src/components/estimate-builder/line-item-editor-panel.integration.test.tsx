@@ -790,6 +790,27 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
   });
 
+  it("shows a success toast after a template-mode delete (US18 parity, #743)", () => {
+    // Template delete is local-only (no HTTP), so the US18 "Line item deleted"
+    // toast fires synchronously — parity with estimate/invoice, which toast once
+    // the DELETE resolves. Before #743 the template branch of onLineItemDelete
+    // early-returned before reaching the shared toast.success, so template line
+    // deletes were silent (the only confirmation was the persistent
+    // SaveIndicator from the rootPut auto-save).
+    vi.mocked(toast.success).mockClear();
+    render(<EstimateBuilder entity={makeTemplateEntity()} />);
+
+    selectRowByName("Install shingles");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
+    // The line is gone…
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Install shingles")).toBeNull();
+    // …and the discrete US18 confirmation fired (the gap #743 closed).
+    expect(toast.success).toHaveBeenCalledWith("Line item deleted");
+  });
+
   it("hides the panel delete button on a voided (read-only) estimate", () => {
     render(<EstimateBuilder entity={makeVoidedEstimateEntity()} />);
 
@@ -848,6 +869,29 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(within(totals).getAllByText("$50.00").length).toBeGreaterThan(0);
 
     // AC 18: a success toast confirms the removal once the DELETE resolves.
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Line item deleted"),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a success toast after a successful invoice delete (US18, #743 AC-2 guard)", async () => {
+    // #743 AC: estimate AND invoice delete-toast behavior must stay unchanged by
+    // the template-branch addition. Invoice and estimate share the same
+    // post-DELETE toast.success, but only estimate had a guard — this pins the
+    // invoice side too so a future change can't silently regress it.
+    vi.mocked(toast.success).mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    render(<EstimateBuilder entity={makeInvoiceEntity()} />);
+
+    selectRowByName("Soffit repair");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Line item deleted"),
     );
