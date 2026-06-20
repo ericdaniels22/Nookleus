@@ -318,6 +318,29 @@ function makeInvoiceEntity(): BuilderEntity {
   return { kind: "invoice", data: invoice };
 }
 
+// A 2-line invoice — adds "Fascia replace" (B2, qty 1 × $40) alongside "Soffit
+// repair" (B) — so the #747 merge-rollback's invoice branch can be exercised
+// with a concurrent edit to the *other* row while a delete is in flight.
+function makeTwoLineInvoiceEntity(): BuilderEntity {
+  const entity = makeInvoiceEntity();
+  if (entity.kind === "invoice") {
+    const first = entity.data.sections[0].items[0];
+    entity.data.sections[0].items.push({
+      ...first,
+      id: "B2",
+      name: "Fascia replace",
+      code: "EX-201",
+      quantity: 1,
+      unit_price: 40,
+      amount: 40,
+    });
+    entity.data.subtotal = 190;
+    entity.data.adjusted_subtotal = 190;
+    entity.data.total_amount = 190;
+  }
+  return entity;
+}
+
 // ── Minimal seeded template entity ────────────────────────────────────────────
 // One section "Labor" → item T "Install shingles" (qty 20 × $40).
 function makeTemplateEntity(): BuilderEntity {
@@ -942,6 +965,206 @@ describe("EstimateBuilder × editor delete button (#630)", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "Network error — could not delete line item",
     );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("merges the deleted line back into concurrently-edited state on a failed delete (#747)", async () => {
+    // #747: rollback used to overwrite ALL of entity.data with a render-time
+    // snapshot captured before the DELETE. If the user commits an edit to a
+    // *different* row while the DELETE is in flight and it then fails, that edit
+    // was silently reverted to the stale snapshot. Hold the DELETE open, commit
+    // an edit to another row, then fail it — the rollback must re-insert only the
+    // deleted line and KEEP the concurrent edit.
+    vi.mocked(toast.error).mockClear();
+    let failDelete!: () => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            failDelete = () =>
+              resolve({ ok: false, json: async () => ({ error: "nope" }) });
+          }),
+      ),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    // Delete "Tear-off" (A, $100). The optimistic removal fires; the DELETE pends.
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Tear-off")).toBeNull();
+
+    // While the DELETE is in flight, edit ANOTHER row: bump "Step flashing"
+    // (X, qty 10) unit cost $5 → $9. This commit is NOT in the pre-delete snapshot.
+    selectRowByName("Step flashing");
+    const panel = screen.getByTestId("builder-editor-panel");
+    const panelCost = within(
+      within(panel).getByTestId("editor-field-unit-cost"),
+    ).getByDisplayValue("5");
+    fireEvent.change(panelCost, { target: { value: "9" } });
+    fireEvent.blur(panelCost);
+
+    // Now the DELETE fails → rollback runs.
+    failDelete();
+
+    // The deleted line is restored…
+    await waitFor(() =>
+      expect(within(doc).queryByText("Tear-off")).not.toBeNull(),
+    );
+    expect(toast.error).toHaveBeenCalledWith("nope");
+    // …without discarding the concurrent edit: totals recompute from the MERGED
+    // state — A $100 + X (10 × $9 = $90) = $190, not the stale snapshot's $150.
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$190.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$150.00")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("merges the deleted line back on a network-error (throw) delete too (#747 catch branch)", async () => {
+    // The catch (network-error) branch shares the merge-rollback with the
+    // ok:false branch — pin it independently so a future change can't revert
+    // just one path to the wholesale-snapshot restore.
+    vi.mocked(toast.error).mockClear();
+    let throwDelete!: () => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((_resolve, reject) => {
+            throwDelete = () => reject(new Error("offline"));
+          }),
+      ),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Tear-off")).toBeNull();
+
+    // Concurrent edit to another row while the DELETE is in flight.
+    selectRowByName("Step flashing");
+    const panel = screen.getByTestId("builder-editor-panel");
+    const panelCost = within(
+      within(panel).getByTestId("editor-field-unit-cost"),
+    ).getByDisplayValue("5");
+    fireEvent.change(panelCost, { target: { value: "9" } });
+    fireEvent.blur(panelCost);
+
+    // The DELETE throws → catch-branch rollback runs.
+    throwDelete();
+
+    await waitFor(() =>
+      expect(within(doc).queryByText("Tear-off")).not.toBeNull(),
+    );
+    expect(toast.error).toHaveBeenCalledWith(
+      "Network error — could not delete line item",
+    );
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$190.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$150.00")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("re-inserts a deleted SUBSECTION line on rollback, preserving a concurrent edit (#747)", async () => {
+    // "Tear-off" (A) lives directly in section S1; "Step flashing" (X) lives in
+    // subsection Sub1. Delete the subsection line to exercise the subsection
+    // re-insert path, while editing the section line concurrently.
+    vi.mocked(toast.error).mockClear();
+    let failDelete!: () => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            failDelete = () =>
+              resolve({ ok: false, json: async () => ({ error: "nope" }) });
+          }),
+      ),
+    );
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    // Delete "Step flashing" (X, in subsection Sub1, $50); DELETE pends.
+    selectRowByName("Step flashing");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Step flashing")).toBeNull();
+
+    // Concurrent edit to the section line "Tear-off" (A): $100 → $120.
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+    const panelCost = within(
+      within(panel).getByTestId("editor-field-unit-cost"),
+    ).getByDisplayValue("100");
+    fireEvent.change(panelCost, { target: { value: "120" } });
+    fireEvent.blur(panelCost);
+
+    failDelete();
+
+    // The subsection line returns…
+    await waitFor(() =>
+      expect(within(doc).queryByText("Step flashing")).not.toBeNull(),
+    );
+    expect(toast.error).toHaveBeenCalledWith("nope");
+    // …and the concurrent edit survives: A (1 × $120) + X (10 × $5 = $50) = $170.
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$170.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$150.00")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("merges the deleted line back in invoice mode too (#747 invoice branch)", async () => {
+    // Exercises the invoice arm of the merge-rollback (applyInvoiceTotals): delete
+    // "Soffit repair" (B, $150), edit the other invoice row "Fascia replace"
+    // ($40 → $60) mid-flight, then fail. Rollback must keep the edit, not revert
+    // to the snapshot.
+    vi.mocked(toast.error).mockClear();
+    let failDelete!: () => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            failDelete = () =>
+              resolve({ ok: false, json: async () => ({ error: "nope" }) });
+          }),
+      ),
+    );
+    render(<EstimateBuilder entity={makeTwoLineInvoiceEntity()} />);
+
+    selectRowByName("Soffit repair");
+    fireEvent.click(panelDeleteButton());
+    confirmPanelDelete();
+    const doc = screen.getByTestId("builder-document");
+    expect(within(doc).queryByText("Soffit repair")).toBeNull();
+
+    // Concurrent edit to the surviving invoice row.
+    selectRowByName("Fascia replace");
+    const panel = screen.getByTestId("builder-editor-panel");
+    const panelCost = within(
+      within(panel).getByTestId("editor-field-unit-cost"),
+    ).getByDisplayValue("40");
+    fireEvent.change(panelCost, { target: { value: "60" } });
+    fireEvent.blur(panelCost);
+
+    failDelete();
+
+    await waitFor(() =>
+      expect(within(doc).queryByText("Soffit repair")).not.toBeNull(),
+    );
+    expect(toast.error).toHaveBeenCalledWith("nope");
+    // Merged totals: B $150 + Fascia (1 × $60) = $210, not the snapshot's $190.
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$210.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$190.00")).toBeNull();
 
     vi.unstubAllGlobals();
   });
