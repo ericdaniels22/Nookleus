@@ -71,6 +71,47 @@ describe("PullToRefresh", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("applies rubber-band resistance to the reveal during a drag (stiffer the further you pull)", async () => {
+    useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <PullToRefresh onRefresh={onRefresh}>
+        <div data-testid="child">job</div>
+      </PullToRefresh>,
+    );
+    await act(async () => {});
+
+    const child = screen.getByTestId("child");
+    const rowHeight = () =>
+      parseFloat(
+        (container.querySelector(".animate-spin")?.parentElement as HTMLElement)
+          .style.height,
+      );
+
+    // Begin a drag from the top and read the revealed spinner-row height at two
+    // depths along the same continuous pull, holding the finger down (no
+    // release) so the reveal stays put between reads.
+    await act(async () => {
+      fireEvent.touchStart(child, { touches: [{ clientY: 100 }] });
+      fireEvent.touchMove(child, { touches: [{ clientY: 140 }] }); // +40px
+    });
+    const at40 = rowHeight();
+
+    await act(async () => {
+      fireEvent.touchMove(child, { touches: [{ clientY: 180 }] }); // +80px
+    });
+    const at80 = rowHeight();
+
+    // The row tracks the finger from the start (some reveal early)...
+    expect(at40).toBeGreaterThan(0);
+    // ...keeps opening as you pull further...
+    expect(at80).toBeGreaterThan(at40);
+    // ...but with resistance: the second 40px of pull reveals less than the
+    // first 40px did. A linear mapping would reveal exactly as much, so this
+    // pins the non-linear rubber-band curve (#677).
+    expect(at80 - at40).toBeLessThan(at40);
+  });
+
   it("keeps children on screen and shows a failure toast when onRefresh fails", async () => {
     useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
     const onRefresh = vi.fn().mockRejectedValue(new Error("offline"));
@@ -93,36 +134,55 @@ describe("PullToRefresh", () => {
   });
 
   it("retracts the spinner after a failed refresh (no stuck spinner)", async () => {
-    useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
-    const onRefresh = vi.fn().mockRejectedValue(new Error("offline"));
-    const { container } = render(
-      <PullToRefresh onRefresh={onRefresh}>
-        <div data-testid="child">job</div>
-      </PullToRefresh>,
-    );
-    await act(async () => {});
+    vi.useFakeTimers();
+    try {
+      useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
+      const onRefresh = vi.fn().mockRejectedValue(new Error("offline"));
+      const { container } = render(
+        <PullToRefresh onRefresh={onRefresh}>
+          <div data-testid="child">job</div>
+        </PullToRefresh>,
+      );
+      await act(async () => {});
 
-    await pullDown(screen.getByTestId("child"));
+      await pullDown(screen.getByTestId("child"));
 
-    // Once the failure settles, the spinner row collapses back to hidden.
-    const spinnerRow = container.querySelector(".animate-spin")?.parentElement;
-    expect(spinnerRow?.getAttribute("aria-hidden")).toBe("true");
+      // The spinner holds briefly (min-spin, #677), but it is not stuck: once
+      // the minimum elapses the row collapses back to hidden.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      const spinnerRow = container.querySelector(".animate-spin")?.parentElement;
+      expect(spinnerRow?.getAttribute("aria-hidden")).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries on a subsequent pull after a failure", async () => {
-    useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
-    const onRefresh = vi.fn().mockRejectedValue(new Error("offline"));
-    render(
-      <PullToRefresh onRefresh={onRefresh}>
-        <div data-testid="child">job</div>
-      </PullToRefresh>,
-    );
-    await act(async () => {});
+    vi.useFakeTimers();
+    try {
+      useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
+      const onRefresh = vi.fn().mockRejectedValue(new Error("offline"));
+      render(
+        <PullToRefresh onRefresh={onRefresh}>
+          <div data-testid="child">job</div>
+        </PullToRefresh>,
+      );
+      await act(async () => {});
 
-    await pullDown(screen.getByTestId("child"));
-    await pullDown(screen.getByTestId("child"));
+      await pullDown(screen.getByTestId("child"));
+      // Let the first attempt's spinner settle (min-spin, #677) so the gesture
+      // re-arms before a fresh pull retries.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      await pullDown(screen.getByTestId("child"));
 
-    expect(onRefresh).toHaveBeenCalledTimes(2);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stands down on the native app while disabled (an overlay is open)", async () => {
@@ -140,5 +200,48 @@ describe("PullToRefresh", () => {
     await pullDown(screen.getByTestId("child"));
 
     expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  it("contains the document's vertical overscroll on the native app so the custom pull and WKWebView bounce don't fight", async () => {
+    useCapacitorMock.mockReturnValue({ isNative: true, ready: true });
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const { unmount } = render(
+      <PullToRefresh onRefresh={onRefresh}>
+        <div data-testid="child">job</div>
+      </PullToRefresh>,
+    );
+    await act(async () => {});
+
+    // While mounted, the document stops its own vertical rubber-band so the
+    // WKWebView bounce doesn't visibly fight the in-app pull; the spinner owns
+    // the overscroll (#677).
+    expect(
+      document.documentElement.style.getPropertyValue("overscroll-behavior-y"),
+    ).toBe("contain");
+
+    // ...and it's released on unmount — no lingering global side effect.
+    await act(async () => {
+      unmount();
+    });
+    expect(
+      document.documentElement.style.getPropertyValue("overscroll-behavior-y"),
+    ).toBe("");
+  });
+
+  it("leaves the document's overscroll untouched off-native (browser pull-to-refresh stands)", async () => {
+    useCapacitorMock.mockReturnValue({ isNative: false, ready: true });
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PullToRefresh onRefresh={onRefresh}>
+        <div data-testid="child">job</div>
+      </PullToRefresh>,
+    );
+    await act(async () => {});
+
+    // Mobile Safari and the home-screen PWA keep the browser's own
+    // pull-to-refresh, so the wrapper must not clamp the document there (#677).
+    expect(
+      document.documentElement.style.getPropertyValue("overscroll-behavior-y"),
+    ).toBe("");
   });
 });

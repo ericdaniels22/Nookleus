@@ -20,7 +20,12 @@ describe("usePullToRefresh", () => {
   it("runs onRefresh when dragged down past the threshold from the top", async () => {
     const onRefresh = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(() =>
-      usePullToRefresh({ onRefresh, threshold: 64, getScrollTop: () => 0 }),
+      usePullToRefresh({
+        onRefresh,
+        threshold: 64,
+        getScrollTop: () => 0,
+        minSpinMs: 0,
+      }),
     );
 
     await act(async () => {
@@ -112,6 +117,7 @@ describe("usePullToRefresh", () => {
           threshold: 64,
           getScrollTop: atTop,
           disabled,
+          minSpinMs: 0,
         }),
       { initialProps: { disabled: true } },
     );
@@ -139,8 +145,15 @@ describe("usePullToRefresh", () => {
     const onRefresh = vi.fn(
       () => new Promise<void>((resolve) => (resolveRefresh = resolve)),
     );
+    // minSpinMs: 0 isolates the concurrency guard from the min-spin hold (#677)
+    // so this test asserts only the in-flight behavior, not the spinner timing.
     const { result } = renderHook(() =>
-      usePullToRefresh({ onRefresh, threshold: 64, getScrollTop: () => 0 }),
+      usePullToRefresh({
+        onRefresh,
+        threshold: 64,
+        getScrollTop: () => 0,
+        minSpinMs: 0,
+      }),
     );
 
     // First pull triggers a refresh that stays pending.
@@ -165,5 +178,45 @@ describe("usePullToRefresh", () => {
       resolveRefresh();
     });
     expect(result.current.refreshing).toBe(false);
+  });
+
+  it("keeps the spinner up for a minimum duration even when onRefresh resolves instantly", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        usePullToRefresh({
+          onRefresh,
+          threshold: 64,
+          getScrollTop: () => 0,
+          minSpinMs: 500,
+        }),
+      );
+
+      await act(async () => {
+        result.current.onTouchStart(start(100));
+        result.current.onTouchMove(move(200));
+        result.current.onTouchEnd(end(200));
+      });
+
+      // The reload already resolved, but the spinner must not flash away — it
+      // holds for the minimum spin so an instant refresh still reads as "working".
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+      expect(result.current.refreshing).toBe(true);
+
+      // Still up just before the minimum elapses...
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(499);
+      });
+      expect(result.current.refreshing).toBe(true);
+
+      // ...and it retracts the moment the minimum is reached.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(result.current.refreshing).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

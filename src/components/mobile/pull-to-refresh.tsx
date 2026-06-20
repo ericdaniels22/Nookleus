@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useCapacitor } from "@/lib/mobile/use-capacitor";
 import { usePullToRefresh } from "@/lib/mobile/use-pull-to-refresh";
+import { resistedReveal } from "@/lib/mobile/pull-resistance";
 
 // Height the spinner row settles to while a reload runs; the pull reveals it
 // gradually (with light resistance) on the way there.
@@ -57,17 +58,47 @@ export function PullToRefresh({
   const { onTouchStart, onTouchMove, onTouchEnd, pullDistance, refreshing } =
     usePullToRefresh({ onRefresh: handleRefresh, disabled });
 
+  // Coordinate with the WKWebView's native rubber-band: while this native-only
+  // surface is mounted, clamp the document's own vertical overscroll so the
+  // browser bounce doesn't visibly fight the in-app pull-to-refresh — the
+  // spinner owns the overscroll. Scoped to the document element and gated on
+  // the native app; mobile Safari and the home-screen PWA keep the browser's
+  // own pull-to-refresh untouched. Restored on unmount (#677).
+  //
+  // Caveat: WebKit only honors overscroll-behavior from iOS/Safari 16. On the
+  // app's iOS 15 deployment floor this is a silent no-op — the device falls
+  // back to the pre-feature baseline (native bounce + custom pull, uncoordinated),
+  // not a regression. Validate AC#5's feel on an iOS 16+ device.
+  useEffect(() => {
+    if (!native) return;
+    const root = document.documentElement;
+    const prev = root.style.getPropertyValue("overscroll-behavior-y");
+    root.style.setProperty("overscroll-behavior-y", "contain");
+    return () => {
+      if (prev) root.style.setProperty("overscroll-behavior-y", prev);
+      else root.style.removeProperty("overscroll-behavior-y");
+    };
+  }, [native]);
+
   if (!native) return <>{children}</>;
 
-  const reveal = refreshing
-    ? SPINNER_ROW
-    : Math.min(pullDistance * 0.5, SPINNER_ROW);
+  // While the finger is down, the row follows it through a rubber-band curve:
+  // it tracks ~1:1 at first, then stiffens, so you can never yank it open past
+  // the spinner row (#677). Once a reload is running it parks at the full row.
+  const pulling = !refreshing && pullDistance > 0;
+  const reveal = refreshing ? SPINNER_ROW : resistedReveal(pullDistance, SPINNER_ROW);
   const visible = refreshing || pullDistance > 0;
 
   return (
     <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <div
-        className="flex items-center justify-center overflow-hidden transition-[height] duration-200 ease-out"
+        className={cn(
+          "flex items-center justify-center overflow-hidden",
+          // Animate the height only when NOT actively dragging: a crisp,
+          // un-eased follow during the pull, then a smooth spring on retract
+          // (release below threshold) and on the spinner parking/leaving.
+          !pulling && "transition-[height] duration-200 ease-out",
+        )}
         style={{ height: reveal }}
         aria-hidden={!visible}
       >
