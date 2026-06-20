@@ -37,6 +37,17 @@ export interface JobSection {
   count: number;
 }
 
+/**
+ * The live (Open) stage keys — Lead, Active, Collections — derived from the
+ * frozen #720 lifecycle (ADR 0022). The default Jobs-page fetch scopes to these
+ * so it defers Closed & Lost until the "show Closed & Lost" toggle reveals them
+ * (#728); deriving from `isOpenJobStatus` keeps it tied to the single source of
+ * truth so it can't drift from the Open-vs-dead verdict.
+ */
+export function openStageKeys(): string[] {
+  return SECTION_ORDER.filter((key) => isOpenJobStatus(key));
+}
+
 export function buildJobSections(jobs: Job[]): JobSection[] {
   return SECTION_ORDER.map((key) => {
     const sectionJobs = jobs
