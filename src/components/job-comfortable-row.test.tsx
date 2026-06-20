@@ -60,7 +60,7 @@ vi.mock("@/lib/supabase", () => {
 });
 
 import JobComfortableRow from "./job-comfortable-row";
-import { asRenderedColor } from "./jobs-test-helpers";
+import { asRenderedColor, expectedStageIconGeometry } from "./jobs-test-helpers";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -145,6 +145,35 @@ describe("JobComfortableRow — stage color stripe (#724)", () => {
     expect(stripe.style.backgroundColor).toBe(
       asRenderedColor(getJobStatusPresentation("cancelled").accentColor),
     );
+  });
+});
+
+describe("JobComfortableRow — stage icon (#727)", () => {
+  it("renders the job's stage icon with the status badge", () => {
+    const { container } = render(
+      <JobComfortableRow job={makeJob({ status: "completed" })} />,
+    );
+
+    const icon = container.querySelector('[data-testid="stage-icon"]');
+    // Present, and the right glyph for the job's own stage (Closed → check).
+    expect(icon).not.toBeNull();
+    expect(icon!.innerHTML).toBe(expectedStageIconGeometry("completed"));
+  });
+
+  it("binds the icon to the status badge so flex-wrap can't orphan it", () => {
+    render(<JobComfortableRow job={makeJob({ status: "completed" })} />);
+
+    const icon = screen.getByTestId("stage-icon");
+    const statusBadge = screen.getByText("completed");
+    const urgencyBadge = screen.getByText("Urgent");
+
+    // Icon + status badge share a dedicated, non-wrapping container, so the
+    // glyph always reads immediately before its label — matching how the card
+    // and list-row bind the pair (AC #3 cross-variant consistency)...
+    expect(icon.parentElement).toBe(statusBadge.parentElement);
+    expect(icon.parentElement?.className).not.toContain("flex-wrap");
+    // ...and that container is separate from the wrapping urgency/damage row.
+    expect(icon.parentElement).not.toBe(urgencyBadge.parentElement);
   });
 });
 

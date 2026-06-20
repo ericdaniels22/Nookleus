@@ -13,6 +13,7 @@ import { useConfig } from "@/lib/config-context";
 import type { Job, Photo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { JobStageStripe } from "@/components/job-stage-stripe";
+import { JobStageIcon } from "@/components/job-stage-icon";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
@@ -102,12 +103,22 @@ export default function JobComfortableRow({ job }: { job: Job }) {
           {/* Badges sit under the address so they stay visible on a
               phone-width row, where the count column is hidden. */}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge
-              variant="secondary"
-              className={cn(badgeClass, getStatusColor(job.status))}
-            >
-              {getStatusLabel(job.status)}
-            </Badge>
+            {/* Icon + status badge are bound in their own non-wrapping span so
+                the glyph always reads "🔨 Active" together — the flex-wrap row
+                must never orphan the icon from its label (matches the card and
+                list-row pairing). */}
+            <span className="inline-flex shrink-0 items-center gap-1.5">
+              <JobStageIcon
+                status={job.status}
+                className="text-muted-foreground"
+              />
+              <Badge
+                variant="secondary"
+                className={cn(badgeClass, getStatusColor(job.status))}
+              >
+                {getStatusLabel(job.status)}
+              </Badge>
+            </span>
             <Badge
               variant="secondary"
               className={cn(badgeClass, urgencyColors[job.urgency])}
