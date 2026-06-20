@@ -12,6 +12,7 @@ import { JobStageSections } from "@/components/job-stage-sections";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
 import { buildJobSections, countOpenJobs } from "@/lib/jobs/build-job-sections";
+import { getJobStatusOptions } from "@/lib/job-status-presentation";
 import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/lib/config-context";
@@ -26,12 +27,13 @@ export default function JobsPage() {
   const { profile } = useAuth();
   const showTrash = canDeleteJobs(profile?.role);
 
+  // All five lifecycle stages are selectable (Lead and Lost included), sourced
+  // from the status-presentation module so the pills stay in pipeline order and
+  // can't drop or duplicate a stage — with per-org label overrides applied.
   const filterOptions = [
     { value: "all", label: "All" },
     { value: "emergency", label: "Emergency" },
-    ...statuses
-      .filter((s) => !["new", "cancelled"].includes(s.name))
-      .map((s) => ({ value: s.name, label: s.display_label })),
+    ...getJobStatusOptions(statuses),
     ...(showTrash ? [{ value: "trash", label: "Trash" }] : []),
   ];
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -179,6 +181,7 @@ export default function JobsPage() {
         {filterOptions.map((opt) => (
           <button
             key={opt.value}
+            data-testid={`filter-pill-${opt.value}`}
             onClick={() => {
               setFilter(opt.value);
               setLoading(true);
