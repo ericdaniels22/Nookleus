@@ -54,6 +54,29 @@ export default function ConfirmDialog({
     if (!open) return;
     // Remember the opener so focus can return to it when the dialog closes.
     const opener = document.activeElement as HTMLElement | null;
+
+    // Make the rest of the page inert (#746). aria-modal="true" is honored
+    // inconsistently by assistive tech, so a virtual cursor could still reach the
+    // editor fields and document behind us. Walk from the dialog up to <body>,
+    // marking each ancestor's non-ancestor siblings `inert` — which removes them
+    // from BOTH the tab order and the a11y tree. Track only what we set so we can
+    // restore exactly that on close, leaving any app-set inert in place.
+    const inerted: HTMLElement[] = [];
+    let node: HTMLElement | null = overlayRef.current;
+    while (node && node.parentElement && node !== document.body) {
+      for (const sibling of Array.from(node.parentElement.children)) {
+        if (
+          sibling !== node &&
+          sibling instanceof HTMLElement &&
+          !sibling.hasAttribute("inert")
+        ) {
+          sibling.setAttribute("inert", "");
+          inerted.push(sibling);
+        }
+      }
+      node = node.parentElement;
+    }
+
     // Park focus on the non-destructive action — safest default for a
     // destructive confirm, and it seats focus inside the dialog subtree.
     cancelRef.current?.focus();
@@ -71,6 +94,10 @@ export default function ConfirmDialog({
     window.addEventListener("keydown", onEscapeCapture, true);
     return () => {
       window.removeEventListener("keydown", onEscapeCapture, true);
+      // Lift inert BEFORE restoring focus: a still-inert opener (or the builder
+      // document the Estimate Builder focuses after a delete, #745) cannot take
+      // focus in a real browser, so order matters here.
+      for (const el of inerted) el.removeAttribute("inert");
       opener?.focus?.();
     };
   }, [open]);

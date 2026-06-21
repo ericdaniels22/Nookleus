@@ -151,4 +151,101 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  // Inert background (#746). aria-modal="true" alone is honored inconsistently
+  // by assistive tech — a virtual cursor can still wander into the editor fields
+  // and document behind the dialog. So while open, everything outside the dialog
+  // is marked `inert` (out of the tab order AND the a11y tree) and restored on
+  // close. The walk inerts non-ancestor siblings up to <body>, so a sibling of
+  // the render container stands in for that background app content here.
+  it("marks background content inert while open (#746)", () => {
+    const bg = document.createElement("div");
+    document.body.appendChild(bg);
+    try {
+      renderDialog();
+      expect(bg.hasAttribute("inert")).toBe(true);
+    } finally {
+      bg.remove();
+    }
+  });
+
+  it("restores (un-inerts) the background when it closes (#746)", () => {
+    const bg = document.createElement("div");
+    document.body.appendChild(bg);
+    try {
+      const { rerender } = render(
+        <ConfirmDialog
+          open
+          ariaLabel="x"
+          title="x"
+          body="x"
+          onCancel={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(bg.hasAttribute("inert")).toBe(true);
+
+      rerender(
+        <ConfirmDialog
+          open={false}
+          ariaLabel="x"
+          title="x"
+          body="x"
+          onCancel={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(bg.hasAttribute("inert")).toBe(false);
+    } finally {
+      bg.remove();
+    }
+  });
+
+  it("leaves a pre-existing inert background untouched on close (#746)", () => {
+    // Only attributes the dialog itself set are lifted on close — content the
+    // app had already marked inert (e.g. a separately-disabled region) must stay
+    // inert so closing the dialog doesn't silently re-enable it.
+    const bg = document.createElement("div");
+    bg.setAttribute("inert", "");
+    document.body.appendChild(bg);
+    try {
+      const { rerender } = render(
+        <ConfirmDialog
+          open
+          ariaLabel="x"
+          title="x"
+          body="x"
+          onCancel={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      rerender(
+        <ConfirmDialog
+          open={false}
+          ariaLabel="x"
+          title="x"
+          body="x"
+          onCancel={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(bg.hasAttribute("inert")).toBe(true);
+    } finally {
+      bg.remove();
+    }
+  });
+
+  // Tap-target guard (#746). This modal backs the touch surfaces (the iPad
+  // estimate builder) where a destructive mis-tap costs the most, so BOTH
+  // actions must stay at the 44px finger-friendly minimum. No test pinned this
+  // before, so a future restyle could shrink either button unnoticed.
+  it("keeps both action buttons at the 44px tap-target minimum", () => {
+    renderDialog();
+    expect(
+      screen.getByRole("button", { name: /cancel/i }).className,
+    ).toContain("min-h-[44px]");
+    expect(
+      screen.getByRole("button", { name: /^delete$/i }).className,
+    ).toContain("min-h-[44px]");
+  });
 });

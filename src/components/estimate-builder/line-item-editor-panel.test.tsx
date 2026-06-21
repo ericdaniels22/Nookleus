@@ -498,6 +498,20 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
     ).toContain("min-h-[44px]");
   });
 
+  it("gives the close (X) button a finger-friendly tap target (#746)", () => {
+    // On the iPad docked variant the X is the ONLY visible dismiss control (the
+    // tap-dismiss scrim is phone-only), so its 24px icon-button hitbox is too
+    // small to tap reliably. Guard both axes at the 44px minimum; the 16px icon
+    // stays, centered within the larger target.
+    render(
+      <LineItemEditorPanel item={makeItem()} onChange={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    const close = screen.getByRole("button", { name: /close editor/i }).className;
+    expect(close).toContain("min-h-[44px]");
+    expect(close).toContain("min-w-[44px]");
+  });
+
   it("shows the delete button in the phone slide-up sheet too", () => {
     setMatchMedia(false); // phone viewport
     render(
