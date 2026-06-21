@@ -241,7 +241,10 @@ export function LineItemEditorPanel({
             type="button"
             aria-label="Close editor"
             onClick={onClose}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            // min-h/min-w-[44px] + centering: on the iPad dock this X is the only
+            // visible dismiss control, so it gets a finger-friendly hitbox while the
+            // 16px icon stays centered within it (#746).
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X size={16} />
           </button>

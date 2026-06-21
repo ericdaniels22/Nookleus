@@ -926,7 +926,7 @@ describe("EstimateBuilder × delete focus management (#745)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^delete$/i }));
   }
 
-  it("moves focus to the document surface (not <body>) after the selected line is deleted", () => {
+  it("moves focus to the document surface (not <body>) after the selected line is deleted", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({}) })),
@@ -939,9 +939,12 @@ describe("EstimateBuilder × delete focus management (#745)", () => {
 
     // The panel + its confirm dialog have unmounted…
     expect(screen.queryByTestId("builder-editor-panel")).toBeNull();
-    // …and focus landed on the still-mounted document surface, not <body>.
+    // …and focus landed on the still-mounted document surface, not <body>. The
+    // move is deferred a frame so it runs after the dialog lifts the `inert` it
+    // put on the document while open (#746) — focusing a still-inert <main> is a
+    // no-op in a real browser — so we wait for it rather than asserting inline.
     const doc = screen.getByTestId("builder-document");
-    expect(document.activeElement).toBe(doc);
+    await waitFor(() => expect(document.activeElement).toBe(doc));
     expect(document.activeElement).not.toBe(document.body);
 
     vi.unstubAllGlobals();

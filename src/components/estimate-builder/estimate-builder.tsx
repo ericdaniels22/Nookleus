@@ -1051,11 +1051,18 @@ export function EstimateBuilder({
     // #745 (WCAG 2.4.3): when the line open in the editor is deleted, the panel
     // and its confirm dialog unmount. The dialog restores focus to its opener
     // (the panel's Delete button), now a detached node — so focus would fall to
-    // <body>. Move focus to the stable document surface *before* the optimistic
-    // removal so it survives the unmount. Deleting a *different* (non-selected)
-    // line leaves the panel — and its focus restore — alone.
+    // <body>. Move focus to the stable document surface so it survives the
+    // unmount. Deleting a *different* (non-selected) line leaves the panel — and
+    // its focus restore — alone.
+    //
+    // Deferred to the next frame so it lands AFTER the confirm dialog tears down
+    // (#746): while the dialog is open it marks the document surface `inert`, and
+    // focus() on a still-inert <main> is a no-op in a real browser — focus would
+    // fall to <body>, re-opening the gap #745 closed. The unmount + inert
+    // teardown run synchronously during this click's flush, so by the next frame
+    // <main> is focusable again.
     if (lineSelection.selectedId === id) {
-      builderDocumentRef.current?.focus();
+      requestAnimationFrame(() => builderDocumentRef.current?.focus());
     }
     // Template mode: local synthesis; rootPut auto-save persists.
     if (state.entity.kind === "template") {
