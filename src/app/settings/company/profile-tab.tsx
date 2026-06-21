@@ -9,6 +9,20 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { resolveOrgTimeZone } from "@/lib/timesheets/timezone-setting";
+
+// The curated set of US zones the picker offers (ADR 0020). The map's proposals
+// and any already-saved zone are always reachable too (the latter is prepended
+// at render if it falls outside this list), so a save is never lost.
+const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
+  { value: "America/New_York", label: "Eastern (New York)" },
+  { value: "America/Chicago", label: "Central (Chicago)" },
+  { value: "America/Denver", label: "Mountain (Denver)" },
+  { value: "America/Phoenix", label: "Arizona (Phoenix, no DST)" },
+  { value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+];
 
 export function ProfileTab() {
   const [loading, setLoading] = useState(true);
@@ -25,6 +39,11 @@ export function ProfileTab() {
   const [addressCity, setAddressCity] = useState("");
   const [addressState, setAddressState] = useState("");
   const [addressZip, setAddressZip] = useState("");
+
+  // The effective Organization timezone — a stored value, else the proposal the
+  // resolver derives from the saved address state, else the UTC fallback. Shown
+  // only; never written back without an explicit Save (AC2).
+  const [timezone, setTimezone] = useState("");
 
   // Logo
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -52,6 +71,9 @@ export function ProfileTab() {
         setAddressCity(data.address_city || "");
         setAddressState(data.address_state || "");
         setAddressZip(data.address_zip || "");
+        // Resolve the effective zone: a valid stored value wins, else the
+        // address-state proposal, else UTC — never the device's local zone.
+        setTimezone(resolveOrgTimeZone(data));
         if (data.logo_path) {
           setLogoUrl(
             `${supabaseUrl}/storage/v1/object/public/company-assets/${data.logo_path}`
@@ -126,6 +148,7 @@ export function ProfileTab() {
           address_city: addressCity,
           address_state: addressState,
           address_zip: addressZip,
+          timezone,
         }),
       });
 
@@ -149,6 +172,13 @@ export function ProfileTab() {
   }
 
   const displayLogo = logoPreview || logoUrl;
+
+  // Always make the current value selectable: if a stored zone sits outside the
+  // curated US list, prepend it so reloading never silently drops it.
+  const timezoneOptions =
+    timezone && !TIMEZONE_OPTIONS.some((o) => o.value === timezone)
+      ? [{ value: timezone, label: timezone }, ...TIMEZONE_OPTIONS]
+      : TIMEZONE_OPTIONS;
 
   return (
     <div className="space-y-6">
@@ -332,6 +362,32 @@ export function ProfileTab() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Organization Timezone */}
+      <div className="bg-card rounded-xl border border-border p-6">
+        <label
+          htmlFor="org-timezone"
+          className="block text-sm font-medium text-foreground mb-1"
+        >
+          Organization Timezone
+        </label>
+        <p className="text-xs text-muted-foreground mb-3">
+          All labor hours are calculated in this timezone.
+        </p>
+        <select
+          id="org-timezone"
+          aria-label="Organization Timezone"
+          value={timezone}
+          onChange={(e) => setTimezone(e.target.value)}
+          className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20"
+        >
+          {timezoneOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Save */}
