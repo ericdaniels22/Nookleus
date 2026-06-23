@@ -565,15 +565,16 @@ describe("EstimateBuilder × LineItemEditorPanel (#544)", () => {
     ).toBe("Step flashing");
   });
 
-  it("auto-selects a newly added line, opening the panel with the name focused", async () => {
+  it("auto-selects a newly added line, opening the panel with the name focused", () => {
     render(<EstimateBuilder entity={makeEstimateEntity()} />);
 
-    // Open the add-item flow via the "+ Add" toolbar menu (#573). New entries
-    // land in the LAST section — the empty "Gutters" section in this fixture.
-    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /new item/i }));
+    // Open the add-item flow via the per-container "+ Add item" control (#681),
+    // targeting the empty "Gutters" section so the new blank line is the only
+    // row there. The control opens the add-item dialog aimed at that section.
+    const guttersHeader = screen.getByText("Gutters").closest("div") as HTMLElement;
+    fireEvent.click(within(guttersHeader).getByRole("button", { name: "Add item" }));
 
-    // Confirm via the mocked dialog → a blank line is inserted.
+    // Confirm via the mocked dialog → a blank line is inserted at the top.
     fireEvent.click(screen.getByTestId("mock-add-confirm"));
 
     // The new line is auto-selected: panel open, blank name, cursor in the name.
