@@ -285,36 +285,61 @@ describe("GroupedLineItemTable", () => {
     ).toHaveLength(2);
   });
 
-  it("offers From price list and New item under one + Add control, targeting the last section", async () => {
+  it("shows a '+ Add item' control on every section header, targeting that section", () => {
     const onAddLineItem = vi.fn();
     renderTable({ onAddLineItem });
 
-    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: /from price list/i }),
-    );
-    // New entries land in the LAST section — the predictable end of the document.
-    expect(onAddLineItem).toHaveBeenCalledWith("S2", "library");
+    // Each section carries its OWN add control — scoped to the header row so the
+    // subsection's eventual control doesn't get swept in. It targets THAT
+    // section (not the document's last one), opening the price-list tab.
+    const roofHeader = screen.getByText("Roof").closest("div") as HTMLElement;
+    const guttersHeader = screen.getByText("Gutters").closest("div") as HTMLElement;
 
-    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /new item/i }));
-    expect(onAddLineItem).toHaveBeenCalledWith("S2", "custom");
+    fireEvent.click(within(roofHeader).getByRole("button", { name: "Add item" }));
+    expect(onAddLineItem).toHaveBeenCalledWith("S1", "library");
+
+    fireEvent.click(
+      within(guttersHeader).getByRole("button", { name: "Add item" }),
+    );
+    expect(onAddLineItem).toHaveBeenCalledWith("S2", "library");
   });
 
-  it("adds a section inline via + Add → New section", async () => {
-    const onAddSection = vi.fn();
-    renderTable({ onAddSection });
+  it("shows a '+ Add item' control on every subsection header, targeting that subsection", () => {
+    const onAddLineItem = vi.fn();
+    renderTable({ onAddLineItem });
 
-    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    // The subsection's control targets the SUBSECTION's id — scoped to its
+    // header row so the parent section's control isn't the one we click.
+    const flashingHeader = screen
+      .getByText("Flashing")
+      .closest("div") as HTMLElement;
+
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /new section/i }),
+      within(flashingHeader).getByRole("button", { name: "Add item" }),
     );
+    expect(onAddLineItem).toHaveBeenCalledWith("Sub1", "library");
+  });
+
+  it("repurposes the toolbar '+ Add' to add a brand-new section directly (#681)", () => {
+    const onAddSection = vi.fn();
+    const onAddLineItem = vi.fn();
+    renderTable({ onAddSection, onAddLineItem });
+
+    // Item-adding moved to the per-container controls, so the toolbar no longer
+    // opens a menu of "From price list" / "New item" — it adds a Section.
+    expect(
+      screen.queryByRole("menuitem", { name: /from price list/i }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
 
     const input = screen.getByPlaceholderText("Section name");
     fireEvent.change(input, { target: { value: "Skylights" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onAddSection).toHaveBeenCalledWith("Skylights");
+    // The section flow never triggers an item add.
+    expect(onAddLineItem).not.toHaveBeenCalled();
     // The inline input closes once the title is handed off.
     expect(screen.queryByPlaceholderText("Section name")).toBeNull();
   });
@@ -486,14 +511,16 @@ describe("GroupedLineItemTable", () => {
       onDeleteSubsection: vi.fn(),
     });
 
-    // Drag handles (section / subsection / row), kebabs, "+ Add", row
-    // checkboxes, and row deletes all disappear...
+    // Drag handles (section / subsection / row), kebabs, the toolbar
+    // "Add section" control, every per-container "Add item" control, row
+    // checkboxes, and row deletes all disappear... (#681)
     expect(screen.queryByRole("button", { name: /drag/i })).toBeNull();
     expect(screen.queryByRole("button", { name: "Section actions" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Subsection actions" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add section" })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Add item" })).toEqual([]);
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(
       screen.queryByRole("button", { name: /delete line item/i }),

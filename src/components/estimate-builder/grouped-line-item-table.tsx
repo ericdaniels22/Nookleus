@@ -111,15 +111,43 @@ function entryCountLabel(count: number): string {
   return `${count} ${count === 1 ? "item" : "items"}`;
 }
 
-// Per-row callbacks shared by both item lists, threaded down from the table.
+// Per-container / per-row callbacks shared by both item lists and the
+// section/subsection headers, threaded down from the table.
 interface RowWiring {
   numbering: ReadonlyMap<string, string>;
   selectedLineItemId?: string | null;
   onSelectLineItem?: (id: string) => void;
   onDeleteLineItem?: (id: string) => void;
+  /**
+   * Header "+ Add item" → open the add-item dialog targeted at THIS container
+   * (a section or subsection id), on the given tab. New rows land at the top.
+   */
+  onAddLineItem?: (containerId: string, initialTab: "library" | "custom") => void;
   checkedIds: ReadonlySet<string>;
   setItemChecked: (id: string, checked: boolean) => void;
   readOnly: boolean;
+}
+
+// A compact "+ Add item" control for a section or subsection header. Always
+// visible (not hover-gated) so it stays reachable on touch — the iPad install
+// has no hover — since it's the primary add affordance per #681.
+function AddItemButton({
+  containerId,
+  onAddLineItem,
+}: {
+  containerId: string;
+  onAddLineItem: (containerId: string, initialTab: "library" | "custom") => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onAddLineItem(containerId, "library")}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-muted transition-colors shrink-0"
+    >
+      <Plus size={13} />
+      Add item
+    </button>
+  );
 }
 
 function ItemRows({
@@ -443,6 +471,13 @@ function SubsectionGroup({
         <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {entryCountLabel(subsection.items.length)}
         </span>
+        {/* Per-subsection add — new rows land at the top of THIS subsection (#681). */}
+        {!wiring.readOnly && wiring.onAddLineItem && (
+          <AddItemButton
+            containerId={subsection.id}
+            onAddLineItem={wiring.onAddLineItem}
+          />
+        )}
         {/* Collapsed → surface the subsection's $ total on the header, since
             the line totals it sums are hidden (#591). */}
         {collapsed && (
@@ -645,6 +680,13 @@ function SectionGroup({
         <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {entryCountLabel(section.items.length + subsectionItemCount)}
         </span>
+        {/* Per-section add — new rows land at the top of THIS section (#681). */}
+        {!wiring.readOnly && wiring.onAddLineItem && (
+          <AddItemButton
+            containerId={section.id}
+            onAddLineItem={wiring.onAddLineItem}
+          />
+        )}
         {/* Collapsed → surface the section's $ total (direct items plus every
             subsection's items) on the header, since the line totals it sums
             are hidden (#591). Same summation as the document subtotal. */}
@@ -863,14 +905,12 @@ export function GroupedLineItemTable({
     setNewSectionTitle("");
   }
 
-  // Item adds land in the last section — the predictable end of the document.
-  const lastSectionId = sortedSections[sortedSections.length - 1]?.id;
-
   const wiring: RowWiring = {
     numbering,
     selectedLineItemId,
     onSelectLineItem,
     onDeleteLineItem,
+    onAddLineItem,
     checkedIds,
     setItemChecked,
     readOnly,
@@ -918,38 +958,20 @@ export function GroupedLineItemTable({
             </button>
           </div>
         ) : (
+          // Repurposed for #681: item-adding moved to the per-container
+          // controls, so the toolbar's job is now adding a brand-new Section.
+          // A direct button (not a one-item menu) opens the inline name input.
           !readOnly &&
-          (onAddLineItem || onAddSection) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                aria-label="Add"
-                className="mr-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors"
-              >
-                <Plus size={14} />
-                Add
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="start">
-                {onAddLineItem && lastSectionId && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => onAddLineItem(lastSectionId, "library")}
-                    >
-                      From price list
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => onAddLineItem(lastSectionId, "custom")}
-                    >
-                      New item
-                    </DropdownMenuItem>
-                  </>
-                )}
-                {onAddSection && (
-                  <DropdownMenuItem onClick={() => setAddingSection(true)}>
-                    New section
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          onAddSection && (
+            <button
+              type="button"
+              aria-label="Add section"
+              onClick={() => setAddingSection(true)}
+              className="mr-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors"
+            >
+              <Plus size={14} />
+              Add section
+            </button>
           )
         )}
         <button

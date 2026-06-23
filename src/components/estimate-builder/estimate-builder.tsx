@@ -35,6 +35,7 @@ import {
   moveLineItemAcrossContainers,
   resolveLineItemDropTarget,
 } from "./move-line-item";
+import { insertLineItemAtContainerTop } from "./insert-line-item";
 import { HeaderCard } from "./header-card";
 import { TotalsCard } from "./totals-card";
 import { CustomerCard } from "./customer-card";
@@ -252,6 +253,35 @@ function locateLineItem(
     }
   }
   return null;
+}
+
+// #681 — POST-then-reorder glue. After insertLineItemAtContainerTop splices a
+// newly-created row to the top of its container and recompacts sort_order, this
+// reads that one container's items back out as the line-items reorder PUT
+// payload ({ id, section_id, sort_order }). Every item in the container moved
+// down one slot, so the whole container is sent. section_id is forced to the
+// container id (a subsection item carries its subsection's id), which also
+// drops invoice's `string | null` to the `string` the route expects.
+function containerReorderPayload(
+  sections: ReadonlyArray<{
+    id: string;
+    items: ReadonlyArray<{ id: string; sort_order: number }>;
+    subsections: ReadonlyArray<{
+      id: string;
+      items: ReadonlyArray<{ id: string; sort_order: number }>;
+    }>;
+  }>,
+  containerId: string,
+): Array<{ id: string; section_id: string; sort_order: number }> {
+  const container =
+    sections.find((s) => s.id === containerId) ??
+    sections.flatMap((s) => s.subsections).find((sub) => sub.id === containerId);
+  if (!container) return [];
+  return container.items.map((it) => ({
+    id: it.id,
+    section_id: containerId,
+    sort_order: it.sort_order,
+  }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1383,26 +1413,23 @@ export function EstimateBuilder({
   function onLineItemAdded(
     newItem: EstimateLineItem | import("@/lib/types").InvoiceLineItem,
   ) {
+    // #681 — a newly added row lands at the TOP of the container it was added
+    // to (identified by the created item's section_id: a section or subsection
+    // id). insertLineItemAtContainerTop splices it to index 0 and recompacts
+    // the container's sort_order to 0..N-1.
+
     // Template mode: AddItemDialog passes a synthesized item (per Task 32);
-    // insert it into local state. rootPut auto-save handles persistence.
+    // splice it to the top in local state. rootPut auto-save persists the tree
+    // — no per-item HTTP, so no reorder PUT is needed.
     if (state.entity.kind === "template") {
       setState((prev) => {
         if (prev.entity.kind !== "template") return prev;
-        const sections_after = prev.entity.data.sections.map((sec) => {
-          if (sec.id === newItem.section_id) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return { ...sec, items: [...sec.items, newItem as any] };
-          }
-          return {
-            ...sec,
-            subsections: sec.subsections.map((sub) =>
-              sub.id === newItem.section_id
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ? { ...sub, items: [...sub.items, newItem as any] }
-                : sub
-            ),
-          };
-        });
+        const sections_after = insertLineItemAtContainerTop(
+          prev.entity.data.sections,
+          newItem.section_id ?? "",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          newItem as any,
+        );
         return {
           ...prev,
           entity: {
@@ -1413,65 +1440,84 @@ export function EstimateBuilder({
       });
       return;
     }
-    setState((prev) => {
-      if (prev.entity.kind === "estimate") {
-        // Narrow the widened newItem to estimate shape inside the estimate branch.
-        const estimateItem = newItem as EstimateLineItem;
-        const sections_after = prev.entity.data.sections.map((sec) => {
-          if (sec.id === estimateItem.section_id) {
-            return { ...sec, items: [...sec.items, estimateItem] };
-          }
-          return {
-            ...sec,
-            subsections: sec.subsections.map((sub) =>
-              sub.id === estimateItem.section_id
-                ? { ...sub, items: [...sub.items, estimateItem] }
-                : sub
-            ),
-          };
-        });
-        const subtotal = sumLineItemsFromSections(sections_after);
-        const next_estimate = applyEstimateTotals({
-          ...prev.entity.data,
-          sections: sections_after,
-          subtotal,
-        });
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: next_estimate },
-        };
-      }
-      if (prev.entity.kind === "invoice") {
-        // POST returns InvoiceLineItem (now wrapped via Task 1's C1 fix); cast
-        // inside the invoice narrowing. Recompute totals locally so the totals
-        // bar updates instantly; server reconciles via the POST's recalculateInvoiceTotals.
-        const invoiceItem = newItem as import("@/lib/types").InvoiceLineItem;
-        const sections_after = prev.entity.data.sections.map((sec) => {
-          if (sec.id === invoiceItem.section_id) {
-            return { ...sec, items: [...sec.items, invoiceItem] };
-          }
-          return {
-            ...sec,
-            subsections: sec.subsections.map((sub) =>
-              sub.id === invoiceItem.section_id
-                ? { ...sub, items: [...sub.items, invoiceItem] }
-                : sub
-            ),
-          };
-        });
-        const subtotal = sumLineItemsFromSections(sections_after);
-        const next_invoice = applyInvoiceTotals({
-          ...prev.entity.data,
-          sections: sections_after,
-          subtotal,
-        });
-        return {
-          ...prev,
-          entity: { ...prev.entity, data: next_invoice },
-        };
-      }
-      return prev;
-    });
+
+    // Estimate / Invoice: the POST already created the row at the END of the
+    // container (the create route appends). Optimistically splice it to the
+    // TOP, recompute totals so the bar updates instantly, then persist the new
+    // order via the line-items reorder PUT (POST-then-reorder). Roll back the
+    // local splice if that PUT fails. Computing from `state` synchronously —
+    // and threading the fresh closure between multi-adds via the dialog's
+    // re-rendered onAdded prop — mirrors the drag-end handlers in this file.
+    if (state.entity.kind === "estimate") {
+      const estimateItem = newItem as EstimateLineItem;
+      const containerId = estimateItem.section_id;
+      const snapshot = state.entity.data;
+      const sections_after = insertLineItemAtContainerTop(
+        state.entity.data.sections,
+        containerId,
+        estimateItem,
+      );
+      const subtotal = sumLineItemsFromSections(sections_after);
+      const next_estimate = applyEstimateTotals({
+        ...state.entity.data,
+        sections: sections_after,
+        subtotal,
+      });
+      setState((prev) => {
+        if (prev.entity.kind !== "estimate") return prev;
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      });
+
+      void saveLineItemsReorder(
+        containerReorderPayload(sections_after, containerId),
+      ).then((ok) => {
+        if (!ok) {
+          toast.error("Failed to save new item position");
+          setState((prev) => {
+            if (prev.entity.kind !== "estimate") return prev;
+            return { ...prev, entity: { ...prev.entity, data: snapshot } };
+          });
+        }
+      });
+      return;
+    }
+
+    if (state.entity.kind === "invoice") {
+      // POST returns InvoiceLineItem (now wrapped via Task 1's C1 fix), whose
+      // section_id is `string | null` — but the builder UI only ever targets a
+      // real container, so fall back to "" defensively for the no-op path.
+      const invoiceItem = newItem as import("@/lib/types").InvoiceLineItem;
+      const containerId = invoiceItem.section_id ?? "";
+      const snapshot = state.entity.data;
+      const sections_after = insertLineItemAtContainerTop(
+        state.entity.data.sections,
+        containerId,
+        invoiceItem,
+      );
+      const subtotal = sumLineItemsFromSections(sections_after);
+      const next_invoice = applyInvoiceTotals({
+        ...state.entity.data,
+        sections: sections_after,
+        subtotal,
+      });
+      setState((prev) => {
+        if (prev.entity.kind !== "invoice") return prev;
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
+      });
+
+      void saveLineItemsReorder(
+        containerReorderPayload(sections_after, containerId),
+      ).then((ok) => {
+        if (!ok) {
+          toast.error("Failed to save new item position");
+          setState((prev) => {
+            if (prev.entity.kind !== "invoice") return prev;
+            return { ...prev, entity: { ...prev.entity, data: snapshot } };
+          });
+        }
+      });
+      return;
+    }
   }
 
   // ── Slot 5 / Task 28: drag-end handler ────────────────────────────────────
