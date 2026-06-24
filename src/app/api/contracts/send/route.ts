@@ -3,6 +3,9 @@ import { randomUUID } from "crypto";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
 import { sendContractEmail } from "@/lib/contracts/email";
+import { loadEmailBranding } from "@/lib/contracts/email-branding";
+import { renderContractEmailFrame } from "@/lib/contracts/email-frame";
+import { sanitizeEmailHtmlForSend } from "@/lib/email/sanitize-email-html";
 import { generateSigningToken } from "@/lib/contracts/tokens";
 import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import type { ContractEmailSettings, OverlayField } from "@/lib/contracts/types";
@@ -71,22 +74,14 @@ export const POST = withRequestContext(
         { status: 400 },
       );
     }
-    // Guard-rail: the email body must contain the signing-link merge field
-    // (either as a {{signing_link}} token or a Tiptap pill with
-    // data-field-name="signing_link"). Without it, the resolver has nothing to
-    // substitute and the recipient gets an email with no way to sign.
-    const hasSigningLinkToken =
-      body.emailBody.includes("{{signing_link}}") ||
-      /data-field-name=["']signing_link["']/i.test(body.emailBody);
-    if (!hasSigningLinkToken) {
-      return NextResponse.json(
-        { error: "Email body must contain the {{signing_link}} placeholder so the recipient gets a sign-in link." },
-        { status: 400 },
-      );
-    }
+    // No {{signing_link}} guard (#691, ADR 0017 §4): the signing link now lives
+    // in the branded card's action button, which the route injects regardless
+    // of the body. The contractor's message is just the message — it never has
+    // to carry the link, so an absent token is no longer an error.
 
     const supabase = ctx.serviceClient!;
     const orgId = ctx.orgId;
+    if (!orgId) return NextResponse.json({ error: "no active org" }, { status: 400 });
 
     // --- Fetch settings ---
     const { data: settings, error: sErr } = await supabase
@@ -225,21 +220,46 @@ export const POST = withRequestContext(
       }
     }
 
-    // --- Resolve email body + send (to signer 1 only) ---
+    // --- Resolve email body, frame it in the branded card, send (signer 1) ---
     try {
       const signingLink = `${appUrl()}/sign/${token}`;
-      const { subject, html } = await resolveEmailTemplate(
+      const { subject, html: message } = await resolveEmailTemplate(
         supabase,
         body.emailSubject,
         body.emailBody,
         body.jobId,
+        // signing_link still resolved so a legacy body that kept the token
+        // renders a clickable link inside the message; the card's own button
+        // is the primary call-to-action.
         { signing_link: signingLink, document_title: title },
       );
+
+      // Assemble the app-owned card AROUND the message (#691, ADR 0017 §3): the
+      // contractor controls the message + the bounded knobs; the frame, button,
+      // and signing link are app-owned. Sanitize the contractor's message FIRST,
+      // then frame it — the card's presentation tables/button must never pass
+      // through sanitizeEmailHtmlForSend (its ALLOWED_TAGS has no table/tr/td,
+      // so the frame would be stripped). Build order is load-bearing.
+      const safeMessage = sanitizeEmailHtmlForSend(message);
+      const branding = await loadEmailBranding(supabase, orgId, settings);
+      const cardHtml = renderContractEmailFrame({
+        kind: "signing_request",
+        companyName: branding.companyName ?? settings.send_from_name,
+        logoUrl: branding.logoUrl,
+        logoVisible: branding.logoVisible,
+        buttonLabel: branding.buttonLabel,
+        buttonColor: branding.buttonColor,
+        senderName: settings.send_from_name,
+        senderEmail: settings.send_from_email,
+        message: safeMessage,
+        actionUrl: signingLink,
+        documentTitle: title,
+      });
 
       const sent = await sendContractEmail(supabase, settings, {
         to: primary.email,
         subject,
-        html,
+        html: cardHtml,
       });
 
       const { error: markErr } = await supabase.rpc("mark_contract_sent", {

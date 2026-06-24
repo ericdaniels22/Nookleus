@@ -58,6 +58,8 @@ export const PATCH = withRequestContext({ permission: "access_settings" }, async
     "signed_confirmation_internal_body_template",
     "reminder_subject_template",
     "reminder_body_template",
+    // Branded-card knob (#691): the action-button label.
+    "button_label",
   ];
   for (const f of stringFields) {
     if (typeof body[f] === "string") (patch as Record<string, unknown>)[f] = body[f];
@@ -86,6 +88,21 @@ export const PATCH = withRequestContext({ permission: "access_settings" }, async
       );
     }
     patch.default_link_expiry_days = d;
+  }
+  // Branded-card knobs (#691). The button color must be a 6-digit hex so the
+  // card's auto-contrast (contrastingTextColor) can keep the label legible;
+  // reject anything else rather than rendering an unparseable color.
+  if (typeof body.button_color === "string") {
+    if (!/^#[0-9a-fA-F]{6}$/.test(body.button_color)) {
+      return NextResponse.json(
+        { error: "button_color must be a 6-digit hex color, e.g. #1f2937" },
+        { status: 400 },
+      );
+    }
+    patch.button_color = body.button_color;
+  }
+  if (typeof body.logo_visible === "boolean") {
+    patch.logo_visible = body.logo_visible;
   }
 
   if (patch.provider === "email_account" && !patch.email_account_id && !current.email_account_id) {

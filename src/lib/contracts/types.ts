@@ -173,6 +173,15 @@ export interface ContractEmailSettings {
   reminder_body_template: string;
   reminder_day_offsets: number[];
   default_link_expiry_days: number;
+  // Branded-card style knobs (#691). Card-level: shared across the contract
+  // email kinds as each adopts the app-owned frame.
+  button_label: string;
+  button_color: string;
+  logo_visible: boolean;
+  // Recoverable snapshot of the prior signing_request_body_template taken when
+  // #691 reset it to the message-only default. A safety net, not a supported
+  // rollback path (ADR 0017 §7). Null on rows seeded after the reset.
+  signing_request_body_template_archived: string | null;
   updated_at: string;
 }
 

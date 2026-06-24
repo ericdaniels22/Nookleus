@@ -143,6 +143,10 @@ function makeEmailSettings(
     reminder_body_template: "",
     reminder_day_offsets: [3, 7],
     default_link_expiry_days: 14,
+    button_label: "Review & sign",
+    button_color: "#1f2937",
+    logo_visible: true,
+    signing_request_body_template_archived: null,
     updated_at: "2026-05-13T00:00:00Z",
     ...overrides,
   };
