@@ -725,6 +725,17 @@ export interface EstimateSection {
   updated_at: string;
 }
 
+/**
+ * How a line item is billed (issue #682).
+ *
+ * - `standard` — a single Quantity input; `total = quantity × unit_price`.
+ * - `pieces_days` — equipment billed by Pieces × Days. The two inputs collapse
+ *   into `quantity` (`quantity = pieces × days`), so the universal total
+ *   formula and every downstream consumer stay equipment-ignorant. The pure
+ *   reconcilers live in `components/estimate-builder/equipment-pricing.ts`.
+ */
+export type PricingMode = "standard" | "pieces_days";
+
 export interface EstimateLineItem {
   id: string;
   organization_id: string;
@@ -739,6 +750,12 @@ export interface EstimateLineItem {
   unit: string | null;
   unit_price: number;
   total: number;
+  /** Billing mode for this row (issue #682). Defaults to `standard`. */
+  pricing_mode: PricingMode;
+  /** Equipment mode only: piece count. NULL in standard mode. */
+  pieces: number | null;
+  /** Equipment mode only: number of days. NULL in standard mode. */
+  days: number | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

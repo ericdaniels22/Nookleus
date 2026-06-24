@@ -26,6 +26,9 @@ function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
     unit: "sq",
     unit_price: 100,
     total: 200,
+    pricing_mode: "standard",
+    pieces: null,
+    days: null,
     sort_order: 0,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -677,5 +680,419 @@ describe("LineItemEditorPanel — delete confirmation (#631)", () => {
     ).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
     expect(onDelete).not.toHaveBeenCalled();
+  });
+});
+
+// Issue #682 — equipment pricing (pieces × days). An estimate line gains a
+// "Bill as" toggle: Standard (a single Quantity) or Pieces × Days. In equipment
+// mode the Quantity input is replaced by Pieces and Days, the manual Note field
+// is hidden (the derived "N units for M days" note owns the slot), and the live
+// total is pieces × days × unit cost. All edits flow through the pure
+// reconcilers in equipment-pricing.ts via the shared onChange pathway. Gated to
+// the Estimate builder (mode === "estimate"); invoice/template panels are
+// unchanged.
+describe("LineItemEditorPanel — equipment pricing (#682)", () => {
+  it("switches a standard row into equipment mode via the Bill-as toggle", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    // Standard by default: the Quantity field is shown, no Pieces/Days yet.
+    expect(screen.getByTestId("editor-field-quantity")).toBeDefined();
+    expect(screen.queryByTestId("editor-field-pieces")).toBeNull();
+
+    // Flipping to "Pieces × Days" seeds equipment mode from the reconciler:
+    // quantity 2 → 2 pieces over 1 day, with the derived note.
+    fireEvent.click(screen.getByTestId("editor-bill-as-equipment"));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      pricing_mode: "pieces_days",
+      pieces: 2,
+      days: 1,
+      quantity: 2,
+      note: "2 units for 1 day",
+    });
+  });
+
+  // An item already billed as pieces × days.
+  function equipmentItem(overrides: Partial<EstimateLineItem> = {}) {
+    return makeItem({
+      pricing_mode: "pieces_days",
+      pieces: 3,
+      days: 10,
+      quantity: 30,
+      unit_price: 100,
+      total: 3000,
+      note: "3 units for 10 days",
+      ...overrides,
+    });
+  }
+
+  it("replaces the Quantity input with Pieces and Days, seeded from the row", () => {
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    expect(screen.queryByTestId("editor-field-quantity")).toBeNull();
+    expect(
+      (screen.getByTestId("editor-field-pieces") as HTMLInputElement).value,
+    ).toBe("3");
+    expect(
+      (screen.getByTestId("editor-field-days") as HTMLInputElement).value,
+    ).toBe("10");
+  });
+
+  it("commits an edited piece count on blur through setPieces", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    const pieces = screen.getByTestId("editor-field-pieces") as HTMLInputElement;
+    fireEvent.change(pieces, { target: { value: "5" } });
+    fireEvent.blur(pieces);
+
+    // setPieces recomputes quantity (5 × 10) and the derived note.
+    expect(onChange).toHaveBeenCalledWith({
+      pieces: 5,
+      quantity: 50,
+      note: "5 units for 10 days",
+    });
+  });
+
+  it("commits an edited day count on blur through setDays", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    const days = screen.getByTestId("editor-field-days") as HTMLInputElement;
+    fireEvent.change(days, { target: { value: "7" } });
+    fireEvent.blur(days);
+
+    expect(onChange).toHaveBeenCalledWith({
+      days: 7,
+      quantity: 21,
+      note: "3 units for 7 days",
+    });
+  });
+
+  it("reverts a non-numeric piece count on blur without committing", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    const pieces = screen.getByTestId("editor-field-pieces") as HTMLInputElement;
+    fireEvent.change(pieces, { target: { value: "abc" } });
+    fireEvent.blur(pieces);
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(pieces.value).toBe("3");
+  });
+
+  it("hides the manual Note field and shows the derived note", () => {
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    expect(screen.queryByTestId("editor-field-note")).toBeNull();
+    expect(screen.getByTestId("editor-derived-note").textContent).toBe(
+      "3 units for 10 days",
+    );
+  });
+
+  it("ticks the live total and derived note off pieces × days while typing", () => {
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    // Seeded: 3 × 10 × $100 = $3,000.00.
+    expect(screen.getByTestId("editor-line-total").textContent).toBe("$3,000.00");
+
+    const pieces = screen.getByTestId("editor-field-pieces") as HTMLInputElement;
+    fireEvent.change(pieces, { target: { value: "4" } });
+
+    // 4 × 10 × $100 = $4,000.00, note follows without waiting for a commit.
+    expect(screen.getByTestId("editor-line-total").textContent).toBe("$4,000.00");
+    expect(screen.getByTestId("editor-derived-note").textContent).toBe(
+      "4 units for 10 days",
+    );
+  });
+
+  it("switches back to standard mode via the toggle through toStandardMode", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("editor-bill-as-standard"));
+
+    // toStandardMode clears pieces/days and releases the note; quantity is kept
+    // by the server, so it isn't in the partial.
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      pricing_mode: "standard",
+      pieces: null,
+      days: null,
+      note: "",
+    });
+  });
+
+  it("disables the toggle and Pieces/Days inputs on a read-only entity", () => {
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        mode="estimate"
+        readOnly
+      />,
+    );
+
+    expect(
+      (screen.getByTestId("editor-field-pieces") as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("editor-field-days") as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("editor-bill-as-standard") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("editor-bill-as-equipment") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("seeds the Pieces/Days inputs when the row is toggled into equipment mode (same line)", () => {
+    // Real-app flow: clicking the toggle dispatches the reconciler partial, the
+    // parent merges it onto the SAME line (id unchanged) and re-renders. The
+    // Pieces/Days inputs must reflect the reconciled values — not stay blank
+    // from their standard-mode mount seed.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("editor-bill-as-equipment"));
+    const partial = onChange.mock.calls[0][0] as Partial<EstimateLineItem>;
+
+    // Parent applies the partial to the same line and re-renders.
+    rerender(
+      <LineItemEditorPanel
+        item={makeItem(partial)}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    expect(screen.queryByTestId("editor-field-quantity")).toBeNull();
+    expect(
+      (screen.getByTestId("editor-field-pieces") as HTMLInputElement).value,
+    ).toBe("2");
+    expect(
+      (screen.getByTestId("editor-field-days") as HTMLInputElement).value,
+    ).toBe("1");
+    expect(screen.getByTestId("editor-derived-note").textContent).toBe(
+      "2 units for 1 day",
+    );
+  });
+
+  it("restores an editable, empty Note when toggled back to standard (same line)", () => {
+    // The mirror transition: equipment → standard on the same line must bring
+    // back the manual Note field, seeded from the released (cleared) note.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("editor-bill-as-standard"));
+    const partial = onChange.mock.calls[0][0] as Partial<EstimateLineItem>;
+
+    rerender(
+      <LineItemEditorPanel
+        item={equipmentItem(partial)}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    expect(screen.queryByTestId("editor-field-pieces")).toBeNull();
+    expect(screen.getByTestId("editor-field-quantity")).toBeDefined();
+    const noteField = screen.getByTestId("editor-field-note") as HTMLInputElement;
+    expect(noteField.value).toBe("");
+  });
+
+  it("reverts a zero or negative piece count on blur without committing", () => {
+    // Equipment rentals are positive by design (toEquipmentMode/seedFromLibraryItem
+    // both guard `> 0 ? x : 1`), so a non-positive entry must revert, not persist
+    // a "0 units" / negative-quantity row.
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    const pieces = screen.getByTestId("editor-field-pieces") as HTMLInputElement;
+
+    fireEvent.change(pieces, { target: { value: "0" } });
+    fireEvent.blur(pieces);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(pieces.value).toBe("3");
+
+    fireEvent.change(pieces, { target: { value: "-2" } });
+    fireEvent.blur(pieces);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(pieces.value).toBe("3");
+  });
+
+  it("reverts a zero or negative day count on blur without committing", () => {
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={equipmentItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    const days = screen.getByTestId("editor-field-days") as HTMLInputElement;
+
+    fireEvent.change(days, { target: { value: "0" } });
+    fireEvent.blur(days);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(days.value).toBe("10");
+
+    fireEvent.change(days, { target: { value: "-1" } });
+    fireEvent.blur(days);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(days.value).toBe("10");
+  });
+
+  it("resets a stale Quantity draft when toggling billing modes on the same line", () => {
+    // An uncommitted Quantity edit must not survive a round-trip through
+    // equipment mode (where Quantity is hidden) back to standard. The mode-flip
+    // reseed has to reset the Quantity draft too, like the line-swap reseed does.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    // Edit Quantity without blurring (no commit).
+    fireEvent.change(screen.getByTestId("editor-field-quantity"), {
+      target: { value: "999" },
+    });
+
+    // Toggle to equipment; the parent applies the reconciler partial to the line.
+    fireEvent.click(screen.getByTestId("editor-bill-as-equipment"));
+    const toEquip = onChange.mock.calls[0][0] as Partial<EstimateLineItem>;
+    rerender(
+      <LineItemEditorPanel
+        item={makeItem(toEquip)}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    // Toggle back to standard; apply that partial too.
+    fireEvent.click(screen.getByTestId("editor-bill-as-standard"));
+    const toStd = onChange.mock.calls[1][0] as Partial<EstimateLineItem>;
+    rerender(
+      <LineItemEditorPanel
+        item={makeItem({ ...toEquip, ...toStd })}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="estimate"
+      />,
+    );
+
+    // Quantity reflects the item (2), not the stale 999 draft.
+    expect(
+      (screen.getByTestId("editor-field-quantity") as HTMLInputElement).value,
+    ).toBe("2");
+  });
+
+  it("shows no Bill-as toggle outside the Estimate builder", () => {
+    // The invoice/template builders share this panel but equipment pricing is
+    // Estimate-only (#682) — the toggle is gated on mode === "estimate".
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        mode="invoice"
+      />,
+    );
+
+    expect(screen.queryByTestId("editor-bill-as")).toBeNull();
+    // The standard Quantity field still renders as before.
+    expect(screen.getByTestId("editor-field-quantity")).toBeDefined();
   });
 });
