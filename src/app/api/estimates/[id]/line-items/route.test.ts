@@ -104,3 +104,28 @@ describe("POST /api/estimates/[id]/line-items — line-item note (#382)", () => 
     expect(res.status).toBe(400);
   });
 });
+
+// #681 — the POST-then-reorder add flow needs the parent estimate's fresh
+// updated_at so the immediately-following reorder PUT carries a non-stale
+// snapshot. Without it the reorder 409s, latches the stale-conflict guard, and
+// the new row never reaches the top (it's stranded at the bottom server-side).
+describe("POST /api/estimates/[id]/line-items — returns the parent updated_at (#681)", () => {
+  it("includes the estimate's current updated_at alongside the created line_item", async () => {
+    useUser({ user: { id: "user-1" }, tables: seed() });
+
+    const res = await POST(
+      postRequest({
+        section_id: "sec-1",
+        description: "Replace shingles",
+        quantity: 1,
+        unit_price: 100,
+      }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { line_item: unknown; updated_at: string };
+    expect(body).toHaveProperty("line_item");
+    expect(body.updated_at).toBe("2026-06-01T00:00:00Z");
+  });
+});

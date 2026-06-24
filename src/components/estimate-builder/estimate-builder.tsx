@@ -388,7 +388,7 @@ export function EstimateBuilder({
         entity: { ...prev.entity, data: e } as BuilderEntity,
       })),
   };
-  const { saveStatus, lastSavedAt, saveSectionsReorder, saveLineItemsReorder } =
+  const { saveStatus, lastSavedAt, saveSectionsReorder, saveLineItemsReorder, adoptUpdatedAt } =
     useAutoSave(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       autoSaveConfig as any,
@@ -1412,6 +1412,10 @@ export function EstimateBuilder({
 
   function onLineItemAdded(
     newItem: EstimateLineItem | import("@/lib/types").InvoiceLineItem,
+    // #681 — the create POST returns the parent's freshly-bumped updated_at
+    // (recalc touches the row). The estimate/invoice branches adopt it into the
+    // auto-save hook before the reorder PUT so that PUT's snapshot isn't stale.
+    meta?: { updated_at?: string | null },
   ) {
     // #681 — a newly added row lands at the TOP of the container it was added
     // to (identified by the created item's section_id: a section or subsection
@@ -1468,6 +1472,9 @@ export function EstimateBuilder({
         return { ...prev, entity: { ...prev.entity, data: next_estimate } };
       });
 
+      // #681 — the POST already bumped the estimate's updated_at; adopt it so the
+      // reorder PUT below carries a current snapshot (else 409 → stale-conflict latch).
+      adoptUpdatedAt(meta?.updated_at ?? null);
       void saveLineItemsReorder(
         containerReorderPayload(sections_after, containerId),
       ).then((ok) => {
@@ -1505,6 +1512,9 @@ export function EstimateBuilder({
         return { ...prev, entity: { ...prev.entity, data: next_invoice } };
       });
 
+      // #681 — the POST already bumped the invoice's updated_at; adopt it so the
+      // reorder PUT below carries a current snapshot (else 409 → stale-conflict latch).
+      adoptUpdatedAt(meta?.updated_at ?? null);
       void saveLineItemsReorder(
         containerReorderPayload(sections_after, containerId),
       ).then((ok) => {

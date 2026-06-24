@@ -141,7 +141,12 @@ export const POST = withRequestContext(
       if (error) throw error;
       await recalculateInvoiceTotals(supabase, id);
       await touchEntity(supabase, "invoices", id);
-      return NextResponse.json({ line_item: data });
+      // #681 — surface the parent's fresh updated_at so the client's immediately-
+      // following reorder PUT (POST-then-reorder) carries a non-stale snapshot.
+      // Without it the reorder 409s, latches the stale-conflict guard, and the new
+      // row never lands at the top (it's stranded at the bottom server-side).
+      const { data: now } = await supabase.from("invoices").select("updated_at").eq("id", id).maybeSingle<{ updated_at: string }>();
+      return NextResponse.json({ line_item: data, updated_at: now?.updated_at ?? null });
     } catch (e: unknown) {
       return apiDbError(e instanceof Error ? e.message : String(e), "POST /api/invoices/[id]/line-items");
     }

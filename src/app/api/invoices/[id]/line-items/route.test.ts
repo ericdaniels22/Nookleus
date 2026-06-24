@@ -135,3 +135,41 @@ describe("POST /api/invoices/[id]/line-items — line-item note (#382)", () => {
     expect(insert?.payload).toMatchObject({ note: null });
   });
 });
+
+// #681 — the POST-then-reorder add flow needs the parent invoice's fresh
+// updated_at so the immediately-following reorder PUT carries a non-stale
+// snapshot. Without it the reorder 409s, latches the stale-conflict guard, and
+// the new row never reaches the top (it's stranded at the bottom server-side).
+describe("POST /api/invoices/[id]/line-items — returns the parent updated_at (#681)", () => {
+  function seed() {
+    return memberTables({
+      userId: "user-1",
+      role: "member",
+      grants: ["edit_invoices"],
+      extraTables: {
+        invoices: [{ id: "inv-1", deleted_at: null, updated_at: "2026-05-01T00:00:00Z" }],
+        invoice_sections: [{ id: "sec-1", invoice_id: "inv-1" }],
+        invoice_line_items: [],
+      },
+    });
+  }
+
+  it("includes the invoice's current updated_at alongside the created line_item", async () => {
+    useUser({ user: { id: "user-1" }, tables: seed() });
+
+    const res = await POST(
+      postRequest({
+        section_id: "sec-1",
+        description: "Replace shingles",
+        quantity: 1,
+        unit_price: 100,
+      }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { line_item: unknown; updated_at: string };
+    expect(body).toHaveProperty("line_item");
+    expect(body.updated_at).toBe("2026-05-01T00:00:00Z");
+  });
+});

@@ -185,7 +185,13 @@ export const POST = withRequestContext(
 
     await recalculateTotals(estimateId, supabase);
 
-    return NextResponse.json({ line_item: data }, { status: 201 });
+    // #681 — surface the parent's fresh updated_at so the client's immediately-
+    // following reorder PUT (POST-then-reorder) carries a non-stale snapshot.
+    // Without it the reorder 409s, latches the stale-conflict guard, and the new
+    // row never lands at the top (it's stranded at the bottom server-side).
+    const updated_at = await touchEstimate(supabase, estimateId);
+
+    return NextResponse.json({ line_item: data, updated_at }, { status: 201 });
   },
 );
 
