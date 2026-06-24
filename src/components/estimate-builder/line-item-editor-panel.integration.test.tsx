@@ -30,6 +30,7 @@ vi.mock("./use-auto-save", () => ({
     lastSavedAt: null,
     saveSectionsReorder: vi.fn(async () => true),
     saveLineItemsReorder: vi.fn(async () => true),
+    adoptUpdatedAt: vi.fn(),
   }),
 }));
 

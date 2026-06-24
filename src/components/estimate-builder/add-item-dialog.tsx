@@ -35,7 +35,7 @@ export interface AddItemDialogProps {
   estimateId: string;
   sectionId: string;
   jobDamageType?: string;
-  onAdded: (item: EstimateLineItem) => void;
+  onAdded: (item: EstimateLineItem, meta?: { updated_at?: string | null }) => void;
   mode?: BuilderMode;
   /**
    * #573: which tab each open starts on ("library" → From Library, "custom" →
@@ -71,7 +71,7 @@ function LibraryTab({
   estimateId: string;
   sectionId: string;
   jobDamageType?: string;
-  onAdded: (item: EstimateLineItem) => void;
+  onAdded: (item: EstimateLineItem, meta?: { updated_at?: string | null }) => void;
   open: boolean;
   onClose: () => void;
   mode?: BuilderMode;
@@ -186,8 +186,13 @@ function LibraryTab({
         toast.error(body.error || "Failed to add item");
         return;
       }
-      const data = (await res.json()) as { line_item: EstimateLineItem };
-      onAdded(data.line_item);
+      // #681 — the POST returns the parent's freshly-bumped updated_at; pass it
+      // through so the builder adopts it before its reorder PUT (non-stale snapshot).
+      const data = (await res.json()) as {
+        line_item: EstimateLineItem;
+        updated_at?: string | null;
+      };
+      onAdded(data.line_item, { updated_at: data.updated_at });
       toast.success(`Added: ${libItem.name}`);
       // Multi-add UX: dialog stays open.
     } catch {
@@ -329,7 +334,7 @@ function CustomTab({
 }: {
   estimateId: string;
   sectionId: string;
-  onAdded: (item: EstimateLineItem) => void;
+  onAdded: (item: EstimateLineItem, meta?: { updated_at?: string | null }) => void;
   onClose: () => void;
   mode?: BuilderMode;
 }) {
@@ -421,8 +426,13 @@ function CustomTab({
         toast.error(body.error || "Failed to add custom item");
         return;
       }
-      const data = (await res.json()) as { line_item: EstimateLineItem };
-      onAdded(data.line_item);
+      // #681 — the POST returns the parent's freshly-bumped updated_at; pass it
+      // through so the builder adopts it before its reorder PUT (non-stale snapshot).
+      const data = (await res.json()) as {
+        line_item: EstimateLineItem;
+        updated_at?: string | null;
+      };
+      onAdded(data.line_item, { updated_at: data.updated_at });
       toast.success("Item added");
       onClose(); // Custom tab closes after a single add per spec.
     } catch {

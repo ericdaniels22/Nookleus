@@ -41,6 +41,13 @@ export interface UseAutoSaveResult {
   lastSavedAt: Date | null;
   saveSectionsReorder: (sections: ReorderedSection[]) => Promise<boolean>;
   saveLineItemsReorder: (items: ReorderedLineItem[]) => Promise<boolean>;
+  /**
+   * Adopt a server-fresh updated_at (#681). The granular add flow POSTs a line
+   * item outside this hook — that POST bumps the parent's updated_at — then
+   * fires a reorder PUT. Handing the POST's token here keeps that PUT's
+   * updated_at_snapshot from going stale (→ 409 → latched stale-conflict).
+   */
+  adoptUpdatedAt: (updated_at: string | null) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -723,6 +730,13 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
     [config, transitionToSaved, handleStaleConflict, handleSaveError]
   );
 
+  // Adopt a server-fresh updated_at (#681). Called by the builder right after a
+  // create-line-item POST returns the parent's bumped token, before the reorder
+  // PUT fires — so that PUT's updated_at_snapshot is current, not mount-time stale.
+  const adoptUpdatedAt = useCallback((updated_at: string | null) => {
+    if (updated_at) updatedAtRef.current = updated_at;
+  }, []);
+
   // ── Public interface ──────────────────────────────────────────────────────
 
   return {
@@ -730,5 +744,6 @@ export function useAutoSave<T extends { id: string; updated_at?: string | null }
     lastSavedAt,
     saveSectionsReorder,
     saveLineItemsReorder,
+    adoptUpdatedAt,
   };
 }
