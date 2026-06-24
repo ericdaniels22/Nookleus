@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { sanitizeStorageFilename } from "@/lib/storage/paths";
 
 // POST /api/email/attachments/upload — upload a file for composing.
 // Returns { id, filename, content_type, file_size, storage_path }.
@@ -14,7 +15,10 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
   }
 
   const timestamp = Date.now();
-  const storagePath = `drafts/${timestamp}-${file.name}`;
+  // file.name can carry em dashes / smart punctuation Supabase rejects as an
+  // "Invalid key" — sanitize the segment. The original name is still returned
+  // below as `filename` for display and the download Content-Disposition.
+  const storagePath = `drafts/${timestamp}-${sanitizeStorageFilename(file.name)}`;
 
   const arrayBuffer = await file.arrayBuffer();
   const { error: uploadError } = await ctx.supabase.storage

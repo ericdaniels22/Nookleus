@@ -7,6 +7,40 @@
 // build50's storage_paths_swap_to_new() for the one-time rename that
 // brought pre-18a objects into this shape.
 
+// Fold a user-supplied filename into a single, Supabase-key-safe segment.
+//
+// Supabase Storage rejects any object key containing a character outside its
+// `isValidKey` whitelist with a 400 "Invalid key". The most common offender
+// is the em dash (—, U+2014) that mail clients auto-insert into subjects and
+// attachment names — e.g. "Work Authorization — Michelle Baker.pdf" fails to
+// upload. We whitelist a conservative subset of that charset (alphanumerics,
+// dot, underscore, hyphen) so the output is *always* a valid key, and keep the
+// original human-readable name in attachment metadata / the download
+// Content-Disposition for display. Anything else collapses to "_".
+export function sanitizeStorageFilename(filename: string): string {
+  // A filename is a single key segment — drop any path separators an attacker
+  // or odd client might smuggle in (handles both "/" and Windows "\").
+  const base = filename.split(/[/\\]/).pop() ?? "";
+  // Keep the final extension intact; sanitize stem and ext independently.
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot + 1) : "";
+
+  const fold = (s: string) =>
+    s
+      // café → cafe: decompose, then drop the combining diacritics.
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      // Any run of disallowed chars (incl. whitespace) → one underscore.
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^[._-]+|[._-]+$/g, "");
+
+  const safeStem = fold(stem) || "file";
+  const safeExt = fold(ext).replace(/[^A-Za-z0-9]+/g, "");
+  return safeExt ? `${safeStem}.${safeExt}` : safeStem;
+}
+
 // photos — photos bucket. Per-contact folders.
 export function photoPath(orgId: string, contactId: string, filename: string): string {
   return `${orgId}/${contactId}/${filename}`;
@@ -37,14 +71,17 @@ export function reportPath(orgId: string, jobNumber: string, reportId: string): 
   return `${orgId}/${jobNumber}/${reportId}.pdf`;
 }
 
-// email-attachments — per account, per email, per file.
+// email-attachments — per account, per email, per file. The filename comes
+// straight from the user's compose box or an inbound message's MIME part, so
+// it routinely carries em dashes / smart punctuation that Supabase rejects —
+// sanitize it into a safe key segment.
 export function emailAttachmentPath(
   orgId: string,
   accountId: string,
   emailId: string,
   filename: string,
 ): string {
-  return `${orgId}/${accountId}/${emailId}/${filename}`;
+  return `${orgId}/${accountId}/${emailId}/${sanitizeStorageFilename(filename)}`;
 }
 
 // job-files — generic job attachments.

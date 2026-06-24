@@ -3,6 +3,7 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { sanitizeEmailHtmlForSend } from "@/lib/email/sanitize-email-html";
+import { emailAttachmentPath } from "@/lib/storage/paths";
 import nodemailer from "nodemailer";
 
 interface UploadedAttachment {
@@ -177,7 +178,14 @@ export const POST = withRequestContext(
     // Move attachment files from drafts/ to sent email folder and save metadata
     if (savedEmail && attachments && attachments.length > 0) {
       for (const att of attachments) {
-        const newPath = `${account.organization_id}/${accountId}/${savedEmail.id}/${att.filename}`;
+        // emailAttachmentPath sanitizes the filename segment — the draft was
+        // uploaded under the same sanitized name, so the move source/dest agree.
+        const newPath = emailAttachmentPath(
+          account.organization_id,
+          accountId,
+          savedEmail.id,
+          att.filename,
+        );
         await supabase.storage.from("email-attachments").move(att.storage_path, newPath);
         await supabase.from("email_attachments").insert({
           organization_id: account.organization_id,
