@@ -58,6 +58,12 @@ const LINE_ITEM_FIELDS = [
   "unit_price",
   "section_id",
   "sort_order",
+  // Equipment pricing (#682). pieces/days are the raw inputs; the server
+  // re-derives quantity + note from them, but they must round-trip so the
+  // editor can rehydrate the Pieces/Days fields and detect mode changes.
+  "pricing_mode",
+  "pieces",
+  "days",
 ] as const;
 
 type LineItemFieldKey = typeof LINE_ITEM_FIELDS[number];

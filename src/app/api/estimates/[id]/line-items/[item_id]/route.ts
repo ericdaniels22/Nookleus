@@ -4,7 +4,11 @@ import { checkSnapshot, recalculateTotals } from "@/lib/estimates";
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, PricingMode } from "@/lib/types";
+import {
+  EQUIPMENT_MODE,
+  deriveEquipmentNote,
+} from "@/components/estimate-builder/equipment-pricing";
 
 interface RouteCtx { params: Promise<{ id: string; item_id: string }> }
 
@@ -18,6 +22,11 @@ interface UpdatePayload {
   unit_price?: number;
   section_id?: string;
   sort_order?: number;
+  // Equipment pricing (#682). When the row is in equipment mode the server
+  // derives quantity/note/total from pieces × days; see below.
+  pricing_mode?: PricingMode;
+  pieces?: number | null;
+  days?: number | null;
   updated_at_snapshot?: string;
 }
 
@@ -48,10 +57,18 @@ export const PUT = withRequestContext(
     // or unit_price changes
     const { data: existing } = await supabase
       .from("estimate_line_items")
-      .select("id, section_id, quantity, unit_price")
+      .select("id, section_id, quantity, unit_price, pricing_mode, pieces, days")
       .eq("id", itemId)
       .eq("estimate_id", estimateId)
-      .maybeSingle<{ id: string; section_id: string; quantity: number; unit_price: number }>();
+      .maybeSingle<{
+        id: string;
+        section_id: string;
+        quantity: number;
+        unit_price: number;
+        pricing_mode: PricingMode | null;
+        pieces: number | null;
+        days: number | null;
+      }>();
     if (!existing) {
       return NextResponse.json({ error: "line item not found" }, { status: 404 });
     }
@@ -118,6 +135,37 @@ export const PUT = withRequestContext(
       update.sort_order = body.sort_order;
     }
 
+    // Equipment pricing (#682) — validate and persist the mode + raw inputs.
+    if (body.pricing_mode !== undefined) {
+      if (body.pricing_mode !== "standard" && body.pricing_mode !== "pieces_days") {
+        return NextResponse.json(
+          { error: "pricing_mode must be 'standard' or 'pieces_days'" },
+          { status: 400 },
+        );
+      }
+      update.pricing_mode = body.pricing_mode;
+    }
+    // pieces/days must be positive when present — a "0 units" or negative-quantity
+    // rental is never valid, and the reconcilers/seed all guard `> 0 ? x : 1`.
+    if (body.pieces !== undefined) {
+      if (
+        body.pieces !== null &&
+        (typeof body.pieces !== "number" || !Number.isFinite(body.pieces) || body.pieces <= 0)
+      ) {
+        return NextResponse.json({ error: "pieces must be a positive number or null" }, { status: 400 });
+      }
+      update.pieces = body.pieces;
+    }
+    if (body.days !== undefined) {
+      if (
+        body.days !== null &&
+        (typeof body.days !== "number" || !Number.isFinite(body.days) || body.days <= 0)
+      ) {
+        return NextResponse.json({ error: "days must be a positive number or null" }, { status: 400 });
+      }
+      update.days = body.days;
+    }
+
     let qtyChanged = false;
     let priceChanged = false;
     if (body.quantity !== undefined) {
@@ -138,6 +186,20 @@ export const PUT = withRequestContext(
       const newQty = qtyChanged ? (body.quantity as number) : existing.quantity;
       const newPrice = priceChanged ? (body.unit_price as number) : existing.unit_price;
       update.total = round2(newQty * newPrice);
+    }
+
+    // For an equipment row, the server owns the collapsed quantity, the derived
+    // note, and the total — `quantity = pieces × days`, so they can't drift from
+    // a stale or buggy client. This overrides whatever the client sent for
+    // those fields. Standard rows keep the per-field logic above.
+    const effectiveMode = body.pricing_mode ?? existing.pricing_mode ?? "standard";
+    if (effectiveMode === EQUIPMENT_MODE) {
+      const pieces = (body.pieces !== undefined ? body.pieces : existing.pieces) ?? 1;
+      const days = (body.days !== undefined ? body.days : existing.days) ?? 1;
+      const unitPrice = priceChanged ? (body.unit_price as number) : existing.unit_price;
+      update.quantity = pieces * days;
+      update.note = deriveEquipmentNote(pieces, days);
+      update.total = round2(pieces * days * unitPrice);
     }
 
     if (Object.keys(update).length === 0) {

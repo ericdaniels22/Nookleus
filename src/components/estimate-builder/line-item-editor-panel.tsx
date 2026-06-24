@@ -14,6 +14,13 @@ import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import ConfirmDialog from "@/components/contracts/confirm-dialog";
 import { MoneyInput } from "./money-input";
+import {
+  deriveEquipmentNote,
+  setDays,
+  setPieces,
+  toEquipmentMode,
+  toStandardMode,
+} from "./equipment-pricing";
 import type { BuilderLineItem } from "./line-item-row";
 import type { BuilderMode } from "@/lib/types";
 
@@ -80,7 +87,16 @@ export function LineItemEditorPanel({
   onClose,
   onDelete,
   readOnly = false,
+  mode,
 }: LineItemEditorPanelProps) {
+  // Equipment pricing (#682) is an Estimate-builder affordance only, and lives
+  // on EstimateLineItem (InvoiceLineItem has no pricing_mode). The `in` check
+  // both scopes the feature out of invoice/template panels and narrows `item`
+  // to the estimate row type, so the equipment fields are type-safe to read.
+  const equipmentItem =
+    mode === "estimate" && "pricing_mode" in item ? item : null;
+  const isEquipment = equipmentItem?.pricing_mode === "pieces_days";
+
   // Each field holds its own draft, seeded from the item, and commits on blur
   // through `onChange` — mirroring the inline row so auto-save behaves the same.
   const [name, setName] = useState(item.name ?? "");
@@ -89,6 +105,14 @@ export function LineItemEditorPanel({
   const [unit, setUnit] = useState(item.unit ?? "");
   const [description, setDescription] = useState(item.description ?? "");
   const [note, setNote] = useState(item.note ?? "");
+  // Pieces × Days drafts (equipment mode). Empty string when the row carries no
+  // value yet; committed on blur through the pure reconcilers.
+  const [piecesDraft, setPiecesDraft] = useState(
+    equipmentItem?.pieces != null ? String(equipmentItem.pieces) : "",
+  );
+  const [daysDraft, setDaysDraft] = useState(
+    equipmentItem?.days != null ? String(equipmentItem.days) : "",
+  );
   // Unit price lives inside MoneyInput, which owns its draft string. The panel
   // keeps a numeric mirror (fed via onValueChange) so the line total can tick
   // live while the user types — exactly as the inline row does.
@@ -101,8 +125,18 @@ export function LineItemEditorPanel({
   // lint. Same-id field reconciles from the server are owned by MoneyInput's own
   // resync and are intentionally not clobbered mid-edit here.
   const [prevItemId, setPrevItemId] = useState(item.id);
+  // Also track the billing mode: toggling Standard ⇄ Pieces × Days reconciles
+  // pieces/days/note on the SAME line (id unchanged), so those drafts must
+  // reseed on a mode flip too — otherwise the Pieces/Days inputs stay blank
+  // from their standard mount seed, and the freed Note keeps the old derived
+  // text. Tracked alongside the id reset, never in an effect.
+  const [prevMode, setPrevMode] = useState<string | null>(
+    equipmentItem?.pricing_mode ?? null,
+  );
+  const currentMode = equipmentItem?.pricing_mode ?? null;
   if (item.id !== prevItemId) {
     setPrevItemId(item.id);
+    setPrevMode(currentMode);
     setName(item.name ?? "");
     setCode(item.code ?? "");
     setQuantity(String(item.quantity));
@@ -110,6 +144,19 @@ export function LineItemEditorPanel({
     setDescription(item.description ?? "");
     setNote(item.note ?? "");
     setUnitPriceDraft(item.unit_price);
+    const swapped = mode === "estimate" && "pricing_mode" in item ? item : null;
+    setPiecesDraft(swapped?.pieces != null ? String(swapped.pieces) : "");
+    setDaysDraft(swapped?.days != null ? String(swapped.days) : "");
+  } else if (currentMode !== prevMode) {
+    // Same line, billing mode toggled — reseed the mode-specific drafts from
+    // the reconciled item so the inputs reflect the new values immediately. The
+    // Quantity draft is reset too: it's hidden in equipment mode, so an
+    // uncommitted edit must not survive the round-trip back to standard.
+    setPrevMode(currentMode);
+    setQuantity(String(item.quantity));
+    setPiecesDraft(equipmentItem?.pieces != null ? String(equipmentItem.pieces) : "");
+    setDaysDraft(equipmentItem?.days != null ? String(equipmentItem.days) : "");
+    setNote(item.note ?? "");
   }
 
   const isDesktop = useIsDesktop();
@@ -150,11 +197,30 @@ export function LineItemEditorPanel({
   }, []);
 
   // ── Live line total — computed from the local editing values. ──────────────
+  // In equipment mode the quantity is collapsed pieces × days, so the total
+  // ticks off the Pieces/Days drafts; otherwise off the Quantity draft. Both
+  // fall back to the committed item when a draft is mid-edit / non-numeric.
   const localQty = Number(quantity);
-  const liveTotal =
-    Number.isFinite(localQty) && Number.isFinite(unitPriceDraft)
+  const localPieces = Number(piecesDraft);
+  const localDays = Number(daysDraft);
+  const equipmentDraftsValid =
+    piecesDraft.trim() !== "" &&
+    daysDraft.trim() !== "" &&
+    Number.isFinite(localPieces) &&
+    Number.isFinite(localDays);
+  const liveTotal = isEquipment
+    ? equipmentDraftsValid && Number.isFinite(unitPriceDraft)
+      ? localPieces * localDays * unitPriceDraft
+      : item.quantity * item.unit_price
+    : Number.isFinite(localQty) && Number.isFinite(unitPriceDraft)
       ? localQty * unitPriceDraft
       : item.quantity * item.unit_price;
+
+  // The italic derived note shown under the Pieces/Days row (and persisted to
+  // the `note` column for the customer PDF). Ticks live off the drafts.
+  const liveDerivedNote = equipmentDraftsValid
+    ? deriveEquipmentNote(localPieces, localDays)
+    : (equipmentItem?.note ?? "");
 
   // ── Blur commit helpers — mirror the inline row so auto-save is identical. ──
 
@@ -209,6 +275,47 @@ export function LineItemEditorPanel({
     const next: string | null = trimmed.length > 0 ? trimmed : null;
     if (next !== (item.note ?? null)) {
       onChange({ note: next });
+    }
+  }
+
+  // ── Equipment pricing (#682) ───────────────────────────────────────────────
+  // The toggle and the Pieces/Days inputs all route through the pure reconcilers
+  // so the pieces × days → quantity + derived-note invariant holds in one place.
+
+  function selectEquipmentMode() {
+    if (!equipmentItem || isEquipment) return;
+    onChange(toEquipmentMode(equipmentItem) as Partial<BuilderLineItem>);
+  }
+
+  function selectStandardMode() {
+    if (!equipmentItem || !isEquipment) return;
+    onChange(toStandardMode(equipmentItem) as Partial<BuilderLineItem>);
+  }
+
+  function commitPieces() {
+    if (!equipmentItem) return;
+    const parsed = Number(piecesDraft);
+    // Revert on empty, non-numeric, or non-positive — equipment rentals are
+    // always ≥ 1 piece (mirrors the reconcilers' `> 0` guards).
+    if (!piecesDraft.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      setPiecesDraft(equipmentItem.pieces != null ? String(equipmentItem.pieces) : "");
+      return;
+    }
+    if (parsed !== equipmentItem.pieces) {
+      onChange(setPieces(equipmentItem, parsed) as Partial<BuilderLineItem>);
+    }
+  }
+
+  function commitDays() {
+    if (!equipmentItem) return;
+    const parsed = Number(daysDraft);
+    // Revert on empty, non-numeric, or non-positive — a rental spans ≥ 1 day.
+    if (!daysDraft.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      setDaysDraft(equipmentItem.days != null ? String(equipmentItem.days) : "");
+      return;
+    }
+    if (parsed !== equipmentItem.days) {
+      onChange(setDays(equipmentItem, parsed) as Partial<BuilderLineItem>);
     }
   }
 
@@ -278,17 +385,66 @@ export function LineItemEditorPanel({
             />
           </label>
 
-          <label className="block">
-            <span className={LABEL_CLASS}>Note</span>
-            <input
-              data-testid="editor-field-note"
-              value={note}
-              disabled={readOnly}
-              onChange={(e) => setNote(e.target.value)}
-              onBlur={commitNote}
-              className={FIELD_CLASS}
-            />
-          </label>
+          {/* Bill-as toggle (#682) — Estimate builder only. Switches the row
+              between a single Quantity and Pieces × Days. */}
+          {equipmentItem && (
+            <div className="block">
+              <span className={LABEL_CLASS}>Bill as</span>
+              <div
+                data-testid="editor-bill-as"
+                role="group"
+                aria-label="Bill as"
+                className="mt-1 inline-flex rounded-md border border-border p-0.5"
+              >
+                <button
+                  type="button"
+                  data-testid="editor-bill-as-standard"
+                  aria-pressed={!isEquipment}
+                  disabled={readOnly}
+                  onClick={selectStandardMode}
+                  className={cn(
+                    "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
+                    !isEquipment
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  data-testid="editor-bill-as-equipment"
+                  aria-pressed={isEquipment}
+                  disabled={readOnly}
+                  onClick={selectEquipmentMode}
+                  className={cn(
+                    "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
+                    isEquipment
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Pieces × Days
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* The manual Note is hidden in equipment mode — the derived
+              "N units for M days" note owns the slot there (#682). */}
+          {!isEquipment && (
+            <label className="block">
+              <span className={LABEL_CLASS}>Note</span>
+              <input
+                data-testid="editor-field-note"
+                value={note}
+                disabled={readOnly}
+                onChange={(e) => setNote(e.target.value)}
+                onBlur={commitNote}
+                className={FIELD_CLASS}
+              />
+            </label>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
@@ -316,19 +472,53 @@ export function LineItemEditorPanel({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className={LABEL_CLASS}>Quantity</span>
-              <input
-                data-testid="editor-field-quantity"
-                value={quantity}
-                disabled={readOnly}
-                onChange={(e) => setQuantity(e.target.value)}
-                onBlur={commitQuantity}
-                className={FIELD_CLASS}
-              />
-            </label>
-            <label className="block">
-              <span className={LABEL_CLASS}>Unit cost</span>
+            {isEquipment ? (
+              // Pieces × Days replace the single Quantity input (#682). The
+              // collapsed quantity (pieces × days) is derived server-side, so it
+              // isn't editable directly here.
+              <>
+                <label className="block">
+                  <span className={LABEL_CLASS}>Pieces</span>
+                  <input
+                    data-testid="editor-field-pieces"
+                    inputMode="numeric"
+                    value={piecesDraft}
+                    disabled={readOnly}
+                    onChange={(e) => setPiecesDraft(e.target.value)}
+                    onBlur={commitPieces}
+                    className={FIELD_CLASS}
+                  />
+                </label>
+                <label className="block">
+                  <span className={LABEL_CLASS}>Days</span>
+                  <input
+                    data-testid="editor-field-days"
+                    inputMode="numeric"
+                    value={daysDraft}
+                    disabled={readOnly}
+                    onChange={(e) => setDaysDraft(e.target.value)}
+                    onBlur={commitDays}
+                    className={FIELD_CLASS}
+                  />
+                </label>
+              </>
+            ) : (
+              <label className="block">
+                <span className={LABEL_CLASS}>Quantity</span>
+                <input
+                  data-testid="editor-field-quantity"
+                  value={quantity}
+                  disabled={readOnly}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  onBlur={commitQuantity}
+                  className={FIELD_CLASS}
+                />
+              </label>
+            )}
+            <label className={cn("block", isEquipment && "col-span-2")}>
+              <span className={LABEL_CLASS}>
+                {isEquipment ? "Unit cost / piece / day" : "Unit cost"}
+              </span>
               <div data-testid="editor-field-unit-cost" className="mt-1">
                 <MoneyInput
                   value={item.unit_price}
@@ -342,6 +532,17 @@ export function LineItemEditorPanel({
               </div>
             </label>
           </div>
+
+          {/* Derived note under the row (#682) — mirrors the italic sub-line the
+              customer PDF renders from the persisted `note`. */}
+          {isEquipment && (
+            <p
+              data-testid="editor-derived-note"
+              className="text-xs italic text-muted-foreground"
+            >
+              {liveDerivedNote}
+            </p>
+          )}
 
           {/* ── Live line total ───────────────────────────────────────────── */}
           <div className="flex items-center justify-between border-t border-border pt-3">
