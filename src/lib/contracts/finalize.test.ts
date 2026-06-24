@@ -147,6 +147,7 @@ function makeEmailSettings(
     button_color: "#1f2937",
     logo_visible: true,
     signing_request_body_template_archived: null,
+    reminder_body_template_archived: null,
     updated_at: "2026-05-13T00:00:00Z",
     ...overrides,
   };

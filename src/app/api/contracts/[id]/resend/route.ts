@@ -3,6 +3,7 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { generateSigningToken } from "@/lib/contracts/tokens";
 import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
 import { sendContractEmail } from "@/lib/contracts/email";
+import { renderBrandedContractEmail } from "@/lib/contracts/branded-email";
 import type { Contract, ContractSigner, ContractEmailSettings } from "@/lib/contracts/types";
 
 function appUrl(): string {
@@ -87,16 +88,29 @@ export const POST = withRequestContext(
     }
 
     try {
-      const { subject, html } = await resolveEmailTemplate(
+      const signingLink = `${appUrl()}/sign/${token}`;
+      const { subject, html: message } = await resolveEmailTemplate(
         supabase,
         settings.signing_request_subject_template,
         settings.signing_request_body_template,
         contract.job_id,
         {
-          signing_link: `${appUrl()}/sign/${token}`,
+          signing_link: signingLink,
           document_title: contract.title,
         },
       );
+
+      // Resend re-sends the *initial* signing request, so it wears the same
+      // branded card and signing-link button as the first send (#692, ADR
+      // 0017 §3/§4).
+      const html = await renderBrandedContractEmail(supabase, settings, {
+        kind: "signing_request",
+        organizationId: contract.organization_id,
+        message,
+        actionUrl: signingLink,
+        documentTitle: contract.title,
+      });
+
       await sendContractEmail(supabase, settings, {
         to: primary.email,
         subject,

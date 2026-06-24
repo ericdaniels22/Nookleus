@@ -182,6 +182,9 @@ export interface ContractEmailSettings {
   // #691 reset it to the message-only default. A safety net, not a supported
   // rollback path (ADR 0017 §7). Null on rows seeded after the reset.
   signing_request_body_template_archived: string | null;
+  // Same safety-net snapshot for the reminder body, taken when #692 reset
+  // reminder_body_template to the message-only default (ADR 0017 §7).
+  reminder_body_template_archived: string | null;
   updated_at: string;
 }
 

@@ -143,3 +143,46 @@ describe("renderContractEmailFrame — signing request (#691)", () => {
     expect(html.split("<a ").length - 1).toBe(1);
   });
 });
+
+describe("renderContractEmailFrame — reminder (#692)", () => {
+  it("renders a reminder headline naming the company, not the initial-send copy", () => {
+    const html = renderContractEmailFrame(
+      frameInput({ kind: "reminder", companyName: "AAA Disaster Recovery" }),
+    );
+    expect(html).toContain(
+      "Reminder: AAA Disaster Recovery is waiting for your signature",
+    );
+    // It must read like a reminder, not the first-send headline.
+    expect(html).not.toContain("sent you a document to review and sign");
+  });
+
+  it("swaps the document icon for a reminder bell glyph", () => {
+    const html = renderContractEmailFrame(frameInput({ kind: "reminder" }));
+    expect(html).toContain("🔔");
+    expect(html).not.toContain("📄");
+  });
+
+  it("carries the same single action button + signing link as the initial email (ADR 0017 §4)", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "reminder",
+        actionUrl: "https://app.test/sign/tok999",
+        buttonLabel: "Review & sign",
+        buttonColor: "#1f2937",
+      }),
+    );
+    expect(html).toContain('href="https://app.test/sign/tok999"');
+    expect(html).toContain("Review &amp; sign");
+    expect(html).toContain("background-color:#1f2937");
+    // identical single-button layout — the frame/button don't change by kind
+    expect(html.split("<a ").length - 1).toBe(1);
+    expect(html).toContain('role="presentation"');
+  });
+
+  it("embeds the already-sanitized message verbatim in a reminder", () => {
+    const html = renderContractEmailFrame(
+      frameInput({ kind: "reminder", message: "<p>Just a quick nudge to wrap this up.</p>" }),
+    );
+    expect(html).toContain("<p>Just a quick nudge to wrap this up.</p>");
+  });
+});
