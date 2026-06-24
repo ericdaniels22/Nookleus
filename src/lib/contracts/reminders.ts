@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailTemplate } from "./email-merge-fields";
 import { sendContractEmail } from "./email";
+import { renderBrandedContractEmail } from "./branded-email";
 import type { Contract, ContractEmailSettings, ContractSigner } from "./types";
 
 function appUrl(): string {
@@ -45,13 +46,26 @@ export async function sendContractReminder(
   if (!active) throw new Error("No active (unsigned) signer to remind");
 
   const signingLink = `${appUrl()}/sign/${contract.link_token}`;
-  const { subject, html } = await resolveEmailTemplate(
+  const { subject, html: message } = await resolveEmailTemplate(
     supabase,
     settings.reminder_subject_template,
     settings.reminder_body_template,
     contract.job_id,
     { signing_link: signingLink, document_title: contract.title },
   );
+
+  // Assemble the app-owned card AROUND the message (#692, ADR 0017 §3). The
+  // reminder shares the frame, button, and signing link; only its own
+  // message/subject and the reminder headline/icon differ. This is the
+  // chokepoint for both reminder paths — the hourly cron and the manual Remind
+  // button — so framing here brands both at once.
+  const html = await renderBrandedContractEmail(supabase, settings, {
+    kind: "reminder",
+    organizationId: contract.organization_id,
+    message,
+    actionUrl: signingLink,
+    documentTitle: contract.title,
+  });
 
   const sent = await sendContractEmail(supabase, settings, {
     to: active.email,

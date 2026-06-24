@@ -3,9 +3,7 @@ import { randomUUID } from "crypto";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { resolveEmailTemplate } from "@/lib/contracts/email-merge-fields";
 import { sendContractEmail } from "@/lib/contracts/email";
-import { loadEmailBranding } from "@/lib/contracts/email-branding";
-import { renderContractEmailFrame } from "@/lib/contracts/email-frame";
-import { sanitizeEmailHtmlForSend } from "@/lib/email/sanitize-email-html";
+import { renderBrandedContractEmail } from "@/lib/contracts/branded-email";
 import { generateSigningToken } from "@/lib/contracts/tokens";
 import { computeInitialNextReminderAt } from "@/lib/contracts/reminders";
 import type { ContractEmailSettings, OverlayField } from "@/lib/contracts/types";
@@ -236,22 +234,11 @@ export const POST = withRequestContext(
 
       // Assemble the app-owned card AROUND the message (#691, ADR 0017 §3): the
       // contractor controls the message + the bounded knobs; the frame, button,
-      // and signing link are app-owned. Sanitize the contractor's message FIRST,
-      // then frame it — the card's presentation tables/button must never pass
-      // through sanitizeEmailHtmlForSend (its ALLOWED_TAGS has no table/tr/td,
-      // so the frame would be stripped). Build order is load-bearing.
-      const safeMessage = sanitizeEmailHtmlForSend(message);
-      const branding = await loadEmailBranding(supabase, orgId, settings);
-      const cardHtml = renderContractEmailFrame({
+      // and signing link are app-owned.
+      const cardHtml = await renderBrandedContractEmail(supabase, settings, {
         kind: "signing_request",
-        companyName: branding.companyName ?? settings.send_from_name,
-        logoUrl: branding.logoUrl,
-        logoVisible: branding.logoVisible,
-        buttonLabel: branding.buttonLabel,
-        buttonColor: branding.buttonColor,
-        senderName: settings.send_from_name,
-        senderEmail: settings.send_from_email,
-        message: safeMessage,
+        organizationId: orgId,
+        message,
         actionUrl: signingLink,
         documentTitle: title,
       });

@@ -1,7 +1,8 @@
 export interface ContractEmailFrameInput {
-  // Only the initial signing-request email exists in this slice (#691); the
-  // union widens as the other PRD email kinds adopt the shared frame.
-  kind: "signing_request";
+  // The signing-request email (#691) and the reminder (#692) both render in
+  // this frame and carry the action button; the union widens further as the
+  // remaining PRD email kinds (confirmation, internal) adopt the shared frame.
+  kind: "signing_request" | "reminder";
   companyName: string;
   logoUrl: string | null;
   logoVisible: boolean;
@@ -52,15 +53,24 @@ export function renderContractEmailFrame(input: ContractEmailFrameInput): string
     : `<div style="margin:24px 0 0;font-size:18px;font-weight:700;color:#6b7280;` +
       `font-family:Arial,Helvetica,sans-serif;">Nookleus</div>`;
 
-  // Signing-request layout: a document icon sits above the headline (the
-  // confirmation/reminder kinds will swap this glyph in later slices).
+  // A glyph sits above the headline: the document icon for the initial send,
+  // a reminder bell for the nudge (#692). The remaining kinds (confirmation,
+  // internal) swap it further in later slices.
+  const glyph = input.kind === "reminder" ? "🔔" : "📄";
   const documentIcon =
-    `<div style="font-size:40px;line-height:1;margin-bottom:12px;">📄</div>`;
+    `<div style="font-size:40px;line-height:1;margin-bottom:12px;">${glyph}</div>`;
 
+  // The reminder reads as a nudge ("…is waiting for your signature"); the
+  // initial send announces the document. Same card chrome and button either way
+  // (ADR 0017 §4) — only the headline copy differs by kind.
+  const headlineText =
+    input.kind === "reminder"
+      ? `Reminder: ${company} is waiting for your signature`
+      : `${company} sent you a document to review and sign`;
   const headline =
     `<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#1a1a1a;` +
     `font-family:Arial,Helvetica,sans-serif;">` +
-    `${company} sent you a document to review and sign</h1>`;
+    `${headlineText}</h1>`;
 
   const senderLine =
     `<p style="margin:0 0 16px;font-size:14px;color:#4b5563;` +
