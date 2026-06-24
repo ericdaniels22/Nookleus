@@ -73,6 +73,40 @@ describe("moveLineItemAcrossContainers", () => {
     expect(orders(result!.sections[0].items)).toEqual([0, 1, 2]);
   });
 
+  // Scenario 1b — same-container reorder UPWARD (bottom → top). AC #680/5: the
+  // dropped row lands *before* the row under the pointer. An upward drag takes
+  // the `: overIdxInWithout` branch of move-line-item.ts:252 (insert AT the over
+  // item's index), the branch Scenario 1's downward drag (`overIdxInWithout + 1`)
+  // never exercises — so this pins the before/after direction-sensitivity.
+  it("reorders a Line item upward, landing it before the over item", () => {
+    const tree: TestSec[] = [
+      sec("S1", 0, [item("A", "S1", 0), item("B", "S1", 1), item("C", "S1", 2)]),
+    ];
+
+    // Drag C (bottom) onto A (top) → C lands before A: [C, A, B].
+    const result = moveLineItemAcrossContainers(tree, "C", "S1", "A");
+
+    expect(result).not.toBeNull();
+    expect(ids(result!.sections[0].items)).toEqual(["C", "A", "B"]);
+    expect(orders(result!.sections[0].items)).toEqual([0, 1, 2]);
+  });
+
+  // Scenario 1c — same-container UPWARD onto a *middle* row lands before it,
+  // proving the insert position is the over item's index regardless of where in
+  // the list it sits (guards against an off-by-one in the upward branch).
+  it("reorders a Line item upward onto a middle row, landing before it", () => {
+    const tree: TestSec[] = [
+      sec("S1", 0, [item("A", "S1", 0), item("B", "S1", 1), item("C", "S1", 2)]),
+    ];
+
+    // Drag C (bottom) onto B (middle) → C lands before B: [A, C, B].
+    const result = moveLineItemAcrossContainers(tree, "C", "S1", "B");
+
+    expect(result).not.toBeNull();
+    expect(ids(result!.sections[0].items)).toEqual(["A", "C", "B"]);
+    expect(orders(result!.sections[0].items)).toEqual([0, 1, 2]);
+  });
+
   // Scenario 2 — Subsection → its parent Section's direct Line items.
   it("promotes a Line item from a Subsection to its parent Section", () => {
     const tree: TestSec[] = [

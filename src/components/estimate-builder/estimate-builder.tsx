@@ -20,7 +20,6 @@ import { useAutoSave } from "./use-auto-save";
 import { computeEstimateTotals, sumLineItemsFromSections } from "@/lib/estimates-calc";
 import {
   DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -31,6 +30,7 @@ import {
   sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
+import { builderCollisionDetection } from "./builder-collision";
 import {
   moveLineItemAcrossContainers,
   resolveLineItemDropTarget,
@@ -1997,7 +1997,7 @@ export function EstimateBuilder({
           {/* ── Sections list — one grouped table (#573) ── */}
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={builderCollisionDetection}
             onDragEnd={handleDragEnd}
           >
             <GroupedLineItemTable
@@ -2116,7 +2116,7 @@ export function EstimateBuilder({
           {/* ── Sections list — one grouped table (#573) ── */}
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={builderCollisionDetection}
             onDragEnd={handleDragEnd}
           >
             <GroupedLineItemTable
@@ -2254,7 +2254,7 @@ export function EstimateBuilder({
             preserving the drag-constraint boundaries described in spec §5.1. */}
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={builderCollisionDetection}
           onDragEnd={handleDragEnd}
         >
           <GroupedLineItemTable
