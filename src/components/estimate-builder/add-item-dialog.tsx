@@ -5,6 +5,7 @@ import { Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/format";
 import type { BuilderMode, EstimateLineItem, ItemCategory, ItemLibraryItem } from "@/lib/types";
+import { seedFromLibraryItem } from "./equipment-pricing";
 import {
   Dialog,
   DialogContent,
@@ -170,6 +171,18 @@ function LibraryTab({
         return;
       }
 
+      // #685 — equipment-category items seed into Pieces × Days at add time:
+      // pieces ← the library item's default quantity, days ← 1. Every other
+      // category stays Standard. The route owns the derived quantity/note/total.
+      // Estimate-only for now (#682); invoices (#684) wire this separately.
+      const seed =
+        mode === "estimate"
+          ? seedFromLibraryItem({
+              category: libItem.category,
+              default_quantity: libItem.default_quantity,
+            })
+          : null;
+
       const res = await fetch(`/api/${entityBase}/${estimateId}/line-items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,6 +190,13 @@ function LibraryTab({
           section_id: sectionId,
           library_item_id: libItem.id,
           quantity: libItem.default_quantity,
+          ...(seed
+            ? {
+                pricing_mode: seed.pricing_mode,
+                pieces: seed.pieces ?? null,
+                days: seed.days ?? null,
+              }
+            : {}),
         }),
       });
       if (!res.ok) {
