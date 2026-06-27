@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import { useState, useRef, useEffect, useId, useImperativeHandle, forwardRef } from "react";
 import { flushSync } from "react-dom";
 import { X } from "lucide-react";
+
+import { isValidRecipientEmail } from "@/lib/email/recipient";
 
 interface EmailRecipient {
   email: string;
@@ -44,11 +46,13 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+  const optionId = (index: number) => `${listboxId}-opt-${index}`;
 
   // Expose flush method to commit pending input synchronously
   useImperativeHandle(ref, () => ({
     flush: () => {
-      if (input.trim() && input.includes("@")) {
+      if (isValidRecipientEmail(input)) {
         flushSync(() => {
           onChange([...recipients, { email: input.trim(), name: "" }]);
           setInput("");
@@ -63,12 +67,17 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
       setSuggestions([]);
       return;
     }
+    // `ignore` guards against out-of-order responses (issue #659): when the
+    // typed text changes the cleanup flips it, so a slower earlier fetch can't
+    // land its (now stale) suggestions over what the latest keystroke fetched.
+    let ignore = false;
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
           `/api/email/contacts?q=${encodeURIComponent(input)}`
         );
         const data = await res.json();
+        if (ignore) return;
         // Filter out already-added recipients
         const existing = new Set(recipients.map((r) => r.email.toLowerCase()));
         setSuggestions(
@@ -79,10 +88,14 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
         setSelectedIndex(0);
         setShowSuggestions(true);
       } catch {
+        if (ignore) return;
         setSuggestions([]);
       }
     }, 200);
-    return () => clearTimeout(timer);
+    return () => {
+      ignore = true;
+      clearTimeout(timer);
+    };
   }, [input, recipients]);
 
   // Close suggestions on outside click
@@ -122,11 +135,11 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
       e.preventDefault();
       if (showSuggestions && suggestions[selectedIndex]) {
         addRecipient(suggestions[selectedIndex]);
-      } else if (input.includes("@")) {
+      } else if (isValidRecipientEmail(input)) {
         addRecipient({ email: input.trim(), name: "" });
       }
     } else if (e.key === "," || e.key === "Tab") {
-      if (input.includes("@")) {
+      if (isValidRecipientEmail(input.replace(/,$/, ""))) {
         e.preventDefault();
         addRecipient({ email: input.trim().replace(/,$/, ""), name: "" });
       }
@@ -140,6 +153,7 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
   }
 
   const isInline = variant === "inline";
+  const open = showSuggestions && suggestions.length > 0;
 
   return (
     <div ref={containerRef} className={isInline ? "relative flex-1 min-w-0" : "relative"}>
@@ -177,7 +191,12 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
         <input
           ref={inputRef}
           type="text"
+          role="combobox"
           aria-label={isInline ? label : undefined}
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={open ? optionId(selectedIndex) : undefined}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -188,11 +207,18 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
       </div>
 
       {/* Suggestions dropdown */}
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+      {open && (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+        >
           {suggestions.map((s, i) => (
             <button
               key={s.email}
+              id={optionId(i)}
+              role="option"
+              aria-selected={i === selectedIndex}
               type="button"
               onClick={() => addRecipient(s)}
               className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
