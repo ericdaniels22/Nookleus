@@ -4,7 +4,11 @@ import { checkSnapshot, recalculateTotals, touchEstimate } from "@/lib/estimates
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, PricingMode } from "@/lib/types";
+import {
+  EQUIPMENT_MODE,
+  deriveEquipmentNote,
+} from "@/components/estimate-builder/equipment-pricing";
 
 interface RouteCtx { params: Promise<{ id: string }> }
 
@@ -19,6 +23,12 @@ interface CreatePayload {
   unit?: string | null;
   unit_price?: number;
   sort_order?: number;
+  // Equipment pricing seed (#685). The dialog computes these from an
+  // equipment-category library item via `seedFromLibraryItem`; in equipment
+  // mode the server derives quantity/note/total from pieces × days (below).
+  pricing_mode?: PricingMode;
+  pieces?: number | null;
+  days?: number | null;
 }
 
 interface ReorderPayload {
@@ -147,6 +157,35 @@ export const POST = withRequestContext(
       note = trimmedNote.length > 0 ? trimmedNote : null;
     }
 
+    // Equipment pricing seed (#685) — validate the mode + raw pieces/days the
+    // dialog computed via `seedFromLibraryItem`. pieces/days must be positive
+    // when present: a "0 units" / negative-quantity rental is never valid, and
+    // the reconcilers/seed all guard `> 0 ? x : 1`. Mirrors the per-item PUT.
+    let pricing_mode: PricingMode = "standard";
+    if (body.pricing_mode !== undefined) {
+      if (body.pricing_mode !== "standard" && body.pricing_mode !== "pieces_days") {
+        return NextResponse.json(
+          { error: "pricing_mode must be 'standard' or 'pieces_days'" },
+          { status: 400 },
+        );
+      }
+      pricing_mode = body.pricing_mode;
+    }
+    let pieces: number | null = null;
+    if (body.pieces !== undefined && body.pieces !== null) {
+      if (typeof body.pieces !== "number" || !Number.isFinite(body.pieces) || body.pieces <= 0) {
+        return NextResponse.json({ error: "pieces must be a positive number or null" }, { status: 400 });
+      }
+      pieces = body.pieces;
+    }
+    let days: number | null = null;
+    if (body.days !== undefined && body.days !== null) {
+      if (typeof body.days !== "number" || !Number.isFinite(body.days) || body.days <= 0) {
+        return NextResponse.json({ error: "days must be a positive number or null" }, { status: 400 });
+      }
+      days = body.days;
+    }
+
     // Compute sort_order if not supplied
     let sort_order = body.sort_order;
     if (sort_order === undefined) {
@@ -160,7 +199,19 @@ export const POST = withRequestContext(
       sort_order = (max?.sort_order ?? -1) + 1;
     }
 
-    const total = round2(body.quantity * unit_price);
+    // Standard rows: total = quantity × unit_price, note as supplied. Equipment
+    // rows: the server owns the collapsed quantity (pieces × days), the derived
+    // note, and the total — overriding whatever the client posted for those, so
+    // a stale or buggy client can't drift `quantity` from `pieces × days`.
+    let quantity = body.quantity;
+    let total = round2(quantity * unit_price);
+    if (pricing_mode === EQUIPMENT_MODE) {
+      const p = pieces ?? 1;
+      const d = days ?? 1;
+      quantity = p * d;
+      note = deriveEquipmentNote(p, d);
+      total = round2(p * d * unit_price);
+    }
 
     const { data, error } = await supabase
       .from("estimate_line_items")
@@ -173,10 +224,13 @@ export const POST = withRequestContext(
         description,
         note,
         code,
-        quantity: body.quantity,
+        quantity,
         unit,
         unit_price,
         total,
+        pricing_mode,
+        pieces,
+        days,
         sort_order,
       })
       .select("*")
