@@ -10,8 +10,17 @@ import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
 import { JobStageStripe } from "@/components/job-stage-stripe";
 import { JobStageIcon } from "@/components/job-stage-icon";
+import { OnSiteNowView } from "@/components/time/on-site-now";
 
-export default function JobCard({ job }: { job: Job }) {
+export default function JobCard({
+  job,
+  onSiteNames = [],
+}: {
+  job: Job;
+  // Names of app Users currently On site at this Job, supplied by the Jobs
+  // list's single org-wide presence subscription (#705). Empty → no badge.
+  onSiteNames?: string[];
+}) {
   const { getStatusColor, getStatusLabel, getDamageTypeColor, getDamageTypeLabel, damageTypes } = useConfig();
   const isCompleted = job.status === "completed" || job.status === "cancelled";
   const contactName = job.contact ? job.contact.full_name : "Unknown";
@@ -87,6 +96,14 @@ export default function JobCard({ job }: { job: Job }) {
           </div>
         )}
       </div>
+
+      {/* Live presence — who's On site right now (#705). Renders nothing when
+          no one is, so it only appears on active Jobs with workers clocked in. */}
+      {onSiteNames.length > 0 && (
+        <div className="mt-3">
+          <OnSiteNowView names={onSiteNames} />
+        </div>
+      )}
 
       {/* Bottom row: date + status */}
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">

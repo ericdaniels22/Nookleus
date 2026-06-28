@@ -80,6 +80,7 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import JobPhotosTab from "@/components/job-photos-tab";
 import JobTimeTab from "@/components/job-time-tab";
+import OnSiteNow from "@/components/time/on-site-now";
 import PhotoPreloader from "@/components/photo-preloader";
 import { useAuth } from "@/lib/auth-context";
 
@@ -514,6 +515,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                 )}
               </>
             ) : null}
+          </div>
+          {/* Live presence — who's On site at this Job right now (#705).
+              Renders nothing when no one is clocked in here. */}
+          <div className="mt-2">
+            <OnSiteNow
+              organizationId={job.organization_id}
+              jobId={job.id}
+            />
           </div>
         </div>
         <div className="flex items-center gap-2">

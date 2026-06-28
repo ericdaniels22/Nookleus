@@ -27,6 +27,10 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   permissions: Record<string, boolean>;
+  // The active org from the JWT claim. Null while auth is loading or logged
+  // out. Exposed for client features that are org-scoped but have no Job to
+  // source the org from — e.g. the dashboard "On the clock now" panel (#705).
+  organizationId: string | null;
   loading: boolean;
   hasPermission: (key: string) => boolean;
   signOut: () => Promise<void>;
@@ -39,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(async (userId: string, activeOrgId: string | null) => {
@@ -119,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
       if (currentUser) {
         const activeOrgId = resolveActiveOrgId(accessToken);
+        setOrganizationId(activeOrgId);
         loadProfile(currentUser.id, activeOrgId).finally(() => setLoading(false));
       } else {
         setLoading(false);
@@ -132,10 +138,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(newUser);
         if (newUser) {
           const activeOrgId = resolveActiveOrgId(session?.access_token);
+          setOrganizationId(activeOrgId);
           loadProfile(newUser.id, activeOrgId);
         } else {
           setProfile(null);
           setPermissions({});
+          setOrganizationId(null);
         }
       }
     );
@@ -155,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setPermissions({});
+    setOrganizationId(null);
   }
 
   return (
@@ -163,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         profile,
         permissions,
+        organizationId,
         loading,
         hasPermission,
         signOut,
