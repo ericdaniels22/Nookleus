@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { Job } from "@/lib/types";
+import { useOpenSessions } from "@/lib/timesheets/use-open-sessions";
+import { groupOnSiteNamesByJob } from "@/lib/timesheets/group-on-site";
 import JobCard from "@/components/job-card";
 import JobListRow from "@/components/job-list-row";
 import JobComfortableRow from "@/components/job-comfortable-row";
@@ -27,8 +29,21 @@ const RETENTION_DAYS = 30;
 
 export default function JobsPage() {
   const { statuses } = useConfig();
-  const { profile } = useAuth();
+  const { profile, organizationId } = useAuth();
   const showTrash = canDeleteJobs(profile?.role);
+
+  // One org-wide presence subscription for the whole list (#705): every Job
+  // card reads its own names from this, so we open a single realtime channel
+  // instead of one per card. view_jobs already guards this page.
+  const presenceClient = useMemo(() => createClient(), []);
+  const { sessions: openSessions } = useOpenSessions({
+    supabase: presenceClient,
+    organizationId,
+  });
+  const onSiteByJob = useMemo(
+    () => groupOnSiteNamesByJob(openSessions),
+    [openSessions],
+  );
 
   // All five lifecycle stages are selectable (Lead and Lost included), sourced
   // from the status-presentation module so the pills stay in pipeline order and
@@ -144,7 +159,11 @@ export default function JobsPage() {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {sectionJobs.map((job) => (
-          <JobCard key={job.id} job={job} />
+          <JobCard
+            key={job.id}
+            job={job}
+            onSiteNames={onSiteByJob.get(job.id) ?? []}
+          />
         ))}
       </div>
     );

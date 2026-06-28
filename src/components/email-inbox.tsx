@@ -24,6 +24,10 @@ import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
 import CategoryTabs, { type CategoryFilter } from "@/components/email/category-tabs";
 import { buildReplyComposeSeed, type ReplyKind } from "@/components/email/reply-compose-seed";
+import {
+  restoreDraftAttachments,
+  type DraftAttachmentInput,
+} from "@/lib/email/draft-attachments";
 import { useEmailSync } from "@/lib/email/use-email-sync";
 import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
 
@@ -208,6 +212,7 @@ export default function EmailInbox() {
     jobId: string;
     draftId?: string;
     accountId?: string;
+    attachments?: DraftAttachmentInput[];
   } | null>(null);
 
   // Consume query params on mount:
@@ -501,6 +506,9 @@ export default function EmailInbox() {
         jobId: email.job_id || "",
         draftId: email.id,
         accountId: email.account_id,
+        // Re-hydrate the draft's persisted attachments so the chips reappear
+        // and the files re-send (issue #663).
+        attachments: restoreDraftAttachments(email.attachments),
       });
       setComposeOpen(true);
       return;
@@ -917,6 +925,7 @@ export default function EmailInbox() {
         defaultBody={replyTo?.body || ""}
         defaultAccountId={replyTo?.accountId}
         replyToMessageId={replyTo?.messageId}
+        defaultAttachments={replyTo?.attachments}
         onSent={() => {
           loadEmails();
           loadCounts();

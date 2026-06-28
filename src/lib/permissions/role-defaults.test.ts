@@ -192,3 +192,45 @@ describe("ROLE_DEFAULTS — manage_timesheets defaults (#706)", () => {
     expect(fnGrant).toEqual(EXPECTED_GRANT);
   });
 });
+
+// issue #705 (parent epic #699) — Presence ("On the clock now").
+//
+// Pins the role-default grants for `view_timesheets`, the NEW permission that
+// gates the owner-dashboard org-wide "On the clock now" roll-up (who is on a
+// session anywhere in the Org, with a live elapsed timer). Unlike `track_time`
+// it is OFF for crew members — a worker clocks themselves in (track_time) but
+// does not see the whole-Org roster of everyone on the clock:
+//
+//   | Role        | Default |
+//   | ----------- | ------- |
+//   | Admin       | ON      |
+//   | Crew Lead   | ON      |
+//   | Crew Member | OFF     |   <- still sees per-Job "On site now" (view_jobs)
+//   | Custom      | OFF     |
+//
+// `custom` stays empty (admins hand-pick). The SQL `set_default_permissions`
+// mirrors this; the migration shipping with #705 keeps the two in sync.
+
+describe("ROLE_DEFAULTS — view_timesheets defaults (#705)", () => {
+  it("includes view_timesheets in admin's defaults (admins get every catalog key)", () => {
+    expect(ROLE_DEFAULTS.admin).toContain("view_timesheets");
+  });
+
+  it("includes view_timesheets in crew_lead's defaults", () => {
+    expect(ROLE_DEFAULTS.crew_lead).toContain("view_timesheets");
+  });
+
+  it("excludes view_timesheets from crew_member's defaults (workers don't see the Org roll-up)", () => {
+    expect(ROLE_DEFAULTS.crew_member).not.toContain("view_timesheets");
+  });
+
+  it("excludes view_timesheets from custom (the empty default)", () => {
+    expect(ROLE_DEFAULTS.custom).not.toContain("view_timesheets");
+  });
+
+  it("registers view_timesheets in the permission catalog under the Time group", () => {
+    const entry = PERMISSION_CATALOG.find((p) => p.key === "view_timesheets");
+    expect(entry).toBeDefined();
+    expect(entry?.group).toBe("Time");
+  });
+});

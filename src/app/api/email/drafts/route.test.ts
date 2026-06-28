@@ -132,3 +132,81 @@ describe("POST /api/email/drafts — sanitizes body HTML before storage", () => 
     expect(html).toContain("<p>Hi</p>");
   });
 });
+
+// Issue #663: persist email_attachments rows tied to the draft so a resumed
+// draft re-hydrates its files, reconciling on every autosave.
+describe("POST /api/email/drafts — persists draft attachments", () => {
+  function withAttachments(opts: {
+    body: Record<string, unknown>;
+    emails?: Record<string, unknown>[];
+    email_attachments?: Record<string, unknown>[];
+  }) {
+    const writes: Array<{ table: string; op: string; payload: Record<string, unknown> }> = [];
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: {
+          ...memberTables({ userId: "user-1", role: "crew_member", grants: ["send_email"] }),
+          email_accounts: [
+            { id: "acc-1", email_address: "rep@aaa.test", display_name: "Rep", organization_id: "org-1" },
+          ],
+          emails: opts.emails ?? [],
+          email_attachments: opts.email_attachments ?? [],
+        },
+        onWrite: (table, op, payload) =>
+          writes.push({ table, op, payload: payload as Record<string, unknown> }),
+      }) as never,
+    );
+    return { writes, run: () => POST(postReq(opts.body), noParams) };
+  }
+
+  it("inserts an email_attachments row for a newly-attached file on a new draft", async () => {
+    const { writes, run } = withAttachments({
+      // create path: the emails insert resolves its id from the seeded row
+      emails: [{ id: "draft-1" }],
+      body: {
+        accountId: "acc-1",
+        bodyText: "Hi",
+        attachments: [
+          { filename: "quote.pdf", content_type: "application/pdf", file_size: 2048, storage_path: "drafts/1-quote.pdf" },
+        ],
+      },
+    });
+
+    await run();
+
+    const attWrite = writes.find((w) => w.table === "email_attachments" && w.op === "insert");
+    expect(attWrite).toBeTruthy();
+    const inserted = Array.isArray(attWrite!.payload) ? attWrite!.payload : [attWrite!.payload];
+    expect(inserted[0]).toMatchObject({
+      email_id: "draft-1",
+      organization_id: "org-1",
+      filename: "quote.pdf",
+      content_type: "application/pdf",
+      file_size: 2048,
+      storage_path: "drafts/1-quote.pdf",
+    });
+  });
+
+  it("does not re-insert an attachment already persisted for the draft (no duplicates)", async () => {
+    const { writes, run } = withAttachments({
+      emails: [{ id: "draft-1" }],
+      email_attachments: [
+        { id: "att-1", email_id: "draft-1", storage_path: "drafts/1-quote.pdf" },
+      ],
+      body: {
+        draftId: "draft-1",
+        accountId: "acc-1",
+        bodyText: "Hi again",
+        attachments: [
+          { filename: "quote.pdf", content_type: "application/pdf", file_size: 2048, storage_path: "drafts/1-quote.pdf" },
+        ],
+      },
+    });
+
+    await run();
+
+    const attInsert = writes.find((w) => w.table === "email_attachments" && w.op === "insert");
+    expect(attInsert).toBeUndefined();
+  });
+});

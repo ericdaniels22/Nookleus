@@ -72,6 +72,10 @@ vi.mock("@/components/job-detail/job-messages-section", () => ({ JobMessagesSect
 vi.mock("@/components/job-detail/job-calls-section", () => ({ JobCallsSection: () => null }));
 vi.mock("@/components/job-detail/job-status-select", () => ({ JobStatusSelect: () => null }));
 vi.mock("@/components/phone/click-to-call", () => ({ ClickToCall: () => null }));
+// Presence "On site now" (#705) opens its own realtime channel on mount; this
+// test's fake client has no `.channel()`, and presence is orthogonal to the
+// swipe-to-refresh data-preservation path under test — stub it to nothing.
+vi.mock("@/components/time/on-site-now", () => ({ default: () => null }));
 
 // Supabase: a chainable query builder whose terminal (.single / .maybeSingle /
 // await) resolves to a per-table result. `resultsByTable` is swapped between

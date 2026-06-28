@@ -22,6 +22,7 @@ export const ROLE_DEFAULTS: Record<string, readonly PermissionKey[]> = {
     "view_email", "send_email",
     "view_phone",
     "track_time",
+    "view_timesheets",
     "manage_timesheets",
     "manage_reports",
   ],

@@ -4,6 +4,11 @@ import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot, touchEntity, roundMoney } from "@/lib/builder-shared";
 import { recalculateInvoiceTotals } from "@/lib/invoices";
+import type { PricingMode } from "@/lib/types";
+import {
+  EQUIPMENT_MODE,
+  deriveEquipmentNote,
+} from "@/components/estimate-builder/equipment-pricing";
 
 interface PostBody {
   section_id: string;
@@ -18,6 +23,12 @@ interface PostBody {
   unit_price?: number;
   code?: string | null;
   sort_order?: number;
+  // Equipment pricing seed (#679 parity with the estimate create route + the
+  // invoice per-item PUT). In equipment mode the server derives quantity/note/
+  // amount from pieces × days (below).
+  pricing_mode?: PricingMode;
+  pieces?: number | null;
+  days?: number | null;
 }
 
 export const POST = withRequestContext(
@@ -57,6 +68,35 @@ export const POST = withRequestContext(
           return NextResponse.json({ error: "note too long (max 2000)" }, { status: 400 });
         }
         note = trimmedNote.length > 0 ? trimmedNote : null;
+      }
+
+      // Equipment pricing seed (#679 parity) — validate the mode + raw pieces/days
+      // before touching the DB. pieces/days must be positive when present: a
+      // "0 units" / negative rental is never valid. Mirrors the estimate create
+      // route and the invoice per-item PUT (#684).
+      let pricing_mode: PricingMode = "standard";
+      if (body.pricing_mode !== undefined) {
+        if (body.pricing_mode !== "standard" && body.pricing_mode !== "pieces_days") {
+          return NextResponse.json(
+            { error: "pricing_mode must be 'standard' or 'pieces_days'" },
+            { status: 400 },
+          );
+        }
+        pricing_mode = body.pricing_mode;
+      }
+      let pieces: number | null = null;
+      if (body.pieces !== undefined && body.pieces !== null) {
+        if (typeof body.pieces !== "number" || !Number.isFinite(body.pieces) || body.pieces <= 0) {
+          return NextResponse.json({ error: "pieces must be a positive number or null" }, { status: 400 });
+        }
+        pieces = body.pieces;
+      }
+      let days: number | null = null;
+      if (body.days !== undefined && body.days !== null) {
+        if (typeof body.days !== "number" || !Number.isFinite(body.days) || body.days <= 0) {
+          return NextResponse.json({ error: "days must be a positive number or null" }, { status: 400 });
+        }
+        days = body.days;
       }
 
       let lineRow: Record<string, unknown>;
@@ -135,6 +175,22 @@ export const POST = withRequestContext(
           amount: roundMoney(qty * price),
           sort_order: body.sort_order ?? 0,
         };
+      }
+
+      // Persist the raw equipment inputs; in equipment mode the server owns the
+      // collapsed quantity (pieces × days), the derived note, and the amount —
+      // overriding whatever the client posted so a stale or buggy client can't
+      // drift quantity from pieces × days.
+      lineRow.pricing_mode = pricing_mode;
+      lineRow.pieces = pieces;
+      lineRow.days = days;
+      if (pricing_mode === EQUIPMENT_MODE) {
+        const p = pieces ?? 1;
+        const d = days ?? 1;
+        const unitPrice = Number(lineRow.unit_price);
+        lineRow.quantity = p * d;
+        lineRow.note = deriveEquipmentNote(p, d);
+        lineRow.amount = roundMoney(p * d * unitPrice);
       }
 
       const { data, error } = await supabase.from("invoice_line_items").insert(lineRow).select().single();
