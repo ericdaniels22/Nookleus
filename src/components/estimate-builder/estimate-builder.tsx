@@ -321,19 +321,24 @@ function duplicatePostBody(
   };
 }
 
-const ESTIMATE_CARRY_FIELDS: readonly (keyof EstimateLineItem)[] = [
+export const ESTIMATE_CARRY_FIELDS: readonly (keyof EstimateLineItem)[] = [
   "description", "note", "code", "quantity", "unit", "unit_price",
   "pricing_mode", "pieces", "days",
 ];
 
-const INVOICE_CARRY_FIELDS: readonly (keyof import("@/lib/types").InvoiceLineItem)[] = [
+// Equipment fields (pricing_mode/pieces/days) carry here too so duplicating an
+// invoice equipment row restores its pieces × days mode — parity with estimates
+// (#684 shipped invoice equipment editing). The duplicate POST is standard-only,
+// so without these the corrective PUT can't undo it and the copy reverts to Standard.
+export const INVOICE_CARRY_FIELDS: readonly (keyof import("@/lib/types").InvoiceLineItem)[] = [
   "description", "note", "code", "quantity", "unit", "unit_price",
+  "pricing_mode", "pieces", "days",
 ];
 
 // Fields whose original value differs from the freshly-created server row — the
 // delta the corrective single-item edit must apply so the copy matches the
 // original. Returns the original's value for each differing field.
-function correctiveDelta<T>(
+export function correctiveDelta<T>(
   original: T,
   serverRow: T,
   fields: readonly (keyof T)[],
@@ -1703,7 +1708,7 @@ export function EstimateBuilder({
       return;
     }
 
-    // Invoice: parallel to estimate, minus equipment fields.
+    // Invoice: parallel to estimate, including equipment fields (INVOICE_CARRY_FIELDS).
     if (state.entity.kind === "invoice") {
       const original = findLineItem<import("@/lib/types").InvoiceLineItem>(
         state.entity.data.sections,
