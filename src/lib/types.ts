@@ -903,6 +903,12 @@ export interface InvoiceLineItem {
   unit: string | null;
   unit_price: number;
   amount: number; // = total in estimate-land
+  /** Billing mode for this row (issue #684). Defaults to `standard`. */
+  pricing_mode: PricingMode;
+  /** Equipment mode only: piece count. NULL in standard mode. */
+  pieces: number | null;
+  /** Equipment mode only: number of days. NULL in standard mode. */
+  days: number | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

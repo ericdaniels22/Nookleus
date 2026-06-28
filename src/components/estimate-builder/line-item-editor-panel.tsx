@@ -89,12 +89,14 @@ export function LineItemEditorPanel({
   readOnly = false,
   mode,
 }: LineItemEditorPanelProps) {
-  // Equipment pricing (#682) is an Estimate-builder affordance only, and lives
-  // on EstimateLineItem (InvoiceLineItem has no pricing_mode). The `in` check
-  // both scopes the feature out of invoice/template panels and narrows `item`
-  // to the estimate row type, so the equipment fields are type-safe to read.
+  // Equipment pricing lives on both Estimate (#682) and Invoice (#684) rows, so
+  // the shared editor enables it in either builder — but not Template. The `in`
+  // check narrows `item` to a row type that carries the equipment fields, so
+  // they're type-safe to read.
   const equipmentItem =
-    mode === "estimate" && "pricing_mode" in item ? item : null;
+    (mode === "estimate" || mode === "invoice") && "pricing_mode" in item
+      ? item
+      : null;
   const isEquipment = equipmentItem?.pricing_mode === "pieces_days";
 
   // Each field holds its own draft, seeded from the item, and commits on blur
@@ -144,7 +146,10 @@ export function LineItemEditorPanel({
     setDescription(item.description ?? "");
     setNote(item.note ?? "");
     setUnitPriceDraft(item.unit_price);
-    const swapped = mode === "estimate" && "pricing_mode" in item ? item : null;
+    const swapped =
+      (mode === "estimate" || mode === "invoice") && "pricing_mode" in item
+        ? item
+        : null;
     setPiecesDraft(swapped?.pieces != null ? String(swapped.pieces) : "");
     setDaysDraft(swapped?.days != null ? String(swapped.days) : "");
   } else if (currentMode !== prevMode) {
