@@ -321,19 +321,24 @@ function duplicatePostBody(
   };
 }
 
-const ESTIMATE_CARRY_FIELDS: readonly (keyof EstimateLineItem)[] = [
+export const ESTIMATE_CARRY_FIELDS: readonly (keyof EstimateLineItem)[] = [
   "description", "note", "code", "quantity", "unit", "unit_price",
   "pricing_mode", "pieces", "days",
 ];
 
-const INVOICE_CARRY_FIELDS: readonly (keyof import("@/lib/types").InvoiceLineItem)[] = [
+// Equipment fields (pricing_mode/pieces/days) carry here too so duplicating an
+// invoice equipment row restores its pieces × days mode — parity with estimates
+// (#684 shipped invoice equipment editing). The duplicate POST is standard-only,
+// so without these the corrective PUT can't undo it and the copy reverts to Standard.
+export const INVOICE_CARRY_FIELDS: readonly (keyof import("@/lib/types").InvoiceLineItem)[] = [
   "description", "note", "code", "quantity", "unit", "unit_price",
+  "pricing_mode", "pieces", "days",
 ];
 
 // Fields whose original value differs from the freshly-created server row — the
 // delta the corrective single-item edit must apply so the copy matches the
 // original. Returns the original's value for each differing field.
-function correctiveDelta<T>(
+export function correctiveDelta<T>(
   original: T,
   serverRow: T,
   fields: readonly (keyof T)[],
@@ -1510,9 +1515,17 @@ export function EstimateBuilder({
     // container (the create route appends). Optimistically splice it to the
     // TOP, recompute totals so the bar updates instantly, then persist the new
     // order via the line-items reorder PUT (POST-then-reorder). Roll back the
-    // local splice if that PUT fails. Computing from `state` synchronously —
-    // and threading the fresh closure between multi-adds via the dialog's
-    // re-rendered onAdded prop — mirrors the drag-end handlers in this file.
+    // local splice if that PUT fails.
+    //
+    // We compute sections_after synchronously from the closure `state` (NOT a
+    // functional setState updater): the reorder PUT below needs that value
+    // *immediately*, and React defers updater functions to the render phase, so
+    // a value captured inside one isn't assigned yet when we'd fire the PUT —
+    // the PUT would silently never run (proven by add-reorder-snapshot.test.tsx).
+    // Rapid multi-add can't race the closure in practice: the add flow goes
+    // through the modal AddItemDialog, which closes after each confirm and forces
+    // a re-render (fresh `state`) before the next add can be confirmed. Mirrors
+    // the drag-end handlers in this file.
     if (state.entity.kind === "estimate") {
       const estimateItem = newItem as EstimateLineItem;
       const containerId = estimateItem.section_id;
@@ -1703,7 +1716,7 @@ export function EstimateBuilder({
       return;
     }
 
-    // Invoice: parallel to estimate, minus equipment fields.
+    // Invoice: parallel to estimate, including equipment fields (INVOICE_CARRY_FIELDS).
     if (state.entity.kind === "invoice") {
       const original = findLineItem<import("@/lib/types").InvoiceLineItem>(
         state.entity.data.sections,
