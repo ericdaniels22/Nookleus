@@ -9,7 +9,7 @@ import { render, screen, within, fireEvent } from "@testing-library/react";
 import React from "react";
 
 import { LineItemEditorPanel } from "./line-item-editor-panel";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, InvoiceLineItem } from "@/lib/types";
 
 function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
   return {
@@ -26,6 +26,34 @@ function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
     unit: "sq",
     unit_price: 100,
     total: 200,
+    pricing_mode: "standard",
+    pieces: null,
+    days: null,
+    sort_order: 0,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+// An Invoice row carries `amount` instead of `total` but the same equipment
+// fields (#684). The editor panel treats both identically once equipment
+// pricing is enabled for invoice mode.
+function makeInvoiceItem(overrides: Partial<InvoiceLineItem> = {}): InvoiceLineItem {
+  return {
+    id: "A",
+    organization_id: "org-1",
+    invoice_id: "inv-1",
+    section_id: "S1",
+    library_item_id: null,
+    name: "Excavator rental",
+    description: "Mini excavator",
+    note: null,
+    code: "EQ-100",
+    quantity: 2,
+    unit: "ea",
+    unit_price: 100,
+    amount: 200,
     pricing_mode: "standard",
     pieces: null,
     days: null,
@@ -721,6 +749,35 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
     });
   });
 
+  it("switches an Invoice row into equipment mode via the Bill-as toggle (#684)", () => {
+    // The shared panel now enables equipment pricing on Invoices too, so a
+    // rental billed by Pieces × Days can be edited directly on the Invoice
+    // exactly as on the Estimate.
+    const onChange = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeInvoiceItem()}
+        onChange={onChange}
+        onClose={vi.fn()}
+        mode="invoice"
+      />,
+    );
+
+    expect(screen.getByTestId("editor-field-quantity")).toBeDefined();
+    expect(screen.queryByTestId("editor-field-pieces")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("editor-bill-as-equipment"));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      pricing_mode: "pieces_days",
+      pieces: 2,
+      days: 1,
+      quantity: 2,
+      note: "2 units for 1 day",
+    });
+  });
+
   // An item already billed as pieces × days.
   function equipmentItem(overrides: Partial<EstimateLineItem> = {}) {
     return makeItem({
@@ -1079,15 +1136,16 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
     ).toBe("2");
   });
 
-  it("shows no Bill-as toggle outside the Estimate builder", () => {
-    // The invoice/template builders share this panel but equipment pricing is
-    // Estimate-only (#682) — the toggle is gated on mode === "estimate".
+  it("shows no Bill-as toggle in the Template builder", () => {
+    // Estimate (#682) and Invoice (#684) builders share this panel and both
+    // expose equipment pricing; the Template builder does not — the toggle is
+    // gated on mode === "estimate" || mode === "invoice".
     render(
       <LineItemEditorPanel
         item={makeItem()}
         onChange={vi.fn()}
         onClose={vi.fn()}
-        mode="invoice"
+        mode="template"
       />,
     );
 

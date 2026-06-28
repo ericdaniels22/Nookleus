@@ -256,8 +256,8 @@ _Avoid_: "unit cost" (the current column label is a misnomer — the value is
 the charge, not a cost), line, entry
 
 **Equipment line item** (a.k.a. **Pieces × Days billing**):
-An Estimate line item billed as **pieces × days** instead of a single quantity
-(e.g. *3 units for 10 days*). It is an input affordance plus a derived note, not
+An Estimate **or Invoice** line item billed as **pieces × days** instead of a
+single quantity (e.g. *3 units for 10 days*). It is an input affordance plus a derived note, not
 a second pricing formula: the Pieces and Days inputs **collapse into the row's
 `quantity`** (`quantity = pieces × days`), so the universal
 `total = quantity × unit_price` and every downstream consumer (Subtotal, the
@@ -268,7 +268,9 @@ price is then a **per-piece-per-day** rate. A row's billing is chosen by its
 hidden) and renders as the italic sub-line on the customer PDF. The literal word
 **"units"** is used regardless of the equipment type. Switching back to Standard
 clears Pieces/Days and hands the note slot back to manual control, keeping the
-last `quantity` so the total survives the toggle.
+last `quantity` so the total survives the toggle. Equipment rows are edited
+directly on an Invoice exactly as on an Estimate, and the mode — with its
+Pieces/Days — **survives estimate→invoice conversion** (#684).
 _Avoid_: "rental line", "duration pricing"; do **not** describe it as a separate
 total formula — it is always `quantity × unit_price` underneath
 

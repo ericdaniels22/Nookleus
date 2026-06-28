@@ -4,6 +4,11 @@ import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { checkSnapshot, touchEntity, roundMoney } from "@/lib/builder-shared";
 import { recalculateInvoiceTotals } from "@/lib/invoices";
+import type { PricingMode } from "@/lib/types";
+import {
+  EQUIPMENT_MODE,
+  deriveEquipmentNote,
+} from "@/components/estimate-builder/equipment-pricing";
 
 interface PutBody {
   name?: string | null;
@@ -15,6 +20,12 @@ interface PutBody {
   unit_price?: number;
   section_id?: string;
   sort_order?: number;
+  // Equipment pricing (#684) — mirrors the Estimate route. When the row is in
+  // equipment mode the server derives quantity/note/amount from pieces × days;
+  // see the recompute block below.
+  pricing_mode?: PricingMode;
+  pieces?: number | null;
+  days?: number | null;
   updated_at_snapshot?: string;
 }
 
@@ -93,13 +104,68 @@ export const PUT = withRequestContext(
       if (body.section_id !== undefined) patch.section_id = body.section_id;
       if (body.sort_order !== undefined) patch.sort_order = body.sort_order;
 
-      // Recompute amount if qty/price touched
-      if (body.quantity !== undefined || body.unit_price !== undefined) {
+      // Equipment pricing (#684) — validate the mode + raw inputs, mirroring the
+      // Estimate route so the shared editor behaves identically on an Invoice.
+      if (body.pricing_mode !== undefined) {
+        if (body.pricing_mode !== "standard" && body.pricing_mode !== "pieces_days") {
+          return NextResponse.json({ error: "pricing_mode must be 'standard' or 'pieces_days'" }, { status: 400 });
+        }
+        patch.pricing_mode = body.pricing_mode;
+      }
+      if (body.pieces !== undefined) {
+        if (body.pieces !== null && (typeof body.pieces !== "number" || !Number.isFinite(body.pieces) || body.pieces <= 0)) {
+          return NextResponse.json({ error: "pieces must be a positive number or null" }, { status: 400 });
+        }
+        patch.pieces = body.pieces;
+      }
+      if (body.days !== undefined) {
+        if (body.days !== null && (typeof body.days !== "number" || !Number.isFinite(body.days) || body.days <= 0)) {
+          return NextResponse.json({ error: "days must be a positive number or null" }, { status: 400 });
+        }
+        patch.days = body.days;
+      }
+
+      // Read the existing row once: needed both for the standard amount recompute
+      // and to carry over pieces/days/unit_price when the client only touches one
+      // of them on an equipment row.
+      const needsExisting =
+        body.quantity !== undefined ||
+        body.unit_price !== undefined ||
+        body.pricing_mode !== undefined ||
+        body.pieces !== undefined ||
+        body.days !== undefined;
+      if (needsExisting) {
         const { data: cur } = await supabase
-          .from("invoice_line_items").select("quantity, unit_price").eq("id", item_id).maybeSingle<{ quantity: number; unit_price: number }>();
-        const qty = body.quantity !== undefined ? Number(body.quantity) : Number(cur?.quantity);
-        const price = body.unit_price !== undefined ? Number(body.unit_price) : Number(cur?.unit_price);
-        patch.amount = roundMoney(qty * price);
+          .from("invoice_line_items")
+          .select("quantity, unit_price, pricing_mode, pieces, days")
+          .eq("id", item_id)
+          .maybeSingle<{
+            quantity: number;
+            unit_price: number;
+            pricing_mode: PricingMode | null;
+            pieces: number | null;
+            days: number | null;
+          }>();
+
+        // Standard amount recompute when qty/price touched.
+        if (body.quantity !== undefined || body.unit_price !== undefined) {
+          const qty = body.quantity !== undefined ? Number(body.quantity) : Number(cur?.quantity);
+          const price = body.unit_price !== undefined ? Number(body.unit_price) : Number(cur?.unit_price);
+          patch.amount = roundMoney(qty * price);
+        }
+
+        // On an equipment row the server owns the collapsed quantity, the derived
+        // note, and the amount (quantity = pieces × days) so they can't drift from
+        // a stale or buggy client — overriding whatever it sent for those fields.
+        const effectiveMode = body.pricing_mode ?? cur?.pricing_mode ?? "standard";
+        if (effectiveMode === EQUIPMENT_MODE) {
+          const pieces = (body.pieces !== undefined ? body.pieces : cur?.pieces) ?? 1;
+          const days = (body.days !== undefined ? body.days : cur?.days) ?? 1;
+          const unitPrice = body.unit_price !== undefined ? Number(body.unit_price) : Number(cur?.unit_price);
+          patch.quantity = pieces * days;
+          patch.note = deriveEquipmentNote(pieces, days);
+          patch.amount = roundMoney(pieces * days * unitPrice);
+        }
       }
 
       const { error } = await supabase.from("invoice_line_items").update(patch).eq("id", item_id).eq("invoice_id", id);
