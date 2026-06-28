@@ -35,7 +35,8 @@ import {
   moveLineItemAcrossContainers,
   resolveLineItemDropTarget,
 } from "./move-line-item";
-import { insertLineItemAtContainerTop } from "./insert-line-item";
+import { insertLineItemAtContainerTop, insertLineItemAfter } from "./insert-line-item";
+import { duplicateLineItem } from "./duplicate-line-item";
 import { HeaderCard } from "./header-card";
 import { TotalsCard } from "./totals-card";
 import { CustomerCard } from "./customer-card";
@@ -282,6 +283,66 @@ function containerReorderPayload(
     section_id: containerId,
     sort_order: it.sort_order,
   }));
+}
+
+// #683 — Duplicate-line-item glue (estimate / invoice). The create POST carries
+// name/description/code/unit/unit_price/quantity/note and the price-list link,
+// but NOT a row's equipment fields (pricing_mode/pieces/days — the create route
+// doesn't accept them, per #682) nor a library row's *locally-edited*
+// description/code/unit (the route re-snapshots those from the library). So we
+// POST the row, then a corrective single-item edit (correctiveDelta) carries
+// exactly the fields that differ between the original and the created server row.
+// One unified body works for both the estimate and invoice create routes (their
+// payloads share these field names; the library branch ignores the fields it
+// re-snapshots, the custom branch consumes them).
+function duplicatePostBody(
+  item: {
+    library_item_id: string | null;
+    name: string | null;
+    description: string;
+    note: string | null;
+    code: string | null;
+    quantity: number;
+    unit: string | null;
+    unit_price: number;
+  },
+  containerId: string,
+) {
+  return {
+    section_id: containerId,
+    library_item_id: item.library_item_id ?? null,
+    name: item.name ?? undefined,
+    description: item.description,
+    note: item.note ?? undefined,
+    code: item.code ?? null,
+    quantity: item.quantity,
+    unit: item.unit ?? null,
+    unit_price: item.unit_price,
+  };
+}
+
+const ESTIMATE_CARRY_FIELDS: readonly (keyof EstimateLineItem)[] = [
+  "description", "note", "code", "quantity", "unit", "unit_price",
+  "pricing_mode", "pieces", "days",
+];
+
+const INVOICE_CARRY_FIELDS: readonly (keyof import("@/lib/types").InvoiceLineItem)[] = [
+  "description", "note", "code", "quantity", "unit", "unit_price",
+];
+
+// Fields whose original value differs from the freshly-created server row — the
+// delta the corrective single-item edit must apply so the copy matches the
+// original. Returns the original's value for each differing field.
+function correctiveDelta<T>(
+  original: T,
+  serverRow: T,
+  fields: readonly (keyof T)[],
+): Partial<T> {
+  const delta: Partial<T> = {};
+  for (const f of fields) {
+    if (original[f] !== serverRow[f]) delta[f] = original[f];
+  }
+  return delta;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1530,6 +1591,189 @@ export function EstimateBuilder({
     }
   }
 
+  // ── Slot 5: line-item duplicate (#683) ────────────────────────────────────
+  // Drop a copy of `id` immediately below the original in the same container and
+  // select the copy. Same persistence asymmetry as the per-container add (#681):
+  // template mode is a pure local splice (rootPut auto-save persists the whole
+  // tree, so every field — including equipment — carries for free); estimate /
+  // invoice POST a fresh row, splice it after the original, reorder it into place
+  // (POST-then-reorder), then apply a corrective edit for the fields the create
+  // route can't carry (see duplicatePostBody / correctiveDelta).
+  async function onLineItemDuplicate(id: string) {
+    // Template mode: local synthesis; rootPut auto-save persists the tree.
+    if (state.entity.kind === "template") {
+      const original = findLineItem(state.entity.data.sections, id);
+      if (!original) return;
+      const clone = duplicateLineItem(original);
+      setState((prev) => {
+        if (prev.entity.kind !== "template") return prev;
+        const sections_after = insertLineItemAfter(
+          prev.entity.data.sections,
+          id,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          clone as any,
+        );
+        return {
+          ...prev,
+          entity: {
+            ...prev.entity,
+            data: { ...prev.entity.data, sections: sections_after },
+          } as BuilderEntity,
+        };
+      });
+      lineSelection.select(clone.id);
+      return;
+    }
+
+    // Estimate: POST a fresh row (the create route appends to the END of the
+    // container), splice it immediately after the original, recompute totals,
+    // then persist the new order via the reorder PUT. Roll back the splice if
+    // that PUT fails; finally apply a corrective edit for fields the POST can't
+    // carry (equipment pricing_mode/pieces/days; a library row's edited
+    // description/code/unit which the route re-snapshots).
+    if (state.entity.kind === "estimate") {
+      const original = findLineItem<EstimateLineItem>(state.entity.data.sections, id);
+      if (!original) return;
+      const containerId = original.section_id;
+      const entityId = state.entity.data.id;
+      const snapshot = state.entity.data;
+
+      let serverRow: EstimateLineItem;
+      let updatedAt: string | null;
+      try {
+        const res = await fetch(`/api/estimates/${entityId}/line-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(duplicatePostBody(original, containerId)),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast.error(body.error || "Failed to duplicate line item");
+          return;
+        }
+        const data = (await res.json()) as {
+          line_item: EstimateLineItem;
+          updated_at?: string | null;
+        };
+        serverRow = data.line_item;
+        updatedAt = data.updated_at ?? null;
+      } catch {
+        toast.error("Network error — could not duplicate line item");
+        return;
+      }
+
+      const sections_after = insertLineItemAfter(
+        state.entity.data.sections,
+        id,
+        serverRow,
+      );
+      const subtotal = sumLineItemsFromSections(sections_after);
+      const next_estimate = applyEstimateTotals({
+        ...state.entity.data,
+        sections: sections_after,
+        subtotal,
+      });
+      setState((prev) => {
+        if (prev.entity.kind !== "estimate") return prev;
+        return { ...prev, entity: { ...prev.entity, data: next_estimate } };
+      });
+      lineSelection.select(serverRow.id);
+
+      // #681 — adopt the POST's fresh updated_at so the reorder PUT below isn't
+      // stale (else 409 → stale-conflict latch and the copy strands at the end).
+      adoptUpdatedAt(updatedAt);
+      const ok = await saveLineItemsReorder(
+        containerReorderPayload(sections_after, containerId),
+      );
+      if (!ok) {
+        toast.error("Failed to save duplicated item position");
+        setState((prev) => {
+          if (prev.entity.kind !== "estimate") return prev;
+          return { ...prev, entity: { ...prev.entity, data: snapshot } };
+        });
+        return;
+      }
+
+      // Corrective edit. The reorder PUT above awaited a network round-trip, so
+      // the splice render has committed and the auto-save hook has baselined the
+      // server row — this delta is diffed against that baseline and persisted
+      // via the single-item PUT rather than silently swallowed as a new row.
+      const delta = correctiveDelta(original, serverRow, ESTIMATE_CARRY_FIELDS);
+      if (Object.keys(delta).length > 0) onLineItemChange(serverRow.id, delta);
+      return;
+    }
+
+    // Invoice: parallel to estimate, minus equipment fields.
+    if (state.entity.kind === "invoice") {
+      const original = findLineItem<import("@/lib/types").InvoiceLineItem>(
+        state.entity.data.sections,
+        id,
+      );
+      if (!original) return;
+      const containerId = original.section_id ?? "";
+      const entityId = state.entity.data.id;
+      const snapshot = state.entity.data;
+
+      let serverRow: import("@/lib/types").InvoiceLineItem;
+      let updatedAt: string | null;
+      try {
+        const res = await fetch(`/api/invoices/${entityId}/line-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(duplicatePostBody(original, containerId)),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast.error(body.error || "Failed to duplicate line item");
+          return;
+        }
+        const data = (await res.json()) as {
+          line_item: import("@/lib/types").InvoiceLineItem;
+          updated_at?: string | null;
+        };
+        serverRow = data.line_item;
+        updatedAt = data.updated_at ?? null;
+      } catch {
+        toast.error("Network error — could not duplicate line item");
+        return;
+      }
+
+      const sections_after = insertLineItemAfter(
+        state.entity.data.sections,
+        id,
+        serverRow,
+      );
+      const subtotal = sumLineItemsFromSections(sections_after);
+      const next_invoice = applyInvoiceTotals({
+        ...state.entity.data,
+        sections: sections_after,
+        subtotal,
+      });
+      setState((prev) => {
+        if (prev.entity.kind !== "invoice") return prev;
+        return { ...prev, entity: { ...prev.entity, data: next_invoice } };
+      });
+      lineSelection.select(serverRow.id);
+
+      adoptUpdatedAt(updatedAt);
+      const ok = await saveLineItemsReorder(
+        containerReorderPayload(sections_after, containerId),
+      );
+      if (!ok) {
+        toast.error("Failed to save duplicated item position");
+        setState((prev) => {
+          if (prev.entity.kind !== "invoice") return prev;
+          return { ...prev, entity: { ...prev.entity, data: snapshot } };
+        });
+        return;
+      }
+
+      const delta = correctiveDelta(original, serverRow, INVOICE_CARRY_FIELDS);
+      if (Object.keys(delta).length > 0) onLineItemChange(serverRow.id, delta);
+      return;
+    }
+  }
+
   // ── Slot 5 / Task 28: drag-end handler ────────────────────────────────────
   // Drag-reorder updates local state optimistically, then fires the appropriate
   // PUT immediately (not debounced). On failure, the local state is rolled back.
@@ -1968,6 +2212,7 @@ export function EstimateBuilder({
                   onLineItemChange(selectedInvoiceItem.id, partial)
                 }
                 onClose={lineSelection.clear}
+                onDuplicate={() => onLineItemDuplicate(selectedInvoiceItem.id)}
                 onDelete={() => onLineItemDelete(selectedInvoiceItem.id)}
                 readOnly={isVoided}
                 mode={invMode}
@@ -2085,6 +2330,7 @@ export function EstimateBuilder({
                   onLineItemChange(selectedTemplateItem.id, partial)
                 }
                 onClose={lineSelection.clear}
+                onDuplicate={() => onLineItemDuplicate(selectedTemplateItem.id)}
                 onDelete={() => onLineItemDelete(selectedTemplateItem.id)}
                 mode={tmplMode}
               />
@@ -2222,6 +2468,7 @@ export function EstimateBuilder({
               item={selectedItem}
               onChange={(partial) => onLineItemChange(selectedItem.id, partial)}
               onClose={lineSelection.clear}
+              onDuplicate={() => onLineItemDuplicate(selectedItem.id)}
               onDelete={() => onLineItemDelete(selectedItem.id)}
               readOnly={isVoided}
               mode={mode}
