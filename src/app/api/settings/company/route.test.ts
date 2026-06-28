@@ -24,6 +24,13 @@ function putReq() {
   return new Request("http://test", { method: "PUT", body: "{}" });
 }
 
+function putTimezoneReq() {
+  return new Request("http://test", {
+    method: "PUT",
+    body: JSON.stringify({ timezone: "America/Chicago" }),
+  });
+}
+
 const lacks = () => ({
   user: { id: "u" },
   tables: memberTables({ userId: "u", role: "crew_member", grants: [] }),
@@ -87,5 +94,19 @@ describe("PUT /api/settings/company — gated on access_settings (#107)", () => 
   it("admins retain access without holding the key", async () => {
     authed(admin());
     expect((await PUT(putReq(), noParams)).status).toBe(200);
+  });
+});
+
+// #704 — the Organization timezone is saved through this same PUT (a `timezone`
+// key), so editing it stays gated by `access_settings` with no new permission.
+describe("PUT /api/settings/company { timezone } — Organization timezone (#704)", () => {
+  it("denies a caller lacking access_settings", async () => {
+    authed(lacks());
+    expect((await PUT(putTimezoneReq(), noParams)).status).toBe(403);
+  });
+
+  it("saves the timezone when the caller holds access_settings", async () => {
+    authed(holds());
+    expect((await PUT(putTimezoneReq(), noParams)).status).toBe(200);
   });
 });

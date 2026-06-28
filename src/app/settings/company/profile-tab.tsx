@@ -9,6 +9,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TimezoneSection } from "./timezone-section";
 
 export function ProfileTab() {
   const [loading, setLoading] = useState(true);
@@ -333,6 +334,11 @@ export function ProfileTab() {
           </div>
         </div>
       </div>
+
+      {/* Organization timezone (#704) — alongside the business address it
+          proposes a default from. Self-contained: its own load/save, so the
+          proposal reads the SAVED address state, not unsaved edits above. */}
+      <TimezoneSection />
 
       {/* Save */}
       <div className="flex justify-end">
