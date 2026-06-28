@@ -11,8 +11,11 @@ import { cn } from "@/lib/utils";
 
 const AUTH_ROUTES = ["/login", "/logout", "/set-password"];
 const FULL_BLEED_ROUTES = ["/email"];
-// Public customer-facing routes render without the internal app chrome.
-const PUBLIC_ROUTES = ["/sign", "/pay"];
+// Public customer-facing routes render without the internal app chrome. The
+// marketing landing (/welcome) and legal pages (/privacy, /terms) are public
+// too — they must be reachable, and render bare, for Google's OAuth app
+// verification (#789), where reviewers visit them without a Nookleus session.
+const PUBLIC_ROUTES = ["/sign", "/pay", "/welcome", "/privacy", "/terms"];
 // Internal routes that still require auth (handled in the page itself)
 // but render full-screen without the sidebar — used for the tablet
 // in-person signing handoff where the iPad is given to the customer.

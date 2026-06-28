@@ -48,6 +48,22 @@ vi.mock("@/components/nav", () => ({
   },
 }));
 
+// The On-the-clock chrome (added in #701) wraps the authed branch and calls
+// useAuth(), which throws without an AuthProvider. These tests only exercise
+// AppShell's route-to-chrome wiring, so the clock pieces are stubbed to inert
+// passthroughs — keeping the harness focused on the sidebar/margin behavior.
+vi.mock("@/lib/on-the-clock-context", () => ({
+  OnTheClockProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock("@/components/time/on-the-clock-bar", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/time/away-nudge-watcher", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
 import AppShell from "./app-shell";
 import { SidebarCollapseProvider } from "@/lib/sidebar-collapse-context";
 
@@ -168,6 +184,25 @@ describe("AppShell — Photo Report builder is a builder route (#548)", () => {
     );
     expect(wrotePref).toBe(false);
   });
+});
+
+describe("AppShell — public marketing & legal routes render bare (#789 OAuth verification)", () => {
+  // The OAuth app-verification follow-up needs publicly reachable marketing
+  // and legal pages on nookleus.app (Google reviewers can't log in). Those
+  // routes must render WITHOUT the internal app chrome — no sidebar, no
+  // authed <main> wrapper — exactly like the existing /sign and /pay surfaces.
+  it.each(["/welcome", "/privacy", "/terms"])(
+    "renders %s without the app sidebar or main chrome",
+    (path) => {
+      pathnameRef.current = path;
+      renderShell();
+
+      expect(screen.queryByTestId("sidebar-stub")).toBeNull();
+      expect(screen.queryByRole("main")).toBeNull();
+      // The page content itself still renders.
+      expect(screen.getByText("page content")).toBeTruthy();
+    },
+  );
 });
 
 describe("AppShell — content margin tracks the rail (#543)", () => {
