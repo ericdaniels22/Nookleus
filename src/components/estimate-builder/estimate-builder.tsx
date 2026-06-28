@@ -1515,9 +1515,17 @@ export function EstimateBuilder({
     // container (the create route appends). Optimistically splice it to the
     // TOP, recompute totals so the bar updates instantly, then persist the new
     // order via the line-items reorder PUT (POST-then-reorder). Roll back the
-    // local splice if that PUT fails. Computing from `state` synchronously —
-    // and threading the fresh closure between multi-adds via the dialog's
-    // re-rendered onAdded prop — mirrors the drag-end handlers in this file.
+    // local splice if that PUT fails.
+    //
+    // We compute sections_after synchronously from the closure `state` (NOT a
+    // functional setState updater): the reorder PUT below needs that value
+    // *immediately*, and React defers updater functions to the render phase, so
+    // a value captured inside one isn't assigned yet when we'd fire the PUT —
+    // the PUT would silently never run (proven by add-reorder-snapshot.test.tsx).
+    // Rapid multi-add can't race the closure in practice: the add flow goes
+    // through the modal AddItemDialog, which closes after each confirm and forces
+    // a re-render (fresh `state`) before the next add can be confirmed. Mirrors
+    // the drag-end handlers in this file.
     if (state.entity.kind === "estimate") {
       const estimateItem = newItem as EstimateLineItem;
       const containerId = estimateItem.section_id;
