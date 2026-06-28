@@ -89,6 +89,32 @@ describe("GET /api/time/sessions — own hours only (#701)", () => {
     expect(ids).toEqual(["s-mine-1", "s-mine-2"]);
   });
 
+  // AC4 (#706) — a hand-entered/corrected session must be distinguishable
+  // wherever sessions are listed, so the row carries its capture marker through
+  // to the client (the UI renders "Hand-entered" for 'hand', nothing for 'live').
+  it("carries each session's capture marker (live vs hand)", async () => {
+    const client = fakeClient({
+      user: { id: "u-1" },
+      tables: {
+        ...memberTables({ userId: "u-1", role: "crew_member", grants: ["track_time"] }),
+        time_sessions: [
+          { id: "s-live", job_id: "job-1", user_id: "u-1", organization_id: "org-1", started_at: "2026-06-18T09:00:00Z", ended_at: "2026-06-18T12:00:00Z", capture_method: "live" },
+          { id: "s-hand", job_id: "job-1", user_id: "u-1", organization_id: "org-1", started_at: "2026-06-19T09:00:00Z", ended_at: "2026-06-19T17:00:00Z", capture_method: "hand" },
+        ],
+      },
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(client as never);
+
+    const res = await GET(req("job-1"), noParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const byId = Object.fromEntries(
+      (body.sessions as { sessionId: string; capture: string }[]).map((s) => [s.sessionId, s.capture]),
+    );
+    expect(byId["s-live"]).toBe("live");
+    expect(byId["s-hand"]).toBe("hand");
+  });
+
   it("returns an empty list when the caller has no sessions on the Job", async () => {
     const client = fakeClient({
       user: { id: "u-1" },

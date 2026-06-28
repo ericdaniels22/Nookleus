@@ -68,6 +68,13 @@ export const PERMISSION_CATALOG = [
   // Defaults live in `role-defaults.ts`: Admin ON, Crew Lead ON, Crew Member ON.
   { key: "track_time", label: "Track Time", group: "Time" },
 
+  // #706 (epic #699) — Timesheet Corrections & needs-attention: correct a
+  // recorded session, hand-entry, and the lead needs-attention surface. A
+  // Correction is a lead/admin power (CONTEXT.md "Correction") — unlike
+  // track_time, crew_member is OFF. Defaults live in `role-defaults.ts`:
+  // Admin ON, Crew Lead ON, Crew Member OFF, Custom OFF.
+  { key: "manage_timesheets", label: "Manage Timesheets", group: "Time" },
+
   { key: "manage_reports", label: "Manage Reports", group: "Reports" },
 
   { key: "manage_templates", label: "Manage Estimate Templates", group: "Templates" },

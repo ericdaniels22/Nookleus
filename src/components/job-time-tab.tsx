@@ -6,6 +6,9 @@ import { Clock } from "lucide-react";
 import { formatElapsed } from "@/lib/elapsed";
 import { useOnTheClock } from "@/lib/on-the-clock-context";
 import ClockInConfirmation from "@/components/time/clock-in-confirmation";
+import { NeedsAttentionList } from "@/components/time/needs-attention-list";
+import { captureLabel } from "@/lib/timesheets/capture-marker";
+import type { CaptureMarker } from "@/lib/timesheets/timesheet-aggregator";
 
 // The Job detail "Time" tab (issue #701, `?tab=time`). A worker can Clock in to
 // THIS Job directly (the Job is known, so no picker — straight to the
@@ -18,6 +21,9 @@ interface RecordedSession {
   jobId: string;
   startedAt: string;
   endedAt: string | null;
+  // The capture marker (#706, AC4) — 'live' vs 'hand'. A hand-entered or
+  // corrected session shows a visible "Hand-entered" badge.
+  capture: CaptureMarker;
 }
 
 function formatRange(startedAt: string, endedAt: string | null): string {
@@ -101,6 +107,12 @@ export default function JobTimeTab({
         )}
       </div>
 
+      {/* The lead's needs-attention surface for this Job (#706, AC5). Self-
+          gating on manage_timesheets — a crew member renders nothing here. */}
+      <div className="mb-6">
+        <NeedsAttentionList jobId={job.id} />
+      </div>
+
       <h3 className="mb-3 text-sm font-semibold text-foreground">Your recorded hours</h3>
       {loading ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
@@ -115,8 +127,13 @@ export default function JobTimeTab({
               key={session.sessionId}
               className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
             >
-              <span className="text-muted-foreground">
+              <span className="flex items-center gap-2 text-muted-foreground">
                 {formatRange(session.startedAt, session.endedAt)}
+                {captureLabel(session.capture) && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                    {captureLabel(session.capture)}
+                  </span>
+                )}
               </span>
               <span
                 className={

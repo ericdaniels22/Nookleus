@@ -18,6 +18,8 @@
 // auto-pass every rule regardless of grants — so the admin assertion goes
 // through the catalog.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { ROLE_DEFAULTS } from "./role-defaults";
 import { PERMISSION_CATALOG } from "./permission-keys";
@@ -84,5 +86,109 @@ describe("ROLE_DEFAULTS — track_time defaults (#701)", () => {
     const entry = PERMISSION_CATALOG.find((p) => p.key === "track_time");
     expect(entry).toBeDefined();
     expect(entry?.group).toBe("Time");
+  });
+});
+
+// issue #706 (parent epic #699) — Timesheet Corrections & needs-attention.
+//
+// Pins the role-default grants for `manage_timesheets`, the NEW permission that
+// gates correcting a recorded session, hand-entry, and the lead needs-attention
+// surface (CONTEXT.md "Correction": leads/admins only):
+//
+//   | Role        | Default |
+//   | ----------- | ------- |
+//   | Admin       | ON      |
+//   | Crew Lead   | ON      |
+//   | Crew Member | OFF     |   <- track_time only; can never type or edit a time
+//   | Custom      | OFF     |
+//
+// Unlike track_time (crew_member ON, because workers self-clock), a Correction
+// is a lead/admin power: a crew_member with track_time can clock in/out but can
+// never edit a recorded session. The SQL `set_default_permissions` + the
+// migration-706 backfill mirror this table; the parity test below reads the
+// migration file and asserts the SQL grants manage_timesheets to exactly the
+// roles the TS defaults do.
+
+const MANAGE_TIMESHEETS = "manage_timesheets";
+const TS_ROLES = ["admin", "crew_lead", "crew_member", "custom"] as const;
+const EXPECTED_GRANT: Record<(typeof TS_ROLES)[number], boolean> = {
+  admin: true,
+  crew_lead: true,
+  crew_member: false,
+  custom: false,
+};
+
+describe("ROLE_DEFAULTS — manage_timesheets defaults (#706)", () => {
+  it.each(TS_ROLES)("role %s has the pinned manage_timesheets default", (role) => {
+    const granted = (ROLE_DEFAULTS[role] as readonly string[]).includes(MANAGE_TIMESHEETS);
+    expect(granted).toBe(EXPECTED_GRANT[role]);
+  });
+
+  it("registers manage_timesheets in the permission catalog under the Time group", () => {
+    const entry = PERMISSION_CATALOG.find((p) => p.key === MANAGE_TIMESHEETS);
+    expect(entry).toBeDefined();
+    expect(entry?.group).toBe("Time");
+  });
+
+  it("the SQL migration grants manage_timesheets to exactly the TS-granted roles", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase", "migration-706-timesheet-corrections.sql"),
+      "utf8",
+    );
+    // The migration introduces ONLY manage_timesheets, so every backfill role
+    // gate (`uo.role in (...)`) in it describes that key's grant. Parse them and
+    // require each to equal the role set the TS defaults grant — the TS↔SQL
+    // parity the PRD demands.
+    const tsGranted = TS_ROLES.filter((r) =>
+      (ROLE_DEFAULTS[r] as readonly string[]).includes(MANAGE_TIMESHEETS),
+    )
+      .slice()
+      .sort();
+    const gates = [...sql.matchAll(/uo\.role in \(([^)]*)\)/g)];
+    expect(gates.length).toBeGreaterThan(0);
+    for (const gate of gates) {
+      const roles = gate[1]
+        .split(",")
+        .map((s) => s.trim().replace(/'/g, ""))
+        .sort();
+      expect(roles).toEqual(tsGranted);
+    }
+  });
+
+  it("set_default_permissions grants manage_timesheets to exactly the TS-granted roles", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase", "migration-706-timesheet-corrections.sql"),
+      "utf8",
+    );
+    // The authoritative SQL default for a NEW member is set_default_permissions,
+    // which dispatches a per-role array of granted keys. The backfill-gate parity
+    // above only pins the one-time historical fix; this asserts the FORWARD
+    // default the function applies on every re-seed. Parse the array literals it
+    // dispatches on and require each role's manage_timesheets grant to match the
+    // TS table — so a divergence in the function body (e.g. dropping the key from
+    // lead_perms, or adding it to member_perms) fails here, not only in the
+    // hand-run SQL smoke test.
+    const permArray = (name: string): string[] => {
+      const m = sql.match(
+        new RegExp(`\\b${name}\\s+text\\[\\]\\s*:=\\s*array\\[([\\s\\S]*?)\\]`),
+      );
+      if (!m) throw new Error(`array ${name} not found in set_default_permissions`);
+      return m[1]
+        .split(",")
+        .map((s) => s.trim().replace(/'/g, ""))
+        .filter(Boolean);
+    };
+    const allPerms = permArray("all_perms"); // admin (admin_perms := all_perms)
+    const leadPerms = permArray("lead_perms"); // crew_lead
+    const memberPerms = permArray("member_perms"); // custom + any other role
+    // crew_member = member_perms || array['track_time'] — it adds only track_time,
+    // so its manage_timesheets grant equals member_perms'.
+    const fnGrant: Record<(typeof TS_ROLES)[number], boolean> = {
+      admin: allPerms.includes(MANAGE_TIMESHEETS),
+      crew_lead: leadPerms.includes(MANAGE_TIMESHEETS),
+      crew_member: memberPerms.includes(MANAGE_TIMESHEETS),
+      custom: memberPerms.includes(MANAGE_TIMESHEETS),
+    };
+    expect(fnGrant).toEqual(EXPECTED_GRANT);
   });
 });
