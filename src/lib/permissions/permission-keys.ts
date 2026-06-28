@@ -68,6 +68,11 @@ export const PERMISSION_CATALOG = [
   // Defaults live in `role-defaults.ts`: Admin ON, Crew Lead ON, Crew Member ON.
   { key: "track_time", label: "Track Time", group: "Time" },
 
+  // #705 (epic #699) — Presence: gates the owner-dashboard org-wide "On the
+  // clock now" roll-up. Defaults: Admin ON, Crew Lead ON, Crew Member OFF
+  // (workers still see per-Job "On site now", which is gated by view_jobs).
+  { key: "view_timesheets", label: "View Timesheets", group: "Time" },
+
   { key: "manage_reports", label: "Manage Reports", group: "Reports" },
 
   { key: "manage_templates", label: "Manage Estimate Templates", group: "Templates" },
