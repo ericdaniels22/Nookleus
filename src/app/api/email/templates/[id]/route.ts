@@ -6,6 +6,7 @@ import {
   type EmailTemplateScope,
 } from "@/lib/email/authorize-template-mutation";
 import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
+import { MAX_TEMPLATE_BODY_HTML_LENGTH } from "@/lib/email/template-body-limit";
 
 // Both handlers derive the template's scope from the existing row (owner_user_id
 // NULL → Organization-wide; set → Personal), then apply the same scope gate as
@@ -60,11 +61,35 @@ export const PUT = withRequestContext<{ id: string }>(
 
     const body = await request.json().catch(() => ({}));
     const patch: Record<string, unknown> = {};
-    if (typeof body?.name === "string") patch.name = body.name.trim().slice(0, 200);
+    if (typeof body?.name === "string") {
+      const name = body.name.trim();
+      // Parity with create, which refuses an empty name: an explicit blank here
+      // would wipe a required field, so reject rather than persist it.
+      if (!name) {
+        return NextResponse.json({ error: "name is required" }, { status: 400 });
+      }
+      patch.name = name.slice(0, 200);
+    }
     // Same allowlist sanitization as create — body HTML POSTed directly here
     // bypasses the client editor too (issue #658 M3).
-    if (typeof body?.body_html === "string")
+    if (typeof body?.body_html === "string") {
+      if (body.body_html.length > MAX_TEMPLATE_BODY_HTML_LENGTH) {
+        return NextResponse.json(
+          { error: "body_too_large", max_length: MAX_TEMPLATE_BODY_HTML_LENGTH },
+          { status: 413 },
+        );
+      }
       patch.body_html = sanitizeEmailHtmlForStorage(body.body_html);
+    }
+
+    // No recognized editable field → an empty UPDATE the database rejects with a
+    // 500. Decide it here as a 400 before touching the row.
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { error: "No editable fields supplied" },
+        { status: 400 },
+      );
+    }
 
     const { data, error } = await ctx.supabase
       .from("email_templates")

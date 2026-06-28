@@ -6,6 +6,7 @@ import {
   type EmailTemplateScope,
 } from "@/lib/email/authorize-template-mutation";
 import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
+import { MAX_TEMPLATE_BODY_HTML_LENGTH } from "@/lib/email/template-body-limit";
 
 // GET /api/email/templates — list the templates this Request Context may see:
 // Organization-wide templates for the Active Organization plus the caller's
@@ -31,6 +32,17 @@ export const GET = withRequestContext({ permission: "access_settings" }, async (
 // JWT. The owner is computed server-side, never honored from the request body.
 export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json().catch(() => ({}));
+  // Scope decides both the permission gate and the computed owner, so an
+  // unrecognized value must not be silently coerced to Personal — that could
+  // mask a client meaning Organization-wide. Omitting scope still defaults to
+  // Personal (backward compatible); an explicit bad value is rejected.
+  if (
+    body?.scope !== undefined &&
+    body?.scope !== "organization" &&
+    body?.scope !== "personal"
+  ) {
+    return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
+  }
   const scope: EmailTemplateScope =
     body?.scope === "organization" ? "organization" : "personal";
 
@@ -48,6 +60,14 @@ export const POST = withRequestContext({ permission: "access_settings" }, async 
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
+  const rawBodyHtml = (body?.body_html ?? "").toString();
+  if (rawBodyHtml.length > MAX_TEMPLATE_BODY_HTML_LENGTH) {
+    return NextResponse.json(
+      { error: "body_too_large", max_length: MAX_TEMPLATE_BODY_HTML_LENGTH },
+      { status: 413 },
+    );
+  }
+
   const { data, error } = await ctx.supabase
     .from("email_templates")
     .insert({
@@ -58,7 +78,7 @@ export const POST = withRequestContext({ permission: "access_settings" }, async 
       // into other members' outgoing email, so a body POSTed directly must not
       // carry script/handlers (issue #658 M3). Storage variant keeps the
       // round-trip markers; the send path strips them.
-      body_html: sanitizeEmailHtmlForStorage((body?.body_html ?? "").toString()),
+      body_html: sanitizeEmailHtmlForStorage(rawBodyHtml),
       created_by: ctx.userId,
     })
     .select()

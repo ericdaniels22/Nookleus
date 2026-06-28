@@ -23,7 +23,7 @@ import EmailReader from "@/components/email-reader";
 import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
 import CategoryTabs, { type CategoryFilter } from "@/components/email/category-tabs";
-import { buildQuotedReply } from "@/components/email/build-quoted-reply";
+import { buildReplyComposeSeed, type ReplyKind } from "@/components/email/reply-compose-seed";
 import { useEmailSync } from "@/lib/email/use-email-sync";
 import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
 
@@ -511,57 +511,33 @@ export default function EmailInbox() {
     }
   }
 
+  // Reply / Reply-All / Forward all funnel through one seed builder so the
+  // reply goes out from the account that *received* the message, not whatever
+  // account is the compose default (issue #660).
+  function launchReplyCompose(email: Email, kind: ReplyKind) {
+    const { mode, ...seed } = buildReplyComposeSeed(
+      email,
+      kind,
+      accounts.map((a) => a.email_address),
+    );
+    setComposeMode(mode);
+    setReplyTo(seed);
+    setComposeOpen(true);
+  }
+
   // Reply
   function handleReply(email: Email) {
-    setComposeMode("reply");
-    setReplyTo({
-      to: email.from_address,
-      cc: "",
-      subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
-      body: buildQuotedReply(email),
-      messageId: email.message_id,
-      jobId: email.job_id || "",
-      bcc: "",
-    });
-    setComposeOpen(true);
+    launchReplyCompose(email, "reply");
   }
 
   // Reply All
   function handleReplyAll(email: Email) {
-    setComposeMode("reply");
-    // CC = original To + CC minus our own accounts
-    const ownEmails = new Set(accounts.map((a) => a.email_address.toLowerCase()));
-    const allRecipients = [
-      ...(email.to_addresses || []),
-      ...(email.cc_addresses || []),
-    ].filter((r) => !ownEmails.has(r.email.toLowerCase()) && r.email.toLowerCase() !== email.from_address.toLowerCase());
-    const ccList = allRecipients.map((r) => r.email).join(", ");
-
-    setReplyTo({
-      to: email.from_address,
-      cc: ccList,
-      bcc: "",
-      subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
-      body: buildQuotedReply(email),
-      messageId: email.message_id,
-      jobId: email.job_id || "",
-    });
-    setComposeOpen(true);
+    launchReplyCompose(email, "reply-all");
   }
 
   // Forward
   function handleForward(email: Email) {
-    setComposeMode("forward");
-    setReplyTo({
-      to: "",
-      cc: "",
-      bcc: "",
-      subject: email.subject.startsWith("Fwd:") ? email.subject : `Fwd: ${email.subject}`,
-      body: buildQuotedReply(email),
-      messageId: email.message_id,
-      jobId: email.job_id || "",
-    });
-    setComposeOpen(true);
+    launchReplyCompose(email, "forward");
   }
 
   // New compose

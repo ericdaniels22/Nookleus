@@ -114,7 +114,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const [customFields, setCustomFields] = useState<{ field_key: string; field_value: string }[]>([]);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeDefaults, setComposeDefaults] = useState({ to: "", subject: "", body: "", replyToMessageId: "" });
+  const [composeDefaults, setComposeDefaults] = useState<{
+    mode: "compose" | "reply" | "forward";
+    accountId: string;
+    to: string;
+    subject: string;
+    body: string;
+    replyToMessageId: string;
+  }>({ mode: "compose", accountId: "", to: "", subject: "", body: "", replyToMessageId: "" });
   const [loading, setLoading] = useState(true);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -1011,7 +1018,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
               const primaryAdj = (job.job_adjusters || []).find((ja) => ja.is_primary)?.adjuster;
               const defaultTo = job.contact?.email || primaryAdj?.email || "";
               const defaultSubject = job.job_number ? `Re: ${job.job_number}` : "";
-              setComposeDefaults({ to: defaultTo, subject: defaultSubject, body: "", replyToMessageId: "" });
+              setComposeDefaults({ mode: "compose", accountId: "", to: defaultTo, subject: defaultSubject, body: "", replyToMessageId: "" });
               setComposeOpen(true);
             }}
             className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-colors gap-1.5"
@@ -1023,6 +1030,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         <ComposeEmailModal
           open={composeOpen}
           onOpenChange={setComposeOpen}
+          mode={composeDefaults.mode}
+          defaultAccountId={composeDefaults.accountId || undefined}
           jobId={jobId}
           defaultTo={composeDefaults.to}
           defaultSubject={composeDefaults.subject}
@@ -1043,6 +1052,8 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                   const replyTo = isSent ? (email.to_addresses?.[0]?.email || "") : email.from_address;
                   const replySubject = email.subject.startsWith("Re:") ? email.subject : "Re: " + email.subject;
                   setComposeDefaults({
+                    mode: "reply",
+                    accountId: email.account_id,
                     to: replyTo,
                     subject: replySubject,
                     body: buildQuotedReply(email),

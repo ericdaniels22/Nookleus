@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   composeWindowReducer,
   initialComposeWindowState,
+  maximizeControlFor,
 } from "./compose-window-state";
 
 describe("composeWindowReducer", () => {
@@ -69,5 +70,34 @@ describe("composeWindowReducer", () => {
     });
     const reset = composeWindowReducer(maximized, { type: "reset" });
     expect(reset).toEqual(initialComposeWindowState);
+  });
+});
+
+describe("maximizeControlFor", () => {
+  it("offers Maximize from the docked desktop window", () => {
+    expect(maximizeControlFor("docked", { isMobile: false })).toEqual({
+      label: "Maximize",
+      showsRestore: false,
+    });
+  });
+
+  it("offers Restore down when the desktop window is maximized", () => {
+    expect(maximizeControlFor("maximized", { isMobile: false })).toEqual({
+      label: "Restore down",
+      showsRestore: true,
+    });
+  });
+
+  it("hides the control on mobile, where the docked sheet is already full-screen", () => {
+    // Maximize is a no-op on a phone (docked === full-screen), so don't offer a
+    // control that does nothing (issue #660).
+    expect(maximizeControlFor("docked", { isMobile: true })).toBeNull();
+    expect(maximizeControlFor("maximized", { isMobile: true })).toBeNull();
+  });
+
+  it("hides the control while minimized, where the restore button already expands", () => {
+    // From minimized, toggleMaximize just restores — a second 'Maximize' button
+    // mislabels the same action, so suppress it (issue #660).
+    expect(maximizeControlFor("minimized", { isMobile: false })).toBeNull();
   });
 });

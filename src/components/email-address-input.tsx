@@ -13,6 +13,8 @@ interface EmailRecipient {
 
 export interface EmailAddressInputHandle {
   flush: () => void;
+  /** Move keyboard focus into the field's text input (compose initial focus). */
+  focus: () => void;
 }
 
 interface EmailAddressInputProps {
@@ -59,6 +61,7 @@ const EmailAddressInput = forwardRef<EmailAddressInputHandle, EmailAddressInputP
         });
       }
     },
+    focus: () => inputRef.current?.focus(),
   }));
 
   // Fetch suggestions

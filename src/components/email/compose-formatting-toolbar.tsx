@@ -18,7 +18,10 @@ import {
   Redo,
   Type,
   Baseline,
+  Ban,
 } from "lucide-react";
+import { fontSizeSelectModel } from "@/lib/email/font-size-select";
+import { fontColorControlModel } from "@/lib/email/font-color-control";
 
 const FONT_SIZES = [
   { label: "Small", value: "12px" },
@@ -114,52 +117,114 @@ export default function ComposeFormattingToolbar({
             </ToolbarButton>
 
             <Sep />
-            <select
-              aria-label="Font size"
-              title="Font size"
-              value={editor.getAttributes("textStyle").fontSize ?? ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) editor.chain().focus().unsetFontSize().run();
-                else editor.chain().focus().setFontSize(v).run();
-              }}
-              className="h-7 rounded border border-gray-200 bg-white px-1 text-xs text-[#333] outline-none"
-            >
-              <option value="">Size</option>
-              {FONT_SIZES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-            <label
-              title="Font color"
-              className="flex items-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <Baseline size={15} />
-              <input
-                type="color"
-                aria-label="Font color"
-                value={editor.getAttributes("textStyle").color ?? "#000000"}
-                onChange={(e) =>
-                  editor.chain().focus().setColor(e.target.value).run()
-                }
-                className="ml-0.5 h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
-              />
-            </label>
+            {(() => {
+              // Drive the control through the pure model so a non-preset size
+              // (pasted HTML, another editor) is surfaced as its own option
+              // rather than desyncing and silently rewriting it (issue #660).
+              const fontSize = fontSizeSelectModel(
+                editor.getAttributes("textStyle").fontSize,
+                FONT_SIZES,
+              );
+              return (
+                <select
+                  aria-label="Font size"
+                  title="Font size"
+                  value={fontSize.value}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) editor.chain().focus().unsetFontSize().run();
+                    else editor.chain().focus().setFontSize(v).run();
+                  }}
+                  className="h-7 rounded border border-gray-200 bg-white px-1 text-xs text-[#333] outline-none"
+                >
+                  <option value="">Size</option>
+                  {fontSize.options.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              );
+            })()}
+            {(() => {
+              // "Automatic" (no explicit color) is surfaced honestly: the swatch
+              // shows a neutral default instead of #000000, and a clear button
+              // appears only when a color is actually set — so the picker never
+              // implies black is applied or stamps it on a stray click (#660).
+              const fontColor = fontColorControlModel(
+                editor.getAttributes("textStyle").color,
+              );
+              return (
+                <>
+                  <label
+                    title="Font color"
+                    className="flex items-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Baseline size={15} />
+                    <input
+                      type="color"
+                      aria-label="Font color"
+                      value={fontColor.value}
+                      onChange={(e) =>
+                        editor.chain().focus().setColor(e.target.value).run()
+                      }
+                      className="ml-0.5 h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
+                    />
+                  </label>
+                  {fontColor.isSet && (
+                    <ToolbarButton
+                      active={false}
+                      onClick={() =>
+                        editor.chain().focus().unsetColor().run()
+                      }
+                      title="Clear font color (automatic)"
+                    >
+                      <Ban size={13} />
+                    </ToolbarButton>
+                  )}
+                </>
+              );
+            })()}
             <ToolbarButton
               active={editor.isActive("highlight")}
               onClick={() =>
                 editor
                   .chain()
                   .focus()
-                  .toggleHighlight({ color: HIGHLIGHT_COLOR })
+                  .toggleHighlight({
+                    color:
+                      editor.getAttributes("highlight").color ??
+                      HIGHLIGHT_COLOR,
+                  })
                   .run()
               }
               title="Highlight"
             >
               <Highlighter size={15} />
             </ToolbarButton>
+            <label
+              title="Highlight color"
+              className="flex items-center rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <input
+                type="color"
+                aria-label="Highlight color"
+                // Highlight is configured multicolor, so let the user pick the
+                // shade; the chosen color is inlined into the sent email's HTML
+                // (a bare <mark> would lose it across clients) — issue #660.
+                value={
+                  editor.getAttributes("highlight").color ?? HIGHLIGHT_COLOR
+                }
+                onChange={(e) =>
+                  editor
+                    .chain()
+                    .focus()
+                    .setHighlight({ color: e.target.value })
+                    .run()
+                }
+                className="h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
+              />
+            </label>
 
             <Sep />
             <ToolbarButton

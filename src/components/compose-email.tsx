@@ -22,12 +22,18 @@ import TiptapEditor from "@/components/tiptap-editor";
 import ComposeFormattingToolbar from "@/components/email/compose-formatting-toolbar";
 import { composeRichExtensions } from "@/components/email/compose-editor-extensions";
 import { SendShortcutExtension } from "@/components/email/send-shortcut-extension";
+import { ImageSizeGuardExtension } from "@/components/email/compose-image-size-guard";
 import {
   swapSignature,
   renderSignatureRegion,
   hasSignatureRegion,
 } from "@/lib/email/signature-swap";
 import { insertTemplateBody } from "@/lib/email/insert-template";
+import { insertTemplateAtCursor } from "@/components/email/compose-editor-commands";
+import {
+  initialFocusTarget,
+  composeEscapeIntent,
+} from "@/components/email/compose-window-keyboard";
 import { isSendShortcut } from "@/lib/email/send-shortcut";
 import { type Editor } from "@tiptap/react";
 import EmailAddressInput, { EmailAddressInputHandle } from "@/components/email-address-input";
@@ -42,6 +48,7 @@ import {
 import {
   composeWindowReducer,
   initialComposeWindowState,
+  maximizeControlFor,
 } from "@/components/email/compose-window-state";
 
 interface EmailAccountData {
@@ -75,6 +82,34 @@ interface UploadedFile {
   content_type: string;
   file_size: number;
   storage_path: string;
+}
+
+// Compose docks full-screen below Tailwind's `sm` breakpoint (640px) and floats
+// in a corner at/above it. The maximize control only makes sense in the floating
+// layout, so the title bar consults this to hide it on phones (issue #660). The
+// lazy initializer reads the match synchronously so the control never flickers;
+// the change listener keeps it honest on resize/rotate. setState fires only in
+// the callback — never in the effect body — to stay clear of the repo-wide
+// set-state-in-effect lint. jsdom/SSR (no matchMedia) falls back to desktop.
+const COMPOSE_MOBILE_QUERY = "(max-width: 639px)";
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(COMPOSE_MOBILE_QUERY).matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia(COMPOSE_MOBILE_QUERY);
+    const onChange = () => setIsMobile(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  return isMobile;
 }
 
 interface ComposeEmailProps {
@@ -149,6 +184,12 @@ export default function ComposeEmailModal({
     () => [
       ...composeRichExtensions(),
       SendShortcutExtension.configure({ onSend: () => handleSendRef.current() }),
+      // Reject oversized inline base64 images (pasted screenshots/photos) so they
+      // don't bloat every autosave POST and the sent email (issue #660).
+      ImageSizeGuardExtension.configure({
+        onReject: () =>
+          toast.error("That image is too large to embed. Attach it instead."),
+      }),
     ],
     [],
   );
@@ -156,6 +197,7 @@ export default function ComposeEmailModal({
     composeWindowReducer,
     initialComposeWindowState,
   );
+  const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toRef = useRef<EmailAddressInputHandle>(null);
   const ccRef = useRef<EmailAddressInputHandle>(null);
@@ -327,17 +369,16 @@ export default function ComposeEmailModal({
     applySignature(resolveSignatureHtml(account, false), id);
   }
 
-  // Insert a template's body into the message above the signature region,
-  // preserving the user's typed content (issue #644). Pushes into the live
-  // editor so the change survives without a remount; falls back to state when
-  // the editor isn't ready (mirrors applySignature).
+  // Insert a template's body into the message at the cursor, preserving the
+  // user's typed content (issue #644; at-cursor insertion is issue #660). Pushes
+  // into the live editor so the change survives without a remount; falls back to
+  // the pure splice on state when the editor isn't ready (mirrors applySignature).
   function applyTemplate(templateHtml: string) {
     if (!editor) {
       setBodyHtml((prev) => insertTemplateBody(prev, templateHtml));
       return;
     }
-    const next = insertTemplateBody(editor.getHTML(), templateHtml);
-    editor.commands.setContent(next, { emitUpdate: false });
+    insertTemplateAtCursor(editor, templateHtml);
     setBodyHtml(editor.getHTML());
   }
 
@@ -388,8 +429,12 @@ export default function ComposeEmailModal({
       const toList = defaultTo ? parseRecipients(defaultTo) : [];
       setToRecipients(toList);
 
+      // Reset every inline picker so a fresh open never reopens with one left
+      // hanging from the previous session (issue #660 — the signature picker was
+      // the one that stuck).
       setShowContactPicker(false);
       setShowTemplatePicker(false);
+      setShowSignaturePicker(false);
 
       // Set CC recipients (for Reply All) — reveal the Cc row only when there's
       // something to show.
@@ -496,6 +541,34 @@ export default function ComposeEmailModal({
       if (armedRef.current) void scheduler?.flush();
     };
   }, []);
+
+  // Restore the on-open focus the Base UI Dialog used to give us (issue #660):
+  // land in the body when replying/forwarding (recipients are already known), or
+  // in the To field for a fresh compose. We focus once per open — guarded by the
+  // ref so a later editor transaction doesn't yank the caret back — and re-run
+  // when the editor becomes ready so a body target isn't lost to a not-yet-
+  // mounted editor.
+  const focusedOnOpenRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      focusedOnOpenRef.current = false;
+      return;
+    }
+    if (focusedOnOpenRef.current) return;
+    const target = initialFocusTarget({
+      mode,
+      hasPrefilledRecipient: defaultTo.trim().length > 0,
+    });
+    if (target === "to") {
+      toRef.current?.focus();
+      focusedOnOpenRef.current = true;
+      return;
+    }
+    if (editor && !editor.isDestroyed) {
+      editor.commands.focus("end");
+      focusedOnOpenRef.current = true;
+    }
+  }, [open, editor, mode, defaultTo]);
 
   // Handle file upload
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -646,6 +719,9 @@ export default function ComposeEmailModal({
 
   const isMaximized = windowState.mode === "maximized";
   const isMinimized = windowState.mode === "minimized";
+  // The maximize/restore-down control hides itself on mobile (docked is already
+  // full-screen) and while minimized (the restore button already expands) — #660.
+  const maxControl = maximizeControlFor(windowState.mode, { isMobile });
 
   const panelClass = [
     "fixed z-50 flex flex-col bg-white shadow-2xl border border-gray-200 overflow-hidden",
@@ -662,17 +738,38 @@ export default function ComposeEmailModal({
       aria-modal={false}
       aria-label={title}
       className={panelClass}
+      onKeyDown={(e) => {
+        // Escape closes the compose window (issue #660), restoring the Base UI
+        // Dialog behavior we lost. The inner pickers render inline, so their
+        // Escape bubbles here — peel an open one off first, only closing the
+        // whole window once nothing is layered on top.
+        if (e.key !== "Escape" || e.defaultPrevented) return;
+        e.stopPropagation();
+        const intent = composeEscapeIntent({
+          anyOverlayOpen:
+            showContactPicker || showSignaturePicker || showTemplatePicker,
+        });
+        if (intent === "dismiss-overlay") {
+          setShowContactPicker(false);
+          setShowSignaturePicker(false);
+          setShowTemplatePicker(false);
+        } else {
+          onOpenChange(false);
+        }
+      }}
     >
       {/* Title bar — window chrome with minimize / maximize / close. On the
           full-screen mobile sheet the bar sits at the very top, so it takes the
-          iOS safe-area top inset to clear the status bar/notch (issue #645). The
-          minimized mini-sheet docks at the bottom and the desktop window is
-          inset, so both keep the normal 10px top padding. */}
+          iOS safe-area top inset to clear the status bar/notch (issue #645). When
+          minimized the mini-sheet docks at the very bottom and the title bar is
+          the bottom-most element (body + footer are hidden), so it takes the iOS
+          safe-area *bottom* inset to clear the home indicator (issue #660); the
+          expanded window is inset and keeps the normal 10px top padding. */}
       <div
-        className={`flex items-center justify-between gap-2 px-4 pb-2.5 bg-[#2B5EA7] text-white shrink-0 select-none ${
+        className={`flex items-center justify-between gap-2 px-4 bg-[#2B5EA7] text-white shrink-0 select-none ${
           isMinimized
-            ? "pt-2.5"
-            : "pt-[max(env(safe-area-inset-top),10px)] sm:pt-2.5"
+            ? "pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)]"
+            : "pt-[max(env(safe-area-inset-top),10px)] sm:pt-2.5 pb-2.5"
         }`}
       >
         {isMinimized ? (
@@ -701,15 +798,21 @@ export default function ComposeEmailModal({
           >
             {isMinimized ? <ChevronUp size={15} /> : <Minus size={15} />}
           </button>
-          <button
-            type="button"
-            onClick={() => dispatchWindow({ type: "toggleMaximize" })}
-            title={isMaximized ? "Restore down" : "Maximize"}
-            aria-label={isMaximized ? "Restore down" : "Maximize"}
-            className="p-1.5 rounded hover:bg-white/15 transition-colors"
-          >
-            {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
+          {maxControl && (
+            <button
+              type="button"
+              onClick={() => dispatchWindow({ type: "toggleMaximize" })}
+              title={maxControl.label}
+              aria-label={maxControl.label}
+              className="p-1.5 rounded hover:bg-white/15 transition-colors"
+            >
+              {maxControl.showsRestore ? (
+                <Minimize2 size={14} />
+              ) : (
+                <Maximize2 size={14} />
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onOpenChange(false)}

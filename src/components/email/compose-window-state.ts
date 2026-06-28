@@ -61,3 +61,29 @@ export function composeWindowReducer(
       return state;
   }
 }
+
+/** The maximize/restore-down title-bar control, or null when it should be hidden. */
+export interface MaximizeControl {
+  /** Tooltip / aria-label for the button. */
+  label: string;
+  /** true → show the "restore down" icon (currently maximized); false → "maximize". */
+  showsRestore: boolean;
+}
+
+/**
+ * Decide whether — and how — to show the maximize/restore-down control (#660).
+ *
+ * Two cases hide it entirely:
+ *   - Mobile: the docked sheet already fills the screen, so maximize is a no-op.
+ *   - Minimized: the restore/minimize button already expands the window; a second
+ *     "Maximize" button there just mislabels the same restore action.
+ */
+export function maximizeControlFor(
+  mode: ComposeWindowMode,
+  { isMobile }: { isMobile: boolean },
+): MaximizeControl | null {
+  if (isMobile) return null;
+  if (mode === "minimized") return null;
+  if (mode === "maximized") return { label: "Restore down", showsRestore: true };
+  return { label: "Maximize", showsRestore: false };
+}

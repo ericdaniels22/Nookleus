@@ -11,6 +11,7 @@ import {
   fakeUserClient,
   memberTables,
 } from "../__test-utils__/request-context-fakes";
+import { MAX_TEMPLATE_BODY_HTML_LENGTH } from "@/lib/email/template-body-limit";
 
 const noParams = { params: Promise.resolve({}) };
 
@@ -51,6 +52,31 @@ describe("GET /api/email/templates — gated on access_settings", () => {
       tables: memberTables({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
     });
     expect((await GET(new Request("http://test"), noParams)).status).toBe(200);
+  });
+
+  // The route's own job is org-scoping: it returns the Active Organization's
+  // templates and nothing from another org. (RLS layers the org-wide-vs-own
+  // Personal split on top; that rule can't be exercised against these fakes,
+  // which don't model row-level security — so this pins what the route itself
+  // enforces, the `.eq(organization_id, ...)` filter, via the response body
+  // rather than only the status.)
+  it("returns only the Active Organization's templates", async () => {
+    authed({
+      user: { id: "u" },
+      tables: {
+        ...memberTables({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+        email_templates: [
+          { id: "t-org", owner_user_id: null, organization_id: "org-1", name: "Shared" },
+          { id: "t-mine", owner_user_id: "u", organization_id: "org-1", name: "Mine" },
+          { id: "t-foreign", owner_user_id: null, organization_id: "org-2", name: "Other org" },
+        ],
+      },
+    });
+    const res = await GET(new Request("http://test"), noParams);
+    expect(res.status).toBe(200);
+    const ids = ((await res.json()) as Array<{ id: string }>).map((t) => t.id);
+    expect(ids).toEqual(expect.arrayContaining(["t-org", "t-mine"]));
+    expect(ids).not.toContain("t-foreign");
   });
 });
 
@@ -111,6 +137,38 @@ describe("POST /api/email/templates — scope-conditional permission", () => {
     expect(
       (await POST(postReq({ scope: "personal", name: "Mine" }), noParams)).status,
     ).not.toBe(403);
+  });
+});
+
+// Issue #660: scope decides the permission gate AND the owner, so an
+// unrecognized value must not be silently coerced to Personal — it could mask a
+// client bug that meant Organization-wide. An explicitly-supplied bad scope is a
+// 400; omitting scope still defaults to Personal for backward compatibility.
+describe("POST /api/email/templates — rejects an unrecognized scope", () => {
+  it("returns 400 when scope is neither organization nor personal", async () => {
+    authed({
+      user: { id: "u" },
+      tables: memberTables({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+    });
+    expect(
+      (await POST(postReq({ scope: "global", name: "T" }), noParams)).status,
+    ).toBe(400);
+  });
+});
+
+// Issue #660: a template body is otherwise an unbounded write — inline base64
+// images can bloat it without limit, and it flows into other members' outgoing
+// mail. Reject an over-cap body before storage with 413 Payload Too Large.
+describe("POST /api/email/templates — caps the body length", () => {
+  it("returns 413 when body_html exceeds the cap", async () => {
+    authed({
+      user: { id: "u" },
+      tables: memberTables({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+    });
+    const huge = "a".repeat(MAX_TEMPLATE_BODY_HTML_LENGTH + 1);
+    expect(
+      (await POST(postReq({ scope: "personal", name: "T", body_html: huge }), noParams)).status,
+    ).toBe(413);
   });
 });
 
