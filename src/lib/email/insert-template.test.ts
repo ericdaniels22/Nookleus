@@ -8,6 +8,18 @@ describe("insertTemplateBody", () => {
     expect(result).toContain("Thanks for reaching out!");
   });
 
+  it("collapses an effectively-empty editor body so no stray leading paragraph remains", () => {
+    // A fresh compose editor renders its empty document as "<p></p>" (or
+    // "<p><br></p>"), not "". Appending the template after that placeholder would
+    // open the message with a blank line above it (issue #660). The placeholder
+    // must be dropped so the template becomes the leading content.
+    for (const empty of ["<p></p>", "<p><br></p>", "<p>\n</p>", "<p>&nbsp;</p>"]) {
+      const result = insertTemplateBody(empty, "<p>Template body</p>");
+      expect(result).toContain("Template body");
+      expect(result).not.toMatch(/^\s*<p>(\s|<br\s*\/?>|&nbsp;)*<\/p>/i);
+    }
+  });
+
   it("inserts above the signature, preserving typed content and the signature", () => {
     const body = "<p>Hi there</p>" + renderSignatureRegion("<p>Best, Jane</p>");
     const result = insertTemplateBody(body, "<p>Template body</p>");

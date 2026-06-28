@@ -63,7 +63,14 @@ function fixtureEmail(overrides: Partial<Email> = {}): Email {
 function Harness({ email }: { email: Email }) {
   const [expanded, setExpanded] = useState(true);
   const [open, setOpen] = useState(false);
-  const [defaults, setDefaults] = useState({ to: "", subject: "", body: "", replyToMessageId: "" });
+  const [defaults, setDefaults] = useState<{
+    mode: "compose" | "reply" | "forward";
+    accountId: string;
+    to: string;
+    subject: string;
+    body: string;
+    replyToMessageId: string;
+  }>({ mode: "compose", accountId: "", to: "", subject: "", body: "", replyToMessageId: "" });
   return (
     <div>
       <JobEmailRow
@@ -75,6 +82,8 @@ function Harness({ email }: { email: Email }) {
           const replyTo = isSent ? (email.to_addresses?.[0]?.email || "") : email.from_address;
           const replySubject = email.subject.startsWith("Re:") ? email.subject : "Re: " + email.subject;
           setDefaults({
+            mode: "reply",
+            accountId: email.account_id,
             to: replyTo,
             subject: replySubject,
             body: buildQuotedReply(email),
@@ -86,6 +95,8 @@ function Harness({ email }: { email: Email }) {
       <ComposeEmailModal
         open={open}
         onOpenChange={setOpen}
+        mode={defaults.mode}
+        defaultAccountId={defaults.accountId || undefined}
         jobId="job-1"
         defaultTo={defaults.to}
         defaultSubject={defaults.subject}
@@ -191,5 +202,21 @@ describe("Job View Reply integration (#215)", () => {
     // The Inbox uses the same helper (post-refactor), so this equality
     // is the byte-identical pin between Job View and Inbox replies.
     expect(lastProps.defaultBody).toBe(buildQuotedReply(email));
+  });
+});
+
+describe("Job View Reply window chrome (#660)", () => {
+  it("opens in reply mode from the account that received the message", () => {
+    // #660 AC: a reply from a Job page must read "Reply" (mode) and go out from
+    // the receiving account, not the compose default. These two props are what
+    // ComposeEmailModal turns into the window title and the sending account.
+    const email = fixtureEmail({ account_id: "received-on-this-account" });
+    render(<Harness email={email} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /reply/i }));
+
+    const lastProps = composeMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(lastProps.mode).toBe("reply");
+    expect(lastProps.defaultAccountId).toBe("received-on-this-account");
   });
 });

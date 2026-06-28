@@ -11,6 +11,7 @@ import {
   fakeUserClient,
   memberTables,
 } from "../../__test-utils__/request-context-fakes";
+import { MAX_TEMPLATE_BODY_HTML_LENGTH } from "@/lib/email/template-body-limit";
 
 function authed(opts: Parameters<typeof fakeUserClient>[0]) {
   vi.mocked(createServerSupabaseClient).mockResolvedValue(
@@ -86,6 +87,38 @@ describe("PUT /api/email/templates/[id] — scope-conditional permission", () =>
       tables: tablesFor({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
     });
     expect((await PUT(putReq(), params("t-mine"))).status).not.toBe(403);
+  });
+});
+
+// Issue #660: PUT must validate the patch it builds. A request that carries no
+// recognized editable field would otherwise issue an empty UPDATE — a no-op the
+// real database rejects with a 500. And an explicit empty `name` would blank a
+// field create refuses to leave empty. Both should be 400s, decided before the
+// write, never reaching the database.
+describe("PUT /api/email/templates/[id] — rejects an invalid patch", () => {
+  it("returns 400 when no recognized editable field is supplied", async () => {
+    authed({
+      user: { id: "u" },
+      tables: tablesFor({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+    });
+    expect((await PUT(putReq({ scope: "organization" }), params("t-mine"))).status).toBe(400);
+  });
+
+  it("returns 400 when the patch would blank the name", async () => {
+    authed({
+      user: { id: "u" },
+      tables: tablesFor({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+    });
+    expect((await PUT(putReq({ name: "   " }), params("t-mine"))).status).toBe(400);
+  });
+
+  it("returns 413 when body_html exceeds the cap", async () => {
+    authed({
+      user: { id: "u" },
+      tables: tablesFor({ userId: "u", role: "crew_member", grants: ["access_settings"] }),
+    });
+    const huge = "a".repeat(MAX_TEMPLATE_BODY_HTML_LENGTH + 1);
+    expect((await PUT(putReq({ body_html: huge }), params("t-mine"))).status).toBe(413);
   });
 });
 

@@ -24,8 +24,12 @@ function applyIndent(direction: IndentDirection) {
   return ({ state, dispatch, tr }: CommandProps): boolean => {
     const { from, to } = state.selection;
     let changed = false;
-    state.doc.nodesBetween(from, to, (node, pos) => {
+    state.doc.nodesBetween(from, to, (node, pos, parent) => {
       if (!INDENTABLE_TYPES.includes(node.type.name)) return;
+      // A paragraph inside a list item is already indented by the list nesting;
+      // adding margin-left here double-indents it (issue #660). Lists own their
+      // own nesting (Tab / sinkListItem), so skip list-item children.
+      if (parent?.type.name === "listItem") return;
       const current =
         typeof node.attrs.indent === "number" ? node.attrs.indent : 0;
       const next = nextIndentLevel(current, direction);
