@@ -15,7 +15,7 @@ export const GET = withRequestContext({ permission: "track_time" }, async (reque
   // recent first so the live (open) session leads the list.
   const { data, error } = await ctx.supabase
     .from("time_sessions")
-    .select("id, job_id, started_at, ended_at")
+    .select("id, job_id, started_at, ended_at, capture_method")
     .eq("user_id", ctx.userId)
     .eq("organization_id", ctx.orgId)
     .eq("job_id", jobId)
@@ -30,6 +30,9 @@ export const GET = withRequestContext({ permission: "track_time" }, async (reque
     jobId: row.job_id as string,
     startedAt: row.started_at as string,
     endedAt: (row.ended_at as string | null) ?? null,
+    // The capture marker (#706, AC4) — 'live' vs 'hand'. The client renders a
+    // visible "Hand-entered" marker for a hand-entered/corrected session.
+    capture: row.capture_method as string,
   }));
   return NextResponse.json({ sessions }, { status: 200 });
 });
