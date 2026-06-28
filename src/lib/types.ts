@@ -948,6 +948,12 @@ export interface TemplateStructureItem {
   unit?: string | null;
   quantity?: number | null;
   unit_price?: number | null;
+  /** Billing mode for this row (issue #684/#686). Absent ⇒ `standard`. */
+  pricing_mode?: PricingMode | null;
+  /** Equipment mode only: piece count. Absent/null in standard mode. */
+  pieces?: number | null;
+  /** Equipment mode only: number of days. Absent/null in standard mode. */
+  days?: number | null;
   sort_order: number;
 }
 
@@ -974,6 +980,9 @@ export interface TemplateWithContents extends EstimateTemplate {
       quantity: number;
       unit: string | null;
       unit_price: number;
+      pricing_mode?: PricingMode | null;
+      pieces?: number | null;
+      days?: number | null;
       sort_order: number;
     }>;
     subsections: Array<{
@@ -990,6 +999,9 @@ export interface TemplateWithContents extends EstimateTemplate {
         quantity: number;
         unit: string | null;
         unit_price: number;
+        pricing_mode?: PricingMode | null;
+        pieces?: number | null;
+        days?: number | null;
         sort_order: number;
       }>;
     }>;
