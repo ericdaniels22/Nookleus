@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { sanitizeEmailHtmlForStorage } from "@/lib/email/sanitize-email-html";
+import { reconcileDraftAttachments } from "@/lib/email/draft-attachments";
 
 // POST /api/email/drafts — save or update a draft
 // Body: { draftId?, accountId, to, cc, bcc, subject, bodyText, bodyHtml, jobId?, replyToMessageId?, attachments? }
@@ -78,6 +79,7 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     received_at: new Date().toISOString(),
   };
 
+  let emailId: string;
   if (draftId) {
     // Update existing draft
     const { data, error } = await ctx.supabase
@@ -90,7 +92,7 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ id: data.id, updated: true });
+    emailId = data.id;
   } else {
     // Create new draft
     const { data, error } = await ctx.supabase
@@ -102,6 +104,40 @@ export const POST = withRequestContext({ permission: "send_email" }, async (requ
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ id: data.id, created: true });
+    emailId = data.id;
   }
+
+  // Persist the attachment rows so a resumed draft re-hydrates its files
+  // (issue #663). Reconcile against what's already stored on every autosave:
+  // newly-attached files are inserted, removed files deleted, and unchanged
+  // files left alone so repeated autosaves never duplicate rows. `storage_path`
+  // is the identity — the upload route mints a unique one per file. (Sending or
+  // discarding the draft cleans these up via email_attachments' ON DELETE
+  // CASCADE on the emails row.)
+  const currentAttachments = Array.isArray(attachments) ? attachments : [];
+  const { data: previousRows } = await ctx.supabase
+    .from("email_attachments")
+    .select("id, storage_path")
+    .eq("email_id", emailId);
+  const { toInsert, toDeleteIds } = reconcileDraftAttachments(
+    previousRows ?? [],
+    currentAttachments,
+  );
+  if (toInsert.length > 0) {
+    await ctx.supabase.from("email_attachments").insert(
+      toInsert.map((a) => ({
+        organization_id: account.organization_id,
+        email_id: emailId,
+        filename: a.filename,
+        content_type: a.content_type,
+        file_size: a.file_size,
+        storage_path: a.storage_path,
+      })),
+    );
+  }
+  if (toDeleteIds.length > 0) {
+    await ctx.supabase.from("email_attachments").delete().in("id", toDeleteIds);
+  }
+
+  return NextResponse.json({ id: emailId, [draftId ? "updated" : "created"]: true });
 });

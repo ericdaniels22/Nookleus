@@ -33,9 +33,15 @@ export const GET = withRequestContext(
 
   const offset = (page - 1) * limit;
 
+  // Embed each email's attachment rows so a resumed draft re-hydrates its
+  // files (issue #663) — the compose modal reads them off the listed row via
+  // restoreDraftAttachments. Cheap left-join; the listing is paginated.
   let query = ctx.supabase
     .from("emails")
-    .select("*, job:jobs(id, job_number, property_address)", { count: "exact" });
+    .select(
+      "*, job:jobs(id, job_number, property_address), attachments:email_attachments(id, filename, content_type, file_size, storage_path)",
+      { count: "exact" },
+    );
 
   // Filter by folder (unless showing starred across all folders)
   if (starred === "true") {
