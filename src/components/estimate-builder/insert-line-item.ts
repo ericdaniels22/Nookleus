@@ -40,6 +40,39 @@ export function insertLineItemAtContainerTop<
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// insertLineItemAfter
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Insert `item` directly after the sibling identified by `siblingId`, within the
+// sibling's own container (Section direct items OR a Subsection's items). The
+// inserted item's section_id is normalized to that container and the container's
+// sort_order is recompacted to 0..N-1. Returns the tree unchanged when the
+// sibling is not found anywhere in the tree.
+export function insertLineItemAfter<
+  I extends LineItemLike,
+  Sub extends SubsectionLike<I>,
+  Sec extends SectionLike<I, Sub>,
+>(sections: Sec[], siblingId: string, item: I): Sec[] {
+  return sections.map((section) => {
+    if (section.items.some((it) => it.id === siblingId)) {
+      return { ...section, items: insertAfterAndRecompact(section.items, section.id, siblingId, item) };
+    }
+    let touched = false;
+    const subsections = section.subsections.map((subsection) => {
+      if (subsection.items.some((it) => it.id === siblingId)) {
+        touched = true;
+        return {
+          ...subsection,
+          items: insertAfterAndRecompact(subsection.items, subsection.id, siblingId, item),
+        };
+      }
+      return subsection;
+    });
+    return touched ? { ...section, subsections } : section;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Internals
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -52,4 +85,19 @@ function prependAndRecompact<I extends LineItemLike>(
     ? ({ ...newItem, section_id: containerId } as I)
     : ({ ...newItem } as I);
   return [placed, ...items].map((it, idx) => ({ ...it, sort_order: idx }));
+}
+
+function insertAfterAndRecompact<I extends LineItemLike>(
+  items: I[],
+  containerId: string,
+  siblingId: string,
+  newItem: I,
+): I[] {
+  const placed: I = "section_id" in newItem
+    ? ({ ...newItem, section_id: containerId } as I)
+    : ({ ...newItem } as I);
+  const siblingIdx = items.findIndex((it) => it.id === siblingId);
+  const next = items.slice();
+  next.splice(siblingIdx + 1, 0, placed);
+  return next.map((it, idx) => ({ ...it, sort_order: idx }));
 }

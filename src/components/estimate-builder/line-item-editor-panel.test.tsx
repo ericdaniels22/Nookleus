@@ -538,6 +538,71 @@ describe("LineItemEditorPanel — delete affordance (#630)", () => {
   });
 });
 
+// Issue #683 — duplicate affordance. A "Duplicate" button sits next to Delete in
+// the editor footer. These cases pin the panel's affordance in isolation — that
+// it renders, fires its callback on a single tap (no confirm — it's
+// non-destructive), and is gated like Delete. What the callback *does* (clone +
+// insert-after + select the copy, per mode) is wired and verified in
+// estimate-builder.
+describe("LineItemEditorPanel — duplicate affordance (#683)", () => {
+  it("renders a Duplicate button when onDuplicate is provided and editable", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDuplicate={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /duplicate/i }),
+    ).toBeDefined();
+  });
+
+  it("fires onDuplicate on a single tap (no confirm)", () => {
+    const onDuplicate = vi.fn();
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDuplicate={onDuplicate}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /duplicate/i }));
+
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the duplicate button on a read-only (voided) entity", () => {
+    render(
+      <LineItemEditorPanel
+        item={makeItem()}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onDuplicate={vi.fn()}
+        readOnly
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /duplicate/i }),
+    ).toBeNull();
+  });
+
+  it("renders no duplicate button when onDuplicate is omitted", () => {
+    render(
+      <LineItemEditorPanel item={makeItem()} onChange={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /duplicate/i }),
+    ).toBeNull();
+  });
+});
+
 // Issue #631 — confirmation guard. The #630 delete button now opens a shared
 // "Delete line item?" confirm instead of deleting on the first tap, so an
 // accidental touch can't silently remove work. Cancel aborts; Confirm runs the

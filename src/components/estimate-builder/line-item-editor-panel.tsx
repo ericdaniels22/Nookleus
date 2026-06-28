@@ -9,7 +9,7 @@
 // scrim sits behind the sheet. (Built up test-first — fields/behaviors per cycle.)
 
 import { useEffect, useRef, useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { Copy, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import ConfirmDialog from "@/components/contracts/confirm-dialog";
@@ -76,6 +76,15 @@ export interface LineItemEditorPanelProps {
    * the line leaves the live id set, so the panel unmounts itself.
    */
   onDelete?: () => void;
+  /**
+   * Duplicate the selected line (#683). Optional — callers that omit it render
+   * no duplicate control. Already bound to this line's id by the parent, which
+   * clones the row (fresh client id, no server identity), drops the copy
+   * directly below the original in the same container, persists it
+   * (POST-then-reorder for estimate/invoice, local splice for template) and
+   * selects the copy so it can be tweaked.
+   */
+  onDuplicate?: () => void;
   /** Voided / read-only entity — fields render disabled. */
   readOnly?: boolean;
   mode?: BuilderMode;
@@ -86,6 +95,7 @@ export function LineItemEditorPanel({
   onChange,
   onClose,
   onDelete,
+  onDuplicate,
   readOnly = false,
   mode,
 }: LineItemEditorPanelProps) {
@@ -556,22 +566,35 @@ export function LineItemEditorPanel({
           </div>
         </div>
 
-        {/* ── Footer: delete (#630) ─────────────────────────────────────────
-            A pinned (shrink-0) footer outside the scrollable body so the
-            destructive action stays visible in both the desktop dock and the
-            phone slide-up sheet. A large, full-width finger target for touch.
-            Hidden on read-only entities and when no onDelete is supplied. The
-            #631 confirmation guard sits in front: a tap opens the confirm. */}
-        {onDelete && !readOnly && (
-          <div className="shrink-0 border-t border-border p-4">
-            <button
-              type="button"
-              onClick={() => setConfirmOpen(true)}
-              className="flex w-full min-h-[44px] items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
-            >
-              <Trash2 size={16} />
-              Delete line item
-            </button>
+        {/* ── Footer: duplicate (#683) + delete (#630) ──────────────────────
+            A pinned (shrink-0) footer outside the scrollable body so these
+            actions stay visible in both the desktop dock and the phone slide-up
+            sheet. Duplicate sits next to Delete; each is a large finger target
+            for touch. Hidden on read-only entities and when neither callback is
+            supplied. The #631 confirmation guard sits in front of Delete: a tap
+            opens the confirm. Duplicate is non-destructive — no confirm. */}
+        {(onDuplicate || onDelete) && !readOnly && (
+          <div className="flex shrink-0 gap-2 border-t border-border p-4">
+            {onDuplicate && (
+              <button
+                type="button"
+                onClick={() => onDuplicate()}
+                className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <Copy size={16} />
+                Duplicate
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(true)}
+                className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+              >
+                <Trash2 size={16} />
+                Delete line item
+              </button>
+            )}
           </div>
         )}
 
