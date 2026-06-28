@@ -100,6 +100,11 @@ export function synthItemFromTemplate(synthSectionId: string, idx: number, item:
     quantity: item.quantity ?? 1,
     unit: item.unit ?? null,
     unit_price: item.unit_price ?? 0,
+    // Equipment pricing read back from the snapshot blob (#686). A bare/legacy
+    // item with no mode reads as standard with null pieces/days.
+    pricing_mode: item.pricing_mode ?? "standard",
+    pieces: item.pieces ?? null,
+    days: item.days ?? null,
     sort_order: item.sort_order,
   };
 }
@@ -118,6 +123,12 @@ export function serializeStructureFromBuilder(state: TemplateWithContents): Temp
     unit: it.unit ?? null,
     quantity: it.quantity ?? null,
     unit_price: it.unit_price ?? null,
+    // Equipment pricing rides the JSONB blob so it survives a round-trip and the
+    // template→estimate apply (#686). Standard rows snapshot an explicit
+    // `standard` mode with null pieces/days, mirroring the other null floors.
+    pricing_mode: it.pricing_mode ?? "standard",
+    pieces: it.pieces ?? null,
+    days: it.days ?? null,
     sort_order: it.sort_order,
   });
   return {

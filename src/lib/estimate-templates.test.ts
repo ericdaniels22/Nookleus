@@ -114,6 +114,54 @@ describe("serializeStructureFromBuilder (snapshot shape, #351)", () => {
     expect(item.note).toBe("Use low-VOC product per homeowner request");
   });
 
+  it("persists equipment pricing fields (pricing_mode/pieces/days) for a pieces_days row (#686)", () => {
+    const state = makeBuilderState([
+      {
+        id: "li-1",
+        library_item_id: null,
+        name: "Air Mover",
+        description: "Drying equipment",
+        note: "3 units for 2 days",
+        code: null,
+        quantity: 6,
+        unit: "ea",
+        unit_price: 25,
+        pricing_mode: "pieces_days",
+        pieces: 3,
+        days: 2,
+        sort_order: 0,
+      },
+    ]);
+
+    const item = serializeStructureFromBuilder(state).sections[0].items![0];
+    expect(item).toMatchObject({
+      pricing_mode: "pieces_days",
+      pieces: 3,
+      days: 2,
+      quantity: 6,
+    });
+  });
+
+  it("persists standard pricing_mode with null pieces/days for a standard row (#686)", () => {
+    const state = makeBuilderState([
+      {
+        id: "li-1",
+        library_item_id: null,
+        name: "Custom one-off",
+        description: "Hand-written line",
+        note: null,
+        code: "CUST-1",
+        quantity: 3,
+        unit: "hr",
+        unit_price: 75,
+        sort_order: 0,
+      },
+    ]);
+
+    const item = serializeStructureFromBuilder(state).sections[0].items![0];
+    expect(item).toMatchObject({ pricing_mode: "standard", pieces: null, days: null });
+  });
+
   it("also writes the snapshot fields for subsection items", () => {
     const state: TemplateWithContents = {
       ...makeBuilderState([]),
@@ -206,6 +254,37 @@ describe("synthItemFromTemplate (snapshot read, #351/#353)", () => {
 
     const out = synthItemFromTemplate("sec-1", 0, bare);
     expect(out.note).toBeNull();
+  });
+
+  it("reads equipment pricing fields (pricing_mode/pieces/days) when present (#686)", () => {
+    const stored: TemplateStructureItem = {
+      library_item_id: null,
+      name: "Air Mover",
+      description: "Drying equipment",
+      note: "3 units for 2 days",
+      quantity: 6,
+      unit: "ea",
+      unit_price: 25,
+      pricing_mode: "pieces_days",
+      pieces: 3,
+      days: 2,
+      sort_order: 0,
+    };
+
+    const out = synthItemFromTemplate("sec-1", 0, stored);
+    expect(out).toMatchObject({
+      pricing_mode: "pieces_days",
+      pieces: 3,
+      days: 2,
+      quantity: 6,
+    });
+  });
+
+  it("defaults to standard mode with null pieces/days when the snapshot omits them (#686)", () => {
+    const bare: TemplateStructureItem = { library_item_id: "lib-abc", sort_order: 0 };
+
+    const out = synthItemFromTemplate("sec-1", 0, bare);
+    expect(out).toMatchObject({ pricing_mode: "standard", pieces: null, days: null });
   });
 
   it("falls back to blanks/defaults when the snapshot fields are absent", () => {
