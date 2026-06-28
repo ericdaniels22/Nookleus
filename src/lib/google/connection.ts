@@ -13,6 +13,12 @@ import type {
   GoogleConnectionState,
   GoogleConnectionSummary,
 } from "./types";
+import { GOOGLE_TESTING_REFRESH_TOKEN_TTL_DAYS } from "./config";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// How close to expiry the Marketing page escalates from a quiet dot to an amber
+// "reconnect soon" banner.
+const EXPIRING_WITHIN_MS = 2 * DAY_MS;
 
 // A row (or its absence) maps onto exactly one state. No row means
 // disconnected — disconnect deletes the row, so absence IS the state.
@@ -23,9 +29,59 @@ export function deriveConnectionState(
   return row.status === "broken" ? "broken" : "connected";
 }
 
-// The token-free view the Settings UI renders.
+// When the current Testing-mode refresh token expires, or null when there is no
+// expiry to surface (Production, or no consent time). Pure and env-agnostic: the
+// caller passes testingMode so the same row maps to a countdown or to nothing
+// purely by publishing status. See isGoogleOAuthTestingMode() (#789).
+export function refreshTokenExpiresAt(
+  lastConsentedAtIso: string | null | undefined,
+  opts: { testingMode: boolean; ttlDays?: number },
+): string | null {
+  if (!opts.testingMode) return null;
+  if (!lastConsentedAtIso) return null;
+  const consentedMs = Date.parse(lastConsentedAtIso);
+  if (Number.isNaN(consentedMs)) return null;
+  const ttlDays = opts.ttlDays ?? GOOGLE_TESTING_REFRESH_TOKEN_TTL_DAYS;
+  return new Date(consentedMs + ttlDays * DAY_MS).toISOString();
+}
+
+// What the Marketing page shows about the Google connection's health. 'none' is
+// the silent case (healthy-and-early, Production, or no connection); 'ok' is a
+// quiet "Nd left"; 'expiring'/'expired' are the proactive warnings; 'broken' is
+// the already-failed connection.
+export type MarketingGoogleIndicator =
+  | { kind: "none" }
+  | { kind: "ok"; daysRemaining: number }
+  | { kind: "expiring"; daysRemaining: number }
+  | { kind: "expired" }
+  | { kind: "broken" };
+
+// Decide that indicator from the token-free summary and the current time. Pure,
+// so the Marketing page stays a thin switch over this (testable) decision.
+export function marketingGoogleIndicator(
+  summary: Pick<GoogleConnectionSummary, "state" | "token_expires_at"> | null,
+  nowMs: number,
+): MarketingGoogleIndicator {
+  if (!summary || summary.state === "disconnected") return { kind: "none" };
+  if (summary.state === "broken") return { kind: "broken" };
+  // Connected: surface the countdown only when there's an expiry to count down.
+  const expiresAt = summary.token_expires_at;
+  if (!expiresAt) return { kind: "none" };
+  const expiresMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresMs)) return { kind: "none" };
+  const remaining = expiresMs - nowMs;
+  if (remaining <= 0) return { kind: "expired" };
+  const daysRemaining = Math.ceil(remaining / DAY_MS);
+  if (remaining <= EXPIRING_WITHIN_MS) return { kind: "expiring", daysRemaining };
+  return { kind: "ok", daysRemaining };
+}
+
+// The token-free view the Settings UI and the Marketing page render. Pass
+// testingMode (from isGoogleOAuthTestingMode()) to populate token_expires_at;
+// it stays null in Production, so the countdown auto-hides once published.
 export function toConnectionSummary(
   row: GoogleConnectionRow | null,
+  opts: { testingMode?: boolean } = {},
 ): GoogleConnectionSummary {
   if (!row) {
     return {
@@ -35,6 +91,7 @@ export function toConnectionSummary(
       scopes: [],
       broken_reason: null,
       connected_at: null,
+      token_expires_at: null,
     };
   }
   return {
@@ -44,6 +101,9 @@ export function toConnectionSummary(
     scopes: row.scopes,
     broken_reason: row.broken_reason,
     connected_at: row.created_at,
+    token_expires_at: refreshTokenExpiresAt(row.last_consented_at, {
+      testingMode: opts.testingMode ?? false,
+    }),
   };
 }
 

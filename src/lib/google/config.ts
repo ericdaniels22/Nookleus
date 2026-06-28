@@ -28,6 +28,23 @@ export function isGoogleOAuthConfigured(): boolean {
   );
 }
 
+// #789 — the consent screen for project `nookleus` is in "Testing" until it is
+// published to Production. While in Testing, Google expires the business.manage
+// *sensitive*-scope refresh token 7 days after consent, so the per-org
+// connection silently breaks a week after an admin connects.
+export const GOOGLE_TESTING_REFRESH_TOKEN_TTL_DAYS = 7;
+
+// Whether the consent screen is still in Testing (so the 7-day expiry applies).
+// Defaults to true — Testing is the current reality, and over-warning is safer
+// than letting the token lapse unnoticed. Set GOOGLE_OAUTH_TESTING_MODE=false
+// (or "production") the moment the app is published to Production, and the
+// Marketing-page countdown disappears on its own.
+export function isGoogleOAuthTestingMode(): boolean {
+  const raw = (process.env.GOOGLE_OAUTH_TESTING_MODE ?? "").trim().toLowerCase();
+  if (raw === "") return true;
+  return !["false", "0", "no", "off", "production", "prod"].includes(raw);
+}
+
 export function getGoogleOAuthConfig(): GoogleOAuthConfig {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
