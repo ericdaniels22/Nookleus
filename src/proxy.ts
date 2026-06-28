@@ -44,13 +44,30 @@ export async function proxy(request: NextRequest) {
   // public: crew members land there from an emailed recovery link before
   // they have any session, and the recovery tokens arrive in the URL hash
   // (client-only), so the page must load without an auth redirect.
-  const { pathname } = request.nextUrl;
+  //
+  // The marketing landing (/welcome) and legal pages (/privacy, /terms) are
+  // public too: Google's OAuth app verification (#789) requires reviewers to
+  // reach the home page and privacy policy without a Nookleus session.
+  //
+  // Normalise a single trailing slash before the allowlist checks below. Next
+  // 16 only 308-normalises /welcome/ → /welcome at the filesystem-route step,
+  // which runs AFTER this proxy — so without stripping it here, an unauth
+  // visitor who appends a slash (or follows a trailing-slash link) would fail
+  // the exact `===` match and get bounced to /login, defeating verification.
+  const rawPathname = request.nextUrl.pathname;
+  const pathname =
+    rawPathname.length > 1 && rawPathname.endsWith("/")
+      ? rawPathname.slice(0, -1)
+      : rawPathname;
   const isLoginPage = pathname === "/login";
   const isPublicApi = pathname.startsWith("/api/");
   const isPublicPage =
     pathname.startsWith("/sign/") ||
     pathname.startsWith("/pay/") ||
-    pathname === "/set-password";
+    pathname === "/set-password" ||
+    pathname === "/welcome" ||
+    pathname === "/privacy" ||
+    pathname === "/terms";
 
   if (!user && !isLoginPage && !isPublicApi && !isPublicPage) {
     const loginUrl = new URL("/login", request.url);
