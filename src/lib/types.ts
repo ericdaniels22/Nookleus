@@ -537,6 +537,29 @@ export interface MarketingDraft {
   image?: MarketingAsset;
 }
 
+/**
+ * A Showcase — one public-facing story per Job (#613, PRD #603, ADR 0015): a
+ * hand-picked, ordered set of that Job's Photos plus a title and write-up. At
+ * most one LIVE Showcase per Job (the partial unique index in migration-613).
+ * #613 is drafts-only; `published` is reserved for the later publishing slice.
+ */
+export interface Showcase {
+  id: string;
+  /** Owning Organization. NOT NULL in the DB and enforced by admin-only RLS. */
+  organization_id: string;
+  job_id: string;
+  title: string;
+  write_up: string;
+  /** The Job's photo ids, in chosen gallery order (the order is meaningful). */
+  photo_ids: string[];
+  status: "draft" | "published";
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Soft-delete timestamp for the recoverable trash. Null = not deleted. */
+  deleted_at: string | null;
+}
+
 // Knowledge Base (RAG)
 export interface KnowledgeDocument {
   id: string;
