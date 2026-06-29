@@ -8,6 +8,7 @@ import MarketingChatTab from "@/components/marketing/MarketingChatTab";
 import SocialMediaTab from "@/components/marketing/SocialMediaTab";
 import ShowcasesTab from "@/components/marketing/ShowcasesTab";
 import MarketingReviewsTab from "@/components/marketing/MarketingReviewsTab";
+import MarketingInsightsTab from "@/components/marketing/MarketingInsightsTab";
 import GoogleTokenBanner from "@/components/marketing/GoogleTokenBanner";
 import { marketingGoogleIndicator } from "@/lib/google/connection";
 import type { GoogleConnectionSummary } from "@/lib/google/types";
@@ -98,7 +99,8 @@ export default function MarketingPage() {
             <TabsTrigger value={0}>Social Media</TabsTrigger>
             <TabsTrigger value={1}>Showcases</TabsTrigger>
             <TabsTrigger value={2}>Reviews</TabsTrigger>
-            <TabsTrigger value={3}>Chat</TabsTrigger>
+            <TabsTrigger value={3}>Insights</TabsTrigger>
+            <TabsTrigger value={4}>Chat</TabsTrigger>
           </TabsList>
         </div>
 
@@ -115,7 +117,10 @@ export default function MarketingPage() {
         <TabsContent value={2} className="flex-1 min-h-0 overflow-y-auto">
           <MarketingReviewsTab />
         </TabsContent>
-        <TabsContent value={3} className="flex-1 min-h-0">
+        <TabsContent value={3} className="flex-1 min-h-0 overflow-y-auto">
+          <MarketingInsightsTab />
+        </TabsContent>
+        <TabsContent value={4} className="flex-1 min-h-0">
           <MarketingChatTab />
         </TabsContent>
       </Tabs>
