@@ -1195,3 +1195,16 @@ describe("PhotoReportBuilder — on-demand Preview pane (#554)", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(openSrc);
   });
 });
+
+describe("PhotoReportBuilder — Section thumbnail size (#2)", () => {
+  it("renders the Section photo grid at the larger 120px min column", () => {
+    const report = makeReport({
+      sections: [
+        { id: "sec-a", title: "Roof", description: "", photo_ids: ["p1"] },
+      ],
+    });
+    const { container } = renderBuilder(report, [makePhoto("p1")]);
+    expect(container.querySelector('[class*="minmax(120px"]')).not.toBeNull();
+    expect(container.querySelector('[class*="minmax(96px"]')).toBeNull();
+  });
+});

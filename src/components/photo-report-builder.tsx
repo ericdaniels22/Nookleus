@@ -1029,7 +1029,7 @@ function SortableSection({
           stays aligned with the reducer's photo_ids positions). rect strategy:
           this is a wrapping grid, not a vertical list. */}
       <SortableContext items={section.photo_ids} strategy={rectSortingStrategy}>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
           {section.photo_ids.map((photoId, photoIndex) => {
             const photo = photosById.get(photoId);
             if (!photo) return null;
