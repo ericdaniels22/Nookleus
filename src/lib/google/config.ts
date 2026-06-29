@@ -82,6 +82,19 @@ export const GOOGLE_BUSINESS_ENDPOINTS = {
   accounts: "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
   // GET {businessInformationBase}/{accounts/*}/locations?readMask=name
   businessInformationBase: "https://mybusinessbusinessinformation.googleapis.com/v1",
+  // GET {performanceBase}/{locations/*}:fetchMultiDailyMetricsTimeSeries — the
+  // Business Profile Performance API (#607): per-location daily metric time
+  // series (calls, direction requests, website clicks).
+  performanceBase: "https://businessprofileperformance.googleapis.com/v1",
+} as const;
+
+// Search Console API (#607) — search performance for a verified site. Single
+// source of truth for the fetch helpers in insights/search-console.ts.
+export const GOOGLE_SEARCH_CONSOLE_ENDPOINTS = {
+  // GET {sites} → the sites this connection can read
+  sites: "https://searchconsole.googleapis.com/webmasters/v3/sites",
+  // POST {searchAnalyticsBase}/{siteUrl}/searchAnalytics/query
+  searchAnalyticsBase: "https://searchconsole.googleapis.com/webmasters/v3/sites",
 } as const;
 
 // The scopes requested at connect time. Slice ① (this connection + reviews)
@@ -96,4 +109,8 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/business.manage",
+  // #607 — Search Console (read-only) for the Insights suite. Widening here is
+  // the only consent change the Insights slice needs; existing connections pick
+  // it up on a reconnect with include_granted_scopes=true.
+  "https://www.googleapis.com/auth/webmasters.readonly",
 ] as const;
