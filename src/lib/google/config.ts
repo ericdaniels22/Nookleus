@@ -28,6 +28,23 @@ export function isGoogleOAuthConfigured(): boolean {
   );
 }
 
+// #789 — the consent screen for project `nookleus` is in "Testing" until it is
+// published to Production. While in Testing, Google expires the business.manage
+// *sensitive*-scope refresh token 7 days after consent, so the per-org
+// connection silently breaks a week after an admin connects.
+export const GOOGLE_TESTING_REFRESH_TOKEN_TTL_DAYS = 7;
+
+// Whether the consent screen is still in Testing (so the 7-day expiry applies).
+// Defaults to true — Testing is the current reality, and over-warning is safer
+// than letting the token lapse unnoticed. Set GOOGLE_OAUTH_TESTING_MODE=false
+// (or "production") the moment the app is published to Production, and the
+// Marketing-page countdown disappears on its own.
+export function isGoogleOAuthTestingMode(): boolean {
+  const raw = (process.env.GOOGLE_OAUTH_TESTING_MODE ?? "").trim().toLowerCase();
+  if (raw === "") return true;
+  return !["false", "0", "no", "off", "production", "prod"].includes(raw);
+}
+
 export function getGoogleOAuthConfig(): GoogleOAuthConfig {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -52,6 +69,19 @@ export const GOOGLE_OAUTH_ENDPOINTS = {
   token: "https://oauth2.googleapis.com/token",
   revoke: "https://oauth2.googleapis.com/revoke",
   userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
+} as const;
+
+// Google Business Profile API hosts — the reviews inbox (#604) reads these.
+// Reviews live ONLY in the legacy My Business v4 API; account + location
+// discovery uses the modern split APIs (Account Management + Business
+// Information). Single source of truth for the fetch helpers in reviews.ts.
+export const GOOGLE_BUSINESS_ENDPOINTS = {
+  // GET {reviewsBase}/{accounts/*/locations/*}/reviews
+  reviewsBase: "https://mybusiness.googleapis.com/v4",
+  // GET {accounts} → the Business Profile accounts the user can manage
+  accounts: "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+  // GET {businessInformationBase}/{accounts/*}/locations?readMask=name
+  businessInformationBase: "https://mybusinessbusinessinformation.googleapis.com/v1",
 } as const;
 
 // The scopes requested at connect time. Slice ① (this connection + reviews)

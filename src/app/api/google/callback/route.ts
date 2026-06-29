@@ -82,6 +82,11 @@ export async function GET(request: Request) {
 
   const now = Date.now();
   const access_token_expires_at = new Date(now + tokens.expiresIn * 1000).toISOString();
+  // Stamp consent time on every connect AND reconnect (#789). created_at is
+  // frozen at first connect and updated_at is bumped hourly by the token-refresh
+  // chokepoint, so neither tracks when the *current* refresh token was issued —
+  // this does, which is what the Marketing-page 7-day countdown rides on.
+  const last_consented_at = new Date(now).toISOString();
 
   // Service client writes tokens (bypasses RLS — we already authorized above).
   const service = createServiceClient();
@@ -93,6 +98,7 @@ export async function GET(request: Request) {
       refresh_token_encrypted: encrypt(tokens.refreshToken),
       access_token_encrypted: encrypt(tokens.accessToken),
       access_token_expires_at,
+      last_consented_at,
       scopes: tokens.scopes,
       status: "connected",
       broken_reason: null,

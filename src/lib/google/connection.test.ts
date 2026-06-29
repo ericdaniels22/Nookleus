@@ -3,7 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   deriveConnectionState,
   toConnectionSummary,
+  refreshTokenExpiresAt,
+  marketingGoogleIndicator,
   getGoogleConnection,
+  listConnectedOrganizationIds,
   markBroken,
   deleteConnection,
 } from "./connection";
@@ -29,6 +32,7 @@ function makeRow(overrides: Partial<GoogleConnectionRow> = {}): GoogleConnection
     connected_by: "33333333-3333-4333-8333-333333333333",
     created_at: "2026-06-27T11:00:00.000Z",
     updated_at: "2026-06-27T11:00:00.000Z",
+    last_consented_at: "2026-06-27T11:00:00.000Z",
     ...overrides,
   };
 }
@@ -56,6 +60,7 @@ describe("toConnectionSummary", () => {
       scopes: [],
       broken_reason: null,
       connected_at: null,
+      token_expires_at: null,
     });
   });
 
@@ -70,6 +75,8 @@ describe("toConnectionSummary", () => {
       scopes: ["openid", "https://www.googleapis.com/auth/business.manage"],
       broken_reason: null,
       connected_at: "2026-06-01T09:00:00.000Z",
+      // Production mode by default — no 7-day countdown.
+      token_expires_at: null,
     });
     // The summary type has no token fields; assert the shape carries none.
     expect(JSON.stringify(summary)).not.toContain("cipher");
@@ -81,6 +88,113 @@ describe("toConnectionSummary", () => {
     );
     expect(summary.state).toBe("broken");
     expect(summary.broken_reason).toBe("invalid_grant");
+  });
+
+  it("computes the 7-day token expiry from last_consented_at in Testing mode", () => {
+    const summary = toConnectionSummary(
+      makeRow({ last_consented_at: "2026-06-20T00:00:00.000Z" }),
+      { testingMode: true },
+    );
+    expect(summary.token_expires_at).toBe("2026-06-27T00:00:00.000Z");
+  });
+
+  it("leaves token_expires_at null in Production mode (the default)", () => {
+    expect(toConnectionSummary(makeRow()).token_expires_at).toBeNull();
+  });
+
+  it("has no token expiry for a disconnected (null) row even in Testing mode", () => {
+    expect(toConnectionSummary(null, { testingMode: true }).token_expires_at).toBeNull();
+  });
+});
+
+// #789 — the per-org connection's Testing-mode refresh token lives 7 days from
+// consent. This is the issue-time → expiry math the Marketing-page countdown
+// rides on. Pure, env-agnostic: the caller decides whether it's Testing mode.
+describe("refreshTokenExpiresAt", () => {
+  const consent = "2026-06-01T00:00:00.000Z";
+
+  it("returns null when not in Testing mode (Production has no 7-day expiry)", () => {
+    expect(refreshTokenExpiresAt(consent, { testingMode: false })).toBeNull();
+  });
+
+  it("returns consent + 7 days in Testing mode", () => {
+    expect(refreshTokenExpiresAt(consent, { testingMode: true })).toBe(
+      "2026-06-08T00:00:00.000Z",
+    );
+  });
+
+  it("returns null when there is no consent timestamp", () => {
+    expect(refreshTokenExpiresAt(null, { testingMode: true })).toBeNull();
+  });
+
+  it("honours a custom ttl", () => {
+    expect(refreshTokenExpiresAt(consent, { testingMode: true, ttlDays: 1 })).toBe(
+      "2026-06-02T00:00:00.000Z",
+    );
+  });
+});
+
+// #789 — what the Marketing page actually renders: nothing while healthy or in
+// Production, an amber heads-up within two days, red when expired or broken.
+describe("marketingGoogleIndicator", () => {
+  const now = Date.parse("2026-06-27T00:00:00.000Z");
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("shows nothing when there is no summary", () => {
+    expect(marketingGoogleIndicator(null, now)).toEqual({ kind: "none" });
+  });
+
+  it("shows nothing when disconnected", () => {
+    expect(
+      marketingGoogleIndicator({ state: "disconnected", token_expires_at: null }, now),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("flags a broken connection as broken regardless of expiry", () => {
+    expect(
+      marketingGoogleIndicator({ state: "broken", token_expires_at: null }, now),
+    ).toEqual({ kind: "broken" });
+  });
+
+  it("shows nothing when connected with no expiry (Production)", () => {
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: null }, now),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("is ok with several days left", () => {
+    const exp = new Date(now + 5 * DAY).toISOString();
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: exp }, now),
+    ).toEqual({ kind: "ok", daysRemaining: 5 });
+  });
+
+  it("warns (expiring) within two days", () => {
+    const exp = new Date(now + 2 * DAY).toISOString();
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: exp }, now),
+    ).toEqual({ kind: "expiring", daysRemaining: 2 });
+  });
+
+  it("rounds partial days up", () => {
+    const exp = new Date(now + 1.5 * DAY).toISOString();
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: exp }, now),
+    ).toEqual({ kind: "expiring", daysRemaining: 2 });
+  });
+
+  it("is expired once the expiry has passed", () => {
+    const exp = new Date(now - DAY).toISOString();
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: exp }, now),
+    ).toEqual({ kind: "expired" });
+  });
+
+  it("is expired exactly at the boundary", () => {
+    const exp = new Date(now).toISOString();
+    expect(
+      marketingGoogleIndicator({ state: "connected", token_expires_at: exp }, now),
+    ).toEqual({ kind: "expired" });
   });
 });
 
@@ -107,6 +221,15 @@ function makeFakeDb(rows: GoogleConnectionRow[]) {
               filters.every(([col, val]) => (r as unknown as Record<string, unknown>)[col] === val),
             );
             return { data: (match as T) ?? null, error: null };
+          },
+          // Awaiting the chain (no maybeSingle) resolves the filtered LIST — how
+          // listConnectedOrganizationIds reads. The real query builder is itself
+          // a thenable, so the fake mirrors that.
+          then(onFulfilled: (r: { data: unknown[]; error: null }) => unknown) {
+            const data = rows.filter((r) =>
+              filters.every(([col, val]) => (r as unknown as Record<string, unknown>)[col] === val),
+            );
+            return Promise.resolve({ data, error: null }).then(onFulfilled);
           },
         };
         return api;
@@ -155,6 +278,25 @@ describe("getGoogleConnection", () => {
   it("returns null when the organization has no connection", async () => {
     const db = makeFakeDb([makeRow({ organization_id: "other-org" })]);
     expect(await getGoogleConnection(db, "no-such-org")).toBeNull();
+  });
+});
+
+describe("listConnectedOrganizationIds", () => {
+  it("returns the org ids of connected connections only (skips broken)", async () => {
+    const db = makeFakeDb([
+      makeRow({ organization_id: "org-conn-1", status: "connected" }),
+      makeRow({ organization_id: "org-broken", status: "broken" }),
+      makeRow({ organization_id: "org-conn-2", status: "connected" }),
+    ]);
+
+    const ids = await listConnectedOrganizationIds(db);
+
+    expect([...ids].sort()).toEqual(["org-conn-1", "org-conn-2"]);
+  });
+
+  it("returns an empty array when no connection is connected", async () => {
+    const db = makeFakeDb([makeRow({ status: "broken" })]);
+    expect(await listConnectedOrganizationIds(db)).toEqual([]);
   });
 });
 

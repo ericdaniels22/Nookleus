@@ -37,6 +37,7 @@ function makeRow(overrides: Partial<GoogleConnectionRow> = {}): GoogleConnection
     connected_by: null,
     created_at: "2026-06-01T00:00:00.000Z",
     updated_at: "2026-06-01T00:00:00.000Z",
+    last_consented_at: "2026-06-01T00:00:00.000Z",
     ...overrides,
   };
 }

@@ -34,6 +34,7 @@ import { JobEmailRow } from "@/components/email/job-email-row";
 import { buildQuotedReply } from "@/components/email/build-quoted-reply";
 import { JobMessagesSection } from "@/components/job-detail/job-messages-section";
 import { JobCallsSection } from "@/components/job-detail/job-calls-section";
+import { ReviewRequestSection } from "@/components/job-detail/review-request-section";
 import { JobStatusSelect } from "@/components/job-detail/job-status-select";
 import { buildJobTextContacts } from "@/components/job-detail/job-text-contacts";
 import JarvisJobPanel from "@/components/jarvis/JarvisJobPanel";
@@ -1206,6 +1207,12 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         organizationId={job.organization_id}
         contacts={buildJobTextContacts(job)}
       />
+
+      {/* Reviews — manual "Request review" (Marketing). Admin-only; sends the
+          customer the org's Google review link (SMS or email, decided
+          server-side) and logs every send. NO automatic sends.
+          Issue #605 (PRD #603, ADR 0015). */}
+      <ReviewRequestSection jobId={jobId} />
 
       {/* Custom Fields */}
       {customFields.length > 0 && (
