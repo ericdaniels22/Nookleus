@@ -48,8 +48,11 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
+
+vi.mock("@/components/photo-viewer", () => ({ default: () => null }));
+vi.mock("@/components/photo-annotator", () => ({ default: () => null }));
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 

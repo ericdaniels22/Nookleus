@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   KeyboardSensor,
@@ -48,6 +49,8 @@ import {
 import { resolvePhotoReportDragEnd } from "@/lib/photo-report-drag";
 import { photoReportCollisionDetection } from "@/lib/photo-report-collision";
 import { AddPhotosDialog } from "@/components/photo-report-add-photos-dialog";
+import PhotoViewer from "@/components/photo-viewer";
+import PhotoAnnotator from "@/components/photo-annotator";
 import { measureWriteupFit, writeupLimitFor } from "@/lib/section-writeup-fit";
 import {
   newSectionId,
@@ -193,6 +196,29 @@ export default function PhotoReportBuilder({
   // mounts only while open, so every open starts with a fresh, empty selection.
   const [pickerSectionIndex, setPickerSectionIndex] = useState<number | null>(
     null,
+  );
+
+  const router = useRouter();
+
+  // Click-to-enlarge / annotate (#1): the section-scoped photo set the viewer
+  // navigates, the index it opens on, and whether it's open. A tap on a Section
+  // thumbnail opens the viewer; the viewer's Edit button hands a Photo to the
+  // annotator. After either saves, router.refresh() re-runs the server component
+  // so the freshly annotated render replaces the original on the thumbnail (#3) —
+  // useReducer state (the Sections being edited) survives the refetch.
+  const [viewerPhotos, setViewerPhotos] = useState<Photo[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [annotatorOpen, setAnnotatorOpen] = useState(false);
+  const [annotatorPhoto, setAnnotatorPhoto] = useState<Photo | null>(null);
+
+  const openPhotoViewer = useCallback(
+    (sectionPhotos: Photo[], index: number) => {
+      setViewerPhotos(sectionPhotos);
+      setViewerIndex(index);
+      setViewerOpen(true);
+    },
+    [],
   );
 
   // The latest edit revision, mirrored into a ref so the async save tail can
@@ -689,6 +715,7 @@ export default function PhotoReportBuilder({
                     photosPerPage={state.photosPerPage}
                     desktopSelected={selectedId === section.id}
                     onOpenPicker={() => setPickerSectionIndex(index)}
+                    onOpenViewer={openPhotoViewer}
                   />
                 ))}
               </div>
@@ -791,6 +818,41 @@ export default function PhotoReportBuilder({
           }}
         />
       )}
+      <PhotoViewer
+        open={viewerOpen}
+        onOpenChange={(open) => {
+          if (!open) setViewerOpen(false);
+        }}
+        photos={viewerPhotos}
+        initialPhotoIndex={viewerIndex}
+        allTags={tags}
+        supabaseUrl={supabaseUrl}
+        coverPhotoId={jobCoverPhotoId}
+        // Re-fetch the server component so a caption/tag edit or delete made in
+        // the viewer reflects on the builder's thumbnails (#3). A delete leaves a
+        // dangling id the grid already skips (line ~1035).
+        onUpdated={() => router.refresh()}
+        // Keep the viewer mounted underneath; the annotator opens on top and
+        // closing it returns to the viewer on the same Photo.
+        onAnnotate={(photo) => {
+          setAnnotatorPhoto(photo);
+          setAnnotatorOpen(true);
+        }}
+      />
+      <PhotoAnnotator
+        open={annotatorOpen}
+        onOpenChange={(val) => {
+          setAnnotatorOpen(val);
+          if (!val) setAnnotatorPhoto(null);
+        }}
+        photos={viewerPhotos}
+        initialPhotoIndex={viewerPhotos.findIndex(
+          (p) => p.id === annotatorPhoto?.id,
+        )}
+        // Show the new annotation immediately (#3): re-fetch the server
+        // component's photos so the annotated render replaces the original.
+        onSaved={() => router.refresh()}
+      />
     </div>
   );
 }
@@ -888,6 +950,7 @@ function SortableSection({
   photosPerPage,
   desktopSelected,
   onOpenPicker,
+  onOpenViewer,
 }: {
   index: number;
   section: ReportSection;
@@ -910,6 +973,8 @@ function SortableSection({
   desktopSelected: boolean;
   /** Open the "+ Add Photos" picker targeting this Section (#552). */
   onOpenPicker: () => void;
+  /** Open the section-scoped photo viewer at a tapped thumbnail (#1). */
+  onOpenViewer: (photos: Photo[], index: number) => void;
 }) {
   const {
     attributes,
@@ -953,6 +1018,13 @@ function SortableSection({
     section.description,
     writeupLimitFor(photosPerPage),
   );
+
+  // The Section's photos that actually resolve, in grid order — the set the
+  // viewer navigates when a thumbnail is tapped (dangling ids are skipped, so
+  // the viewer's index matches what's on screen).
+  const sectionPhotos = section.photo_ids
+    .map((id) => photosById.get(id))
+    .filter((p): p is Photo => !!p);
 
   return (
     <section
@@ -1041,6 +1113,12 @@ function SortableSection({
                 photoIndex={photoIndex}
                 supabaseUrl={supabaseUrl}
                 dispatch={dispatch}
+                onOpen={() =>
+                  onOpenViewer(
+                    sectionPhotos,
+                    sectionPhotos.findIndex((p) => p.id === photo.id),
+                  )
+                }
               />
             );
           })}
@@ -1080,6 +1158,7 @@ function DraggablePhoto({
   photoIndex,
   supabaseUrl,
   dispatch,
+  onOpen,
 }: {
   photo: Photo;
   sectionIndex: number;
@@ -1089,6 +1168,8 @@ function DraggablePhoto({
   dispatch: React.Dispatch<
     Parameters<typeof photoReportBuilderReducer>[1]
   >;
+  /** Open the enlarged viewer for this photo (#1). */
+  onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({
@@ -1112,6 +1193,7 @@ function DraggablePhoto({
         src={photoUrl(photo, supabaseUrl, "grid")}
         alt={photo.caption || "Photo"}
         className="h-full w-full cursor-grab touch-none object-cover"
+        onClick={onOpen}
         {...attributes}
         {...listeners}
       />

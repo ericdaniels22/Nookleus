@@ -33,6 +33,9 @@ const h = vi.hoisted(() => ({
   errorOnSave: false,
 }));
 
+const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => nav }));
+
 vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
     from: () => ({
@@ -126,6 +129,38 @@ vi.mock("@dnd-kit/sortable", async () => {
     },
   };
 });
+
+let capturedViewerProps: any = null;
+vi.mock("@/components/photo-viewer", () => ({
+  default: (props: any) => {
+    capturedViewerProps = props;
+    if (!props.open) return null;
+    return (
+      <div data-testid="photo-viewer-stub">
+        <button
+          data-testid="viewer-annotate"
+          onClick={() =>
+            props.onAnnotate(props.photos[props.initialPhotoIndex], "annot-url")
+          }
+        />
+        <button data-testid="viewer-updated" onClick={() => props.onUpdated()} />
+      </div>
+    );
+  },
+}));
+
+let capturedAnnotatorProps: any = null;
+vi.mock("@/components/photo-annotator", () => ({
+  default: (props: any) => {
+    capturedAnnotatorProps = props;
+    if (!props.open) return null;
+    return (
+      <div data-testid="photo-annotator-stub">
+        <button data-testid="annotator-save" onClick={() => props.onSaved()} />
+      </div>
+    );
+  },
+}));
 
 import React from "react";
 import { toast } from "sonner";
@@ -1206,5 +1241,67 @@ describe("PhotoReportBuilder — Section thumbnail size (#2)", () => {
     const { container } = renderBuilder(report, [makePhoto("p1")]);
     expect(container.querySelector('[class*="minmax(120px"]')).not.toBeNull();
     expect(container.querySelector('[class*="minmax(96px"]')).toBeNull();
+  });
+});
+
+describe("PhotoReportBuilder — enlarge & annotate a Section photo (#1, #3)", () => {
+  beforeEach(() => {
+    capturedViewerProps = null;
+    capturedAnnotatorProps = null;
+    nav.refresh.mockClear();
+  });
+
+  function reportWith(ids: string[]): PhotoReport {
+    return makeReport({
+      sections: [
+        { id: "sec-a", title: "Roof", description: "", photo_ids: ids },
+      ],
+    });
+  }
+
+  function sectionEl() {
+    return screen.getByLabelText("Section heading").closest("section")!;
+  }
+
+  it("opens the viewer scoped to the Section at the clicked photo", () => {
+    renderBuilder(reportWith(["p1", "p2"]), [makePhoto("p1"), makePhoto("p2")]);
+    const imgs = within(sectionEl()).getAllByAltText("Photo");
+    fireEvent.click(imgs[1]);
+    expect(capturedViewerProps.open).toBe(true);
+    expect(capturedViewerProps.photos.map((p: Photo) => p.id)).toEqual([
+      "p1",
+      "p2",
+    ]);
+    expect(capturedViewerProps.initialPhotoIndex).toBe(1);
+  });
+
+  it("removes a photo via the X overlay without opening the viewer", () => {
+    renderBuilder(reportWith(["p1"]), [makePhoto("p1")]);
+    const section = sectionEl();
+    fireEvent.click(
+      within(section).getByLabelText("Remove photo from report"),
+    );
+    expect(within(section).queryByAltText("Photo")).toBeNull();
+    expect(capturedViewerProps?.open ?? false).toBe(false);
+  });
+
+  it("opens the annotator from the viewer's Edit and refreshes after a save", () => {
+    renderBuilder(reportWith(["p1"]), [makePhoto("p1")]);
+    fireEvent.click(within(sectionEl()).getByAltText("Photo"));
+    fireEvent.click(screen.getByTestId("viewer-annotate"));
+    expect(capturedAnnotatorProps.open).toBe(true);
+    expect(capturedAnnotatorProps.photos.map((p: Photo) => p.id)).toEqual([
+      "p1",
+    ]);
+    expect(capturedAnnotatorProps.initialPhotoIndex).toBe(0);
+    fireEvent.click(screen.getByTestId("annotator-save"));
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the builder after a viewer edit/delete", () => {
+    renderBuilder(reportWith(["p1"]), [makePhoto("p1")]);
+    fireEvent.click(within(sectionEl()).getByAltText("Photo"));
+    fireEvent.click(screen.getByTestId("viewer-updated"));
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
   });
 });
