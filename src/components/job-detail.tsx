@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { escapeOrFilterValue } from "@/lib/postgrest";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email } from "@/lib/types";
+import { Job, JobAdjuster, Contact, JobActivity, Payment, Invoice, Photo, PhotoTag, PhotoReport, Email, Showcase } from "@/lib/types";
 import { pickPreloadUrls } from "@/lib/jobs/photo-preload";
 import { partitionPhotoReportsByTrash } from "@/lib/photo-report-trash";
+import { requestCreateShowcase } from "@/lib/showcase-create-request";
 import { formatPhoneNumber, normalizePhoneToE164 } from "@/lib/phone";
 import { ClickToCall } from "@/components/phone/click-to-call";
 import { parseDateOnly } from "@/lib/date-field";
@@ -64,6 +65,7 @@ import {
   Trash2,
   RotateCcw,
   ChevronDown,
+  Megaphone,
 } from "lucide-react";
 import { canDeleteJobs } from "@/lib/jobs/auth";
 import {
@@ -102,6 +104,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const { hasPermission, profile } = useAuth();
   const { getStatusColor, getStatusLabel } = useConfig();
   const showJobDeleteAffordances = canDeleteJobs(profile?.role);
+  // Every Showcase surface is admin-only (#613 AC), mirroring the `{ adminOnly:
+  // true }` gate on the Showcase routes — so the create/open affordance only
+  // shows for an admin.
+  const isAdmin = profile?.role === "admin";
   const [job, setJob] = useState<Job | null>(null);
   const [activities, setActivities] = useState<JobActivity[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -110,6 +116,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [tags, setTags] = useState<PhotoTag[]>([]);
   const [reports, setReports] = useState<PhotoReport[]>([]);
+  // The Job's one live Showcase, or null when it has none (#613). A trashed one
+  // is excluded by the fetch, so this drives "Create showcase" vs "Open".
+  const [showcase, setShowcase] = useState<Showcase | null>(null);
+  const [creatingShowcase, setCreatingShowcase] = useState(false);
   const [emails, setEmails] = useState<Email[]>([]);
   const [stripeConnected, setStripeConnected] = useState(false);
   const [customFields, setCustomFields] = useState<{ field_key: string; field_value: string }[]>([]);
@@ -184,7 +194,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   const fetchData = useCallback(async ({ surfaceErrors = false }: { surfaceErrors?: boolean } = {}) => {
     const supabase = createClient();
 
-    const [jobRes, activitiesRes, paymentsRes, invoicesRes, photosRes, photoCountRes, tagsRes, reportsRes, emailsRes] = await Promise.all([
+    const [jobRes, activitiesRes, paymentsRes, invoicesRes, photosRes, photoCountRes, tagsRes, reportsRes, emailsRes, showcaseRes] = await Promise.all([
       supabase
         .from("jobs")
         .select("*, contact:contacts!contact_id(*), insurance_contact:contacts!insurance_contact_id(*), referral_partner:referral_partners!referral_partner_id(id, company_name), job_adjusters(*, adjuster:contacts!contact_id(*))")
@@ -231,6 +241,15 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         .select("*, attachments:email_attachments(*)")
         .eq("job_id", jobId)
         .order("received_at", { ascending: false }),
+      // The Job's one live Showcase, if any. A trashed one (deleted_at set) is
+      // excluded, so this drives "Create showcase" vs "Open" in the admin-only
+      // Showcase section below (#613).
+      supabase
+        .from("showcases")
+        .select("*")
+        .eq("job_id", jobId)
+        .is("deleted_at", null)
+        .maybeSingle(),
     ]);
 
     // Supabase resolves with `error` rather than rejecting, so a weak-signal
@@ -250,6 +269,13 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     if (tagsRes.data) setTags(tagsRes.data as PhotoTag[]);
     if (reportsRes.data) setReports(reportsRes.data as PhotoReport[]);
     if (emailsRes.data) setEmails(emailsRes.data as Email[]);
+    // maybeSingle() yields a row or null; guard against the array shape some
+    // clients hand back so an empty result clears the Showcase rather than
+    // setting `[]`.
+    const showcaseRow = showcaseRes.data;
+    setShowcase(
+      showcaseRow && !Array.isArray(showcaseRow) ? (showcaseRow as Showcase) : null,
+    );
 
     // Fetch custom fields
     const { data: cfData } = await supabase
@@ -376,6 +402,22 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     }
     toast.success("Report restored.");
     fetchData();
+  }
+
+  // Create a blank Showcase draft and jump straight into its builder (#613).
+  // The route owns the create rules (admin-only, one-per-Job); on the
+  // one-per-Job 409 race it surfaces the server's message and stays put.
+  async function createShowcase() {
+    setCreatingShowcase(true);
+    try {
+      const created = await requestCreateShowcase(jobId);
+      router.push(`/jobs/${jobId}/showcases/${created.id}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't create the showcase.",
+      );
+      setCreatingShowcase(false);
+    }
   }
 
   async function saveCrewLabor(raw: string) {
@@ -1014,6 +1056,68 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           </div>
         )}
       </div>
+
+      {/* Showcase — a public-facing story for this Job, admin-only (#613). A Job
+          has zero or one. Shown only to admins, the only role that may build or
+          edit one; everyone else never sees the section. */}
+      {isAdmin && (
+        <div className="bg-card rounded-xl border border-border p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-foreground">
+              <Megaphone size={16} className="inline mr-2 -mt-0.5" />
+              Showcase
+            </h3>
+            {showcase && (
+              <Badge
+                className={cn(
+                  "text-xs font-medium px-2 py-0.5 rounded-md",
+                  showcase.status === "published"
+                    ? "bg-[rgba(29,158,117,0.12)] text-[#5DCAA5] border border-[rgba(29,158,117,0.35)]"
+                    : "bg-muted text-muted-foreground border border-border",
+                )}
+              >
+                {showcase.status === "published" ? "Published" : "Draft"}
+              </Badge>
+            )}
+          </div>
+          {showcase ? (
+            <Link
+              href={`/jobs/${jobId}/showcases/${showcase.id}`}
+              className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border hover:bg-accent/50 transition-all"
+            >
+              <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                {showcase.title || "Untitled showcase"}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground ml-3">
+                {showcase.photo_ids.length}{" "}
+                {showcase.photo_ids.length === 1 ? "photo" : "photos"}
+              </span>
+            </Link>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground/60">
+                No showcase yet. Build a public-facing story from this Job&apos;s
+                photos.
+              </p>
+              <Button
+                variant="gradient"
+                onClick={createShowcase}
+                disabled={creatingShowcase}
+                className="shrink-0"
+              >
+                {creatingShowcase ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Megaphone size={16} className="mr-1.5" />
+                    Create showcase
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Emails */}
       <div className="bg-card rounded-xl border border-border p-5 mb-6">

@@ -5,6 +5,7 @@ import { Megaphone } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import MarketingChatTab from "@/components/marketing/MarketingChatTab";
 import SocialMediaTab from "@/components/marketing/SocialMediaTab";
+import ShowcasesTab from "@/components/marketing/ShowcasesTab";
 
 export default function MarketingPage() {
   const { profile } = useAuth();
@@ -30,7 +31,8 @@ export default function MarketingPage() {
           </div>
           <TabsList>
             <TabsTrigger value={0}>Social Media</TabsTrigger>
-            <TabsTrigger value={1}>Chat</TabsTrigger>
+            <TabsTrigger value={1}>Showcases</TabsTrigger>
+            <TabsTrigger value={2}>Chat</TabsTrigger>
           </TabsList>
         </div>
 
@@ -38,7 +40,10 @@ export default function MarketingPage() {
         <TabsContent value={0} className="flex-1 min-h-0 overflow-y-auto">
           <SocialMediaTab />
         </TabsContent>
-        <TabsContent value={1} className="flex-1 min-h-0">
+        <TabsContent value={1} className="flex-1 min-h-0 overflow-y-auto">
+          <ShowcasesTab />
+        </TabsContent>
+        <TabsContent value={2} className="flex-1 min-h-0">
           <MarketingChatTab />
         </TabsContent>
       </Tabs>
