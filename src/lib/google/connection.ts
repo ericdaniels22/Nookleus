@@ -120,6 +120,25 @@ export async function getGoogleConnection(
   return data ?? null;
 }
 
+// Every Organization with a usable (connected, not broken) Google connection.
+// The scheduled-sync orchestrator fans out over these: a broken connection
+// can't fetch reviews, so it is skipped until the owner reconnects. Pass a
+// PRIVILEGED db — the cron has no user session, and this reads across orgs.
+export async function listConnectedOrganizationIds(
+  db: SupabaseClient,
+): Promise<string[]> {
+  const { data, error } = await db
+    .from("google_connection")
+    .select("organization_id")
+    .eq("status", "connected");
+  if (error) {
+    throw new Error(`google_connection list failed: ${error.message}`);
+  }
+  return (data ?? []).map(
+    (r) => (r as { organization_id: string }).organization_id,
+  );
+}
+
 // Flip a connection to the broken state. Called by the token chokepoint when a
 // refresh is rejected with invalid_grant (revoked at Google or expired) — never
 // on a transient error. The UI reads 'broken' as "show the reconnect prompt".

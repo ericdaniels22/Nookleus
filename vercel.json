@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/contracts/reminders", "schedule": "0 13 * * *" },
-    { "path": "/api/qb/sync-scheduled", "schedule": "30 13 * * *" }
+    { "path": "/api/qb/sync-scheduled", "schedule": "30 13 * * *" },
+    { "path": "/api/google/reviews/sync-scheduled", "schedule": "45 13 * * *" }
   ]
 }
