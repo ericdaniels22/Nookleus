@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
+import { persistAnnotatedRender } from "@/lib/jobs/persist-annotated-render";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -1600,7 +1601,13 @@ export default function PhotoAnnotator({
         });
       }
 
-      // Export flattened annotated PNG
+      // Export the flattened annotated PNG to a UNIQUE path per save: Supabase
+      // Storage's CDN keys its cache by path, so re-annotating to the old stable
+      // `-annotated.png` served the previous render until the cache aged out. A
+      // per-save path is a guaranteed cache miss. After the row points at the new
+      // file, best-effort delete the prior one so superseded renders don't pile
+      // up in Storage (a failed delete is harmless — it leaves an orphan, never a
+      // stale render).
       try {
         canvas.discardActiveObject();
         canvas.renderAll();
@@ -1608,18 +1615,13 @@ export default function PhotoAnnotator({
         const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
         const res = await fetch(dataUrl);
         const blob = await res.blob();
-        const annotatedPath = currentPhoto.storage_path.replace(
-          /\.[^.]+$/,
-          "-annotated.png"
-        );
-        await supabase.storage.from("photos").upload(annotatedPath, blob, {
-          upsert: true,
-          contentType: "image/png",
+        await persistAnnotatedRender(supabase, {
+          photoId: currentPhoto.id,
+          storagePath: currentPhoto.storage_path,
+          previousAnnotatedPath: currentPhoto.annotated_path,
+          blob,
+          token: Date.now().toString(36),
         });
-        await supabase
-          .from("photos")
-          .update({ annotated_path: annotatedPath })
-          .eq("id", currentPhoto.id);
       } catch {
         console.log("Could not export annotated image. JSON annotations saved.");
       }
