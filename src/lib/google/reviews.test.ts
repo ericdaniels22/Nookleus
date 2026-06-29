@@ -9,6 +9,8 @@ import {
   syncOrganizationReviews,
   listOrganizationReviews,
   syncAllConnectedReviews,
+  postReviewReply,
+  markReviewReplied,
   type GoogleApiReview,
   type GoogleReviewUpsert,
   type GoogleReviewInboxItem,
@@ -157,6 +159,143 @@ describe("fetchLocationReviews", () => {
   it("returns an empty array when the location has no reviews", async () => {
     const { client } = makeClient(() => ({}));
     expect(await fetchLocationReviews(client, LOCATION)).toEqual([]);
+  });
+});
+
+// A reply-capturing client: records the (url, init) of each call and returns a
+// JSON response with a configurable status/body, so a test can assert the HTTP
+// method and request body postReviewReply sends to Google's updateReply endpoint.
+function makeReplyClient(opts: { status?: number; body?: unknown } = {}) {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const client = {
+    fetch: async (input: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify(opts.body ?? {}), {
+        status: opts.status ?? 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  };
+  return { client, calls };
+}
+
+describe("postReviewReply", () => {
+  it("PUTs the comment to the review's reply endpoint", async () => {
+    const { client, calls } = makeReplyClient();
+
+    await postReviewReply(client, LOCATION, "rev-1", "Thanks for the kind words!");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(
+      `https://mybusiness.googleapis.com/v4/${LOCATION}/reviews/rev-1/reply`,
+    );
+    expect(calls[0].init?.method).toBe("PUT");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      comment: "Thanks for the kind words!",
+    });
+  });
+
+  it("throws when Google rejects the reply (failure surfaced, not swallowed)", async () => {
+    const { client } = makeReplyClient({ status: 403 });
+
+    await expect(
+      postReviewReply(client, LOCATION, "rev-1", "Thanks!"),
+    ).rejects.toThrow(/403/);
+  });
+
+  it("returns the reply updateTime from Google's response", async () => {
+    const { client } = makeReplyClient({
+      body: { comment: "Thanks!", updateTime: "2026-06-29T10:00:00Z" },
+    });
+
+    const result = await postReviewReply(client, LOCATION, "rev-1", "Thanks!");
+
+    expect(result).toEqual({ updateTime: "2026-06-29T10:00:00Z" });
+  });
+});
+
+// A mutable google_review fake supporting the update(...).eq(...).eq(...) chain
+// markReviewReplied uses. Applies the update to every seeded row that matches
+// all chained eq filters when the chain is awaited, so a test can assert which
+// rows changed — exactly the org-scoping the helper must enforce.
+function makeUpdatableReviewDb(seed: Array<Record<string, unknown>>) {
+  const rows = seed.map((r) => ({ ...r }));
+  const client = {
+    from(table: string) {
+      if (table !== "google_review") throw new Error(`unexpected table: ${table}`);
+      return {
+        update(values: Record<string, unknown>) {
+          const filters: Array<[string, unknown]> = [];
+          const api = {
+            eq(col: string, val: unknown) {
+              filters.push([col, val]);
+              return api;
+            },
+            then(onFulfilled: (r: { error: null }) => unknown) {
+              for (const row of rows) {
+                if (filters.every(([c, v]) => row[c] === v)) {
+                  Object.assign(row, values);
+                }
+              }
+              return Promise.resolve({ error: null }).then(onFulfilled);
+            },
+          };
+          return api;
+        },
+      };
+    },
+  };
+  return { db: client as unknown as SupabaseClient, rows: () => rows };
+}
+
+describe("markReviewReplied", () => {
+  it("flips the row to replied with the comment and update time, scoped to the org", async () => {
+    const fake = makeUpdatableReviewDb([
+      {
+        id: "row-1",
+        organization_id: "org-1",
+        replied: false,
+        reply_comment: null,
+        reply_updated_at: null,
+      },
+    ]);
+
+    await markReviewReplied(
+      fake.db,
+      "org-1",
+      "row-1",
+      "Thank you, Pat!",
+      "2026-06-29T10:00:00Z",
+    );
+
+    const row = fake.rows().find((r) => r.id === "row-1")!;
+    expect(row.replied).toBe(true);
+    expect(row.reply_comment).toBe("Thank you, Pat!");
+    expect(row.reply_updated_at).toBe("2026-06-29T10:00:00Z");
+  });
+
+  it("does not touch a row belonging to another organization", async () => {
+    const fake = makeUpdatableReviewDb([
+      {
+        id: "row-1",
+        organization_id: "org-2",
+        replied: false,
+        reply_comment: null,
+        reply_updated_at: null,
+      },
+    ]);
+
+    await markReviewReplied(
+      fake.db,
+      "org-1",
+      "row-1",
+      "Thanks!",
+      "2026-06-29T10:00:00Z",
+    );
+
+    const row = fake.rows().find((r) => r.id === "row-1")!;
+    expect(row.replied).toBe(false);
+    expect(row.reply_comment).toBeNull();
   });
 });
 

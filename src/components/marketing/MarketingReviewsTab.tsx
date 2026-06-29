@@ -29,6 +29,56 @@ function StarRating({ value }: { value: number }) {
 }
 
 function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [posted, setPosted] = useState<{ comment: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // The reply may have been posted in this session (posted) or on a prior load
+  // (review.replied). Either way the row reads as replied.
+  const replied = review.replied || posted !== null;
+  const replyComment = posted?.comment ?? review.reply_comment;
+
+  async function handleDraft() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/google/reviews/${review.id}/suggest`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // The draft failed. Surface the reason rather than open a blank editor
+        // the admin might post unread (#608 AC5 in spirit).
+        setError(data.error ?? "Could not draft a reply. Please try again.");
+        return;
+      }
+      setDraft(data.suggested_reply ?? "");
+    } catch {
+      // A rejected fetch (offline) or a non-JSON body still has to be visible,
+      // not a silent unhandled rejection (#608 AC5).
+      setError("Could not draft a reply. Please try again.");
+    }
+  }
+
+  async function handlePost() {
+    setError(null);
+    try {
+      const res = await fetch(`/api/google/reviews/${review.id}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ comment: draft }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // The reply did not post. Surface the route's reason and keep the editor
+        // open so the admin can retry; the row stays unreplied (#608 AC5).
+        setError(data.error ?? "Could not post the reply. Please try again.");
+        return;
+      }
+      setPosted({ comment: data.reply_comment });
+    } catch {
+      setError("Could not post the reply. Please try again.");
+    }
+  }
+
   return (
     <li className="rounded-xl border border-border p-4">
       <div className="flex items-start justify-between gap-3">
@@ -38,7 +88,7 @@ function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
           </p>
           <StarRating value={review.star_rating} />
         </div>
-        {review.replied ? (
+        {replied ? (
           <span
             data-testid="review-replied"
             className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
@@ -61,15 +111,52 @@ function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
         </p>
       )}
 
-      {review.replied && review.reply_comment && (
+      {replied && replyComment && (
         <div className="mt-3 rounded-lg bg-muted/50 p-3">
           <p className="text-xs font-medium text-muted-foreground mb-1">
             Your reply
           </p>
           <p className="text-sm text-foreground/90 whitespace-pre-wrap">
-            {review.reply_comment}
+            {replyComment}
           </p>
         </div>
+      )}
+
+      {!replied && draft === null && (
+        <button
+          type="button"
+          data-testid="draft-reply"
+          onClick={handleDraft}
+          className="mt-3 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+        >
+          Draft reply
+        </button>
+      )}
+
+      {!replied && draft !== null && (
+        <div className="mt-3 space-y-2">
+          <textarea
+            data-testid="reply-editor"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background p-2 text-sm"
+            rows={3}
+          />
+          <button
+            type="button"
+            data-testid="post-reply"
+            onClick={handlePost}
+            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+          >
+            Post reply
+          </button>
+        </div>
+      )}
+
+      {!replied && error && (
+        <p data-testid="reply-error" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
       )}
     </li>
   );
