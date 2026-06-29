@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
+import { buildAnnotatedPath } from "@/lib/jobs/annotated-path";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -1600,7 +1601,13 @@ export default function PhotoAnnotator({
         });
       }
 
-      // Export flattened annotated PNG
+      // Export the flattened annotated PNG to a UNIQUE path per save: Supabase
+      // Storage's CDN keys its cache by path, so re-annotating to the old stable
+      // `-annotated.png` served the previous render until the cache aged out. A
+      // per-save path is a guaranteed cache miss. After the row points at the new
+      // file, best-effort delete the prior one so superseded renders don't pile
+      // up in Storage (a failed delete is harmless — it leaves an orphan, never a
+      // stale render).
       try {
         canvas.discardActiveObject();
         canvas.renderAll();
@@ -1608,9 +1615,10 @@ export default function PhotoAnnotator({
         const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
         const res = await fetch(dataUrl);
         const blob = await res.blob();
-        const annotatedPath = currentPhoto.storage_path.replace(
-          /\.[^.]+$/,
-          "-annotated.png"
+        const previousAnnotatedPath = currentPhoto.annotated_path;
+        const annotatedPath = buildAnnotatedPath(
+          currentPhoto.storage_path,
+          Date.now().toString(36),
         );
         await supabase.storage.from("photos").upload(annotatedPath, blob, {
           upsert: true,
@@ -1620,6 +1628,15 @@ export default function PhotoAnnotator({
           .from("photos")
           .update({ annotated_path: annotatedPath })
           .eq("id", currentPhoto.id);
+        if (previousAnnotatedPath && previousAnnotatedPath !== annotatedPath) {
+          try {
+            await supabase.storage
+              .from("photos")
+              .remove([previousAnnotatedPath]);
+          } catch (err) {
+            console.warn("Could not delete previous annotated render:", err);
+          }
+        }
       } catch {
         console.log("Could not export annotated image. JSON annotations saved.");
       }
