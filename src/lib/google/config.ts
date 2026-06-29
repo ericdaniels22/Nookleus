@@ -71,6 +71,19 @@ export const GOOGLE_OAUTH_ENDPOINTS = {
   userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
 } as const;
 
+// Google Business Profile API hosts — the reviews inbox (#604) reads these.
+// Reviews live ONLY in the legacy My Business v4 API; account + location
+// discovery uses the modern split APIs (Account Management + Business
+// Information). Single source of truth for the fetch helpers in reviews.ts.
+export const GOOGLE_BUSINESS_ENDPOINTS = {
+  // GET {reviewsBase}/{accounts/*/locations/*}/reviews
+  reviewsBase: "https://mybusiness.googleapis.com/v4",
+  // GET {accounts} → the Business Profile accounts the user can manage
+  accounts: "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+  // GET {businessInformationBase}/{accounts/*}/locations?readMask=name
+  businessInformationBase: "https://mybusinessbusinessinformation.googleapis.com/v1",
+} as const;
+
 // The scopes requested at connect time. Slice ① (this connection + reviews)
 // needs identity (to display the connected account) and Business Profile.
 // Later slices APPEND to this list as they ship — Search Console (#607) adds

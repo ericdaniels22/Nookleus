@@ -6,6 +6,7 @@ import {
   refreshTokenExpiresAt,
   marketingGoogleIndicator,
   getGoogleConnection,
+  listConnectedOrganizationIds,
   markBroken,
   deleteConnection,
 } from "./connection";
@@ -221,6 +222,15 @@ function makeFakeDb(rows: GoogleConnectionRow[]) {
             );
             return { data: (match as T) ?? null, error: null };
           },
+          // Awaiting the chain (no maybeSingle) resolves the filtered LIST — how
+          // listConnectedOrganizationIds reads. The real query builder is itself
+          // a thenable, so the fake mirrors that.
+          then(onFulfilled: (r: { data: unknown[]; error: null }) => unknown) {
+            const data = rows.filter((r) =>
+              filters.every(([col, val]) => (r as unknown as Record<string, unknown>)[col] === val),
+            );
+            return Promise.resolve({ data, error: null }).then(onFulfilled);
+          },
         };
         return api;
       },
@@ -268,6 +278,25 @@ describe("getGoogleConnection", () => {
   it("returns null when the organization has no connection", async () => {
     const db = makeFakeDb([makeRow({ organization_id: "other-org" })]);
     expect(await getGoogleConnection(db, "no-such-org")).toBeNull();
+  });
+});
+
+describe("listConnectedOrganizationIds", () => {
+  it("returns the org ids of connected connections only (skips broken)", async () => {
+    const db = makeFakeDb([
+      makeRow({ organization_id: "org-conn-1", status: "connected" }),
+      makeRow({ organization_id: "org-broken", status: "broken" }),
+      makeRow({ organization_id: "org-conn-2", status: "connected" }),
+    ]);
+
+    const ids = await listConnectedOrganizationIds(db);
+
+    expect([...ids].sort()).toEqual(["org-conn-1", "org-conn-2"]);
+  });
+
+  it("returns an empty array when no connection is connected", async () => {
+    const db = makeFakeDb([makeRow({ status: "broken" })]);
+    expect(await listConnectedOrganizationIds(db)).toEqual([]);
   });
 });
 

@@ -6,6 +6,7 @@ import { Megaphone } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import MarketingChatTab from "@/components/marketing/MarketingChatTab";
 import SocialMediaTab from "@/components/marketing/SocialMediaTab";
+import MarketingReviewsTab from "@/components/marketing/MarketingReviewsTab";
 import GoogleTokenBanner from "@/components/marketing/GoogleTokenBanner";
 import { marketingGoogleIndicator } from "@/lib/google/connection";
 import type { GoogleConnectionSummary } from "@/lib/google/types";
@@ -94,7 +95,8 @@ export default function MarketingPage() {
           </div>
           <TabsList>
             <TabsTrigger value={0}>Social Media</TabsTrigger>
-            <TabsTrigger value={1}>Chat</TabsTrigger>
+            <TabsTrigger value={1}>Reviews</TabsTrigger>
+            <TabsTrigger value={2}>Chat</TabsTrigger>
           </TabsList>
         </div>
 
@@ -105,7 +107,10 @@ export default function MarketingPage() {
         <TabsContent value={0} className="flex-1 min-h-0 overflow-y-auto">
           <SocialMediaTab />
         </TabsContent>
-        <TabsContent value={1} className="flex-1 min-h-0">
+        <TabsContent value={1} className="flex-1 min-h-0 overflow-y-auto">
+          <MarketingReviewsTab />
+        </TabsContent>
+        <TabsContent value={2} className="flex-1 min-h-0">
           <MarketingChatTab />
         </TabsContent>
       </Tabs>
