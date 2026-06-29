@@ -5,7 +5,12 @@ import { createServiceClient } from "@/lib/supabase-api";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { getGoogleConnection, toConnectionSummary } from "@/lib/google/connection";
 import { isGoogleOAuthConfigured } from "@/lib/google/config";
+import {
+  getWebsiteConnection,
+  toConnectionSummary as toWebsiteConnectionSummary,
+} from "@/lib/website/connection";
 import GoogleConnectionCard from "./google-connection-card";
+import WebsiteConnectionCard from "./website-connection-card";
 
 // #615 (PRD #603) — the Connections settings page: where an admin links the
 // outside accounts the Marketing Suite runs on. Admin-only, like /marketing.
@@ -47,6 +52,7 @@ export default async function ConnectionsSettingsPage() {
 
   const service = createServiceClient();
   const conn = orgId ? await getGoogleConnection(service, orgId) : null;
+  const websiteConn = orgId ? await getWebsiteConnection(service, orgId) : null;
 
   return (
     <div className="max-w-3xl">
@@ -61,10 +67,13 @@ export default async function ConnectionsSettingsPage() {
         </p>
       </div>
 
-      <GoogleConnectionCard
-        initial={toConnectionSummary(conn)}
-        configured={isGoogleOAuthConfigured()}
-      />
+      <div className="space-y-4">
+        <GoogleConnectionCard
+          initial={toConnectionSummary(conn)}
+          configured={isGoogleOAuthConfigured()}
+        />
+        <WebsiteConnectionCard initial={toWebsiteConnectionSummary(websiteConn)} />
+      </div>
     </div>
   );
 }
