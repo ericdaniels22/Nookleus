@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeSiteUrl,
   validateCredential,
+  publishShowcasePost,
   isRevokedError,
   WordPressError,
 } from "./wordpress";
@@ -242,5 +243,182 @@ describe("isRevokedError", () => {
   it("is true only for a 401 WordPressError, not a transient one", () => {
     expect(isRevokedError(new WordPressError(401, "invalid_credentials", "no"))).toBe(true);
     expect(isRevokedError(new WordPressError(503, "http_503", "down"))).toBe(false);
+  });
+});
+
+// #606 — the Showcase publisher. Given a Showcase's content, it creates or
+// UPDATES exactly one WordPress post in the Projects category, recording the
+// remote id + URL. The same auth + error contract as validateCredential: a 401
+// is the only revoked signal; every other failure is transient.
+describe("publishShowcasePost", () => {
+  const cred = {
+    siteUrl: "https://aaadisasterrecovery.com",
+    username: "marketing",
+    applicationPassword: "abcd efgh ijkl mnop",
+  };
+  const content = {
+    title: "Storm damage roof rebuild",
+    bodyHtml: "<p>Before and after.</p>",
+  };
+
+  it("first publish creates a post in the Projects category and returns its id + url", async () => {
+    const { fetchImpl, calls } = stubFetch(
+      // The Projects category already exists.
+      json([{ id: 5, slug: "projects", name: "Projects" }]),
+      // The created post.
+      json(
+        { id: 42, link: "https://aaadisasterrecovery.com/projects/storm-roof" },
+        201,
+      ),
+    );
+
+    const result = await publishShowcasePost(cred, content, null, { fetchImpl });
+
+    expect(result).toEqual({
+      id: "42",
+      url: "https://aaadisasterrecovery.com/projects/storm-roof",
+    });
+
+    // It looked up the Projects category by slug…
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(
+      "https://aaadisasterrecovery.com/wp-json/wp/v2/categories?slug=projects",
+    );
+    expect((calls[0].init?.method ?? "GET").toUpperCase()).toBe("GET");
+
+    // …then POSTed a new post (no id in the path) as a published post in that category.
+    expect(calls[1].url).toBe(
+      "https://aaadisasterrecovery.com/wp-json/wp/v2/posts",
+    );
+    expect((calls[1].init?.method ?? "GET").toUpperCase()).toBe("POST");
+    const body = JSON.parse(String(calls[1].init?.body));
+    expect(body).toMatchObject({
+      title: "Storm damage roof rebuild",
+      content: "<p>Before and after.</p>",
+      status: "publish",
+      categories: [5],
+    });
+
+    // Both calls carry the HTTP Basic credential.
+    for (const call of calls) {
+      const auth = new Headers(call.init?.headers).get("authorization") ?? "";
+      expect(auth.startsWith("Basic ")).toBe(true);
+      const decoded = Buffer.from(auth.slice("Basic ".length), "base64").toString("utf8");
+      expect(decoded).toBe("marketing:abcd efgh ijkl mnop");
+    }
+  });
+
+  it("re-publish updates the SAME post by id and never creates a duplicate", async () => {
+    const { fetchImpl, calls } = stubFetch(
+      json([{ id: 5, slug: "projects", name: "Projects" }]),
+      json(
+        { id: 42, link: "https://aaadisasterrecovery.com/projects/storm-roof" },
+        200,
+      ),
+    );
+
+    const result = await publishShowcasePost(cred, content, "42", { fetchImpl });
+
+    expect(result).toEqual({
+      id: "42",
+      url: "https://aaadisasterrecovery.com/projects/storm-roof",
+    });
+
+    // The write targets the existing post id — a POST to /posts/42, NOT a create
+    // against the bare /posts collection.
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toBe(
+      "https://aaadisasterrecovery.com/wp-json/wp/v2/posts/42",
+    );
+    expect((calls[1].init?.method ?? "GET").toUpperCase()).toBe("POST");
+    // No call ever hits the bare collection endpoint (which would create a duplicate).
+    expect(calls.some((c) => c.url.endsWith("/wp/v2/posts"))).toBe(false);
+  });
+
+  it("creates the Projects category when the site has none, then posts under it", async () => {
+    const { fetchImpl, calls } = stubFetch(
+      // The slug lookup finds nothing…
+      json([]),
+      // …so the category is created…
+      json({ id: 9, slug: "projects", name: "Projects" }, 201),
+      // …and the post lands under the new id.
+      json({ id: 7, link: "https://aaadisasterrecovery.com/projects/new" }, 201),
+    );
+
+    const result = await publishShowcasePost(cred, content, null, { fetchImpl });
+
+    expect(result.id).toBe("7");
+    expect(calls).toHaveLength(3);
+    // The create-category call: POST /categories with the Projects name.
+    expect(calls[1].url).toBe(
+      "https://aaadisasterrecovery.com/wp-json/wp/v2/categories",
+    );
+    expect((calls[1].init?.method ?? "GET").toUpperCase()).toBe("POST");
+    expect(JSON.parse(String(calls[1].init?.body))).toMatchObject({
+      name: "Projects",
+    });
+    // The post is filed under the freshly created category id.
+    expect(JSON.parse(String(calls[2].init?.body)).categories).toEqual([9]);
+  });
+
+  it("maps a 401 on the post write to a revoked error (connection broken)", async () => {
+    const { fetchImpl } = stubFetch(
+      json([{ id: 5, slug: "projects" }]),
+      json({ code: "rest_cannot_create", message: "Sorry, you are not allowed." }, 401),
+    );
+
+    let caught: unknown;
+    try {
+      await publishShowcasePost(cred, content, null, { fetchImpl });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(WordPressError);
+    expect(isRevokedError(caught)).toBe(true);
+  });
+
+  it("maps a 5xx (site down) on the post write to a transient error, NOT revoked", async () => {
+    const { fetchImpl } = stubFetch(
+      json([{ id: 5, slug: "projects" }]),
+      new Response("upstream down", { status: 503 }),
+    );
+
+    let caught: unknown;
+    try {
+      await publishShowcasePost(cred, content, null, { fetchImpl });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(WordPressError);
+    expect(isRevokedError(caught)).toBe(false);
+  });
+
+  it("propagates a network rejection as a transient (non-revoked) error", async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await publishShowcasePost(cred, content, null, { fetchImpl });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(TypeError);
+    expect(isRevokedError(caught)).toBe(false);
+  });
+
+  it("treats a 401 on the category lookup as revoked too", async () => {
+    const { fetchImpl } = stubFetch(
+      json({ code: "rest_forbidden", message: "no" }, 401),
+    );
+
+    let caught: unknown;
+    try {
+      await publishShowcasePost(cred, content, null, { fetchImpl });
+    } catch (e) {
+      caught = e;
+    }
+    expect(isRevokedError(caught)).toBe(true);
   });
 });

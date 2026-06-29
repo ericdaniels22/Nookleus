@@ -106,6 +106,124 @@ export async function validateCredential(
   };
 }
 
+// ---------------------------------------------------------------------------
+// #606 — the Showcase publisher.
+//
+// The deep module the publish route leans on: given a Showcase's rendered
+// content it creates OR updates exactly one WordPress post in the Projects
+// category and reports the remote id + URL. Editing a published Showcase passes
+// the recorded post id back in, so the same post is re-pushed — never a
+// duplicate. Auth + error contract is identical to validateCredential: a 401 is
+// the only revoked signal (toWordPressError → isRevokedError true); every other
+// failure (5xx, network, timeout) is transient and never breaks the connection.
+// ---------------------------------------------------------------------------
+
+const POSTS_PATH = "/wp-json/wp/v2/posts";
+const CATEGORIES_PATH = "/wp-json/wp/v2/categories";
+// The category every Showcase post lives under (ADR 0015 — "Projects"): the
+// slug used to look it up, and the display name used to create it if absent.
+const PROJECTS_SLUG = "projects";
+const PROJECTS_NAME = "Projects";
+
+// Cap the publish like the validation probe: a hung host must not pin the route
+// open until the platform's function timeout fires. A timeout is an AbortError —
+// not a WordPressError — so it is transient, never a broken connection.
+const PUBLISH_TIMEOUT_MS = 20_000;
+
+// The content the publisher posts. Pre-rendered: the title and the post body
+// HTML (write-up + photo figures) are shaped by the pure renderer in
+// showcase-post.ts, keeping this module a thin REST client.
+export interface ShowcasePostContent {
+  title: string;
+  bodyHtml: string;
+}
+
+// What a publish records back on the Showcase: the remote post id (stored as
+// text — provider-neutral) and the live URL the UI links to.
+export interface PublishedPost {
+  id: string;
+  url: string;
+}
+
+// Resolve the WordPress category id for "Projects", looking it up by slug.
+async function resolveProjectsCategoryId(
+  cred: WordPressCredential,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal,
+): Promise<number> {
+  const res = await fetchImpl(`${cred.siteUrl}${CATEGORIES_PATH}?slug=${PROJECTS_SLUG}`, {
+    method: "GET",
+    headers: {
+      Authorization: basicAuth(cred.username, cred.applicationPassword),
+      Accept: "application/json",
+    },
+    signal,
+  });
+  if (!res.ok) throw await toWordPressError(res);
+  const list = (await res.json()) as Array<{ id?: unknown }>;
+  const found = Array.isArray(list)
+    ? list.find((c) => typeof c.id === "number")
+    : undefined;
+  if (found && typeof found.id === "number") return found.id;
+
+  // No Projects category yet — create it once. A 401 here is still the revoked
+  // signal (toWordPressError preserves the status); anything else is transient.
+  const created = await fetchImpl(`${cred.siteUrl}${CATEGORIES_PATH}`, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuth(cred.username, cred.applicationPassword),
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ name: PROJECTS_NAME }),
+    signal,
+  });
+  if (!created.ok) throw await toWordPressError(created);
+  const category = (await created.json()) as { id?: unknown };
+  if (typeof category.id !== "number") {
+    throw new Error("WordPress returned no id for the created Projects category");
+  }
+  return category.id;
+}
+
+export async function publishShowcasePost(
+  cred: WordPressCredential,
+  content: ShowcasePostContent,
+  existingPostId: string | null,
+  deps: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {},
+): Promise<PublishedPost> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const signal = deps.signal ?? AbortSignal.timeout(PUBLISH_TIMEOUT_MS);
+
+  const categoryId = await resolveProjectsCategoryId(cred, fetchImpl, signal);
+
+  // existingPostId set → POST /posts/{id} re-pushes the SAME post (WordPress
+  // updates via POST too); null → POST /posts creates a new one. This is the
+  // single point that makes an edit an update, never a duplicate.
+  const path = existingPostId ? `${POSTS_PATH}/${existingPostId}` : POSTS_PATH;
+  const res = await fetchImpl(`${cred.siteUrl}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuth(cred.username, cred.applicationPassword),
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      title: content.title,
+      content: content.bodyHtml,
+      status: "publish",
+      categories: [categoryId],
+    }),
+    signal,
+  });
+  if (!res.ok) throw await toWordPressError(res);
+  const post = (await res.json()) as { id?: unknown; link?: unknown };
+  return {
+    id: String(post.id),
+    url: typeof post.link === "string" ? post.link : "",
+  };
+}
+
 // Normalise the site URL an admin pastes into a single canonical form, used both
 // as the display value and as the base for every REST call. Adds https:// when
 // no scheme is given, lower-cases the host (case-insensitive per the URL spec),
