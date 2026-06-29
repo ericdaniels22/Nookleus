@@ -28,6 +28,7 @@ import {
   showcaseBuilderReducer,
   type ShowcaseBuilderState,
 } from "@/lib/showcase-builder";
+import ShowcasePublishPanel from "@/components/showcase-publish-panel";
 import type { Photo, Showcase } from "@/lib/types";
 
 // How long to wait after the last edit before persisting (mirrors the Photo
@@ -382,6 +383,11 @@ export default function ShowcaseBuilder({
             </div>
           )}
         </div>
+
+        {/* Publish to the Organization's WordPress site (#606). Composing happens
+            above; this is the final "ship it" — the publish state, the live-post
+            link, the one-click consent gate, and any publish error. */}
+        <ShowcasePublishPanel jobId={jobId} showcase={showcase} />
       </div>
     </div>
   );

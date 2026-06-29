@@ -558,6 +558,19 @@ export interface Showcase {
   updated_at: string;
   /** Soft-delete timestamp for the recoverable trash. Null = not deleted. */
   deleted_at: string | null;
+  /**
+   * Publish state (#606). The remote WordPress post this Showcase maps to —
+   * recorded on first publish and reused on every re-push so an edit updates the
+   * same post, never a duplicate. Null = never published.
+   */
+  wordpress_post_id: string | null;
+  /** The live post URL (WordPress `link`), for the "View live post" link. */
+  wordpress_post_url: string | null;
+  /** When it was last successfully pushed live. Null = never published. */
+  published_at: string | null;
+  /** One-click photo-consent audit: who affirmed it, and when. Re-stamped on every publish. */
+  consent_confirmed_by: string | null;
+  consent_confirmed_at: string | null;
 }
 
 // Knowledge Base (RAG)
