@@ -78,6 +78,11 @@ export const GOOGLE_OAUTH_ENDPOINTS = {
 export const GOOGLE_BUSINESS_ENDPOINTS = {
   // GET {reviewsBase}/{accounts/*/locations/*}/reviews
   reviewsBase: "https://mybusiness.googleapis.com/v4",
+  // POST {localPostsBase}/{accounts/*/locations/*}/localPosts (create) and
+  // PATCH {localPostsBase}/{localPost.name}?updateMask=... (update) — the
+  // Business Profile "updates" a Showcase publishes to (#609). Same legacy v4
+  // host as reviews; named separately so the publisher reads clearly.
+  localPostsBase: "https://mybusiness.googleapis.com/v4",
   // GET {accounts} → the Business Profile accounts the user can manage
   accounts: "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
   // GET {businessInformationBase}/{accounts/*}/locations?readMask=name
