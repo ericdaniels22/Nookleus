@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
-import { buildAnnotatedPath } from "@/lib/jobs/annotated-path";
+import { persistAnnotatedRender } from "@/lib/jobs/persist-annotated-render";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -1615,28 +1615,13 @@ export default function PhotoAnnotator({
         const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
         const res = await fetch(dataUrl);
         const blob = await res.blob();
-        const previousAnnotatedPath = currentPhoto.annotated_path;
-        const annotatedPath = buildAnnotatedPath(
-          currentPhoto.storage_path,
-          Date.now().toString(36),
-        );
-        await supabase.storage.from("photos").upload(annotatedPath, blob, {
-          upsert: true,
-          contentType: "image/png",
+        await persistAnnotatedRender(supabase, {
+          photoId: currentPhoto.id,
+          storagePath: currentPhoto.storage_path,
+          previousAnnotatedPath: currentPhoto.annotated_path,
+          blob,
+          token: Date.now().toString(36),
         });
-        await supabase
-          .from("photos")
-          .update({ annotated_path: annotatedPath })
-          .eq("id", currentPhoto.id);
-        if (previousAnnotatedPath && previousAnnotatedPath !== annotatedPath) {
-          try {
-            await supabase.storage
-              .from("photos")
-              .remove([previousAnnotatedPath]);
-          } catch (err) {
-            console.warn("Could not delete previous annotated render:", err);
-          }
-        }
       } catch {
         console.log("Could not export annotated image. JSON annotations saved.");
       }
