@@ -144,6 +144,58 @@ export async function fetchLocationReviews(
   return all;
 }
 
+// Post (or overwrite) the owner's reply to one review — the v4 updateReply
+// call: PUT {reviewsBase}/{location}/reviews/{reviewId}/reply with a
+// { comment } body. The location is a full v4 resource name
+// ("accounts/*/locations/*"). Bearer token is injected by the GoogleClient.
+export async function postReviewReply(
+  client: ReviewsApiClient,
+  locationName: string,
+  googleReviewId: string,
+  comment: string,
+): Promise<{ updateTime: string | null }> {
+  const url = `${GOOGLE_BUSINESS_ENDPOINTS.reviewsBase}/${locationName}/reviews/${googleReviewId}/reply`;
+  const res = await client.fetch(url, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ comment }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Google review reply failed (${res.status}) for ${locationName}/reviews/${googleReviewId}`,
+    );
+  }
+  const reply = (await res.json()) as GoogleApiReviewReply;
+  return { updateTime: reply.updateTime ?? null };
+}
+
+// Flip one local review row to replied after a reply posts to Google: record
+// the comment that went out and the reply's updateTime. Org-scoped (id alone is
+// the PK, but the explicit organization_id filter keeps the write correct under
+// a service client too — google_review is admin-only RLS, so callers pass a
+// PRIVILEGED db). The (replied=true, reply_comment, reply_updated_at) triple
+// satisfies the google_review_reply_consistency CHECK constraint.
+export async function markReviewReplied(
+  db: SupabaseClient,
+  organizationId: string,
+  reviewRowId: string,
+  comment: string,
+  updateTime: string | null,
+): Promise<void> {
+  const { error } = await db
+    .from("google_review")
+    .update({
+      replied: true,
+      reply_comment: comment,
+      reply_updated_at: updateTime,
+    })
+    .eq("id", reviewRowId)
+    .eq("organization_id", organizationId);
+  if (error) {
+    throw new Error(`google_review reply update failed: ${error.message}`);
+  }
+}
+
 async function listAccounts(client: ReviewsApiClient): Promise<string[]> {
   const names: string[] = [];
   let pageToken: string | undefined;
