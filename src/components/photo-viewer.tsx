@@ -15,6 +15,13 @@ import {
 } from "@/lib/jobs/photo-viewer-navigation";
 import { mediaCapabilities } from "@/lib/jobs/photo-media-capabilities";
 import { useDebouncedSave } from "@/lib/jobs/use-debounced-save";
+import {
+  rememberCaption,
+  rememberRole,
+  seedCaption,
+  seedRole,
+  type ViewerFieldEdits,
+} from "@/lib/jobs/photo-viewer-field-edits";
 import { isPhoneViewport } from "@/lib/jobs/photo-viewer-layout";
 import { useViewportOrientation } from "@/lib/mobile/use-viewport-orientation";
 import { exportVersion } from "@/lib/jobs/photo-export-version";
@@ -431,6 +438,14 @@ export default function PhotoViewer({
   const roleSaver = useDebouncedSave({ delay: 0, onError: warnSaveFailed });
   const tagsSaver = useDebouncedSave({ delay: 0, onError: warnSaveFailed });
 
+  // The caption / Before-After edits made this viewer session, keyed by Photo id
+  // (#847). The viewer navigates a frozen snapshot of the grid's Photos (#515)
+  // that an auto-save refreshes on the grid but not here, so the seed effect
+  // below prefers this overlay over the stale snapshot — re-seeding a
+  // paged-back-to Photo can't revert an edit the user just made. Cleared on
+  // close so the next open re-seeds from the refreshed snapshot.
+  const fieldEdits = useRef<ViewerFieldEdits>(new Map());
+
   async function fetchTags(photoId: string) {
     const supabase = createClient();
     const { data } = await supabase
@@ -460,8 +475,10 @@ export default function PhotoViewer({
   // Each Photo opens at fit — a leftover zoom must not carry into the next one.
   useEffect(() => {
     if (currentPhoto) {
-      setCaption(currentPhoto.caption || "");
-      setBeforeAfterRole(currentPhoto.before_after_role);
+      // Prefer this session's edit over the (possibly stale) snapshot so paging
+      // back to a just-edited Photo never reverts its caption (#847).
+      setCaption(seedCaption(fieldEdits.current, currentPhoto));
+      setBeforeAfterRole(seedRole(fieldEdits.current, currentPhoto));
       setConfirmDelete(false);
       setTransform(FIT);
       fetchTags(currentPhoto.id);
@@ -481,7 +498,12 @@ export default function PhotoViewer({
   // edit still inside its debounce window the moment the viewer is hidden, so
   // an in-window edit is persisted rather than silently dropped.
   useEffect(() => {
-    if (!open) captionSaver.flush();
+    if (!open) {
+      captionSaver.flush();
+      // Drop this session's edits so the next open re-seeds from the
+      // (now-refreshed) snapshot, never a stale remembered edit (#847).
+      fieldEdits.current.clear();
+    }
     // captionSaver.flush is stable; re-run only when open toggles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -606,6 +628,7 @@ export default function PhotoViewer({
     if (!currentPhoto) return;
     const next = beforeAfterRole === target ? null : target;
     setBeforeAfterRole(next);
+    rememberRole(fieldEdits.current, currentPhoto.id, next);
     roleSaver.save(() => persistRole(currentPhoto.id, next));
   }
 
@@ -1227,6 +1250,9 @@ export default function PhotoViewer({
             onChange={(e) => {
               const value = e.target.value;
               setCaption(value);
+              // Remember the edit so re-seeding this Photo (after paging away and
+              // back) shows it, not the stale snapshot caption (#847).
+              rememberCaption(fieldEdits.current, currentPhoto.id, value);
               // Scheduling from the change handler (not a [caption] effect) means
               // only user edits enqueue a save — re-seeding on Photo change never
               // does. The thunk captures this Photo's id so a debounced write

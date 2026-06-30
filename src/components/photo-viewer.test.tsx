@@ -453,6 +453,81 @@ describe("PhotoViewer — caption flush on close / paging (#806, AC h)", () => {
   });
 });
 
+// Issue #847 — editing a caption / Before-After role auto-saves, but the viewer
+// navigates a frozen snapshot of the grid's Photos (#515) that the save never
+// refreshes. Paging away and back re-ran the seed effect against that stale
+// snapshot, reverting the field to its pre-edit value. The viewer must instead
+// reconcile its own just-edited value so re-seeding never clobbers it.
+describe("PhotoViewer — edits survive paging away and back (#847)", () => {
+  // Newest-first: `a` (newer) opens at index 0; Next pages to `b`.
+  const a = makePhoto({
+    id: "a",
+    storage_path: "job-1/a.jpg",
+    caption: "Old caption",
+    created_at: "2026-05-02T10:00:00Z",
+  });
+  const b = makePhoto({
+    id: "b",
+    storage_path: "job-1/b.jpg",
+    caption: "B caption",
+    created_at: "2026-05-01T10:00:00Z",
+  });
+
+  const captionInput = () =>
+    screen.getByLabelText("Caption") as HTMLInputElement;
+
+  it("shows the edited caption — not the stale snapshot — after paging back", async () => {
+    // The snapshot stays frozen at "Old caption" (the parent never refreshes
+    // viewerPhotos after a save), reproducing the real bug.
+    renderViewer({ photos: [a, b], initialPhotoIndex: 0 });
+    await act(async () => {});
+
+    // Edit A's caption.
+    await act(async () => {
+      fireEvent.change(captionInput(), { target: { value: "Edited caption" } });
+    });
+
+    // Page to B — its own caption seeds in.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    expect(captionInput().value).toBe("B caption");
+
+    // Page back to A — the edit must win over the stale snapshot value.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /previous/i }));
+    });
+    expect(captionInput().value).toBe("Edited caption");
+  });
+
+  // The active "After" role carries the side panel's selected-state classes; a
+  // reverted role would fall back to the inactive `bg-white` styling.
+  const afterButton = () => screen.getByRole("button", { name: "After" });
+
+  it("keeps an edited Before/After role after paging back", async () => {
+    // Both snapshot Photos start unset (before_after_role: null).
+    renderViewer({ photos: [a, b], initialPhotoIndex: 0 });
+    await act(async () => {});
+
+    // Mark A as "After" — persists immediately (delay 0).
+    await act(async () => {
+      fireEvent.click(afterButton());
+    });
+    expect(afterButton().className).toContain("E1F5EE");
+
+    // Page to B (still unset) and back to A.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /previous/i }));
+    });
+
+    // A's role is still After — not reverted to the snapshot's null.
+    expect(afterButton().className).toContain("E1F5EE");
+  });
+});
+
 describe("PhotoViewer — toolbar actions", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
