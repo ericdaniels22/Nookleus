@@ -462,6 +462,44 @@ describe("useAnnotatorAutoSave — retry then warn", () => {
     expect(toast.error).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
+
+  it("gives a fresh edit a full retry budget instead of inheriting a spent one (#850)", async () => {
+    const { store, annInsert } = makeStore();
+    // Every upsert fails, so the retry counter only ever climbs.
+    annInsert.mockResolvedValue({ error: { message: "network" } });
+    const config = makeConfig(store);
+    const { result } = renderHook(() => useAnnotatorAutoSave(config));
+
+    // Edit #1 fails twice (debounce + one backoff retry), driving the retry
+    // counter up — but stop before the budget is spent, so no warning yet.
+    act(() => {
+      result.current.scheduleMarkupSave(annotationData);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000); // debounce → attempt 1 fails
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000); // 1s backoff → attempt 2 fails
+    });
+    expect(annInsert).toHaveBeenCalledTimes(2);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // A brand-new edit arrives mid-ladder. It must reset the counter and earn a
+    // FULL budget of its own — not warn after the one or two tries left over
+    // from edit #1.
+    annInsert.mockClear();
+    act(() => {
+      result.current.scheduleMarkupSave(annotationData);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    // 4 fresh tries (initial + 3 retries), then exactly one warning. With the
+    // bug (no reset) the inherited counter warns after just 2 tries.
+    expect(annInsert).toHaveBeenCalledTimes(4);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useAnnotatorAutoSave — flush on teardown", () => {

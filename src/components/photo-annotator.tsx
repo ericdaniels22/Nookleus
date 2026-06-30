@@ -203,7 +203,10 @@ function initFabricClasses(fabric: any) {
 
     /** Recompute bounding box from absolute endpoint coords */
     _updateBounds() {
-      const pad = this.arrowThickness * 4 + 15;
+      // Pad the box by the arrowhead's drawn length — taken from the same
+      // arrowHeadLength() the _render uses, so the bounds can never clip a head
+      // the render draws — plus a small fixed margin for the round cap + shadow.
+      const pad = arrowHeadLength(this.arrowThickness) + 15;
       const minX = Math.min(this.x1, this.x2);
       const minY = Math.min(this.y1, this.y2);
       const maxX = Math.max(this.x1, this.x2);

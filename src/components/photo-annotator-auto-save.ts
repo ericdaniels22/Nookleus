@@ -175,6 +175,10 @@ export function useAnnotatorAutoSave(
   const scheduleMarkupSave = useCallback(
     (data: AnnotationData) => {
       pendingMarkupRef.current = data;
+      // A brand-new edit supersedes whatever was pending, so it starts with a
+      // FULL retry budget — without this reset it would inherit a counter left
+      // nearly spent by a prior edit's failed retries and warn prematurely.
+      retriesRef.current = 0;
       if (markupTimerRef.current) clearTimeout(markupTimerRef.current);
       markupTimerRef.current = setTimeout(() => {
         void flushMarkup();

@@ -29,13 +29,31 @@ export function createHistory<T>(present: T): HistoryState<T> {
 }
 
 /**
+ * How many undo states a history keeps before the oldest fall off the back. A
+ * single annotation snapshot is a full array of Fabric object descriptors, so
+ * an unbounded `past` would let a long editing session accumulate them forever;
+ * 50 steps is far more undo reach than the annotator needs while keeping the
+ * retained memory bounded.
+ */
+export const MAX_HISTORY_DEPTH = 50;
+
+/**
  * Record a completed step. The old present drops onto the undo stack, the
  * snapshot becomes the new present, and the redo branch is discarded — starting
  * a fresh step after an undo must never leave a stale future to redo into.
+ *
+ * `past` is capped at `maxDepth`: once it would grow beyond the cap the oldest
+ * (least-recently-useful) states are dropped from the front, so the stack stays
+ * bounded no matter how long the session runs.
  */
-export function push<T>(history: HistoryState<T>, snapshot: T): HistoryState<T> {
+export function push<T>(
+  history: HistoryState<T>,
+  snapshot: T,
+  maxDepth: number = MAX_HISTORY_DEPTH,
+): HistoryState<T> {
+  const past = [...history.past, history.present];
   return {
-    past: [...history.past, history.present],
+    past: past.length > maxDepth ? past.slice(past.length - maxDepth) : past,
     present: snapshot,
     future: [],
   };

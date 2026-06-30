@@ -80,9 +80,20 @@ export function supportsStyleEditor(kind: AnnotationKind | null): boolean {
   return kind !== null && kind !== "text" && kind !== "marker";
 }
 
-/** Repaint the selected Annotation to `color`, mutating it in place. */
+/**
+ * Repaint the selected Annotation to `color`, mutating it in place. If the
+ * Annotation carries a Label whose pill color was tracking the host's color
+ * (the two matched — which is the default, since a new Label inherits the
+ * host's color), carry the recolor onto `labelColor` too so the pill follows
+ * the host instead of freezing at the old hue. A pill deliberately set to a
+ * different color, or a shape with no Label, is left untouched.
+ */
 export function applyColor(target: StyleTarget, color: string): void {
-  target.set(colorProperty(target.type), color);
+  const prop = colorProperty(target.type);
+  if (target.labelColor != null && target.labelColor === target[prop]) {
+    target.set("labelColor", color);
+  }
+  target.set(prop, color);
 }
 
 /** Re-weight the selected Annotation to `thickness`, mutating it in place. */

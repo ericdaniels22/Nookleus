@@ -7,6 +7,7 @@ import {
   clear,
   canUndo,
   canRedo,
+  MAX_HISTORY_DEPTH,
 } from "./photo-annotator-history";
 
 describe("photo annotator history stack", () => {
@@ -122,6 +123,52 @@ describe("photo annotator history stack", () => {
 
       const forward = redo(back);
       expect(forward.present).toBe("c");
+    });
+  });
+
+  describe("bounded depth — a long editing session can't grow the stack forever", () => {
+    it("drops the oldest undo states once the cap is exceeded, keeping the most recent", () => {
+      // Cap at 3 so the test reads at a glance: snapshot 0..5 in order, then
+      // only the three states immediately behind the present remain undoable;
+      // the two oldest have fallen off the back.
+      let history = createHistory(0);
+      for (let step = 1; step <= 5; step++) {
+        history = push(history, step, 3);
+      }
+
+      expect(history.present).toBe(5);
+      expect(history.past).toEqual([2, 3, 4]);
+      expect(history.future).toEqual([]);
+    });
+
+    it("never lets `past` exceed the cap no matter how many steps are pushed", () => {
+      let history = createHistory("s0");
+      for (let step = 1; step <= 200; step++) {
+        history = push(history, `s${step}`, 10);
+      }
+
+      expect(history.past.length).toBe(10);
+      // The survivors are the 10 states right behind the present (s190..s199),
+      // and the present is the most recent snapshot.
+      expect(history.present).toBe("s200");
+      expect(history.past[0]).toBe("s190");
+      expect(history.past[9]).toBe("s199");
+    });
+
+    it("caps at MAX_HISTORY_DEPTH by default when no explicit depth is given", () => {
+      let history = createHistory(0);
+      for (let step = 1; step <= MAX_HISTORY_DEPTH + 25; step++) {
+        history = push(history, step);
+      }
+
+      expect(history.past.length).toBe(MAX_HISTORY_DEPTH);
+      expect(history.present).toBe(MAX_HISTORY_DEPTH + 25);
+    });
+
+    it("leaves a short session untouched — nothing is dropped under the cap", () => {
+      const history = push(push(push(createHistory("a"), "b"), "c"), "d");
+
+      expect(history.past).toEqual(["a", "b", "c"]);
     });
   });
 });

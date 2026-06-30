@@ -106,13 +106,13 @@ export function parseAnnotations(stored: unknown): Annotation[] {
 
   // ── Version 1: raw canvas dump where arrows were stored as a stroked Path
   // followed by its two white Circle endpoint handles. Collapse each such
-  // triple back into one FabricArrow; everything else survives in order, with
-  // the recovered arrows appended last (matching the original load order). ──
+  // triple back into one FabricArrow IN PLACE, so every recovered arrow keeps
+  // the z-position its triple held — a legacy Arrow never floats above a shape
+  // the user later drew over it. Everything else carries through unchanged. ──
   const objects = Array.isArray(saved.objects)
     ? (saved.objects as Annotation[])
     : [];
-  const survivors: Annotation[] = [];
-  const arrows: Annotation[] = [];
+  const result: Annotation[] = [];
 
   for (let i = 0; i < objects.length; i++) {
     const obj = objects[i];
@@ -133,7 +133,7 @@ export function parseAnnotations(stored: unknown): Annotation[] {
       n2?.fill === "#FFFFFF";
 
     if (isArrowPath && handlesFollow) {
-      arrows.push({
+      result.push({
         type: "FabricArrow",
         x1: n1?.left,
         y1: n1?.top,
@@ -146,9 +146,9 @@ export function parseAnnotations(stored: unknown): Annotation[] {
       });
       i += 2; // consume the two handle circles
     } else {
-      survivors.push(objects[i]);
+      result.push(objects[i]);
     }
   }
 
-  return [...survivors, ...arrows];
+  return result;
 }

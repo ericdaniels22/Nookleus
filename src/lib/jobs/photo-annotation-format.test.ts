@@ -82,7 +82,7 @@ describe("parseAnnotations — version 2 (explicit arrow data)", () => {
 });
 
 describe("parseAnnotations — version 1 (raw dump with Path+Circle arrow triples)", () => {
-  it("collapses each Path + two white Circle handles into one FabricArrow, keeping other objects in order", () => {
+  it("collapses each Path + two white Circle handles into one FabricArrow, in its original z-position", () => {
     const stored = {
       version: "5.3.0",
       objects: [
@@ -101,9 +101,11 @@ describe("parseAnnotations — version 1 (raw dump with Path+Circle arrow triple
       ],
     };
 
+    // The recovered Arrow takes the slot its collapsed triple occupied —
+    // between the rect below it and the i-text drawn over it — so the migrated
+    // stacking order matches what the user originally drew.
     expect(parseAnnotations(stored)).toEqual([
       { type: "rect", left: 1, top: 1 },
-      { type: "i-text", left: 5, top: 5, text: "note" },
       {
         type: "FabricArrow",
         x1: 100,
@@ -115,7 +117,79 @@ describe("parseAnnotations — version 1 (raw dump with Path+Circle arrow triple
         labelFontSize: 20,
         arrowThickness: 6,
       },
+      { type: "i-text", left: 5, top: 5, text: "note" },
     ]);
+  });
+
+  it("keeps a recovered Arrow below a shape that was drawn over it (no z-lift)", () => {
+    const stored = {
+      version: "5.3.0",
+      objects: [
+        // Arrow drawn FIRST, so it sits at the bottom of the stack.
+        {
+          type: "path",
+          strokeWidth: 6,
+          strokeLineCap: "round",
+          fill: "transparent",
+          stroke: "#00FF00",
+        },
+        { type: "circle", radius: 8, fill: "#FFFFFF", left: 10, top: 10 },
+        { type: "circle", radius: 8, fill: "#FFFFFF", left: 90, top: 90 },
+        // Rect drawn AFTER the arrow — it must stay on top of it.
+        { type: "rect", left: 2, top: 2 },
+      ],
+    };
+
+    expect(parseAnnotations(stored)).toEqual([
+      {
+        type: "FabricArrow",
+        x1: 10,
+        y1: 10,
+        x2: 90,
+        y2: 90,
+        arrowColor: "#00FF00",
+        labelText: null,
+        labelFontSize: 20,
+        arrowThickness: 6,
+      },
+      { type: "rect", left: 2, top: 2 },
+    ]);
+  });
+
+  it("preserves z-order across multiple arrows interleaved with shapes", () => {
+    const arrowTriple = (stroke: string, x: number, y: number) => [
+      {
+        type: "path",
+        strokeWidth: 6,
+        strokeLineCap: "round",
+        fill: "transparent",
+        stroke,
+      },
+      { type: "circle", radius: 8, fill: "#FFFFFF", left: x, top: y },
+      { type: "circle", radius: 8, fill: "#FFFFFF", left: x + 50, top: y + 50 },
+    ];
+    const stored = {
+      version: "5.3.0",
+      objects: [
+        { type: "rect", left: 0, top: 0 },
+        ...arrowTriple("#111111", 10, 10),
+        { type: "ellipse", left: 5, top: 5 },
+        ...arrowTriple("#222222", 20, 20),
+      ],
+    };
+
+    const result = parseAnnotations(stored);
+
+    expect(result.map((o) => o.type)).toEqual([
+      "rect",
+      "FabricArrow",
+      "ellipse",
+      "FabricArrow",
+    ]);
+    // Each recovered Arrow carries its own triple's color — they didn't swap or
+    // bunch up at the end.
+    expect(result[1].arrowColor).toBe("#111111");
+    expect(result[3].arrowColor).toBe("#222222");
   });
 
   it("leaves a stroked Path that lacks two white Circle handles untouched", () => {
