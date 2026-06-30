@@ -17,3 +17,31 @@ export function nextMarkerNumber(existingNumbers: number[]): number {
   if (existingNumbers.length === 0) return 1;
   return Math.max(...existingNumbers) + 1;
 }
+
+/** A Numbered marker as the sequencing rules see it: a stable identity and the
+ *  number currently shown on its badge. The annotator keys `id` off the marker's
+ *  current number (unique per Photo, since {@link nextMarkerNumber} never re-uses
+ *  one) and reads `number` back to re-badge the surviving markers. */
+export interface NumberedMarker {
+  id: string;
+  number: number;
+}
+
+/**
+ * The other half of the sequencing rule (#817): after a Numbered marker is
+ * deleted, the survivors must renumber so the visible sequence stays contiguous
+ * — 1, 2, 3 with no gap and no duplicate. Given every marker on the Photo and
+ * the id of the one being deleted, this drops that marker and re-badges the rest
+ * 1..n in their existing relative order (lowest current number first), so a
+ * middle delete closes the gap while positions are untouched. Lives beside
+ * {@link nextMarkerNumber} so add and delete share one tested source of truth.
+ */
+export function renumberAfterDelete(
+  markers: NumberedMarker[],
+  deletedId: string,
+): NumberedMarker[] {
+  return markers
+    .filter((marker) => marker.id !== deletedId)
+    .sort((a, b) => a.number - b.number)
+    .map((marker, index) => ({ ...marker, number: index + 1 }));
+}

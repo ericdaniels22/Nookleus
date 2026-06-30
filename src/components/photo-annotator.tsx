@@ -63,7 +63,10 @@ import {
   type GuideLine,
   type Rect,
 } from "@/lib/jobs/annotation-snapping";
-import { nextMarkerNumber } from "@/lib/jobs/numbered-marker-sequence";
+import {
+  nextMarkerNumber,
+  renumberAfterDelete,
+} from "@/lib/jobs/numbered-marker-sequence";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -1985,10 +1988,37 @@ export default function PhotoAnnotator({
   }
 
   // Delete control. Uniform across kinds — remove the object, drop the
-  // selection, and dismiss the toolbar.
+  // selection, and dismiss the toolbar. Deleting a Numbered marker is the one
+  // exception: the survivors must renumber so the visible sequence stays
+  // contiguous (#817). The rule lives in the same pure module as the drop-time
+  // next-number, fed each marker's current number as a stable id (unique per
+  // Photo by construction), so add and delete can never disagree. We re-badge
+  // the survivors before removing the target; recordStep() then snapshots the
+  // renumbered canvas, so the new numbers ride the existing ADR 0024 save.
   function handleDelete(target: any) {
     const canvas = fabricRef.current;
     if (!canvas || !target) return;
+
+    if (annotationKind(target.type) === "marker") {
+      const markers = canvas
+        .getObjects()
+        .filter((o: any) => annotationKind(o.type) === "marker");
+      const renumbered = renumberAfterDelete(
+        markers.map((o: any) => ({
+          id: String(o.markerNumber),
+          number: o.markerNumber as number,
+        })),
+        String(target.markerNumber)
+      );
+      const numberById = new Map(renumbered.map((m) => [m.id, m.number]));
+      for (const o of markers) {
+        const next = numberById.get(String(o.markerNumber));
+        if (next !== undefined && next !== o.markerNumber) {
+          o.set("markerNumber", next);
+        }
+      }
+    }
+
     canvas.remove(target);
     canvas.discardActiveObject();
     canvas.renderAll();
