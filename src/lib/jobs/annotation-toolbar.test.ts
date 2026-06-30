@@ -77,17 +77,36 @@ describe("DUPLICATE_OFFSET — the diagonal offset a copied Annotation lands at"
 });
 
 describe("toolbarAnchorPoint — where the toolbar floats over an object", () => {
+  // At fit-zoom the viewport transform is the identity, so a scene point is its
+  // own on-screen point and the anchor is unchanged from before #855.
+  const IDENTITY = [1, 0, 0, 1, 0, 0] as const;
+
   it("returns the client point at the horizontal centre of the object's top edge", () => {
     const box = { left: 100, top: 40, width: 60 };
     const canvasRect = { left: 10, top: 20 };
-    expect(toolbarAnchorPoint(box, canvasRect)).toEqual({ x: 140, y: 60 });
+    expect(toolbarAnchorPoint(box, canvasRect, IDENTITY)).toEqual({
+      x: 140,
+      y: 60,
+    });
   });
 
   it("offsets by the canvas's on-screen position so the point is in client space", () => {
     const box = { left: 0, top: 0, width: 0 };
-    expect(toolbarAnchorPoint(box, { left: 200, top: 300 })).toEqual({
+    expect(toolbarAnchorPoint(box, { left: 200, top: 300 }, IDENTITY)).toEqual({
       x: 200,
       y: 300,
+    });
+  });
+
+  it("maps the scene anchor through the viewport so it tracks the zoomed/panned object", () => {
+    // The box is the object's scene bounding box; its top-centre is (130, 40).
+    // Under zoom 2× / pan (10, 20) that scene point lands at (270, 100) on the
+    // canvas surface, then the canvas's own client offset (10, 20) is added.
+    const box = { left: 100, top: 40, width: 60 };
+    const canvasRect = { left: 10, top: 20 };
+    expect(toolbarAnchorPoint(box, canvasRect, [2, 0, 0, 2, 10, 20])).toEqual({
+      x: 280,
+      y: 120,
     });
   });
 });

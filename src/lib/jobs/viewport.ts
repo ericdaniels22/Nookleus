@@ -36,3 +36,39 @@ export function viewportScale(
     ? scale
     : 1;
 }
+
+/** The identity transform — used when Fabric has not initialised one yet. */
+const IDENTITY: ViewportTransform = [1, 0, 0, 1, 0, 0];
+
+/**
+ * Map a point from scene coordinates to its on-screen (canvas-surface) position
+ * by applying the affine viewport transform: for `[a, b, c, d, e, f]`,
+ * `screen = (a·x + c·y + e, b·x + d·y + f)`. This is how the floating chrome
+ * (in-context toolbar, Label editor) finds where a selected Annotation actually
+ * sits on screen once the view is zoomed/panned — Fabric reports an object's
+ * bounding box in the scene plane, not where the pixels land. A missing
+ * transform is treated as the identity, so at fit-zoom the point is unchanged.
+ */
+export function viewportPoint(
+  vpt: ViewportTransform | null | undefined,
+  x: number,
+  y: number
+): { x: number; y: number } {
+  const m = vpt ?? IDENTITY;
+  return { x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] };
+}
+
+/**
+ * Convert an on-screen distance to the scene-space length that renders to it at
+ * the current zoom — `screenPx / zoom`. The snap engine measures in scene
+ * pixels, so feeding it a fixed scene threshold makes snapping over-eager when
+ * zoomed in and unreachable when zoomed out; converting the threshold through
+ * this keeps the snap "feel" a constant on-screen distance at any zoom. A
+ * missing transform falls back to unit zoom, leaving the length unchanged.
+ */
+export function screenToSceneLength(
+  screenPx: number,
+  vpt: ViewportTransform | null | undefined
+): number {
+  return screenPx / viewportScale(vpt);
+}
