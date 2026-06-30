@@ -65,6 +65,78 @@ describe("applyColor — recoloring a selected Annotation in place", () => {
   });
 });
 
+describe("applyColor — keeps an attached Label's pill in sync with the host's color", () => {
+  it("carries the recolor onto a labelColor that was tracking the Arrow's color", () => {
+    // The pill was inheriting the Arrow's color (they match), so recoloring the
+    // Arrow must drag the pill along — otherwise the pill freezes at the old hue.
+    const arrow = {
+      type: "FabricArrow",
+      arrowColor: "#F59E0B",
+      labelText: "ridge",
+      labelColor: "#F59E0B",
+      set(key: string, value: unknown) {
+        (this as Record<string, unknown>)[key] = value;
+      },
+    };
+
+    applyColor(arrow, "#C41E2A");
+
+    expect(arrow.arrowColor).toBe("#C41E2A");
+    expect(arrow.labelColor).toBe("#C41E2A");
+  });
+
+  it("carries the recolor onto a labelColor that was tracking a shape's stroke", () => {
+    const shape = {
+      type: "Rect",
+      stroke: "#0F6E56",
+      labelText: "wall",
+      labelColor: "#0F6E56",
+      set(key: string, value: unknown) {
+        (this as Record<string, unknown>)[key] = value;
+      },
+    };
+
+    applyColor(shape, "#2B5EA7");
+
+    expect(shape.stroke).toBe("#2B5EA7");
+    expect(shape.labelColor).toBe("#2B5EA7");
+  });
+
+  it("leaves a Label whose color was set apart from the host untouched", () => {
+    // A pill deliberately a different color than its host must not snap to match
+    // when the host is recolored.
+    const arrow = {
+      type: "FabricArrow",
+      arrowColor: "#F59E0B",
+      labelText: "ridge",
+      labelColor: "#FFFFFF",
+      set(key: string, value: unknown) {
+        (this as Record<string, unknown>)[key] = value;
+      },
+    };
+
+    applyColor(arrow, "#C41E2A");
+
+    expect(arrow.arrowColor).toBe("#C41E2A");
+    expect(arrow.labelColor).toBe("#FFFFFF");
+  });
+
+  it("does not invent a labelColor on an unlabelled Annotation", () => {
+    const arrow = {
+      type: "FabricArrow",
+      arrowColor: "#F59E0B",
+      set(key: string, value: unknown) {
+        (this as Record<string, unknown>)[key] = value;
+      },
+    };
+
+    applyColor(arrow, "#C41E2A");
+
+    expect(arrow.arrowColor).toBe("#C41E2A");
+    expect(arrow).not.toHaveProperty("labelColor");
+  });
+});
+
 describe("applyThickness — re-weighting a selected Annotation in place", () => {
   it("re-thickens a selected Arrow by writing its arrowThickness, leaving color and endpoints intact", () => {
     const arrow = {

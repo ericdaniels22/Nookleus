@@ -26,7 +26,7 @@ CREATE TABLE photos (
   -- #622 backfill (scripts/backfill-photo-taken-at.ts) set it to created_at
   -- where nothing better was known.
   taken_at timestamptz,
-  taken_by text NOT NULL DEFAULT 'Eric',
+  taken_by text NOT NULL,                      -- #850: no default — both upload paths (web photo-upload, mobile upload-queue) stamp the resolved author (resolvePhotoAuthor) explicitly; a forgotten taken_by must fail NOT NULL loudly, not silently credit 'Eric'
   media_type text NOT NULL DEFAULT 'photo'
     CHECK (media_type IN ('photo', 'video')),
   file_size integer,
