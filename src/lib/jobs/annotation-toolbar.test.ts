@@ -8,23 +8,33 @@ import {
 } from "./annotation-toolbar";
 
 describe("annotationKind — classifying a selected Fabric object", () => {
-  it("classifies a FabricArrow as an arrow", () => {
-    expect(annotationKind("FabricArrow")).toBe("arrow");
+  // A *live* Fabric instance reports a lowercase `type` — this is what the
+  // annotator's selection handler actually passes (`target.type`). IText is the
+  // odd one out: its live type is the hyphenated "i-text".
+  it("classifies a live (lowercase) Fabric instance type", () => {
+    expect(annotationKind("fabricarrow")).toBe("arrow");
+    expect(annotationKind("ellipse")).toBe("ellipse");
+    expect(annotationKind("rect")).toBe("rectangle");
+    expect(annotationKind("polyline")).toBe("polyline");
+    expect(annotationKind("polygon")).toBe("polygon");
+    expect(annotationKind("i-text")).toBe("text");
+    expect(annotationKind("path")).toBe("freehand");
   });
 
-  it("classifies the drawable shapes by their Fabric type", () => {
+  // A *serialized* object and the static subclass `type` are PascalCase; the
+  // classifier accepts those too so the same call site works either way.
+  it("classifies a serialized (PascalCase) Fabric type", () => {
+    expect(annotationKind("FabricArrow")).toBe("arrow");
     expect(annotationKind("Ellipse")).toBe("ellipse");
     expect(annotationKind("Rect")).toBe("rectangle");
     expect(annotationKind("Polyline")).toBe("polyline");
     expect(annotationKind("Polygon")).toBe("polygon");
-  });
-
-  it("classifies a text box and a freehand drawing", () => {
     expect(annotationKind("IText")).toBe("text");
     expect(annotationKind("Path")).toBe("freehand");
   });
 
   it("returns null for the background image, unknown objects, and an absent type", () => {
+    expect(annotationKind("image")).toBeNull(); // live background-image type
     expect(annotationKind("FabricImage")).toBeNull();
     expect(annotationKind("Group")).toBeNull();
     expect(annotationKind(undefined)).toBeNull();

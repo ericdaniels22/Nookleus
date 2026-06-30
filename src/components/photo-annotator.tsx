@@ -607,9 +607,10 @@ export default function PhotoAnnotator({
    */
   function attachEditorHandles(canvas: any, fabric: any) {
     canvas.getObjects().forEach((obj: any) => {
-      if (obj.type === "FabricArrow") return;
+      const kind = annotationKind(obj.type);
+      if (kind === "arrow") return;
       obj.set(handleSizeProps());
-      if (obj.type === "Polyline" || obj.type === "Polygon") {
+      if (kind === "polyline" || kind === "polygon") {
         if (fabric.createPolyControls) {
           obj.controls = fabric.createPolyControls(obj);
         }
@@ -701,7 +702,7 @@ export default function PhotoAnnotator({
     // The top-edge box the toolbar anchors to. The Arrow anchors on its raw
     // endpoints (unchanged from before); every other kind uses its bounding box.
     function anchorBoxFor(target: any): AnchorBox {
-      if (target?.type === "FabricArrow") {
+      if (annotationKind(target?.type) === "arrow") {
         return {
           left: Math.min(target.x1, target.x2),
           top: Math.min(target.y1, target.y2),
@@ -736,7 +737,7 @@ export default function PhotoAnnotator({
     function onMoving(e: any) {
       const target = e.target;
       // Sync FabricArrow endpoints when the body is dragged
-      if (target?.type === "FabricArrow") {
+      if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
       // Hide toolbar during movement; it re-anchors on object:modified
@@ -745,7 +746,7 @@ export default function PhotoAnnotator({
 
     function onModified(e: any) {
       const target = e.target;
-      if (target?.type === "FabricArrow") {
+      if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
       showToolbar(target);
@@ -1160,7 +1161,7 @@ export default function PhotoAnnotator({
   // Attached Labels slice (#804) lands — it must never throw or corrupt the
   // object.
   function handleLabel(target: any) {
-    if (!target || target.type !== "FabricArrow") return;
+    if (!target || annotationKind(target.type) !== "arrow") return;
     setLabelInput({
       arrow: target,
       text: target.labelText || "Label",
@@ -1187,7 +1188,7 @@ export default function PhotoAnnotator({
     const fabric = fabricModuleRef.current;
     if (!canvas || !fabric || !target) return;
 
-    if (target.type === "FabricArrow") {
+    if (annotationKind(target.type) === "arrow") {
       const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
       const copy = new ArrowClass({
         x1: target.x1 + DUPLICATE_OFFSET,
@@ -1219,8 +1220,9 @@ export default function PhotoAnnotator({
     clone.setCoords();
     canvas.add(clone);
     // Restore vertex editing on duplicated polylines/polygons.
+    const cloneKind = annotationKind(clone.type);
     if (
-      (clone.type === "Polyline" || clone.type === "Polygon") &&
+      (cloneKind === "polyline" || cloneKind === "polygon") &&
       fabric.createPolyControls
     ) {
       clone.controls = fabric.createPolyControls(clone);
