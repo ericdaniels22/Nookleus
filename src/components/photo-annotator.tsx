@@ -51,6 +51,7 @@ import {
   labelAnchorPoint,
   readableTextColor,
 } from "@/lib/jobs/label-pill";
+import { placeLabelPill } from "@/lib/jobs/label-pill-placement";
 import { loadQuickPickLabels } from "@/lib/jobs/quick-pick-labels";
 import { viewportScale } from "@/lib/jobs/viewport";
 import {
@@ -457,17 +458,22 @@ function initFabricClasses(fabric: any) {
 // ─── Label pill drawing (#812) ───────────────────────────────────────────────
 
 /**
- * Draw one filled, rounded Label pill onto `ctx`, centred horizontally on
- * `anchor` (the pill's top-centre, as returned by `labelAnchorPoint`) and
- * hanging straight down from it. The caller has already applied the canvas
- * viewport transform, so `anchor` and the pill are in scene coordinates — the
- * very same call paints the pill in the editor view and burns it into the
- * flattened export PNG at the export's zoom. The text colour is chosen for
- * legibility against `fill`.
+ * Draw one filled, rounded Label pill onto `ctx`. The pill normally hangs
+ * straight down from `belowAnchor` (its top-centre, as returned by
+ * `labelAnchorPoint`), but if that would spill it off the bottom of the
+ * `canvas` it flips to hang above the host from `aboveAnchor` (its bottom-centre)
+ * and is clamped into the canvas on both axes (#846) — so a Label on an edge
+ * Annotation stays fully visible. The caller has already applied the canvas
+ * viewport transform, so the anchors, the `canvas` bounds, and the pill are all
+ * in scene coordinates — the very same call paints the pill in the editor view
+ * and burns it into the flattened export PNG at the export's zoom. The text
+ * colour is chosen for legibility against `fill`.
  */
 function drawLabelPill(
   ctx: CanvasRenderingContext2D,
-  anchor: { x: number; y: number },
+  belowAnchor: { x: number; y: number },
+  aboveAnchor: { x: number; y: number },
+  canvas: { width: number; height: number },
   text: string,
   fontSize: number,
   fill: string
@@ -482,8 +488,12 @@ function drawLabelPill(
 
   const pillW = ctx.measureText(text).width + padX * 2;
   const pillH = fontSize + padY * 2;
-  const x = anchor.x - pillW / 2;
-  const y = anchor.y;
+  const { x, y } = placeLabelPill(
+    belowAnchor,
+    aboveAnchor,
+    { width: pillW, height: pillH },
+    canvas
+  );
   const r = Math.min(pillH / 2, pillW / 2);
 
   // Soft drop shadow so a pale pill stays separated from a busy photo.
@@ -507,7 +517,7 @@ function drawLabelPill(
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
   ctx.fillStyle = readableTextColor(fill);
-  ctx.fillText(text, anchor.x, y + pillH / 2);
+  ctx.fillText(text, x + pillW / 2, y + pillH / 2);
   ctx.restore();
 }
 
@@ -1270,9 +1280,14 @@ export default function PhotoAnnotator({
       const vpt = canvas.viewportTransform;
       ctx.save();
       ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+      // The canvas's logical dimensions are the fit-photo bounds in scene
+      // coordinates — the very extent the export PNG is sized to — so a pill
+      // clamped into them stays visible in both the editor and the flattened
+      // Annotated Photo (#846).
+      const bounds = { width: canvas.width!, height: canvas.height! };
       for (const obj of labeled) {
         const center = obj.getCenterPoint();
-        const anchor = labelAnchorPoint({
+        const belowAnchor = labelAnchorPoint({
           centerX: center.x,
           centerY: center.y,
           width: obj.width ?? 0,
@@ -1281,9 +1296,19 @@ export default function PhotoAnnotator({
           scaleY: obj.scaleY ?? 1,
           angle: obj.angle ?? 0,
         });
+        // The flip target: the pill's bottom-centre when hung above the host.
+        // It mirrors `belowAnchor` across the host centre — same offset along
+        // the host's (rotated) axis, opposite side — so a flipped pill stays
+        // attached the same way (#846).
+        const aboveAnchor = {
+          x: 2 * center.x - belowAnchor.x,
+          y: 2 * center.y - belowAnchor.y,
+        };
         drawLabelPill(
           ctx,
-          anchor,
+          belowAnchor,
+          aboveAnchor,
+          bounds,
           obj.labelText,
           obj.labelFontSize ?? 20,
           labelColorFor(obj)
