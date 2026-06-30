@@ -2,22 +2,31 @@ import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 
 // Quick-pick labels (#819) — reusable phrases an org saves so a user can later
-// tap one to apply as a Label on an Annotation. Mirrors the damage-types
-// catalog: both methods require `access_settings`, GET serves NULL-org shared
-// defaults plus the active org's own rows, POST always inserts an org-owned row.
+// tap one to apply as a Label on an Annotation. GET serves NULL-org shared
+// defaults plus the active org's own rows; POST always inserts an org-owned row.
+//
+// POST (managing the catalogue) stays `access_settings`. GET is also read by
+// the photo annotator to offer Quick-pick options (#821), so it admits either
+// `access_settings` (the Settings Photos tab) or `edit_photos` (anyone who can
+// annotate) — without `edit_photos` the feature would be invisible to the field
+// users who actually do the annotating.
 
 // GET /api/settings/quick-pick-labels — NULL-org defaults plus this org's rows.
-export const GET = withRequestContext({ permission: "access_settings" }, async (_request, ctx) => {
-  const orgId = ctx.orgId;
-  const { data, error } = await ctx.supabase
-    .from("quick_pick_labels")
-    .select("*")
-    .or(`organization_id.is.null,organization_id.eq.${orgId}`)
-    .order("sort_order");
+export const GET = withRequestContext(
+  { permission: ["access_settings", "edit_photos"] },
+  async (_request, ctx) => {
+    const orgId = ctx.orgId;
+    const { data, error } = await ctx.supabase
+      .from("quick_pick_labels")
+      .select("*")
+      .or(`organization_id.is.null,organization_id.eq.${orgId}`)
+      .order("sort_order");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
-});
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
+);
 
 // POST /api/settings/quick-pick-labels — create a new (always org-owned) label.
 export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {

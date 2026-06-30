@@ -53,6 +53,46 @@ export function labelAnchorPoint(
   };
 }
 
+/**
+ * The Label font size, in canvas pixels, given to a freshly-labelled object. A
+ * constant so a typed Label and a tapped Quick-pick label read identically.
+ */
+export const DEFAULT_LABEL_FONT_SIZE = 20;
+
+/**
+ * The subset of an Annotation that carries its single Label. Any Fabric object
+ * satisfies this (the props are stored as custom props), but the shape is kept
+ * plain so the apply logic stays Fabric-free and testable.
+ */
+export interface LabelTarget {
+  labelText: string | null;
+  labelColor: string | null;
+  labelFontSize?: number;
+}
+
+/**
+ * Set, replace, or clear an Annotation's single Label. A non-blank phrase
+ * becomes the object's one Label — trimmed, in the given colour, sized to the
+ * object's existing Label size or the default — overwriting any prior Label
+ * rather than adding a second. A blank phrase clears the Label. Both the typed
+ * Label editor and the Quick-pick tap route through here so the two produce an
+ * identical result.
+ */
+export function applyLabel(
+  target: LabelTarget,
+  text: string,
+  color: string
+): void {
+  const trimmed = text.trim();
+  if (trimmed) {
+    target.labelText = trimmed;
+    target.labelColor = color;
+    target.labelFontSize = target.labelFontSize ?? DEFAULT_LABEL_FONT_SIZE;
+  } else {
+    target.labelText = null;
+  }
+}
+
 /** Near-black, matching the annotator palette's Black swatch. */
 const DARK_TEXT = "#1A1A1A";
 const LIGHT_TEXT = "#FFFFFF";

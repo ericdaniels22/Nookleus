@@ -35,6 +35,14 @@ const holds = () => ({
     grants: ["access_settings"],
   }),
 });
+const holdsEditPhotos = () => ({
+  user: { id: "u" },
+  tables: memberTables({
+    userId: "u",
+    role: "crew_member",
+    grants: ["edit_photos"],
+  }),
+});
 const admin = () => ({
   user: { id: "a" },
   tables: memberTables({ userId: "a", role: "admin", grants: [] }),
@@ -63,18 +71,25 @@ beforeEach(() => {
   vi.mocked(getActiveOrganizationId).mockResolvedValue("org-1");
 });
 
-// GET and POST mirror the damage-types catalog's access_settings gate (#819).
-describe("GET /api/settings/quick-pick-labels — gated on access_settings", () => {
+// POST stays settings-only (managing the catalogue), but GET is also reachable
+// by anyone who can annotate photos (#821): the annotator reads the same list
+// to offer Quick-pick options, so a settings admin OR a photo annotator may
+// read it. Either `access_settings` or `edit_photos` (or admin role) passes.
+describe("GET /api/settings/quick-pick-labels — gated on access_settings OR edit_photos", () => {
   it("401 unauthenticated", async () => {
     authed({ user: null });
     expect((await GET(new Request("http://test"), noParams)).status).toBe(401);
   });
-  it("403 when the caller lacks access_settings", async () => {
+  it("403 when the caller has neither access_settings nor edit_photos", async () => {
     authed(lacks());
     expect((await GET(new Request("http://test"), noParams)).status).toBe(403);
   });
-  it("lists labels when the caller holds access_settings", async () => {
+  it("lists labels when the caller holds access_settings (settings admin)", async () => {
     authed(holds());
+    expect((await GET(new Request("http://test"), noParams)).status).toBe(200);
+  });
+  it("lists labels when the caller holds edit_photos (annotator)", async () => {
+    authed(holdsEditPhotos());
     expect((await GET(new Request("http://test"), noParams)).status).toBe(200);
   });
   it("admins retain access without the key", async () => {

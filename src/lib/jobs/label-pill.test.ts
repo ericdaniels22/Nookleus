@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { LABEL_GAP, labelAnchorPoint, readableTextColor } from "./label-pill";
+import {
+  applyLabel,
+  DEFAULT_LABEL_FONT_SIZE,
+  LABEL_GAP,
+  labelAnchorPoint,
+  readableTextColor,
+} from "./label-pill";
 
 describe("labelAnchorPoint — where a Label pill anchors beneath its host", () => {
   it("sits the pill just below an unrotated object, horizontally centred", () => {
@@ -80,6 +86,59 @@ describe("labelAnchorPoint — where a Label pill anchors beneath its host", () 
     const offset = 30 + LABEL_GAP;
     expect(anchor.x).toBeCloseTo(100, 5);
     expect(anchor.y).toBeCloseTo(100 - offset, 5);
+  });
+});
+
+describe("applyLabel — set, replace, or clear an object's single Label", () => {
+  it("applies a phrase as the object's Label text, colour, and default size", () => {
+    const target: {
+      labelText: string | null;
+      labelColor: string | null;
+      labelFontSize?: number;
+    } = { labelText: null, labelColor: null };
+
+    applyLabel(target, "Source of loss", "#C41E2A");
+
+    expect(target.labelText).toBe("Source of loss");
+    expect(target.labelColor).toBe("#C41E2A");
+    expect(target.labelFontSize).toBe(DEFAULT_LABEL_FONT_SIZE);
+  });
+
+  it("replaces an existing Label rather than adding a second", () => {
+    const target: {
+      labelText: string | null;
+      labelColor: string | null;
+      labelFontSize?: number;
+    } = { labelText: "Old phrase", labelColor: "#2B5EA7", labelFontSize: 20 };
+
+    applyLabel(target, "New phrase", "#0F6E56");
+
+    expect(target.labelText).toBe("New phrase");
+    expect(target.labelColor).toBe("#0F6E56");
+  });
+
+  it("clears the Label when the phrase is blank or whitespace", () => {
+    const target: {
+      labelText: string | null;
+      labelColor: string | null;
+      labelFontSize?: number;
+    } = { labelText: "Existing", labelColor: "#C41E2A", labelFontSize: 20 };
+
+    applyLabel(target, "   ", "#C41E2A");
+
+    expect(target.labelText).toBeNull();
+  });
+
+  it("keeps an already-sized Label's font size instead of resetting it", () => {
+    const target: {
+      labelText: string | null;
+      labelColor: string | null;
+      labelFontSize?: number;
+    } = { labelText: "Existing", labelColor: "#C41E2A", labelFontSize: 36 };
+
+    applyLabel(target, "Relabelled", "#C41E2A");
+
+    expect(target.labelFontSize).toBe(36);
   });
 });
 
