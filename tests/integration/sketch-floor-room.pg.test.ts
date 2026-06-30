@@ -27,7 +27,12 @@ import EmbeddedPostgres from "embedded-postgres";
 import type { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { measureRoom } from "../../src/lib/sketch/measure-room";
+import {
+  boundingBox,
+  rectangleFootprint,
+  type Point,
+} from "../../src/lib/sketch/footprint";
+import { measureFootprint, measureRoom } from "../../src/lib/sketch/measure-room";
 
 const SCHEMA_SQL = readFileSync(
   join(process.cwd(), "tests", "integration", "sketch-floor-room-schema.sql"),
@@ -35,6 +40,12 @@ const SCHEMA_SQL = readFileSync(
 );
 const MIGRATION_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-build88-sketch-floor-room.sql"),
+  "utf8",
+);
+// #879 adds rooms.footprint and backfills existing rectangles. Loaded verbatim,
+// in order, on top of build88 — the live up-migration, never a copy.
+const MIGRATION_89_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-build89-room-footprint.sql"),
   "utf8",
 );
 
@@ -100,6 +111,7 @@ beforeAll(async () => {
   );
   await client.query(SCHEMA_SQL);
   await client.query(MIGRATION_SQL);
+  await client.query(MIGRATION_89_SQL);
   // The tables now exist — grant the RLS test caller the privileges it needs to
   // evaluate (and be filtered by) the tenant_isolation policies.
   await client.query(
@@ -157,31 +169,33 @@ async function insertFloor(
   return rows[0].id;
 }
 
-/** Persist a Room together with M1's measurements as the cached snapshot. */
-async function insertRoom(
+/** Persist a Room from its footprint, with M1's measurements as the cached
+ *  snapshot. The bounding box backfills the legacy width/length columns — the
+ *  same contract the app's createSketchRoom() write path follows (#879). */
+async function insertRoomFootprint(
   orgId: string,
   floorId: string,
   name: string,
-  dims: { width: number; length: number; ceilingHeightOverride: number | null },
+  footprint: Point[],
+  ceilingHeightOverride: number | null,
   effectiveCeilingHeight: number,
 ): Promise<string> {
-  const m = measureRoom({
-    width: dims.width,
-    length: dims.length,
-    ceilingHeight: effectiveCeilingHeight,
-  });
+  const m = measureFootprint({ footprint, ceilingHeight: effectiveCeilingHeight });
+  const bbox = boundingBox(footprint);
   const { rows } = await client.query<{ id: string }>(
     `INSERT INTO rooms (
-       organization_id, floor_id, name, width, length, ceiling_height_override,
+       organization_id, floor_id, name, footprint, width, length,
+       ceiling_height_override,
        floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+     ) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
     [
       orgId,
       floorId,
       name,
-      dims.width,
-      dims.length,
-      dims.ceilingHeightOverride,
+      JSON.stringify(footprint), // jsonb wants a JSON string, not a PG array literal
+      bbox.width,
+      bbox.length,
+      ceilingHeightOverride,
       m.floorArea,
       m.ceilingArea,
       m.perimeter,
@@ -191,6 +205,24 @@ async function insertRoom(
     ],
   );
   return rows[0].id;
+}
+
+/** Persist a rectangular Room (#860 shape) — a 4-point footprint. */
+async function insertRoom(
+  orgId: string,
+  floorId: string,
+  name: string,
+  dims: { width: number; length: number; ceilingHeightOverride: number | null },
+  effectiveCeilingHeight: number,
+): Promise<string> {
+  return insertRoomFootprint(
+    orgId,
+    floorId,
+    name,
+    rectangleFootprint(dims.width, dims.length),
+    dims.ceilingHeightOverride,
+    effectiveCeilingHeight,
+  );
 }
 
 /**
@@ -340,6 +372,86 @@ describe("sketch/floor/room migration (#860)", () => {
         ),
       ).rejects.toMatchObject({ code: "42501" }); // insufficient_privilege (RLS)
     });
+  });
+
+  // #879 — a hand-drawn polygon footprint must survive the trip as jsonb, drive
+  // the cached measurements (true polygon area, not the bounding box), and stay
+  // org-scoped like every other column on `rooms`.
+  it("round-trips a hand-drawn polygon footprint and keeps it org-scoped", async () => {
+    const orgA = await seedOrg();
+    const orgB = await seedOrg();
+    const jobA = await seedJob(orgA);
+    const jobB = await seedJob(orgB);
+    const sketchA = await insertSketch(orgA, jobA);
+    const sketchB = await insertSketch(orgB, jobB);
+    const floorA = await insertFloor(orgA, sketchA, "Ground Floor", 8);
+    const floorB = await insertFloor(orgB, sketchB, "Ground Floor", 8);
+
+    // An L-shaped Room (a 4×4 square missing a 2×2 bite) — area 12, not the 16
+    // its 4×4 bounding box would give. The rectangle model could not express it.
+    const L_SHAPE: Point[] = [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 2 },
+      { x: 2, y: 2 },
+      { x: 2, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    const roomA = await insertRoomFootprint(orgA, floorA, "L Room", L_SHAPE, null, 8);
+    // A different shape in the other org, to prove the footprint doesn't leak.
+    await insertRoomFootprint(orgB, floorB, "Other", rectangleFootprint(5, 6), null, 8);
+
+    const { rows } = await client.query(
+      "SELECT footprint, width, length, floor_area, perimeter, volume FROM rooms WHERE id = $1",
+      [roomA],
+    );
+    // The footprint jsonb comes back as the same ordered points.
+    expect(rows[0].footprint).toEqual(L_SHAPE);
+    // The cache is the true polygon measurement; width/length are the envelope.
+    const expected = measureFootprint({ footprint: L_SHAPE, ceilingHeight: 8 });
+    expect(Number(rows[0].width)).toBe(4);
+    expect(Number(rows[0].length)).toBe(4);
+    expect(Number(rows[0].floor_area)).toBe(expected.floorArea); // 12, not 16
+    expect(Number(rows[0].perimeter)).toBe(expected.perimeter); // 16
+    expect(Number(rows[0].volume)).toBe(expected.volume); // 96
+
+    // Acting as org A, exactly org A's footprint is visible; org B's is filtered.
+    await asOrg(orgA, async () => {
+      const visible = await client.query("SELECT footprint FROM rooms");
+      expect(visible.rows).toHaveLength(1);
+      expect(visible.rows[0].footprint).toEqual(L_SHAPE);
+    });
+  });
+
+  // #879 — the migration backfills pre-existing rectangle Rooms so none is left
+  // shapeless. Insert a Room exactly as build88 stored it (width/length set,
+  // footprint still the empty default), then re-run the LIVE build89 migration
+  // and prove its footprint is reconstructed from width/length.
+  it("backfills an existing rectangle Room's footprint from its width/length", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    const m = measureRoom({ width: 3, length: 4, ceilingHeight: 8 });
+    const { rows: ins } = await client.query<{ id: string }>(
+      `INSERT INTO rooms (
+         organization_id, floor_id, name, width, length,
+         floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume
+       ) VALUES ($1,$2,'Legacy',3,4,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [orgId, floorId, m.floorArea, m.ceilingArea, m.perimeter, m.grossWallArea, m.netWallArea, m.volume],
+    );
+    const roomId = ins[0].id;
+
+    // Precondition: this row genuinely has the empty default footprint.
+    const before = await client.query("SELECT footprint FROM rooms WHERE id = $1", [roomId]);
+    expect(before.rows[0].footprint).toEqual([]);
+
+    // Re-running the migration is a no-op for the column and backfills the shape.
+    await client.query(MIGRATION_89_SQL);
+
+    const after = await client.query("SELECT footprint FROM rooms WHERE id = $1", [roomId]);
+    expect(after.rows[0].footprint).toEqual(rectangleFootprint(3, 4));
   });
 
   // The migration ships a documented `-- ROLLBACK` block; prove it isn't lying.

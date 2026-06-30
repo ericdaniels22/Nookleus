@@ -1,31 +1,36 @@
-// Issue #860 — persist one rectangular Room under a Floor.
+// Issue #860 / #879 — persist one Room under a Floor from its drawn footprint.
 //
 // The cached measurement columns on `rooms` (migration-build88) are a snapshot of
 // M1's output. The app is their single writer, so this is the one server-side
 // place they're computed: it resolves the Room's EFFECTIVE ceiling height (the
-// Floor default unless the Room overrides it), runs measureRoom, and writes the
-// dimensions and the cache together — they can never disagree. Reading the Floor
-// first also scopes the write to a Floor the caller can actually see under RLS.
+// Floor default unless the Room overrides it), measures the footprint, and writes
+// the geometry and the cache together — they can never disagree. S2 (#879) makes
+// the footprint a hand-drawn polygon (migration-build89); the bounding box still
+// backfills the legacy width/length columns so existing readers keep working.
+// Reading the Floor first also scopes the write to a Floor the caller can see
+// under RLS.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { measureRoom } from "./measure-room";
+import { boundingBox, type Point } from "./footprint";
+import { measureFootprint } from "./measure-room";
 
 export interface CreateSketchRoomInput {
   organizationId: string;
   floorId: string;
   name: string;
-  width: number;
-  length: number;
+  /** The drawn footprint — ordered corners of a closed loop (#879). */
+  footprint: Point[];
   /** null → inherit the Floor's default ceiling height; a value overrides it. */
   ceilingHeightOverride: number | null;
 }
 
-/** The persisted Room row, dimensions + cached measurements (all numeric). */
+/** The persisted Room row: footprint + dimensions + cached measurements. */
 export interface RoomRow {
   id: string;
   floor_id: string;
   name: string;
+  footprint: Point[];
   width: number | string;
   length: number | string;
   ceiling_height_override: number | string | null;
@@ -53,11 +58,10 @@ export async function createSketchRoom(
 
   const ceilingHeight =
     input.ceilingHeightOverride ?? Number(floor.default_ceiling_height);
-  const m = measureRoom({
-    width: input.width,
-    length: input.length,
-    ceilingHeight,
-  });
+  const m = measureFootprint({ footprint: input.footprint, ceilingHeight });
+  // The bounding box backfills the legacy width/length columns; the footprint
+  // jsonb is the real source of shape.
+  const bbox = boundingBox(input.footprint);
 
   const { data: room, error } = await supabase
     .from("rooms")
@@ -65,8 +69,9 @@ export async function createSketchRoom(
       organization_id: input.organizationId,
       floor_id: input.floorId,
       name: input.name,
-      width: input.width,
-      length: input.length,
+      footprint: input.footprint,
+      width: bbox.width,
+      length: bbox.length,
       ceiling_height_override: input.ceilingHeightOverride,
       floor_area: m.floorArea,
       ceiling_area: m.ceilingArea,

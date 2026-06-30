@@ -1,10 +1,10 @@
-// POST /api/jobs/[id]/sketch/rooms — add a rectangular Room to a Job's Sketch
-// (#860). These tests pin the route's wiring: the `edit_jobs` gate, the
-// job-visibility guard (mirroring the reports route's #446 fix — a caller can't
-// add a Room to a Job their org can't see), basic payload validation, and
-// forwarding the dimensions to the create step. The measurement math + insert is
-// covered in src/lib/sketch/create-room.test.ts, so here `createSketchRoom` is
-// mocked.
+// POST /api/jobs/[id]/sketch/rooms — add a Room to a Job's Sketch (#860, #879).
+// These tests pin the route's wiring: the `edit_jobs` gate, the job-visibility
+// guard (mirroring the reports route's #446 fix — a caller can't add a Room to a
+// Job their org can't see), basic payload validation (a Floor + a footprint of at
+// least three corners), and forwarding the footprint to the create step. The
+// measurement math + insert is covered in src/lib/sketch/create-room.test.ts, so
+// here `createSketchRoom` is mocked.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -58,11 +58,18 @@ function authedClient() {
   });
 }
 
+// A 3 × 4 rectangle as four drawn corners — the smallest realistic footprint.
+const RECT_FOOTPRINT = [
+  { x: 0, y: 0 },
+  { x: 3, y: 0 },
+  { x: 3, y: 4 },
+  { x: 0, y: 4 },
+];
+
 const validRoom = {
   floorId: "floor-1",
   name: "Living Room",
-  width: 3,
-  length: 4,
+  footprint: RECT_FOOTPRINT,
   ceilingHeightOverride: null,
 };
 
@@ -106,13 +113,13 @@ describe("POST /api/jobs/[id]/sketch/rooms", () => {
     expect(createSketchRoom).not.toHaveBeenCalled();
   });
 
-  it("returns 400 without creating a Room when the payload is missing a floor or dimensions", async () => {
+  it("returns 400 without creating a Room when the payload is missing a floor", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       authedClient() as never,
     );
 
     const res = await POST(
-      postBody({ name: "No floor", width: 3, length: 4 }),
+      postBody({ name: "No floor", footprint: RECT_FOOTPRINT }),
       paramsFor("job-1"),
     );
 
@@ -120,7 +127,25 @@ describe("POST /api/jobs/[id]/sketch/rooms", () => {
     expect(createSketchRoom).not.toHaveBeenCalled();
   });
 
-  it("creates the Room (201) and forwards the floor + dimensions to the create step", async () => {
+  it("returns 400 when the footprint has fewer than three corners (not an enclosable Room)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await POST(
+      postBody({
+        floorId: "floor-1",
+        name: "Single wall",
+        footprint: [{ x: 0, y: 0 }, { x: 3, y: 0 }],
+      }),
+      paramsFor("job-1"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(createSketchRoom).not.toHaveBeenCalled();
+  });
+
+  it("creates the Room (201) and forwards the floor + footprint to the create step", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       authedClient() as never,
     );
@@ -129,8 +154,7 @@ describe("POST /api/jobs/[id]/sketch/rooms", () => {
       postBody({
         floorId: "floor-1",
         name: "Living Room",
-        width: 3,
-        length: 4,
+        footprint: RECT_FOOTPRINT,
         ceilingHeightOverride: 10,
       }),
       paramsFor("job-1"),
@@ -143,8 +167,7 @@ describe("POST /api/jobs/[id]/sketch/rooms", () => {
         organizationId: "org-1",
         floorId: "floor-1",
         name: "Living Room",
-        width: 3,
-        length: 4,
+        footprint: RECT_FOOTPRINT,
         ceilingHeightOverride: 10,
       }),
     );
