@@ -471,6 +471,9 @@ export default function PhotoViewer({
     // edit still inside its window first. The pending thunk closed over the
     // Photo it was typed on, so the write lands there — not on the new Photo.
     return () => captionSaver.flush();
+    // Intentionally keyed on the Photo id alone — re-seeding on every
+    // currentPhoto identity change would clobber an in-progress edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPhoto?.id]);
 
   // AC (h): the viewer stays mounted when it closes (the parent only flips
@@ -1373,7 +1376,7 @@ export default function PhotoViewer({
             <button
               type="button"
               onClick={() => setPhoneSheet(null)}
-              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors"
             >
               Done
             </button>
@@ -1413,7 +1416,7 @@ export default function PhotoViewer({
             <button
               type="button"
               onClick={() => setPhoneSheet(null)}
-              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors"
             >
               Done
             </button>
