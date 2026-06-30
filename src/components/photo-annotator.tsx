@@ -53,7 +53,7 @@ import {
 } from "@/lib/jobs/label-pill";
 import { placeLabelPill } from "@/lib/jobs/label-pill-placement";
 import { loadQuickPickLabels } from "@/lib/jobs/quick-pick-labels";
-import { viewportScale } from "@/lib/jobs/viewport";
+import { screenToSceneLength, viewportScale } from "@/lib/jobs/viewport";
 import {
   ANNOTATION_COLORS,
   ANNOTATION_THICKNESSES,
@@ -139,8 +139,11 @@ const SHADOW_CONFIG = {
 };
 
 // ── Snapping & alignment guides (#818) ──
-// How close, in canvas pixels, a dragged Annotation's edge or center must come
-// to another Annotation's edge or center before it snaps into alignment.
+// How close, in *screen* pixels, a dragged Annotation's edge or center must come
+// to another Annotation's edge or center before it snaps into alignment. The
+// snap engine measures in scene pixels, so this is converted to a scene-space
+// threshold via the current zoom (#855) — keeping the snap "feel" a constant
+// on-screen distance at any zoom rather than over-eager when zoomed in.
 const SNAP_THRESHOLD = 8;
 // Colour of the transient alignment guide lines drawn during a snap. Cyan reads
 // clearly over light and dark Photo content and over every Annotation colour in
@@ -1088,12 +1091,15 @@ export default function PhotoAnnotator({
   }
 
   // The client-space point an Annotation's floating UI hangs from (centred on
-  // the object's top edge), or null if there is no live canvas/target.
+  // the object's top edge), or null if there is no live canvas/target. The
+  // anchor box is in scene coordinates, so it's mapped through the live
+  // viewportTransform — without that the toolbar and Label editor mis-anchor
+  // once the canvas is zoomed/panned (#855).
   function annotationClientAnchor(target: any): { x: number; y: number } | null {
     const canvas = fabricRef.current;
     if (!canvas || !target) return null;
     const rect = canvas.getElement().getBoundingClientRect();
-    return toolbarAnchorPoint(anchorBoxFor(target), rect);
+    return toolbarAnchorPoint(anchorBoxFor(target), rect, canvas.viewportTransform);
   }
 
   // The fill colour a host's Label pill uses: an explicit Label colour wins;
@@ -1174,10 +1180,17 @@ export default function PhotoAnnotator({
               annotationKind(o.type)
           )
           .map((o) => o.getBoundingRect());
+        // Hold the snap threshold at a constant on-screen distance: the engine
+        // compares scene-space rects, so convert the screen-px threshold to
+        // scene px via the current zoom (#855).
+        const threshold = screenToSceneLength(
+          SNAP_THRESHOLD,
+          canvas.viewportTransform
+        );
         const { snappedPosition, guideLines } = snapAnnotation(
           movingRect,
           others,
-          { x: SNAP_THRESHOLD, y: SNAP_THRESHOLD }
+          { x: threshold, y: threshold }
         );
         // The engine returns the snapped bounding-box position; apply the shift
         // as a plain translation so it works for center-origin Arrows and

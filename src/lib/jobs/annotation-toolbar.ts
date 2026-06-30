@@ -2,6 +2,8 @@
 // selected Annotation gets. The annotator's selection handler reads
 // `annotationKind` to classify the Fabric object under selection.
 
+import { viewportPoint, type ViewportTransform } from "./viewport";
+
 export type AnnotationKind =
   | "arrow"
   | "ellipse"
@@ -78,14 +80,22 @@ export interface CanvasClientRect {
  * and by -50% in X from here so it sits centred just above the object. The same
  * math serves every kind — the caller supplies the arrow's endpoint box or any
  * other shape's bounding box.
+ *
+ * The box is in scene coordinates (Fabric reports an object's bounds in the
+ * scene plane), so its top-centre is mapped through the live viewport transform
+ * to where the object actually sits on the canvas surface before the canvas's
+ * own client offset is added (#855). At fit-zoom the transform is the identity,
+ * so the anchor is unchanged.
  */
 export function toolbarAnchorPoint(
   box: AnchorBox,
-  canvasRect: CanvasClientRect
+  canvasRect: CanvasClientRect,
+  vpt: ViewportTransform | null | undefined
 ): { x: number; y: number } {
+  const screen = viewportPoint(vpt, box.left + box.width / 2, box.top);
   return {
-    x: canvasRect.left + box.left + box.width / 2,
-    y: canvasRect.top + box.top,
+    x: canvasRect.left + screen.x,
+    y: canvasRect.top + screen.y,
   };
 }
 
