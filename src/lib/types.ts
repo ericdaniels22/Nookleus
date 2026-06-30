@@ -571,6 +571,18 @@ export interface Showcase {
   /** One-click photo-consent audit: who affirmed it, and when. Re-stamped on every publish. */
   consent_confirmed_by: string | null;
   consent_confirmed_at: string | null;
+  /**
+   * Google Business Profile publish state (#609) — the SECOND channel, tracked
+   * INDEPENDENTLY of the website columns above (AC#3). The remote LocalPost
+   * resource name this Showcase maps to, recorded on first GBP publish and reused
+   * on every re-push so an edit updates the same post, never a duplicate. Null =
+   * never published to the Business Profile.
+   */
+  gbp_post_name: string | null;
+  /** The live post URL (LocalPost `searchUrl`), for the "View on Google" link. */
+  gbp_post_url: string | null;
+  /** When it was last successfully pushed to the Business Profile. Null = never. */
+  gbp_published_at: string | null;
 }
 
 // Knowledge Base (RAG)
