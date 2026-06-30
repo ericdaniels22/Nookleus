@@ -27,14 +27,16 @@ const INTERNAL_FULLSCREEN_PATTERNS: RegExp[] = [
 // gets full content width (#543). Covers the estimate, invoice, and template
 // editing modes — all served by EstimateBuilder — plus the in-Job Photo Report
 // builder (#548), which used to be full-screen and now keeps the nav so the
-// author is never trapped, and the in-Job Showcase builder (#613), which has
-// the same full-page editor shape.
+// author is never trapped, the in-Job Showcase builder (#613), which has the
+// same full-page editor shape, and the in-Job Sketch builder (#860), the
+// measured-Room surface served by SketchBuilder.
 const BUILDER_ROUTE_PATTERNS: RegExp[] = [
   /^\/estimates\/[^/]+\/edit(\/|$)/,
   /^\/invoices\/[^/]+\/edit(\/|$)/,
   /^\/settings\/estimate-templates\/[^/]+\/edit(\/|$)/,
   /^\/jobs\/[^/]+\/reports\/[^/]+(\/|$)/,
   /^\/jobs\/[^/]+\/showcases\/[^/]+(\/|$)/,
+  /^\/jobs\/[^/]+\/sketch(\/|$)/,
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

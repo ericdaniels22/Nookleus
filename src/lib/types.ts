@@ -288,6 +288,70 @@ export interface PhotoReport {
   cover_photo_id: string | null;
 }
 
+// --- Sketch surface (#860) ---------------------------------------------------
+// A Sketch is the measured-geometry model attached 1:1 to a Job: one or more
+// Floors, each holding rectangular Rooms whose measurements derive from M1
+// (src/lib/sketch/measure-room.ts). Persisted by migration-build88; see
+// CONTEXT.md "Sketch / Floor / Room".
+
+/** The six M1-derived measurements a Room reports (areas + lengths + volume). */
+export interface RoomMeasurements {
+  /** width × length. */
+  floor_area: number;
+  /** Equal to floor_area for a flat ceiling (no openings yet). */
+  ceiling_area: number;
+  /** 2 × (width + length). */
+  perimeter: number;
+  /** perimeter × ceiling height — walls before openings are subtracted. */
+  gross_wall_area: number;
+  /** gross_wall_area minus openings; equal to gross while there are none. */
+  net_wall_area: number;
+  /** floor_area × ceiling height. */
+  volume: number;
+}
+
+/** A Job's Sketch surface — 1:1 with the Job (UNIQUE(job_id)). */
+export interface Sketch {
+  id: string;
+  /** Owning Organization. NOT NULL and enforced by RLS (#860). */
+  organization_id: string;
+  job_id: string;
+  /** Optional reference to a stored mesh, for later 3D work. Null for now. */
+  mesh_ref: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A level within a Sketch, carrying the defaults its Rooms inherit. */
+export interface Floor {
+  id: string;
+  organization_id: string;
+  sketch_id: string;
+  name: string;
+  /** Ceiling height a Room inherits unless it sets its own override. */
+  default_ceiling_height: number;
+  interior_wall_thickness: number;
+  exterior_wall_thickness: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A rectangular Room on a Floor, with its cached M1 measurements. */
+export interface Room extends RoomMeasurements {
+  id: string;
+  organization_id: string;
+  floor_id: string;
+  name: string;
+  width: number;
+  length: number;
+  /** null → the Room inherits its Floor's default_ceiling_height. */
+  ceiling_height_override: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface EmailAddress {
   email: string;
   name?: string;

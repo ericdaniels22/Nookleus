@@ -193,6 +193,18 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe("JobDetail — Sketch tab (#860)", () => {
+  it("offers a Sketch tab that links to the Job's Sketch builder route", async () => {
+    render(<JobDetail jobId="job-1" />);
+
+    // Wait for the hub to paint, then the Sketch entry is a tab that takes the
+    // user straight into the dedicated builder route for this Job.
+    expect(await screen.findByText("JOB-1001")).toBeTruthy();
+    const sketchTab = screen.getByRole("link", { name: /Sketch/ });
+    expect(sketchTab.getAttribute("href")).toBe("/jobs/job-1/sketch");
+  });
+});
+
 describe("JobDetail — swipe-to-refresh data preservation (#751)", () => {
   it("keeps the prior job data and counts (and toasts) when the reload's core fetch fails", async () => {
     render(<JobDetail jobId="job-1" />);
