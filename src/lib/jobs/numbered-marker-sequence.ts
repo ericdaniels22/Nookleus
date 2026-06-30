@@ -3,7 +3,9 @@
 // Photo's sequence so placement order is deterministic and unit-testable. Kept
 // free of Fabric/DOM/React so the rule lives in exactly one tested place — the
 // annotator's tap-to-drop handler reads `existing marker numbers` off the
-// canvas and asks this for the next one.
+// canvas (via existingMarkerNumbers) and asks this for the next one.
+
+import { annotationKind } from "./annotation-toolbar";
 
 /**
  * The number to assign the next Numbered marker dropped on a Photo, given the
@@ -16,6 +18,25 @@
 export function nextMarkerNumber(existingNumbers: number[]): number {
   if (existingNumbers.length === 0) return 1;
   return Math.max(...existingNumbers) + 1;
+}
+
+/**
+ * The marker numbers already on a Photo, read from the canvas's objects and fed
+ * straight into {@link nextMarkerNumber}. Crucially it classifies each object
+ * through {@link annotationKind} — the same case-insensitive source of truth the
+ * delete path uses — rather than matching a PascalCase class name. A *live*
+ * Fabric instance reports a lowercase `type` (`"fabricnumberedmarker"`), so the
+ * old `o.type === "FabricNumberedMarker"` filter never matched and every drop
+ * was badged 1 (#852/#831). Operating on the `{ type, markerNumber }` shape (not
+ * Fabric itself) keeps this module Fabric-free while add and delete agree on
+ * what a marker is.
+ */
+export function existingMarkerNumbers(
+  objects: ReadonlyArray<{ type?: string | null; markerNumber?: number }>,
+): number[] {
+  return objects
+    .filter((o) => annotationKind(o?.type) === "marker")
+    .map((o) => o.markerNumber as number);
 }
 
 /** A Numbered marker as the sequencing rules see it: a stable identity and the

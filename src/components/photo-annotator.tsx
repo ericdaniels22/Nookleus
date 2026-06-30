@@ -71,6 +71,7 @@ import {
 } from "@/lib/jobs/annotation-snapping";
 import {
   nextMarkerNumber,
+  existingMarkerNumbers,
   renumberAfterDelete,
 } from "@/lib/jobs/numbered-marker-sequence";
 import { cn } from "@/lib/utils";
@@ -1631,10 +1632,11 @@ export default function PhotoAnnotator({
         tapDown = null;
         if (!tap) return;
 
-        const existingNumbers = canvas
-          .getObjects()
-          .filter((o: any) => o.type === "FabricNumberedMarker")
-          .map((o: any) => o.markerNumber as number);
+        // Route the marker count through annotationKind (via existingMarkerNumbers)
+        // so it matches a *live* marker's lowercase type — the old PascalCase
+        // `=== "FabricNumberedMarker"` never matched, so every drop badged 1
+        // (#852). Add and delete now agree on what a marker is.
+        const existingNumbers = existingMarkerNumbers(canvas.getObjects());
         const MarkerClass = fabric.classRegistry.getClass(
           "FabricNumberedMarker"
         );
@@ -2662,7 +2664,10 @@ export default function PhotoAnnotator({
   function restyleSelected(mutate: (target: StyleTarget) => void): boolean {
     if (!styleTarget) return false;
     mutate(styleTarget);
-    if (styleTarget.type === "FabricArrow") styleTarget._updateBounds();
+    // annotationKind matches a *live* Arrow's lowercase type; the old PascalCase
+    // `=== "FabricArrow"` never matched, leaving the selection box / endpoint
+    // handles / hit area stale until the next drag (#852).
+    if (annotationKind(styleTarget.type) === "arrow") styleTarget._updateBounds();
     styleTarget.set("dirty", true);
     const canvas = fabricRef.current;
     canvas?.requestRenderAll();
