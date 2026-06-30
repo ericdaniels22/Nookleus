@@ -11,6 +11,20 @@ import {
   serializeAnnotations,
 } from "@/lib/jobs/photo-annotation-format";
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
+import { createArrow } from "@/lib/jobs/arrow-geometry";
+import {
+  ARROW_HANDLE_RADIUS,
+  arrowHandleHitArea,
+  handleSizeProps,
+} from "@/lib/jobs/annotation-handles";
+import {
+  annotationKind,
+  toolbarControls,
+  toolbarAnchorPoint,
+  DUPLICATE_OFFSET,
+  type AnchorBox,
+  type ToolbarControl,
+} from "@/lib/jobs/annotation-toolbar";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -219,10 +233,7 @@ function initFabricClasses(fabric: any) {
         new Control({
           actionName: "modifyArrow",
           cursorStyle: "grab",
-          sizeX: 20,
-          sizeY: 20,
-          touchSizeX: 30,
-          touchSizeY: 30,
+          ...arrowHandleHitArea(),
           positionHandler(dim: any, finalMatrix: any) {
             return new Point(getLocalX(), getLocalY()).transform(finalMatrix);
           },
@@ -249,7 +260,7 @@ function initFabricClasses(fabric: any) {
             ctx.strokeStyle = fabricObject.arrowColor || "#F59E0B";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(left, top, 8, 0, 2 * Math.PI);
+            ctx.arc(left, top, ARROW_HANDLE_RADIUS, 0, 2 * Math.PI);
             ctx.fill();
             ctx.stroke();
             ctx.restore();
@@ -386,11 +397,12 @@ export default function PhotoAnnotator({
   const cropRenderCallbackRef = useRef<any>(null);
   const hiddenObjectsRef = useRef<any[]>([]);
 
-  // ── Arrow toolbar ──
-  const [arrowToolbar, setArrowToolbar] = useState<{
+  // ── In-context toolbar (any selected Annotation) ──
+  const [objectToolbar, setObjectToolbar] = useState<{
     x: number;
     y: number;
-    arrow: any;
+    target: any;
+    controls: ToolbarControl[];
   } | null>(null);
   const [labelInput, setLabelInput] = useState<{
     arrow: any;
@@ -550,13 +562,23 @@ export default function PhotoAnnotator({
     const bg = canvas.backgroundImage;
     await canvas.loadFromJSON({ version: "7.2.0", objects });
     canvas.backgroundImage = bg;
-    attachPolyControls(canvas, fabric);
+    attachEditorHandles(canvas, fabric);
     canvas.renderAll();
   }
 
-  /** After loading from JSON, add vertex controls to Polyline/Polygon objects */
-  function attachPolyControls(canvas: any, fabric: any) {
+  /**
+   * After loading from JSON, give every reloaded Annotation the same
+   * finger-sized editor handles as a freshly-drawn one (#810, AC6): the shared
+   * handle size is not serialized, so loadFromJSON restores objects at Fabric's
+   * small defaults. Re-apply it here, and re-attach vertex controls to
+   * Polyline/Polygon (createPolyControls is likewise not restored). FabricArrow
+   * brings its own custom endpoint controls from its constructor, so it is left
+   * untouched.
+   */
+  function attachEditorHandles(canvas: any, fabric: any) {
     canvas.getObjects().forEach((obj: any) => {
+      if (obj.type === "FabricArrow") return;
+      obj.set(handleSizeProps());
       if (obj.type === "Polyline" || obj.type === "Polygon") {
         if (fabric.createPolyControls) {
           obj.controls = fabric.createPolyControls(obj);
@@ -566,7 +588,6 @@ export default function PhotoAnnotator({
         obj.cornerStyle = "circle";
         obj.cornerColor = "#FFFFFF";
         obj.cornerStrokeColor = obj.stroke || "#F59E0B";
-        obj.cornerSize = 14;
         obj.transparentCorners = false;
       }
     });
@@ -578,7 +599,7 @@ export default function PhotoAnnotator({
     if (open && currentPhoto) {
       setCanvasReady(false);
       setIsCropping(false);
-      setArrowToolbar(null);
+      setObjectToolbar(null);
       setLabelInput(null);
       cropRectRef.current = null;
       cropRenderCallbackRef.current = null;
@@ -624,31 +645,45 @@ export default function PhotoAnnotator({
     };
   }, [canvasReady, autoSave]);
 
-  // ─── Arrow selection / toolbar / movement sync ─────────────────────────────
+  // ─── Selection / toolbar / movement sync (every Annotation kind) ────────────
 
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas || !canvasReady) return;
 
-    function onSelected(e: any) {
-      const target = e.selected?.[0] || e.target;
+    // The top-edge box the toolbar anchors to. The Arrow anchors on its raw
+    // endpoints (unchanged from before); every other kind uses its bounding box.
+    function anchorBoxFor(target: any): AnchorBox {
       if (target?.type === "FabricArrow") {
-        const canvasEl = canvas.getElement();
-        const rect = canvasEl.getBoundingClientRect();
-        const midX = (target.x1 + target.x2) / 2;
-        const midY = Math.min(target.y1, target.y2);
-        setArrowToolbar({
-          x: rect.left + midX - 56,
-          y: rect.top + midY,
-          arrow: target,
-        });
-      } else {
-        setArrowToolbar(null);
+        return {
+          left: Math.min(target.x1, target.x2),
+          top: Math.min(target.y1, target.y2),
+          width: Math.abs(target.x2 - target.x1),
+        };
       }
+      const r = target.getBoundingRect();
+      return { left: r.left, top: r.top, width: r.width };
+    }
+
+    // Show the in-context toolbar for a selected object, or hide it if the
+    // object is not a toolbar-eligible Annotation (background, crop rect, …).
+    function showToolbar(target: any) {
+      const kind = annotationKind(target?.type);
+      if (!kind || target === cropRectRef.current) {
+        setObjectToolbar(null);
+        return;
+      }
+      const rect = canvas.getElement().getBoundingClientRect();
+      const { x, y } = toolbarAnchorPoint(anchorBoxFor(target), rect);
+      setObjectToolbar({ x, y, target, controls: toolbarControls(kind) });
+    }
+
+    function onSelected(e: any) {
+      showToolbar(e.selected?.[0] || e.target);
     }
 
     function onDeselected() {
-      setArrowToolbar(null);
+      setObjectToolbar(null);
     }
 
     function onMoving(e: any) {
@@ -657,20 +692,16 @@ export default function PhotoAnnotator({
       if (target?.type === "FabricArrow") {
         target._syncEndpointsToPosition();
       }
-      // Hide toolbar during movement
-      setArrowToolbar(null);
+      // Hide toolbar during movement; it re-anchors on object:modified
+      setObjectToolbar(null);
     }
 
     function onModified(e: any) {
       const target = e.target;
       if (target?.type === "FabricArrow") {
         target._syncEndpointsToPosition();
-        const canvasEl = canvas.getElement();
-        const rect = canvasEl.getBoundingClientRect();
-        const midX = (target.x1 + target.x2) / 2;
-        const midY = Math.min(target.y1, target.y2);
-        setArrowToolbar({ x: rect.left + midX - 56, y: rect.top + midY, arrow: target });
       }
+      showToolbar(target);
     }
 
     canvas.on("selection:created", onSelected);
@@ -753,6 +784,7 @@ export default function PhotoAnnotator({
           strokeWidth: 0.5,
           padding: 4,
           shadow: makeShadow(),
+          ...handleSizeProps(),
         });
         canvas.add(text);
         canvas.setActiveObject(text);
@@ -871,8 +903,62 @@ export default function PhotoAnnotator({
     } else if (activeTool === "crop") {
       canvas.isDrawingMode = false;
       canvas.selection = false;
+    } else if (activeTool === "arrow") {
+      // ── Arrow: tap-to-drop (issue #809) ──
+      // A single tap drops one standard-size ↗ Arrow centered on the tap and
+      // scaled to the Photo (via the pure arrow-geometry module), then
+      // auto-selects it so its tip/tail handles are immediately grabbable —
+      // mirroring how the text tool auto-activates the object it creates.
+      // Drag-to-draw and its zero-length guard are gone: tap-drop can only ever
+      // produce a valid standard Arrow.
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+      canvas.forEachObject((obj: any) => {
+        obj.selectable = true;
+        obj.evented = true;
+      });
+
+      // Scene point of a mouse:down that landed on empty canvas. Null when the
+      // press hit an existing object, so tapping an Arrow selects it rather
+      // than dropping a new one on top.
+      let tapDown: { x: number; y: number } | null = null;
+
+      canvas.on("mouse:down", (opt: any) => {
+        if (opt.target) {
+          tapDown = null;
+          return;
+        }
+        const pointer = canvas.getScenePoint(opt.e);
+        tapDown = { x: pointer.x, y: pointer.y };
+      });
+
+      canvas.on("mouse:up", () => {
+        const tap = tapDown;
+        tapDown = null;
+        if (!tap) return;
+
+        // Photo dimensions in scene/display coordinates (the space getScenePoint
+        // reports): natural size scaled to the on-screen canvas.
+        const { width, height, scale } = imgDimensionsRef.current;
+        const { tip, tail } = createArrow(tap, {
+          width: width * scale,
+          height: height * scale,
+        });
+        const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
+        const arrow = new ArrowClass({
+          x1: tail.x,
+          y1: tail.y,
+          x2: tip.x,
+          y2: tip.y,
+          arrowColor: activeColorRef.current,
+          arrowThickness: activeThicknessRef.current,
+        });
+        canvas.add(arrow);
+        canvas.setActiveObject(arrow);
+        canvas.renderAll();
+      });
     } else {
-      // ── Shape tools: circle, rectangle, arrow ──
+      // ── Shape tools: circle, rectangle ──
       canvas.isDrawingMode = false;
       canvas.selection = true;
 
@@ -934,26 +1020,6 @@ export default function PhotoAnnotator({
             selectable: false,
             shadow: new fabric.Shadow(SHADOW_CONFIG),
           });
-        } else if (tool === "arrow") {
-          // Preview arrow as temporary path
-          const ang = Math.atan2(dy, dx);
-          const hl = thick * 4;
-          const hx1 = pointer.x - hl * Math.cos(ang - Math.PI / 6);
-          const hy1 = pointer.y - hl * Math.sin(ang - Math.PI / 6);
-          const hx2 = pointer.x - hl * Math.cos(ang + Math.PI / 6);
-          const hy2 = pointer.y - hl * Math.sin(ang + Math.PI / 6);
-          shape = new fabric.Path(
-            `M ${sx} ${sy} L ${pointer.x} ${pointer.y} M ${hx1} ${hy1} L ${pointer.x} ${pointer.y} L ${hx2} ${hy2}`,
-            {
-              stroke: color,
-              strokeWidth: thick,
-              strokeLineCap: "round",
-              strokeLineJoin: "round",
-              fill: "transparent",
-              selectable: false,
-              evented: false,
-            }
-          );
         }
 
         if (shape) {
@@ -963,32 +1029,17 @@ export default function PhotoAnnotator({
         }
       });
 
-      canvas.on("mouse:up", (opt: any) => {
+      canvas.on("mouse:up", () => {
         if (!isDrawingShape.current) return;
         isDrawingShape.current = false;
 
-        if (activeToolRef.current === "arrow" && currentShape.current) {
-          canvas.remove(currentShape.current);
-          const pointer = canvas.getScenePoint(opt.e);
-          const { x: sx, y: sy } = shapeStart.current;
-          const dist = Math.sqrt((pointer.x - sx) ** 2 + (pointer.y - sy) ** 2);
-
-          if (dist > 10) {
-            const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
-            const arrow = new ArrowClass({
-              x1: sx,
-              y1: sy,
-              x2: pointer.x,
-              y2: pointer.y,
-              arrowColor: activeColorRef.current,
-              arrowThickness: activeThicknessRef.current,
-            });
-            canvas.add(arrow);
-            canvas.renderAll();
-          }
-        } else if (currentShape.current) {
+        if (currentShape.current) {
           // Finalize circle/rectangle — make selectable
-          currentShape.current.set({ selectable: true, evented: true });
+          currentShape.current.set({
+            selectable: true,
+            evented: true,
+            ...handleSizeProps(),
+          });
           currentShape.current.setCoords();
           canvas.renderAll();
         }
@@ -1039,7 +1090,7 @@ export default function PhotoAnnotator({
     poly.cornerStyle = "circle";
     poly.cornerColor = "#FFFFFF";
     poly.cornerStrokeColor = activeColorRef.current;
-    poly.cornerSize = 14;
+    poly.set(handleSizeProps());
     poly.transparentCorners = false;
 
     canvas.add(poly);
@@ -1049,15 +1100,19 @@ export default function PhotoAnnotator({
     polyPreviewRef.current = null;
   }
 
-  // ─── Arrow Toolbar Handlers ────────────────────────────────────────────────
+  // ─── In-context Toolbar Handlers (every Annotation kind) ────────────────────
 
-  function handleArrowAddText(arrow: any) {
-    if (!arrow) return;
+  // Label control. The per-object Label flow today exists only for Arrows; on
+  // other shapes the Label control is present but a safe no-op until the
+  // Attached Labels slice (#804) lands — it must never throw or corrupt the
+  // object.
+  function handleLabel(target: any) {
+    if (!target || target.type !== "FabricArrow") return;
     setLabelInput({
-      arrow,
-      text: arrow.labelText || "Label",
+      arrow: target,
+      text: target.labelText || "Label",
     });
-    setArrowToolbar(null);
+    setObjectToolbar(null);
   }
 
   function handleArrowLabelSubmit() {
@@ -1069,33 +1124,66 @@ export default function PhotoAnnotator({
     setLabelInput(null);
   }
 
-  function handleArrowCopy(arrow: any) {
+  // Duplicate control. The Arrow keeps its bespoke copy (its endpoints, not just
+  // left/top, must shift); every other shape is cloned and nudged by the same
+  // offset. Text boxes and freehand drawings expose no Copy control, so they
+  // never reach here.
+  async function handleCopy(target: any) {
     const canvas = fabricRef.current;
     const fabric = fabricModuleRef.current;
-    if (!canvas || !fabric || !arrow) return;
+    if (!canvas || !fabric || !target) return;
 
-    const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
-    const copy = new ArrowClass({
-      x1: arrow.x1 + 30,
-      y1: arrow.y1 + 30,
-      x2: arrow.x2 + 30,
-      y2: arrow.y2 + 30,
-      arrowColor: arrow.arrowColor,
-      arrowThickness: arrow.arrowThickness,
-      labelText: arrow.labelText,
-      labelFontSize: arrow.labelFontSize,
+    if (target.type === "FabricArrow") {
+      const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
+      const copy = new ArrowClass({
+        x1: target.x1 + DUPLICATE_OFFSET,
+        y1: target.y1 + DUPLICATE_OFFSET,
+        x2: target.x2 + DUPLICATE_OFFSET,
+        y2: target.y2 + DUPLICATE_OFFSET,
+        arrowColor: target.arrowColor,
+        arrowThickness: target.arrowThickness,
+        labelText: target.labelText,
+        labelFontSize: target.labelFontSize,
+      });
+      canvas.add(copy);
+      canvas.renderAll();
+      setObjectToolbar(null);
+      return;
+    }
+
+    const clone = await target.clone();
+    clone.set({
+      left: (clone.left ?? 0) + DUPLICATE_OFFSET,
+      top: (clone.top ?? 0) + DUPLICATE_OFFSET,
+      selectable: true,
+      evented: true,
+      // Keep a duplicate's editor handles finger-sized like every other
+      // creation path (#810), not the small Fabric defaults clone() may carry.
+      ...handleSizeProps(),
     });
-    canvas.add(copy);
+    clone.setCoords();
+    canvas.add(clone);
+    // Restore vertex editing on duplicated polylines/polygons.
+    if (
+      (clone.type === "Polyline" || clone.type === "Polygon") &&
+      fabric.createPolyControls
+    ) {
+      clone.controls = fabric.createPolyControls(clone);
+      clone.objectCaching = false;
+    }
     canvas.renderAll();
-    setArrowToolbar(null);
+    setObjectToolbar(null);
   }
 
-  function handleArrowDelete(arrow: any) {
+  // Delete control. Uniform across kinds — remove the object, drop the
+  // selection, and dismiss the toolbar.
+  function handleDelete(target: any) {
     const canvas = fabricRef.current;
-    if (!canvas || !arrow) return;
-    canvas.remove(arrow);
+    if (!canvas || !target) return;
+    canvas.remove(target);
+    canvas.discardActiveObject();
     canvas.renderAll();
-    setArrowToolbar(null);
+    setObjectToolbar(null);
   }
 
   // ─── Crop System ───────────────────────────────────────────────────────────
@@ -1489,7 +1577,7 @@ export default function PhotoAnnotator({
     if (objects.length === 0) return;
     const last = objects[objects.length - 1];
     canvas.remove(last);
-    setArrowToolbar(null);
+    setObjectToolbar(null);
     canvas.renderAll();
   }
 
@@ -1499,7 +1587,7 @@ export default function PhotoAnnotator({
     canvas.getObjects().slice().forEach((obj: any) => canvas.remove(obj));
     polyDrawingRef.current = null;
     polyPreviewRef.current = null;
-    setArrowToolbar(null);
+    setObjectToolbar(null);
     canvas.renderAll();
   }
 
@@ -1744,37 +1832,43 @@ export default function PhotoAnnotator({
           </div>
         )}
 
-        {/* Arrow action toolbar */}
-        {arrowToolbar && (
+        {/* In-context action toolbar (every selected Annotation) */}
+        {objectToolbar && (
           <div
             className="absolute z-20 flex items-center gap-0.5 bg-[#333] rounded-lg shadow-xl p-1"
             style={{
-              left: arrowToolbar.x,
-              top: Math.max(8, arrowToolbar.y - 52),
+              left: objectToolbar.x,
+              top: Math.max(8, objectToolbar.y - 52),
               transform: "translateX(-50%)",
             }}
           >
-            <button
-              onClick={() => handleArrowAddText(arrowToolbar.arrow)}
-              title={arrowToolbar.arrow?.labelText ? "Edit Label" : "Add Text"}
-              className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
-            >
-              <Type size={18} />
-            </button>
-            <button
-              onClick={() => handleArrowCopy(arrowToolbar.arrow)}
-              title="Duplicate"
-              className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
-            >
-              <Copy size={18} />
-            </button>
-            <button
-              onClick={() => handleArrowDelete(arrowToolbar.arrow)}
-              title="Delete"
-              className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#C41E2A] transition-colors"
-            >
-              <Trash2 size={18} />
-            </button>
+            {objectToolbar.controls.includes("label") && (
+              <button
+                onClick={() => handleLabel(objectToolbar.target)}
+                title={objectToolbar.target?.labelText ? "Edit Label" : "Add Text"}
+                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
+              >
+                <Type size={18} />
+              </button>
+            )}
+            {objectToolbar.controls.includes("copy") && (
+              <button
+                onClick={() => handleCopy(objectToolbar.target)}
+                title="Duplicate"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
+              >
+                <Copy size={18} />
+              </button>
+            )}
+            {objectToolbar.controls.includes("delete") && (
+              <button
+                onClick={() => handleDelete(objectToolbar.target)}
+                title="Delete"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#C41E2A] transition-colors"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
           </div>
         )}
 
