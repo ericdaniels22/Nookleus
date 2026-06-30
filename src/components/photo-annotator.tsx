@@ -52,6 +52,7 @@ import {
   readableTextColor,
 } from "@/lib/jobs/label-pill";
 import { loadQuickPickLabels } from "@/lib/jobs/quick-pick-labels";
+import { viewportScale } from "@/lib/jobs/viewport";
 import {
   ANNOTATION_COLORS,
   ANNOTATION_THICKNESSES,
@@ -1192,8 +1193,10 @@ export default function PhotoAnnotator({
 
     // After:render overlay for the transient alignment guides. Drawn directly
     // on the canvas context (mirroring the crop / polyline overlays) so it is
-    // editor-only chrome and never enters the flattened export. With no
-    // zoom/pan yet, canvas coords equal the scene coords the engine works in.
+    // editor-only chrome and never enters the flattened export. The snap engine
+    // works in scene coordinates, but `after:render` fires with the viewport
+    // transform already restored off the ctx — so re-apply it (as drawLabels
+    // does) to keep the guides on the magnified object edges they snap to (#845).
     function drawGuides() {
       const guides = guideLinesRef.current;
       if (!guides || guides.length === 0) return;
@@ -1201,10 +1204,15 @@ export default function PhotoAnnotator({
       if (!ctx) return;
       const cw = canvas.width!;
       const ch = canvas.height!;
+      const vpt = canvas.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+      const scale = viewportScale(vpt);
       ctx.save();
+      ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
       ctx.strokeStyle = GUIDE_COLOR;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
+      // Divide the line width and dash by the zoom so the guides stay a thin,
+      // constant-width dashed line on screen instead of thickening with zoom.
+      ctx.lineWidth = 1 / scale;
+      ctx.setLineDash([4 / scale, 4 / scale]);
       ctx.beginPath();
       for (const g of guides) {
         if (g.orientation === "vertical") {
@@ -1417,18 +1425,27 @@ export default function PhotoAnnotator({
         }
       });
 
-      // After:render overlay for in-progress polyline
+      // After:render overlay for in-progress polyline. Its points come from
+      // getScenePoint (scene coordinates), but `after:render` fires with the
+      // viewport transform restored off the ctx — so re-apply it (as drawLabels
+      // does) to keep the committed segments, cursor-preview line, and vertex
+      // dots tracking the magnified content instead of drawing blind (#845).
       const drawPolyOverlay = () => {
         const drawing = polyDrawingRef.current;
         if (!drawing || drawing.points.length === 0) return;
         const ctx = canvas.getContext();
         if (!ctx) return;
 
+        const vpt = canvas.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+        const scale = viewportScale(vpt);
+
         ctx.save();
+        ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
         const color = activeColorRef.current;
         const thick = activeThicknessRef.current;
 
-        // Draw completed segments
+        // Draw completed segments. The stroke width is the scene thickness so the
+        // preview matches the committed Polyline, which also magnifies with zoom.
         ctx.strokeStyle = color;
         ctx.lineWidth = thick;
         ctx.lineCap = "round";
@@ -1441,11 +1458,12 @@ export default function PhotoAnnotator({
         }
         ctx.stroke();
 
-        // Preview line from last point to cursor
+        // Preview line from last point to cursor — same scene stroke width, with
+        // the dash divided by zoom so the dashes stay legible when magnified.
         const preview = polyPreviewRef.current;
         if (preview && drawing.points.length > 0) {
           const last = drawing.points[drawing.points.length - 1];
-          ctx.setLineDash([5, 5]);
+          ctx.setLineDash([5 / scale, 5 / scale]);
           ctx.globalAlpha = 0.5;
           ctx.beginPath();
           ctx.moveTo(last.x, last.y);
@@ -1453,15 +1471,17 @@ export default function PhotoAnnotator({
           ctx.stroke();
         }
 
-        // Draw vertex dots
+        // Draw vertex dots. These are fixed-size editor chrome, so divide the
+        // radii and outline width by the zoom to keep them a constant on-screen
+        // size instead of ballooning over the drawing at high magnification.
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
         drawing.points.forEach((p, i) => {
           ctx.fillStyle = i === 0 ? "#FFFFFF" : color;
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 / scale;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, i === 0 ? 6 : 4, 0, 2 * Math.PI);
+          ctx.arc(p.x, p.y, (i === 0 ? 6 : 4) / scale, 0, 2 * Math.PI);
           ctx.fill();
           ctx.stroke();
         });
