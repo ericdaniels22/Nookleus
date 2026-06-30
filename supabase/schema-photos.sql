@@ -283,7 +283,6 @@ CREATE INDEX idx_photos_job_id ON photos(job_id);
 CREATE INDEX idx_photos_taken_at ON photos(taken_at DESC);
 CREATE INDEX idx_photo_tag_assignments_photo_id ON photo_tag_assignments(photo_id);
 CREATE INDEX idx_photo_tag_assignments_tag_id ON photo_tag_assignments(tag_id);
-CREATE INDEX idx_photo_annotations_photo_id ON photo_annotations(photo_id);
 CREATE INDEX idx_photo_reports_job_id ON photo_reports(job_id);
 
 -- Per-tenant lookup indexes (one per photo-domain table)
@@ -296,6 +295,13 @@ CREATE INDEX idx_photo_reports_organization_id ON photo_reports(organization_id)
 
 -- Tag names unique per Organization (replaces the old global UNIQUE(name))
 CREATE UNIQUE INDEX photo_tags_org_name_key ON photo_tags(organization_id, name);
+
+-- One markup row per Photo (#848). Replaces the old non-unique
+-- idx_photo_annotations_photo_id: it still backs the photo_id lookup AND
+-- guarantees save and load can never disagree about the canonical row. The
+-- markup persist relies on it for upsert(..., { onConflict: 'photo_id' }) to
+-- converge concurrent first-time saves onto one row.
+CREATE UNIQUE INDEX photo_annotations_photo_id_key ON photo_annotations(photo_id);
 
 -- Mobile offline-capture idempotency: one row per (organization_id, client_capture_id)
 CREATE UNIQUE INDEX photos_org_client_capture_id_key

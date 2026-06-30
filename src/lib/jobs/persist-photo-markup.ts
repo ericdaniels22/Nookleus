@@ -24,34 +24,49 @@ interface PersistMarkupArgs {
  * Upsert ONLY a photo's editable markup (the `photo_annotations.annotation_data`
  * blob). This is the cheap, debounced half of the ADR 0024 split write — it
  * never touches Storage or `photos.annotated_path` (that flattened render is
- * `persistAnnotatedRender`, rebuilt on leave/close). Find the existing row by
- * photo_id and update it in place, or insert a fresh one. A write error is
- * thrown so the caller's auto-save loop can retry it with backoff.
+ * `persistAnnotatedRender`, rebuilt on leave/close). A write error is thrown so
+ * the caller's auto-save loop can retry it with backoff.
+ *
+ * One canonical row per Photo is guaranteed by the `UNIQUE(photo_id)` index
+ * (issue #848), which lets us drop the old read-then-write window:
+ *
+ *  - Re-save (the common, debounced path): UPDATE the row in place, matched by
+ *    its unique `photo_id`. Carrying only `annotation_data` preserves the
+ *    original `created_by` and skips the author round-trip (#808) — and because
+ *    load and save now resolve the very same row, an edit can never land on a
+ *    row the loader won't read back.
+ *  - First-time save (UPDATE touched no row): insert via `upsert(...,
+ *    { onConflict: 'photo_id' })`. If a concurrent first save raced us and
+ *    inserted first, the UNIQUE constraint routes ours to the ON CONFLICT
+ *    branch — a no-op-ish update instead of a 23505 — so both writers converge
+ *    onto the one row. (That conflict branch is the only path that can rewrite
+ *    `created_by`; it's an acceptable tie-break between two legitimate
+ *    first-time authors, and the steady-state re-save above never reaches it.)
  */
 export async function persistPhotoMarkup(
   supabase: PhotoMarkupStore,
   args: PersistMarkupArgs,
 ): Promise<void> {
-  const { data: existing } = await supabase
+  // `.select("id")` makes the UPDATE return the rows it touched, so an empty
+  // result is the unambiguous signal that no canonical row exists yet.
+  const { data: updated, error: updateError } = await supabase
     .from("photo_annotations")
-    .select("id")
+    .update({ annotation_data: args.annotationData })
     .eq("photo_id", args.photoId)
-    .limit(1)
-    .maybeSingle();
+    .select("id");
+  if (updateError) throw updateError;
+  if (updated && updated.length > 0) return;
 
-  if (existing) {
-    const { error } = await supabase
-      .from("photo_annotations")
-      .update({ annotation_data: args.annotationData })
-      .eq("id", existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase.from("photo_annotations").insert({
-      organization_id: args.organizationId,
-      photo_id: args.photoId,
-      annotation_data: args.annotationData,
-      created_by: await args.resolveAuthor(),
-    });
-    if (error) throw error;
-  }
+  const { error: upsertError } = await supabase
+    .from("photo_annotations")
+    .upsert(
+      {
+        organization_id: args.organizationId,
+        photo_id: args.photoId,
+        annotation_data: args.annotationData,
+        created_by: await args.resolveAuthor(),
+      },
+      { onConflict: "photo_id" },
+    );
+  if (upsertError) throw upsertError;
 }

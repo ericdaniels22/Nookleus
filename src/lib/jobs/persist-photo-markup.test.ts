@@ -9,32 +9,32 @@ const annotationData: AnnotationData = {
   canvas: { version: "7.2.0", objects: [{ type: "FabricArrow" }] },
 };
 
-// A faked Supabase transport that records the select → update/insert chain
-// persistPhotoMarkup walks. `existing` controls whether a prior annotation row
-// is found (the update branch) or not (the insert branch); the *Error options
-// drive the write-failure paths.
+// A faked Supabase transport that records the update → (maybe) upsert chain
+// persistPhotoMarkup walks (issue #848). The re-save path is an UPDATE matched
+// by the now-UNIQUE photo_id, whose `.select("id")` returns the rows it touched;
+// `updatedRows` controls whether a canonical row already existed (re-save) or
+// not (first-time save → upsert). The *Error options drive the write-failure
+// paths.
 function makeStore(
   opts: {
-    existing?: { id: string } | null;
+    updatedRows?: { id: string }[];
     updateError?: unknown;
-    insertError?: unknown;
+    upsertError?: unknown;
   } = {},
 ) {
-  const { existing = null, updateError = null, insertError = null } = opts;
+  const { updatedRows = [], updateError = null, upsertError = null } = opts;
 
-  const maybeSingle = vi.fn().mockResolvedValue({ data: existing, error: null });
-  const limit = vi.fn(() => ({ maybeSingle }));
-  const selectEq = vi.fn(() => ({ limit }));
-  const select = vi.fn(() => ({ eq: selectEq }));
-
-  const updateEq = vi.fn().mockResolvedValue({ error: updateError });
+  const updateSelect = vi
+    .fn()
+    .mockResolvedValue({ data: updatedRows, error: updateError });
+  const updateEq = vi.fn(() => ({ select: updateSelect }));
   const update = vi.fn(() => ({ eq: updateEq }));
 
-  const insert = vi.fn().mockResolvedValue({ error: insertError });
+  const upsert = vi.fn().mockResolvedValue({ error: upsertError });
 
-  const from = vi.fn(() => ({ select, update, insert }));
+  const from = vi.fn(() => ({ update, upsert }));
   const store = { from } as unknown as Supa;
-  return { store, from, select, selectEq, update, updateEq, insert };
+  return { store, from, update, updateEq, updateSelect, upsert };
 }
 
 const base = {
@@ -47,41 +47,50 @@ const base = {
 const resolveAuthor = () => Promise.resolve("Eric Daniels");
 
 describe("persistPhotoMarkup", () => {
-  it("attributes the resolved author when inserting a first-time annotation (#808)", async () => {
-    const { store, insert, update } = makeStore({ existing: null });
-    const resolveAuthorSpy = vi.fn().mockResolvedValue("Eric Daniels");
-
-    await persistPhotoMarkup(store, { ...base, resolveAuthor: resolveAuthorSpy });
-
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: "org-1",
-      photo_id: "p1",
-      annotation_data: annotationData,
-      created_by: "Eric Daniels",
-    });
-    expect(resolveAuthorSpy).toHaveBeenCalledTimes(1);
-    expect(update).not.toHaveBeenCalled();
-  });
-
-  it("preserves the original author on re-save: updates annotation_data only, never resolving a new author (#808)", async () => {
-    const { store, update, updateEq, insert } = makeStore({
-      existing: { id: "ann-9" },
+  it("re-save updates annotation_data in place by photo_id, never resolving or rewriting the author (#808/#848)", async () => {
+    const { store, update, updateEq, upsert } = makeStore({
+      updatedRows: [{ id: "ann-9" }],
     });
     const resolveAuthorSpy = vi.fn().mockResolvedValue("Someone Else");
 
     await persistPhotoMarkup(store, { ...base, resolveAuthor: resolveAuthorSpy });
 
+    // The existing canonical row is updated in place — matched by photo_id, not
+    // a read-then-write by id — carrying only annotation_data.
     expect(update).toHaveBeenCalledWith({ annotation_data: annotationData });
-    expect(updateEq).toHaveBeenCalledWith("id", "ann-9");
-    expect(insert).not.toHaveBeenCalled();
-    // The existing row keeps whoever first authored it — no created_by in the
-    // update payload, and we don't even resolve a candidate author.
+    expect(updateEq).toHaveBeenCalledWith("photo_id", "p1");
+    // It kept whoever first authored it: no upsert, and we never even resolve a
+    // candidate author (no auth round-trip on the debounced save path).
+    expect(upsert).not.toHaveBeenCalled();
     expect(resolveAuthorSpy).not.toHaveBeenCalled();
+  });
+
+  it("first-time save upserts on photo_id with the resolved author so concurrent first saves converge to one row (#848)", async () => {
+    const { store, upsert } = makeStore({ updatedRows: [] });
+    const resolveAuthorSpy = vi.fn().mockResolvedValue("Eric Daniels");
+
+    await persistPhotoMarkup(store, { ...base, resolveAuthor: resolveAuthorSpy });
+
+    // No row existed (update touched nothing) → insert via upsert. onConflict on
+    // the UNIQUE photo_id turns a racing concurrent first save into a no-op
+    // conflict update instead of a 23505, so both writers converge to one row.
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith(
+      {
+        organization_id: "org-1",
+        photo_id: "p1",
+        annotation_data: annotationData,
+        created_by: "Eric Daniels",
+      },
+      { onConflict: "photo_id" },
+    );
+    // The author is resolved lazily — exactly once, only on the insert branch.
+    expect(resolveAuthorSpy).toHaveBeenCalledTimes(1);
   });
 
   it("throws when the update write returns an error so the caller can retry", async () => {
     const { store } = makeStore({
-      existing: { id: "ann-9" },
+      updatedRows: [{ id: "ann-9" }],
       updateError: { message: "5xx" },
     });
 
@@ -90,10 +99,10 @@ describe("persistPhotoMarkup", () => {
     ).rejects.toBeTruthy();
   });
 
-  it("throws when the insert write returns an error so the caller can retry", async () => {
+  it("throws when the first-time upsert write returns an error so the caller can retry", async () => {
     const { store } = makeStore({
-      existing: null,
-      insertError: { message: "network" },
+      updatedRows: [],
+      upsertError: { message: "network" },
     });
 
     await expect(

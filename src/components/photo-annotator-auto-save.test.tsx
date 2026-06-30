@@ -30,24 +30,24 @@ const annotationData: AnnotationData = {
 const AUTHOR = "Casey Kim";
 
 // A faked Supabase transport covering BOTH split-write paths:
-//   • persistPhotoMarkup → from("photo_annotations").select…/update…/insert
+//   • persistPhotoMarkup → from("photo_annotations").update…/upsert (issue #848)
 //   • persistAnnotatedRender → storage.from("photos").upload/remove +
 //     from("photos").update().eq()
-// `existingAnnotation` toggles the markup update-vs-insert branch.
+// `existingAnnotation` toggles the markup re-save-vs-first-save branch: a
+// non-null value makes the UPDATE return a touched row (re-save), null makes it
+// return none so persist falls through to the first-time upsert.
 function makeStore(
   opts: { existingAnnotation?: { id: string } | null } = {},
 ) {
   const { existingAnnotation = null } = opts;
 
-  const annInsert = vi.fn().mockResolvedValue({ error: null });
-  const annUpdateEq = vi.fn().mockResolvedValue({ error: null });
-  const annUpdate = vi.fn(() => ({ eq: annUpdateEq }));
-  const annMaybeSingle = vi
+  const annUpsert = vi.fn().mockResolvedValue({ error: null });
+  // UPDATE ... .eq("photo_id", …).select("id") → the rows it touched.
+  const annUpdateSelect = vi
     .fn()
-    .mockResolvedValue({ data: existingAnnotation, error: null });
-  const annLimit = vi.fn(() => ({ maybeSingle: annMaybeSingle }));
-  const annSelectEq = vi.fn(() => ({ limit: annLimit }));
-  const annSelect = vi.fn(() => ({ eq: annSelectEq }));
+    .mockResolvedValue({ data: existingAnnotation ? [existingAnnotation] : [], error: null });
+  const annUpdateEq = vi.fn(() => ({ select: annUpdateSelect }));
+  const annUpdate = vi.fn(() => ({ eq: annUpdateEq }));
 
   const photosUpdateEq = vi.fn().mockResolvedValue({ error: null });
   const photosUpdate = vi.fn(() => ({ eq: photosUpdateEq }));
@@ -62,7 +62,7 @@ function makeStore(
 
   const from = vi.fn((table: string) => {
     if (table === "photo_annotations")
-      return { select: annSelect, update: annUpdate, insert: annInsert };
+      return { update: annUpdate, upsert: annUpsert };
     if (table === "photos") return { update: photosUpdate };
     if (table === "user_profiles") return { select: profileSelect };
     throw new Error(`unexpected table ${table}`);
@@ -86,10 +86,9 @@ function makeStore(
 
   return {
     store,
-    annInsert,
+    annUpsert,
     annUpdate,
     annUpdateEq,
-    annSelect,
     upload,
     remove,
     photosUpdate,
@@ -136,7 +135,7 @@ afterEach(() => {
 
 describe("useAnnotatorAutoSave — debounced markup save", () => {
   it("upserts the markup once, silently, after the debounce — and never touches Storage", async () => {
-    const { store, annInsert, upload, photosUpdate } = makeStore();
+    const { store, annUpsert, upload, photosUpdate } = makeStore();
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -145,20 +144,23 @@ describe("useAnnotatorAutoSave — debounced markup save", () => {
     });
 
     // Still inside the debounce window — nothing written yet.
-    expect(annInsert).not.toHaveBeenCalled();
+    expect(annUpsert).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
 
     // Exactly one cheap upsert, carrying the org/photo/markup envelope.
-    expect(annInsert).toHaveBeenCalledTimes(1);
-    expect(annInsert).toHaveBeenCalledWith({
-      organization_id: "org-1",
-      photo_id: "p1",
-      annotation_data: annotationData,
-      created_by: AUTHOR,
-    });
+    expect(annUpsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledWith(
+      {
+        organization_id: "org-1",
+        photo_id: "p1",
+        annotation_data: annotationData,
+        created_by: AUTHOR,
+      },
+      { onConflict: "photo_id" },
+    );
 
     // The EXPENSIVE half stayed untouched — no flatten/upload, no annotated_path.
     expect(upload).not.toHaveBeenCalled();
@@ -170,7 +172,7 @@ describe("useAnnotatorAutoSave — debounced markup save", () => {
   });
 
   it("collapses a flurry of edits inside the window into a single upsert of the latest markup", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -205,23 +207,24 @@ describe("useAnnotatorAutoSave — debounced markup save", () => {
     });
 
     // No write has fired yet — the timer keeps getting reset.
-    expect(annInsert).not.toHaveBeenCalled();
+    expect(annUpsert).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
 
     // Exactly one upsert, carrying ONLY the final state.
-    expect(annInsert).toHaveBeenCalledTimes(1);
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ annotation_data: v3 }),
+      { onConflict: "photo_id" },
     );
   });
 });
 
 describe("useAnnotatorAutoSave — flushAndRebuild (leave/close)", () => {
   it("flushes pending markup, then flattens + uploads + repoints annotated_path once", async () => {
-    const { store, annInsert, upload, photosUpdate, photosUpdateEq } =
+    const { store, annUpsert, upload, photosUpdate, photosUpdateEq } =
       makeStore();
     const capture = vi.fn(async () => new Blob(["png"], { type: "image/png" }));
     const onPersisted = vi.fn();
@@ -241,9 +244,10 @@ describe("useAnnotatorAutoSave — flushAndRebuild (leave/close)", () => {
     });
 
     // The cheap half was flushed immediately (not left waiting on the timer).
-    expect(annInsert).toHaveBeenCalledTimes(1);
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ annotation_data: annotationData }),
+      { onConflict: "photo_id" },
     );
 
     // The expensive half ran exactly once: capture → upload → repoint the row.
@@ -260,7 +264,7 @@ describe("useAnnotatorAutoSave — flushAndRebuild (leave/close)", () => {
   });
 
   it("never flattens or captures the canvas on the debounced markup path", async () => {
-    const { store, annInsert, upload } = makeStore();
+    const { store, annUpsert, upload } = makeStore();
     const capture = vi.fn(async () => new Blob(["png"], { type: "image/png" }));
     const config = makeConfig(store, { captureFlattenedBlob: capture });
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
@@ -273,7 +277,7 @@ describe("useAnnotatorAutoSave — flushAndRebuild (leave/close)", () => {
     });
 
     // The markup landed…
-    expect(annInsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledTimes(1);
     // …but the canvas was never touched: no flatten, no upload. The expensive
     // rebuild belongs to flushAndRebuild alone.
     expect(capture).not.toHaveBeenCalled();
@@ -391,9 +395,9 @@ describe("useAnnotatorAutoSave — rebuild leaves the photo dirty on failure", (
 
 describe("useAnnotatorAutoSave — retry then warn", () => {
   it("retries a failing markup upsert with backoff, warning once only after retries are exhausted", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     // Every upsert fails — persistPhotoMarkup throws on the returned error.
-    annInsert.mockResolvedValue({ error: { message: "network" } });
+    annUpsert.mockResolvedValue({ error: { message: "network" } });
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -405,34 +409,34 @@ describe("useAnnotatorAutoSave — retry then warn", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledTimes(1);
     expect(toast.error).not.toHaveBeenCalled();
 
     // Backoff retries: 1s, then 2s, then 4s.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(2);
+    expect(annUpsert).toHaveBeenCalledTimes(2);
     expect(toast.error).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(3);
+    expect(annUpsert).toHaveBeenCalledTimes(3);
     expect(toast.error).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
     // Fourth attempt fails → retries exhausted → exactly one warn, fired only now.
-    expect(annInsert).toHaveBeenCalledTimes(4);
+    expect(annUpsert).toHaveBeenCalledTimes(4);
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
   it("recovers silently when a retry succeeds — the write lands and no warning shows", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     // Fail the first attempt, then succeed on the retry.
-    annInsert
+    annUpsert
       .mockResolvedValueOnce({ error: { message: "network" } })
       .mockResolvedValue({ error: null });
     const config = makeConfig(store);
@@ -446,19 +450,19 @@ describe("useAnnotatorAutoSave — retry then warn", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledTimes(1);
 
     // Retry 1 (1s backoff) succeeds — the markup lands.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(2);
+    expect(annUpsert).toHaveBeenCalledTimes(2);
 
     // No further retries, and silence on success.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
-    expect(annInsert).toHaveBeenCalledTimes(2);
+    expect(annUpsert).toHaveBeenCalledTimes(2);
     expect(toast.error).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
@@ -466,7 +470,7 @@ describe("useAnnotatorAutoSave — retry then warn", () => {
 
 describe("useAnnotatorAutoSave — flush on teardown", () => {
   it("flushes a pending markup edit when the annotator unmounts mid-debounce", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { result, unmount } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -474,7 +478,7 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       result.current.scheduleMarkupSave(annotationData);
     });
     // Still inside the debounce window — the timer hasn't fired.
-    expect(annInsert).not.toHaveBeenCalled();
+    expect(annUpsert).not.toHaveBeenCalled();
 
     // The annotator closes before the debounce elapses.
     await act(async () => {
@@ -482,14 +486,15 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       await vi.advanceTimersByTimeAsync(0); // let the best-effort write settle
     });
 
-    expect(annInsert).toHaveBeenCalledTimes(1);
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledTimes(1);
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ annotation_data: annotationData }),
+      { onConflict: "photo_id" },
     );
   });
 
   it("writes nothing when the annotator unmounts with no pending edit", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { unmount } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -498,11 +503,11 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(annInsert).not.toHaveBeenCalled();
+    expect(annUpsert).not.toHaveBeenCalled();
   });
 
   it("flushes a pending markup edit on pagehide (tab close / refresh)", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
     act(() => {
@@ -515,13 +520,14 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ annotation_data: annotationData }),
+      { onConflict: "photo_id" },
     );
   });
 
   it("flushes on visibilitychange when the page becomes hidden (iOS background)", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -535,13 +541,14 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ annotation_data: annotationData }),
+      { onConflict: "photo_id" },
     );
   });
 
   it("does not flush on visibilitychange when the page stays visible", async () => {
-    const { store, annInsert } = makeStore();
+    const { store, annUpsert } = makeStore();
     const config = makeConfig(store);
     const { result } = renderHook(() => useAnnotatorAutoSave(config));
 
@@ -556,13 +563,13 @@ describe("useAnnotatorAutoSave — flush on teardown", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(annInsert).not.toHaveBeenCalled();
+    expect(annUpsert).not.toHaveBeenCalled();
   });
 });
 
 describe("useAnnotatorAutoSave — rebuild-on-leave targets the leaving photo", () => {
   it("attributes a still-pending edit to the OUTGOING photo even after the host advanced to the next one", async () => {
-    const { store, annInsert, photosUpdateEq } = makeStore();
+    const { store, annUpsert, photosUpdateEq } = makeStore();
     const leaving = { id: "p1", storage_path: "org/p1.jpg", annotated_path: null };
     const next = { id: "p2", storage_path: "org/p2.jpg", annotated_path: null };
 
@@ -586,8 +593,9 @@ describe("useAnnotatorAutoSave — rebuild-on-leave targets the leaving photo", 
     });
 
     // Both halves of the split write land on p1 — never the now-current p2.
-    expect(annInsert).toHaveBeenCalledWith(
+    expect(annUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ photo_id: "p1" }),
+      { onConflict: "photo_id" },
     );
     expect(photosUpdateEq).toHaveBeenCalledWith("id", "p1");
   });

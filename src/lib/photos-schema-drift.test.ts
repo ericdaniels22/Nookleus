@@ -118,3 +118,38 @@ describe("schema-photos.sql author drift guard (#832)", () => {
     },
   );
 });
+
+/**
+ * Issue #848 — one markup row per Photo.
+ *
+ * `photo_annotations` must carry a UNIQUE index on `photo_id`, so a Photo can
+ * never accumulate two annotation rows for save and load to disagree about. The
+ * persist path (persistPhotoMarkup) relies on this constraint to make its
+ * first-time `upsert(..., { onConflict: 'photo_id' })` converge concurrent
+ * saves onto one row. This guards the snapshot (and, by mirror, prod) against
+ * re-drifting back to a plain non-unique index.
+ */
+describe("schema-photos.sql one-markup-row-per-photo drift guard (#848)", () => {
+  const sql = readFileSync(SCHEMA_PATH, "utf8");
+
+  // Strip line comments so prose mentioning "index" can't satisfy the guard.
+  const ddl = sql
+    .split("\n")
+    .map((l) => l.split("--")[0])
+    .join("\n");
+
+  it("declares a UNIQUE index on photo_annotations(photo_id)", () => {
+    expect(ddl).toMatch(
+      /CREATE\s+UNIQUE\s+INDEX\s+\w+\s+ON\s+photo_annotations\s*\(\s*photo_id\s*\)/i,
+    );
+  });
+
+  it("does not also carry a redundant non-unique index on photo_annotations(photo_id)", () => {
+    // A plain CREATE INDEX (no UNIQUE) over the same single column would be dead
+    // weight once the unique index exists — and a signal the change was added
+    // rather than replacing the old idx_photo_annotations_photo_id.
+    expect(ddl).not.toMatch(
+      /CREATE\s+INDEX\s+\w+\s+ON\s+photo_annotations\s*\(\s*photo_id\s*\)/i,
+    );
+  });
+});
