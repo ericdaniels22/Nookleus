@@ -46,6 +46,11 @@ import {
   supportsStyleEditor,
   type StyleTarget,
 } from "@/lib/jobs/annotation-style";
+import {
+  snapAnnotation,
+  type GuideLine,
+  type Rect,
+} from "@/lib/jobs/annotation-snapping";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -101,6 +106,17 @@ const SHADOW_CONFIG = {
   offsetX: 2,
   offsetY: 2,
 };
+
+// ── Snapping & alignment guides (#818) ──
+// How close, in canvas pixels, a dragged Annotation's edge or center must come
+// to another Annotation's edge or center before it snaps into alignment.
+const SNAP_THRESHOLD = 8;
+// Colour of the transient alignment guide lines drawn during a snap. Cyan reads
+// clearly over light and dark Photo content and over every Annotation colour in
+// the palette. Guides are editor-only chrome: drawn directly on the canvas in
+// an after:render overlay, so they are never serialized into saved markup and
+// never flattened into the exported Annotated Photo PNG.
+const GUIDE_COLOR = "#22D3EE";
 
 // ─── FabricArrow Custom Class (initialized once on first fabric import) ──────
 
@@ -368,6 +384,14 @@ export default function PhotoAnnotator({
     };
   }, [supabase]);
 
+  // Empty the transient alignment guides and repaint so they vanish (#818).
+  // Safe to call when there are none — drawGuides simply draws nothing.
+  const clearGuides = useCallback(() => {
+    if (guideLinesRef.current.length === 0) return;
+    guideLinesRef.current = [];
+    fabricRef.current?.requestRenderAll();
+  }, []);
+
   // Flatten the live canvas to a PNG blob for the Annotated Photo render. The
   // synchronous toDataURL runs first so the OUTGOING pixels are snapshotted
   // before any photo switch swaps the canvas; the fetch→blob tail is
@@ -376,6 +400,10 @@ export default function PhotoAnnotator({
   const captureFlattenedBlob = useCallback(async (): Promise<Blob | null> => {
     const canvas = fabricRef.current;
     if (!canvas) return null;
+    // Belt-and-suspenders: guides are after:render chrome and never enter
+    // toDataURL anyway, but drop them before the snapshot so the live canvas is
+    // clean too.
+    guideLinesRef.current = [];
     canvas.discardActiveObject();
     canvas.renderAll();
     const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
@@ -403,6 +431,14 @@ export default function PhotoAnnotator({
   const cropRectRef = useRef<any>(null);
   const cropRenderCallbackRef = useRef<any>(null);
   const hiddenObjectsRef = useRef<any[]>([]);
+
+  // ── Snapping alignment guides (#818) ──
+  // The transient guide lines to draw on the next render while a drag is
+  // snapping. Written in object:moving and read by the after:render overlay; a
+  // ref (not state) so updating it never re-renders React mid-drag. Always
+  // emptied on drop / deselect so guides never persist — and, being canvas-only
+  // chrome, they are absent from the flattened export regardless.
+  const guideLinesRef = useRef<GuideLine[]>([]);
 
   // ── In-context toolbar (any selected Annotation) ──
   const [objectToolbar, setObjectToolbar] = useState<{
@@ -728,11 +764,54 @@ export default function PhotoAnnotator({
 
     function onDeselected() {
       setObjectToolbar(null);
+      // Drop any guides left from the last drag so none linger after deselect.
+      clearGuides();
     }
 
     function onMoving(e: any) {
       const target = e.target;
-      // Sync FabricArrow endpoints when the body is dragged
+      // Snap the dragged Annotation into alignment with the others and record
+      // which transient guide lines to draw this frame (#818). Only real
+      // Annotations snap — never the crop rect or a multi-object selection
+      // (annotationKind is falsy for both), and never the background image.
+      const kind = annotationKind(target?.type);
+      if (kind && target !== cropRectRef.current) {
+        const movingRect = target.getBoundingRect();
+        const others = (
+          canvas.getObjects() as Array<{
+            type?: string;
+            getBoundingRect: () => Rect;
+          }>
+        )
+          .filter(
+            (o) =>
+              o !== target &&
+              o !== cropRectRef.current &&
+              annotationKind(o.type)
+          )
+          .map((o) => o.getBoundingRect());
+        const { snappedPosition, guideLines } = snapAnnotation(
+          movingRect,
+          others,
+          { x: SNAP_THRESHOLD, y: SNAP_THRESHOLD }
+        );
+        // The engine returns the snapped bounding-box position; apply the shift
+        // as a plain translation so it works for center-origin Arrows and
+        // top-left shapes alike.
+        const dx = snappedPosition.left - movingRect.left;
+        const dy = snappedPosition.top - movingRect.top;
+        if (dx !== 0 || dy !== 0) {
+          target.set({
+            left: (target.left ?? 0) + dx,
+            top: (target.top ?? 0) + dy,
+          });
+          target.setCoords();
+        }
+        guideLinesRef.current = guideLines;
+      }
+      // Sync the Arrow's endpoints to the (possibly snapped) body position so
+      // the whole Arrow — tip and tail — moves together and stays consistent.
+      // Route through annotationKind: the live Fabric type is lowercase (#831).
       if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
@@ -745,10 +824,41 @@ export default function PhotoAnnotator({
       if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
+      // The drag is over — clear the guides so they vanish on drop.
+      clearGuides();
       showToolbar(target);
       // Record the move/resize/endpoint-drag as one undoable step — after any
       // arrow endpoint sync above so the snapshot captures its final geometry.
       recordStep();
+    }
+
+    // After:render overlay for the transient alignment guides. Drawn directly
+    // on the canvas context (mirroring the crop / polyline overlays) so it is
+    // editor-only chrome and never enters the flattened export. With no
+    // zoom/pan yet, canvas coords equal the scene coords the engine works in.
+    function drawGuides() {
+      const guides = guideLinesRef.current;
+      if (!guides || guides.length === 0) return;
+      const ctx = canvas.getContext();
+      if (!ctx) return;
+      const cw = canvas.width!;
+      const ch = canvas.height!;
+      ctx.save();
+      ctx.strokeStyle = GUIDE_COLOR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      for (const g of guides) {
+        if (g.orientation === "vertical") {
+          ctx.moveTo(g.position, 0);
+          ctx.lineTo(g.position, ch);
+        } else {
+          ctx.moveTo(0, g.position);
+          ctx.lineTo(cw, g.position);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
     }
 
     canvas.on("selection:created", onSelected);
@@ -756,6 +866,7 @@ export default function PhotoAnnotator({
     canvas.on("selection:cleared", onDeselected);
     canvas.on("object:moving", onMoving);
     canvas.on("object:modified", onModified);
+    canvas.on("after:render", drawGuides);
 
     return () => {
       canvas.off("selection:created", onSelected);
@@ -763,6 +874,7 @@ export default function PhotoAnnotator({
       canvas.off("selection:cleared", onDeselected);
       canvas.off("object:moving", onMoving);
       canvas.off("object:modified", onModified);
+      canvas.off("after:render", drawGuides);
     };
   }, [canvasReady]);
 
