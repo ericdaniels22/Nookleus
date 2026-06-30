@@ -651,6 +651,16 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         >
           Time
         </button>
+        {/* The Sketch surface lives on its own builder route (#860), not an
+            in-page panel — a Sketch is 1:1 with the Job, so the tab links
+            straight into the measured-Room builder rather than listing
+            anything. AppShell collapses the nav to a rail there. */}
+        <Link
+          href={`/jobs/${jobId}/sketch`}
+          className="px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 border-transparent text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Sketch
+        </Link>
       </div>
 
       {activeTab === "financials" && (() => {
