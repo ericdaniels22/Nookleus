@@ -25,6 +25,17 @@ import {
   type AnchorBox,
   type ToolbarControl,
 } from "@/lib/jobs/annotation-toolbar";
+import {
+  ANNOTATION_COLORS,
+  ANNOTATION_THICKNESSES,
+  applyColor,
+  applyThickness,
+  arrowHeadLength,
+  currentColor,
+  currentThickness,
+  supportsStyleEditor,
+  type StyleTarget,
+} from "@/lib/jobs/annotation-style";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -59,21 +70,6 @@ type Tool =
   | "arrow"
   | "polyline"
   | "crop";
-
-const COLORS = [
-  { value: "#F59E0B", label: "Yellow" },
-  { value: "#C41E2A", label: "Red" },
-  { value: "#2B5EA7", label: "Blue" },
-  { value: "#0F6E56", label: "Green" },
-  { value: "#FFFFFF", label: "White" },
-  { value: "#1A1A1A", label: "Black" },
-];
-
-const THICKNESSES = [
-  { value: 2, label: "Thin" },
-  { value: 4, label: "Medium" },
-  { value: 8, label: "Thick" },
-];
 
 const TOOLS: {
   value: Tool;
@@ -181,7 +177,7 @@ function initFabricClasses(fabric: any) {
       const lx2 = this.x2 - cx;
       const ly2 = this.y2 - cy;
       const thick = this.arrowThickness;
-      const headLen = thick * 4;
+      const headLen = arrowHeadLength(thick);
       const ang = Math.atan2(ly2 - ly1, lx2 - lx1);
 
       // Shaft
@@ -1644,6 +1640,47 @@ export default function PhotoAnnotator({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, canvasReady, currentIndex, photos.length]);
 
+  // ─── Color / thickness editor for the selected Annotation (issue #815) ──────
+
+  // With a styleable Annotation selected, the bottom palette edits THAT object
+  // and pre-highlights its current color/thickness; with nothing styleable
+  // selected it sets the defaults for the next new markup. Text boxes and the
+  // background are excluded by supportsStyleEditor.
+  const styleTarget =
+    objectToolbar &&
+    supportsStyleEditor(annotationKind(objectToolbar.target?.type))
+      ? objectToolbar.target
+      : null;
+  const paletteColor = styleTarget ? currentColor(styleTarget) : activeColor;
+  const paletteThickness = styleTarget
+    ? currentThickness(styleTarget)
+    : activeThickness;
+
+  // Restyle the selected Annotation in place, then persist via the cheap markup
+  // path: refresh an Arrow's bounds for its rescaled head, repaint, and fire
+  // object:modified so the existing markDirty → debounced save runs (the
+  // expensive flattened rebuild still waits for leave/close). Returns false when
+  // nothing styleable is selected, so the caller falls back to setting defaults.
+  function restyleSelected(mutate: (target: StyleTarget) => void): boolean {
+    if (!styleTarget) return false;
+    mutate(styleTarget);
+    if (styleTarget.type === "FabricArrow") styleTarget._updateBounds();
+    styleTarget.set("dirty", true);
+    const canvas = fabricRef.current;
+    canvas?.requestRenderAll();
+    canvas?.fire("object:modified", { target: styleTarget });
+    return true;
+  }
+
+  function handlePickColor(value: string) {
+    if (!restyleSelected((t) => applyColor(t, value))) setActiveColor(value);
+  }
+
+  function handlePickThickness(value: number) {
+    if (!restyleSelected((t) => applyThickness(t, value)))
+      setActiveThickness(value);
+  }
+
   // ─── Guard ─────────────────────────────────────────────────────────────────
 
   if (!open || photos.length === 0) return null;
@@ -1690,14 +1727,14 @@ export default function PhotoAnnotator({
         <div className="w-8 h-px bg-[#333] my-1" />
 
         {/* Colors */}
-        {COLORS.map((color) => (
+        {ANNOTATION_COLORS.map((color) => (
           <button
             key={color.value}
-            onClick={() => setActiveColor(color.value)}
+            onClick={() => handlePickColor(color.value)}
             title={color.label}
             className={cn(
               "w-6 h-6 rounded-full border-2 transition-all",
-              activeColor === color.value
+              paletteColor === color.value
                 ? "border-white scale-125"
                 : "border-[#555] hover:border-[#888]"
             )}
@@ -1708,14 +1745,14 @@ export default function PhotoAnnotator({
         <div className="w-8 h-px bg-[#333] my-1" />
 
         {/* Line Thickness */}
-        {THICKNESSES.map((t) => (
+        {ANNOTATION_THICKNESSES.map((t) => (
           <button
             key={t.value}
-            onClick={() => setActiveThickness(t.value)}
+            onClick={() => handlePickThickness(t.value)}
             title={t.label}
             className={cn(
               "w-10 h-8 rounded-lg flex items-center justify-center transition-all",
-              activeThickness === t.value
+              paletteThickness === t.value
                 ? "border border-white scale-110"
                 : "border border-transparent hover:border-[#555]"
             )}
@@ -1725,7 +1762,7 @@ export default function PhotoAnnotator({
               style={{
                 width: 20,
                 height: t.value,
-                backgroundColor: activeColor,
+                backgroundColor: paletteColor,
               }}
             />
           </button>
