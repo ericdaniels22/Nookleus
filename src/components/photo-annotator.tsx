@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
-import { Photo } from "@/lib/types";
+import { Photo, type QuickPickLabel } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
 import {
   createHistory,
@@ -46,7 +46,12 @@ import {
   type AnchorBox,
   type ToolbarControl,
 } from "@/lib/jobs/annotation-toolbar";
-import { labelAnchorPoint, readableTextColor } from "@/lib/jobs/label-pill";
+import {
+  applyLabel,
+  labelAnchorPoint,
+  readableTextColor,
+} from "@/lib/jobs/label-pill";
+import { loadQuickPickLabels } from "@/lib/jobs/quick-pick-labels";
 import {
   ANNOTATION_COLORS,
   ANNOTATION_THICKNESSES,
@@ -658,6 +663,23 @@ export default function PhotoAnnotator({
     x: number;
     y: number;
   } | null>(null);
+
+  // Quick-pick labels (#821) — the org's saved phrases (its own rows plus the
+  // shared NULL-org defaults, in configured order) offered as tappable options
+  // in the Label editor. Loaded once when the annotator mounts; the loader
+  // degrades to an empty list on any failure, so while it is loading, when the
+  // org has none, or when the GET fails, the editor simply shows no chips and
+  // free-text Label entry is untouched.
+  const [quickPickLabels, setQuickPickLabels] = useState<QuickPickLabel[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadQuickPickLabels().then((labels) => {
+      if (!cancelled) setQuickPickLabels(labels);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Photo navigation ──
   // Tracks whether the current photo has edits since its last flattened
@@ -1903,31 +1925,30 @@ export default function PhotoAnnotator({
     setObjectToolbar(null);
   }
 
-  // Confirm a Label edit. An empty string removes the Label; otherwise the
-  // trimmed text is stored, and on first add the pill inherits a colour (via
-  // `labelColorFor`) and the default font size so it renders legibly. The shared
-  // `after:render` pill drawer repaints it; persistence happens at the
-  // `recordStep` commit point below (#813), so no separate save fire is needed.
-  function handleLabelSubmit() {
-    if (!labelInput) return;
+  // Apply `text` as the target's single Label and commit it. The one path both
+  // the free-text editor and a Quick-pick tap (#821) route through, so the two
+  // produce an identical result and persistence: `applyLabel` (the Label module
+  // from #812) sets/replaces the one Label — a blank string clears it —
+  // inheriting a legible colour (via `labelColorFor`) and the default font
+  // size; then `recordStep` is this edit's commit point (#813): it snapshots
+  // the canvas — capturing the just-set labelText via ANNOTATION_CUSTOM_PROPS —
+  // into the undo stack AND schedules the debounced markup save, so the new
+  // label reaches saved markup without a separate object:modified fire and
+  // without eagerly rebuilding the flattened Annotated Photo (ADR 0024's split
+  // write — that still happens only on leave/close).
+  function commitLabel(target: any, text: string) {
     const canvas = fabricRef.current;
-    const { target } = labelInput;
-    const text = labelInput.text.trim();
-    if (text) {
-      target.labelText = text;
-      target.labelColor = labelColorFor(target);
-      target.labelFontSize = target.labelFontSize ?? 20;
-    } else {
-      target.labelText = null;
-    }
+    applyLabel(target, text, labelColorFor(target));
     target.set("dirty", true);
     canvas?.requestRenderAll();
     setLabelInput(null);
-    // recordStep is this edit's commit point (#813): it snapshots the canvas —
-    // capturing the just-set labelText via ANNOTATION_CUSTOM_PROPS — into the
-    // undo stack AND schedules the debounced markup save, so the new label
-    // reaches saved markup without a separate object:modified fire.
     recordStep();
+  }
+
+  // Confirm a free-text Label edit from the editor's input.
+  function handleLabelSubmit() {
+    if (!labelInput) return;
+    commitLabel(labelInput.target, labelInput.text);
   }
 
   // Duplicate control. The Arrow keeps its bespoke copy (its endpoints, not just
@@ -2887,42 +2908,60 @@ export default function PhotoAnnotator({
           </div>
         )}
 
-        {/* Label input (every Annotation kind) — anchored over the object like
-            the toolbar it replaces. */}
+        {/* Label editor (every Annotation kind) — anchored over the object like
+            the toolbar it replaces. Quick-pick chips (#821), when the org has
+            any, sit above the free-text row; tapping one applies that phrase as
+            the object's single Label with no typing. An empty list (none saved,
+            GET failed, or still loading) just omits the chips. */}
         {labelInput && (
           <div
-            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
+            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex flex-col gap-2"
             style={{
               left: labelInput.x,
               top: Math.max(8, labelInput.y - 52),
               transform: "translateX(-50%)",
             }}
           >
-            <input
-              autoFocus
-              value={labelInput.text}
-              onChange={(e) =>
-                setLabelInput({ ...labelInput, text: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleLabelSubmit();
-                if (e.key === "Escape") setLabelInput(null);
-              }}
-              className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
-              placeholder="Label text..."
-            />
-            <button
-              onClick={handleLabelSubmit}
-              className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
-            >
-              <Check size={14} />
-            </button>
-            <button
-              onClick={() => setLabelInput(null)}
-              className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
-            >
-              <X size={14} />
-            </button>
+            {quickPickLabels.length > 0 && (
+              <div className="flex flex-wrap gap-1 max-w-[224px]">
+                {quickPickLabels.map((ql) => (
+                  <button
+                    key={ql.id}
+                    onClick={() => commitLabel(labelInput.target, ql.label)}
+                    className="px-2 py-1 rounded-full bg-[#444] text-white text-xs hover:bg-[#2B5EA7] transition-colors"
+                  >
+                    {ql.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={labelInput.text}
+                onChange={(e) =>
+                  setLabelInput({ ...labelInput, text: e.target.value })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLabelSubmit();
+                  if (e.key === "Escape") setLabelInput(null);
+                }}
+                className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
+                placeholder="Label text..."
+              />
+              <button
+                onClick={handleLabelSubmit}
+                className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
+              >
+                <Check size={14} />
+              </button>
+              <button
+                onClick={() => setLabelInput(null)}
+                className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 
