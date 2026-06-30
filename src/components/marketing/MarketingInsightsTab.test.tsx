@@ -8,7 +8,10 @@ vi.mock("react-chartjs-2", () => ({
   Line: () => null,
 }));
 
-import MarketingInsightsTab, { InsightsDashboard } from "./MarketingInsightsTab";
+import MarketingInsightsTab, {
+  InsightsDashboard,
+  CostPerLeadPanel,
+} from "./MarketingInsightsTab";
 
 function series(over: Partial<InsightDailySeries> = {}): InsightDailySeries {
   return {
@@ -96,6 +99,76 @@ describe("<InsightsDashboard>", () => {
   });
 });
 
+// #610 — cost-per-lead by source for a selected month. The acceptance criteria
+// that matter here: paid and free sources side by side, and months with zero
+// leads or missing sources render sensibly (no divide-by-zero, no fake zeros).
+describe("<CostPerLeadPanel>", () => {
+  it("shows a paid source's spend, leads and cost per lead for the month", () => {
+    render(
+      <CostPerLeadPanel
+        month="2026-05"
+        series={[
+          series({ source: "google_ads", metric: "spend", points: [{ date: "2026-05-10", value: 400 }] }),
+          series({ source: "google_ads", metric: "conversions", points: [{ date: "2026-05-10", value: 8 }] }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Google Ads")).toBeTruthy();
+    // 400 / 8 = $50.00.
+    expect(screen.getByText("$50.00")).toBeTruthy();
+  });
+
+  it("shows an em dash for a paid source that spent but got zero leads", () => {
+    render(
+      <CostPerLeadPanel
+        month="2026-05"
+        series={[
+          series({ source: "google_ads", metric: "spend", points: [{ date: "2026-05-10", value: 250 }] }),
+        ]}
+      />,
+    );
+    const table = screen.getByRole("table");
+    const cells = within(table).getAllByRole("cell").map((c) => c.textContent);
+    // The spend is shown so the wasted money is visible; the cost-per-lead is a
+    // dash — never a divide-by-zero, never a fake $0.00.
+    expect(cells).toContain("$250.00");
+    expect(cells).toContain("—");
+    expect(cells).not.toContain("$0.00");
+  });
+
+  it("renders Business Profile calls as free leads at $0.00", () => {
+    render(
+      <CostPerLeadPanel
+        month="2026-05"
+        series={[
+          series({ source: "business_profile", metric: "calls", points: [{ date: "2026-05-10", value: 20 }] }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Business Profile")).toBeTruthy();
+    const table = screen.getByRole("table");
+    const cells = within(table).getAllByRole("cell").map((c) => c.textContent);
+    // Free leads: the spend is a true $0.00 and so is the cost per lead — the
+    // call still counts as a lead, it just cost nothing. Never a dash here.
+    expect(cells).toEqual(["$0.00", "20", "$0.00"]);
+  });
+
+  it("shows an empty state when the month has no paid or lead activity", () => {
+    render(
+      <CostPerLeadPanel
+        month="2026-05"
+        series={[
+          // Search Console traffic is history, not a lead — so this month has no
+          // cost-per-lead rows to show.
+          series({ source: "search_console", metric: "clicks", points: [{ date: "2026-05-10", value: 500 }] }),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/no .*lead/i)).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
 describe("<MarketingInsightsTab>", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -114,5 +187,45 @@ describe("<MarketingInsightsTab>", () => {
 
     expect(await screen.findByText("12")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith("/api/marketing/insights");
+  });
+
+  it("defaults the cost-per-lead month picker to the freshest month with data", async () => {
+    const fetchMock = vi.fn(async () => ({
+      json: async () => ({
+        series: [
+          series({
+            source: "google_ads",
+            metric: "spend",
+            points: [
+              { date: "2026-05-10", value: 400 },
+              { date: "2026-06-10", value: 300 },
+            ],
+          }),
+          series({
+            source: "google_ads",
+            metric: "conversions",
+            points: [
+              { date: "2026-05-10", value: 8 },
+              { date: "2026-06-10", value: 5 },
+            ],
+          }),
+        ],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketingInsightsTab />);
+
+    // The picker defaults to the freshest month (June): 300 / 5 = $60.00, not
+    // May's 400 / 8 = $50.00.
+    expect(await screen.findByText("$60.00")).toBeTruthy();
+    expect(screen.queryByText("$50.00")).toBeNull();
+
+    // It offers every month that has data, latest first.
+    const picker = screen.getByRole("combobox", { name: /month/i });
+    const options = within(picker)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toEqual(["Jun 2026", "May 2026"]);
   });
 });

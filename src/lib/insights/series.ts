@@ -55,3 +55,35 @@ export function toDailySeries(rows: InsightMetricRow[]): InsightDailySeries[] {
       a.source.localeCompare(b.source) || a.metric.localeCompare(b.metric),
   );
 }
+
+// The inverse of toDailySeries: expand grouped day-series back into flat rows.
+// The Insights screen fetches series (one round trip, all months), but the
+// cost-per-lead computation (#610) works over flat rows for a chosen month — so
+// the panel flattens the series it already has rather than re-fetching.
+export function flattenSeriesToRows(
+  series: InsightDailySeries[],
+): InsightMetricRow[] {
+  const rows: InsightMetricRow[] = [];
+  for (const s of series) {
+    for (const point of s.points) {
+      rows.push({
+        source: s.source,
+        metric_date: point.date,
+        metric: s.metric,
+        value: point.value,
+      });
+    }
+  }
+  return rows;
+}
+
+// The distinct months ("YYYY-MM") any series has a point in, most recent first.
+// Drives the cost-per-lead month picker — the latest is the sensible default,
+// and only months with data are offered (no empty future/past months).
+export function monthsInSeries(series: InsightDailySeries[]): string[] {
+  const months = new Set<string>();
+  for (const s of series) {
+    for (const point of s.points) months.add(point.date.slice(0, 7));
+  }
+  return [...months].sort((a, b) => b.localeCompare(a));
+}

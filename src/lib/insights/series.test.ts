@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { toDailySeries } from "./series";
-import type { InsightMetricRow } from "./series";
+import { toDailySeries, flattenSeriesToRows, monthsInSeries } from "./series";
+import type { InsightMetricRow, InsightDailySeries } from "./series";
 
 function row(overrides: Partial<InsightMetricRow> = {}): InsightMetricRow {
   return {
@@ -66,5 +66,74 @@ describe("toDailySeries", () => {
 
   it("returns no series for an empty row set", () => {
     expect(toDailySeries([])).toEqual([]);
+  });
+});
+
+function daily(over: Partial<InsightDailySeries> = {}): InsightDailySeries {
+  return {
+    source: "google_ads",
+    metric: "spend",
+    points: [{ date: "2026-05-15", value: 100 }],
+    ...over,
+  };
+}
+
+describe("flattenSeriesToRows", () => {
+  it("expands each series point back into a source-tagged metric row", () => {
+    const rows = flattenSeriesToRows([
+      daily({
+        source: "google_ads",
+        metric: "spend",
+        points: [
+          { date: "2026-05-10", value: 100 },
+          { date: "2026-05-11", value: 140 },
+        ],
+      }),
+    ]);
+
+    expect(rows).toEqual([
+      { source: "google_ads", metric_date: "2026-05-10", metric: "spend", value: 100 },
+      { source: "google_ads", metric_date: "2026-05-11", metric: "spend", value: 140 },
+    ]);
+  });
+
+  it("round-trips toDailySeries: flatten ∘ group restores the rows", () => {
+    const rows: InsightMetricRow[] = [
+      { source: "google_ads", metric_date: "2026-05-10", metric: "spend", value: 100 },
+      { source: "google_ads", metric_date: "2026-05-10", metric: "conversions", value: 2 },
+      { source: "local_services_ads", metric_date: "2026-05-11", metric: "leads", value: 5 },
+    ];
+    const restored = flattenSeriesToRows(toDailySeries(rows));
+    expect(restored).toEqual(expect.arrayContaining(rows));
+    expect(restored).toHaveLength(rows.length);
+  });
+
+  it("returns no rows for an empty series set", () => {
+    expect(flattenSeriesToRows([])).toEqual([]);
+  });
+});
+
+describe("monthsInSeries", () => {
+  it("lists the distinct months present, most recent first", () => {
+    const months = monthsInSeries([
+      daily({ points: [{ date: "2026-04-30", value: 1 }, { date: "2026-05-02", value: 1 }] }),
+      daily({ source: "local_services_ads", metric: "leads", points: [{ date: "2026-06-10", value: 1 }] }),
+    ]);
+
+    // Latest first so the panel can default to the freshest month.
+    expect(months).toEqual(["2026-06", "2026-05", "2026-04"]);
+  });
+
+  it("deduplicates months that several days/sources share", () => {
+    const months = monthsInSeries([
+      daily({ points: [{ date: "2026-05-01", value: 1 }, { date: "2026-05-31", value: 1 }] }),
+      daily({ source: "business_profile", metric: "calls", points: [{ date: "2026-05-15", value: 1 }] }),
+    ]);
+
+    expect(months).toEqual(["2026-05"]);
+  });
+
+  it("returns no months for an empty series set", () => {
+    expect(monthsInSeries([])).toEqual([]);
   });
 });
