@@ -129,8 +129,10 @@ function queryBuilder(
   return builder;
 }
 
-// Storage stub shared by both client fakes: `remove` echoes the paths back
-// and `createSignedUrl` returns a deterministic test URL.
+// Storage stub shared by both client fakes: `remove` echoes the paths back,
+// `createSignedUrl` returns a deterministic download URL, and
+// `createSignedUploadUrl` returns a deterministic upload URL + token (for the
+// direct-to-storage upload flow, build30/job-files).
 function fakeStorage() {
   return {
     from() {
@@ -141,6 +143,16 @@ function fakeStorage() {
         async createSignedUrl(path: string) {
           return {
             data: { signedUrl: `https://signed.test/${path}` },
+            error: null,
+          };
+        },
+        async createSignedUploadUrl(path: string) {
+          return {
+            data: {
+              signedUrl: `https://signed.test/upload/${path}`,
+              token: `token-for-${path}`,
+              path,
+            },
             error: null,
           };
         },
