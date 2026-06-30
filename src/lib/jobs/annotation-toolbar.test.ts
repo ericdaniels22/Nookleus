@@ -33,6 +33,11 @@ describe("annotationKind — classifying a selected Fabric object", () => {
     expect(annotationKind("Path")).toBe("freehand");
   });
 
+  it("classifies a FabricNumberedMarker as a marker in either form", () => {
+    expect(annotationKind("fabricnumberedmarker")).toBe("marker"); // live
+    expect(annotationKind("FabricNumberedMarker")).toBe("marker"); // serialized
+  });
+
   it("returns null for the background image, unknown objects, and an absent type", () => {
     expect(annotationKind("image")).toBeNull(); // live background-image type
     expect(annotationKind("FabricImage")).toBeNull();
@@ -56,6 +61,10 @@ describe("toolbarControls — which controls a kind's toolbar shows", () => {
   it("gives a text box and a freehand drawing a Delete-only toolbar", () => {
     expect(toolbarControls("text")).toEqual(["delete"]);
     expect(toolbarControls("freehand")).toEqual(["delete"]);
+  });
+
+  it("gives a Numbered marker a Label then Delete toolbar, but no Copy", () => {
+    expect(toolbarControls("marker")).toEqual(["label", "delete"]);
   });
 });
 

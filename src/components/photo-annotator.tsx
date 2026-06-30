@@ -51,6 +51,7 @@ import {
   type GuideLine,
   type Rect,
 } from "@/lib/jobs/annotation-snapping";
+import { nextMarkerNumber } from "@/lib/jobs/numbered-marker-sequence";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -72,6 +73,7 @@ import {
   ChevronRight,
   Share2,
   ImageOff,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -85,6 +87,7 @@ type Tool =
   | "text"
   | "arrow"
   | "polyline"
+  | "marker"
   | "crop";
 
 const TOOLS: {
@@ -98,6 +101,7 @@ const TOOLS: {
   { value: "rectangle", label: "Rectangle", icon: Square },
   { value: "text", label: "Text", icon: Type },
   { value: "polyline", label: "Polyline", icon: Share2 },
+  { value: "marker", label: "Numbered marker", icon: MapPin },
 ];
 
 const SHADOW_CONFIG = {
@@ -117,6 +121,11 @@ const SNAP_THRESHOLD = 8;
 // an after:render overlay, so they are never serialized into saved markup and
 // never flattened into the exported Annotated Photo PNG.
 const GUIDE_COLOR = "#22D3EE";
+
+// Radius of a Numbered marker's badge disc, in canvas pixels (#816). Fixed like
+// the text tool's font size — a marker is a small, consistent badge, not scaled
+// per-photo the way an Arrow is — so it reads the same regardless of Photo size.
+const MARKER_BADGE_RADIUS = 16;
 
 // ─── FabricArrow Custom Class (initialized once on first fabric import) ──────
 
@@ -333,6 +342,110 @@ function initFabricClasses(fabric: any) {
   const FabricArrowRef = FabricArrow;
 
   classRegistry.setClass(FabricArrow, "FabricArrow");
+
+  // ── FabricNumberedMarker (issue #816) ──
+  // A small numbered badge dropped on a Photo by the marker tool. It is one
+  // Annotation: the disc, its number, and an optional attached Label below it
+  // all move together. The number is assigned by the pure nextMarkerNumber rule
+  // at drop time; the marker only renders whatever `markerNumber` it carries. It
+  // is move-only — no resize/rotate — so a badge never distorts; you drag it to
+  // reposition. Persists via the shared ANNOTATION_CUSTOM_PROPS allowlist
+  // (`markerNumber`/`markerColor`, reusing `labelText`/`labelFontSize` for the
+  // label) and burns into the flattened Annotated Photo like every other kind.
+  class FabricNumberedMarker extends FabricObject {
+    static type = "FabricNumberedMarker";
+    static customProperties = [...ANNOTATION_CUSTOM_PROPS];
+
+    declare markerNumber: number;
+    declare markerColor: string;
+    declare labelText: string | null;
+    declare labelFontSize: number;
+
+    constructor(options: any = {}) {
+      super(options);
+      this.markerNumber = options.markerNumber ?? 1;
+      this.markerColor = options.markerColor ?? "#F59E0B";
+      this.labelText = options.labelText ?? null;
+      this.labelFontSize = options.labelFontSize ?? 20;
+
+      this.objectCaching = false;
+      this.selectable = true;
+      this.evented = true;
+      this.originX = "center";
+      this.originY = "center";
+      // Move-only: drag to reposition, but no scaling or rotation so the badge
+      // stays a fixed circle. No corner controls; the selection border alone
+      // signals the active marker.
+      this.hasControls = false;
+      this.hasBorders = true;
+      this.lockScalingX = true;
+      this.lockScalingY = true;
+      this.lockRotation = true;
+      this.shadow = new Shadow(SHADOW_CONFIG);
+
+      const r = MARKER_BADGE_RADIUS;
+      this.set({ width: r * 2, height: r * 2 });
+      this.setCoords();
+    }
+
+    _render(ctx: CanvasRenderingContext2D) {
+      const r = MARKER_BADGE_RADIUS;
+
+      // Badge disc, centred on the object's origin (Fabric translates the ctx
+      // to the centre before _render, exactly as FabricArrow relies on).
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, 2 * Math.PI);
+      ctx.fillStyle = this.markerColor;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.stroke();
+
+      // The number. Shrink a touch for two-or-more digits so it stays inside
+      // the disc.
+      const digits = String(this.markerNumber);
+      const fs = digits.length >= 2 ? r * 1.0 : r * 1.25;
+      ctx.font = `bold ${fs}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillText(digits, 0, 1);
+
+      // Optional attached Label, drawn below the badge in the marker's colour
+      // with a dark outline for legibility (matching the Arrow's label style).
+      if (this.labelText) {
+        const lfs = this.labelFontSize;
+        ctx.font = `bold ${lfs}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const ly = r + 6 + lfs / 2;
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1;
+        ctx.lineJoin = "round";
+        ctx.strokeText(this.labelText, 0, ly);
+        ctx.fillStyle = this.markerColor;
+        ctx.fillText(this.labelText, 0, ly);
+      }
+    }
+
+    toObject(propertiesToInclude?: string[]) {
+      return {
+        ...super.toObject(propertiesToInclude),
+        markerNumber: this.markerNumber,
+        markerColor: this.markerColor,
+        labelText: this.labelText,
+        labelFontSize: this.labelFontSize,
+      };
+    }
+
+    static fromObject(object: any) {
+      return Promise.resolve(new FabricNumberedMarkerRef(object));
+    }
+  }
+
+  const FabricNumberedMarkerRef = FabricNumberedMarker;
+
+  classRegistry.setClass(FabricNumberedMarker, "FabricNumberedMarker");
   fabricClassesReady = true;
 }
 
@@ -448,7 +561,7 @@ export default function PhotoAnnotator({
     controls: ToolbarControl[];
   } | null>(null);
   const [labelInput, setLabelInput] = useState<{
-    arrow: any;
+    target: any;
     text: string;
   } | null>(null);
 
@@ -634,13 +747,13 @@ export default function PhotoAnnotator({
    * handle size is not serialized, so loadFromJSON restores objects at Fabric's
    * small defaults. Re-apply it here, and re-attach vertex controls to
    * Polyline/Polygon (createPolyControls is likewise not restored). FabricArrow
-   * brings its own custom endpoint controls from its constructor, so it is left
-   * untouched.
+   * brings its own custom endpoint controls from its constructor, and a
+   * FabricNumberedMarker its own move-only config, so both are left untouched.
    */
   function attachEditorHandles(canvas: any, fabric: any) {
     canvas.getObjects().forEach((obj: any) => {
       const kind = annotationKind(obj.type);
-      if (kind === "arrow") return;
+      if (kind === "arrow" || kind === "marker") return;
       obj.set(handleSizeProps());
       if (kind === "polyline" || kind === "polygon") {
         if (fabric.createPolyControls) {
@@ -1117,6 +1230,59 @@ export default function PhotoAnnotator({
         canvas.renderAll();
         recordStep();
       });
+    } else if (activeTool === "marker") {
+      // ── Numbered marker: tap-to-drop & auto-sequence (issue #816) ──
+      // A single tap drops one badge centred on the tap, auto-numbered as the
+      // next in the Photo's sequence and auto-selected — mirroring the Arrow's
+      // tap-drop. The number comes from the pure nextMarkerNumber rule, fed the
+      // numbers already on the canvas, so placement order is deterministic.
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+      canvas.forEachObject((obj: any) => {
+        obj.selectable = true;
+        obj.evented = true;
+      });
+
+      // Scene point of a mouse:down on empty canvas; null when the press hit an
+      // existing object, so tapping a marker selects it rather than stacking a
+      // new one on top.
+      let tapDown: { x: number; y: number } | null = null;
+
+      canvas.on("mouse:down", (opt: any) => {
+        if (opt.target) {
+          tapDown = null;
+          return;
+        }
+        const pointer = canvas.getScenePoint(opt.e);
+        tapDown = { x: pointer.x, y: pointer.y };
+      });
+
+      canvas.on("mouse:up", () => {
+        const tap = tapDown;
+        tapDown = null;
+        if (!tap) return;
+
+        const existingNumbers = canvas
+          .getObjects()
+          .filter((o: any) => o.type === "FabricNumberedMarker")
+          .map((o: any) => o.markerNumber as number);
+        const MarkerClass = fabric.classRegistry.getClass(
+          "FabricNumberedMarker"
+        );
+        const marker = new MarkerClass({
+          left: tap.x,
+          top: tap.y,
+          markerNumber: nextMarkerNumber(existingNumbers),
+          markerColor: activeColorRef.current,
+        });
+        canvas.add(marker);
+        canvas.setActiveObject(marker);
+        canvas.renderAll();
+        // Drop is this marker's explicit commit point (#813): record it into the
+        // undo stack and schedule the markup save. object:added alone only
+        // markDirty's the save — placement is never recorded on raw add.
+        recordStep();
+      });
     } else {
       // ── Shape tools: circle, rectangle ──
       canvas.isDrawingMode = false;
@@ -1264,26 +1430,32 @@ export default function PhotoAnnotator({
 
   // ─── In-context Toolbar Handlers (every Annotation kind) ────────────────────
 
-  // Label control. The per-object Label flow today exists only for Arrows; on
-  // other shapes the Label control is present but a safe no-op until the
-  // Attached Labels slice (#804) lands — it must never throw or corrupt the
-  // object.
+  // Label control. The per-object Label flow exists for Arrows and Numbered
+  // markers (both render their own `labelText`); on other shapes the Label
+  // control is present but a safe no-op until the Attached Labels slice (#804)
+  // lands — it must never throw or corrupt the object.
   function handleLabel(target: any) {
-    if (!target || annotationKind(target.type) !== "arrow") return;
+    const kind = target ? annotationKind(target.type) : null;
+    if (kind !== "arrow" && kind !== "marker") return;
     setLabelInput({
-      arrow: target,
+      target,
       text: target.labelText || "Label",
     });
     setObjectToolbar(null);
   }
 
-  function handleArrowLabelSubmit() {
+  function handleLabelSubmit() {
     if (!labelInput) return;
     const canvas = fabricRef.current;
-    labelInput.arrow.labelText = labelInput.text || null;
-    labelInput.arrow.set("dirty", true);
+    const target = labelInput.target;
+    target.labelText = labelInput.text || null;
+    target.set("dirty", true);
     canvas?.renderAll();
     setLabelInput(null);
+    // recordStep is this edit's commit point (#813): it snapshots the canvas —
+    // capturing the just-set labelText via ANNOTATION_CUSTOM_PROPS — into the
+    // undo stack AND schedules the debounced markup save, so the new label
+    // reaches saved markup without a separate object:modified fire.
     recordStep();
   }
 
@@ -2191,42 +2363,51 @@ export default function PhotoAnnotator({
           </div>
         )}
 
-        {/* Arrow label input */}
-        {labelInput && (
-          <div
-            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
-            style={{
-              left: ((labelInput.arrow.x1 + labelInput.arrow.x2) / 2) - 28,
-              top: Math.min(labelInput.arrow.y1, labelInput.arrow.y2) - 80,
-            }}
-          >
-            <input
-              autoFocus
-              value={labelInput.text}
-              onChange={(e) =>
-                setLabelInput({ ...labelInput, text: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleArrowLabelSubmit();
-                if (e.key === "Escape") setLabelInput(null);
-              }}
-              className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
-              placeholder="Label text..."
-            />
-            <button
-              onClick={handleArrowLabelSubmit}
-              className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
-            >
-              <Check size={14} />
-            </button>
-            <button
-              onClick={() => setLabelInput(null)}
-              className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        {/* Label input (Arrow or Numbered marker) */}
+        {labelInput &&
+          (() => {
+            // Anchor above the object: an Arrow over its endpoints, a marker
+            // over its centre. Same canvas-pixel placement the Arrow has always
+            // used (it ignores the canvas's centring offset by design).
+            const t = labelInput.target;
+            const isArrow = t.type === "FabricArrow";
+            const popupLeft =
+              (isArrow ? (t.x1 + t.x2) / 2 : t.left ?? 0) - 28;
+            const popupTop =
+              (isArrow ? Math.min(t.y1, t.y2) : t.top ?? 0) - 80;
+            return (
+              <div
+                className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
+                style={{ left: popupLeft, top: popupTop }}
+              >
+                <input
+                  autoFocus
+                  value={labelInput.text}
+                  onChange={(e) =>
+                    setLabelInput({ ...labelInput, text: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleLabelSubmit();
+                    if (e.key === "Escape") setLabelInput(null);
+                  }}
+                  className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
+                  placeholder="Label text..."
+                />
+                <button
+                  onClick={handleLabelSubmit}
+                  className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  onClick={() => setLabelInput(null)}
+                  className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Navigation arrows */}
         {photos.length > 1 && currentIndex > 0 && (

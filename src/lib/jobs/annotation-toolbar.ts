@@ -9,7 +9,8 @@ export type AnnotationKind =
   | "polyline"
   | "polygon"
   | "text"
-  | "freehand";
+  | "freehand"
+  | "marker";
 
 export type ToolbarControl = "label" | "copy" | "delete";
 
@@ -40,6 +41,7 @@ const KIND_BY_FABRIC_TYPE: Record<string, AnnotationKind> = {
   "i-text": "text",
   itext: "text",
   path: "freehand",
+  fabricnumberedmarker: "marker",
 };
 
 /**
@@ -89,10 +91,13 @@ export function toolbarAnchorPoint(
 
 /**
  * The ordered set of controls a selected Annotation of this kind exposes. A
- * text box or a freehand drawing carries no Label or Copy — only Delete — while
- * every other kind gets the full Label, Copy, Delete row.
+ * text box or a freehand drawing carries no Label or Copy — only Delete. A
+ * Numbered marker carries Label and Delete but no Copy: duplicating it would
+ * clone its number, which the auto-sequence (#816) owns, so the copy is
+ * deliberately withheld. Every other kind gets the full Label, Copy, Delete row.
  */
 export function toolbarControls(kind: AnnotationKind): ToolbarControl[] {
   if (kind === "text" || kind === "freehand") return ["delete"];
+  if (kind === "marker") return ["label", "delete"];
   return ["label", "copy", "delete"];
 }
