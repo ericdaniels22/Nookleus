@@ -12,6 +12,12 @@ interface PersistMarkupArgs {
   organizationId: string | null;
   /** The serialized markup envelope (format 3) — the CHEAP half of the split. */
   annotationData: AnnotationData;
+  /** Resolves the author for a FIRST-TIME annotation (issue #808): the
+   *  signed-in user's name/email/"unknown", matching photos.taken_by. Invoked
+   *  lazily, ONLY on the insert branch — a re-save updates annotation_data in
+   *  place and must never overwrite the original author, and the debounced
+   *  auto-save shouldn't fire an auth round-trip on every edit. */
+  resolveAuthor: () => Promise<string>;
 }
 
 /**
@@ -44,7 +50,7 @@ export async function persistPhotoMarkup(
       organization_id: args.organizationId,
       photo_id: args.photoId,
       annotation_data: args.annotationData,
-      created_by: "Eric",
+      created_by: await args.resolveAuthor(),
     });
     if (error) throw error;
   }

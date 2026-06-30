@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { resolvePhotoAuthor } from "@/lib/jobs/resolve-photo-author";
 import { readTakenAt } from "@/lib/mobile/exif-read";
 import { PhotoTag } from "@/lib/types";
 import {
@@ -117,13 +118,11 @@ export default function PhotoUploadModal({
     const orgId = await getActiveOrganizationId(supabase);
     let successCount = 0;
 
-    // Fetch current user and their profile once (before the loop)
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("full_name")
-      .eq("id", user!.id)
-      .maybeSingle();
+    // Resolve the uploader once (before the loop). Shares the annotator's
+    // author resolution (resolvePhotoAuthor, #808): user_profiles.full_name ->
+    // account email -> "unknown", so photos.taken_by and
+    // photo_annotations.created_by always agree on who a person is.
+    const author = await resolvePhotoAuthor(supabase);
 
     for (const filePreview of files) {
       const ext = filePreview.file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -168,7 +167,7 @@ export default function PhotoUploadModal({
           uploaded_from: "web",
           caption: filePreview.caption || null,
           taken_at: takenAt.toISOString(),
-          taken_by: profile?.full_name || user!.email || "unknown",
+          taken_by: author,
           media_type: mediaType,
           file_size: filePreview.file.size,
           before_after_role: filePreview.beforeAfterRole,

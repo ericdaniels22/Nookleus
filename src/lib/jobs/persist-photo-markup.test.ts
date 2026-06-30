@@ -43,31 +43,40 @@ const base = {
   annotationData,
 };
 
-describe("persistPhotoMarkup", () => {
-  it("inserts a new annotation row when none exists for the photo", async () => {
-    const { store, insert, update } = makeStore({ existing: null });
+/** A default author resolver for the call sites that don't assert on it. */
+const resolveAuthor = () => Promise.resolve("Eric Daniels");
 
-    await persistPhotoMarkup(store, base);
+describe("persistPhotoMarkup", () => {
+  it("attributes the resolved author when inserting a first-time annotation (#808)", async () => {
+    const { store, insert, update } = makeStore({ existing: null });
+    const resolveAuthorSpy = vi.fn().mockResolvedValue("Eric Daniels");
+
+    await persistPhotoMarkup(store, { ...base, resolveAuthor: resolveAuthorSpy });
 
     expect(insert).toHaveBeenCalledWith({
       organization_id: "org-1",
       photo_id: "p1",
       annotation_data: annotationData,
-      created_by: "Eric",
+      created_by: "Eric Daniels",
     });
+    expect(resolveAuthorSpy).toHaveBeenCalledTimes(1);
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("updates the existing row's annotation_data in place when one is found", async () => {
+  it("preserves the original author on re-save: updates annotation_data only, never resolving a new author (#808)", async () => {
     const { store, update, updateEq, insert } = makeStore({
       existing: { id: "ann-9" },
     });
+    const resolveAuthorSpy = vi.fn().mockResolvedValue("Someone Else");
 
-    await persistPhotoMarkup(store, base);
+    await persistPhotoMarkup(store, { ...base, resolveAuthor: resolveAuthorSpy });
 
     expect(update).toHaveBeenCalledWith({ annotation_data: annotationData });
     expect(updateEq).toHaveBeenCalledWith("id", "ann-9");
     expect(insert).not.toHaveBeenCalled();
+    // The existing row keeps whoever first authored it — no created_by in the
+    // update payload, and we don't even resolve a candidate author.
+    expect(resolveAuthorSpy).not.toHaveBeenCalled();
   });
 
   it("throws when the update write returns an error so the caller can retry", async () => {
@@ -76,7 +85,9 @@ describe("persistPhotoMarkup", () => {
       updateError: { message: "5xx" },
     });
 
-    await expect(persistPhotoMarkup(store, base)).rejects.toBeTruthy();
+    await expect(
+      persistPhotoMarkup(store, { ...base, resolveAuthor }),
+    ).rejects.toBeTruthy();
   });
 
   it("throws when the insert write returns an error so the caller can retry", async () => {
@@ -85,6 +96,8 @@ describe("persistPhotoMarkup", () => {
       insertError: { message: "network" },
     });
 
-    await expect(persistPhotoMarkup(store, base)).rejects.toBeTruthy();
+    await expect(
+      persistPhotoMarkup(store, { ...base, resolveAuthor }),
+    ).rejects.toBeTruthy();
   });
 });
