@@ -5,12 +5,12 @@ import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
-import { persistAnnotatedRender } from "@/lib/jobs/persist-annotated-render";
 import {
   ANNOTATION_CUSTOM_PROPS,
   parseAnnotations,
   serializeAnnotations,
 } from "@/lib/jobs/photo-annotation-format";
+import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -335,12 +335,49 @@ export default function PhotoAnnotator({
     scale: number;
   }>({ width: 800, height: 600, scale: 1 });
 
+  // ── Auto-save (issue #807, ADR 0024 split write) ──
+  // One stable client for the whole annotator lifetime; the org claim is
+  // resolved once for the insert branch of the cheap markup upsert.
+  const [supabase] = useState(() => createClient());
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getActiveOrganizationId(supabase).then((id) => {
+      if (!cancelled) setOrganizationId(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  // Flatten the live canvas to a PNG blob for the Annotated Photo render. The
+  // synchronous toDataURL runs first so the OUTGOING pixels are snapshotted
+  // before any photo switch swaps the canvas; the fetch→blob tail is
+  // canvas-independent. Injected into the auto-save hook so the hook stays
+  // Fabric-free.
+  const captureFlattenedBlob = useCallback(async (): Promise<Blob | null> => {
+    const canvas = fabricRef.current;
+    if (!canvas) return null;
+    canvas.discardActiveObject();
+    canvas.renderAll();
+    const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
+    const res = await fetch(dataUrl);
+    return await res.blob();
+  }, []);
+
+  const autoSave = useAnnotatorAutoSave({
+    supabase,
+    photo: currentPhoto,
+    organizationId,
+    captureFlattenedBlob,
+    onPersisted: onSaved,
+  });
+
   // ── Tool state ──
   const [activeTool, setActiveTool] = useState<Tool>("arrow");
   const [activeColor, setActiveColor] = useState("#F59E0B");
   const [activeThickness, setActiveThickness] = useState(4);
   const [canvasReady, setCanvasReady] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   // ── Crop state ──
   const [isCropping, setIsCropping] = useState(false);
@@ -361,7 +398,8 @@ export default function PhotoAnnotator({
   } | null>(null);
 
   // ── Photo navigation ──
-  const [navPrompt, setNavPrompt] = useState<number | null>(null);
+  // Tracks whether the current photo has edits since its last flattened
+  // rebuild — the signal for whether leaving/closing needs an expensive rebuild.
   const isDirtyRef = useRef(false);
 
   // ── Polyline drawing ──
@@ -542,7 +580,6 @@ export default function PhotoAnnotator({
       setIsCropping(false);
       setArrowToolbar(null);
       setLabelInput(null);
-      setNavPrompt(null);
       cropRectRef.current = null;
       cropRenderCallbackRef.current = null;
       hiddenObjectsRef.current = [];
@@ -569,6 +606,12 @@ export default function PhotoAnnotator({
 
     const markDirty = () => {
       isDirtyRef.current = true;
+      // Queue the cheap, debounced markup upsert for this edit (ADR 0024). The
+      // expensive flattened render is left to flushAndRebuild on leave/close.
+      // This effect subscribes only AFTER canvasReady — i.e. after loadFromJSON
+      // restores saved annotations — so loading a photo never schedules a save.
+      const json = canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]);
+      autoSave.scheduleMarkupSave(serializeAnnotations(json.objects));
     };
     canvas.on("object:added", markDirty);
     canvas.on("object:modified", markDirty);
@@ -579,7 +622,7 @@ export default function PhotoAnnotator({
       canvas.off("object:modified", markDirty);
       canvas.off("object:removed", markDirty);
     };
-  }, [canvasReady]);
+  }, [canvasReady, autoSave]);
 
   // ─── Arrow selection / toolbar / movement sync ─────────────────────────────
 
@@ -1460,114 +1503,34 @@ export default function PhotoAnnotator({
     canvas.renderAll();
   }
 
-  // ─── Save ──────────────────────────────────────────────────────────────────
+  // ─── Close ─────────────────────────────────────────────────────────────────
 
-  async function handleSave(closeAfter = true) {
-    const canvas = fabricRef.current;
-    if (!canvas || !currentPhoto) return;
-
-    setSaving(true);
-    const supabase = createClient();
-
-    try {
-      // Serialize the markup objects (with their FabricArrow custom props) into
-      // the stored envelope. serializeAnnotations owns the annotation_data shape
-      // and carries markup only — the flattened Annotated Photo is a separate
-      // write below (ADR 0024).
-      const json = canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]);
-      const annotationData = serializeAnnotations(json.objects);
-
-      // Upsert annotation record
-      const { data: existing } = await supabase
-        .from("photo_annotations")
-        .select("id")
-        .eq("photo_id", currentPhoto.id)
-        .limit(1)
-        .single();
-
-      if (existing) {
-        await supabase
-          .from("photo_annotations")
-          .update({ annotation_data: annotationData })
-          .eq("id", existing.id);
-      } else {
-        await supabase.from("photo_annotations").insert({
-          organization_id: await getActiveOrganizationId(supabase),
-          photo_id: currentPhoto.id,
-          annotation_data: annotationData,
-          created_by: "Eric",
-        });
-      }
-
-      // Export the flattened annotated PNG to a UNIQUE path per save: Supabase
-      // Storage's CDN keys its cache by path, so re-annotating to the old stable
-      // `-annotated.png` served the previous render until the cache aged out. A
-      // per-save path is a guaranteed cache miss. After the row points at the new
-      // file, best-effort delete the prior one so superseded renders don't pile
-      // up in Storage (a failed delete is harmless — it leaves an orphan, never a
-      // stale render).
-      try {
-        canvas.discardActiveObject();
-        canvas.renderAll();
-
-        const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
-        await persistAnnotatedRender(supabase, {
-          photoId: currentPhoto.id,
-          storagePath: currentPhoto.storage_path,
-          previousAnnotatedPath: currentPhoto.annotated_path,
-          blob,
-          token: Date.now().toString(36),
-        });
-      } catch {
-        console.log("Could not export annotated image. JSON annotations saved.");
-      }
-
-      toast.success("Annotations saved.");
+  // Auto-save means there's no explicit "Save" button: every edit has already
+  // debounced its cheap markup write. On close we only need to flush whatever
+  // is still in the debounce window and rebuild the flattened Annotated Photo
+  // (the expensive half of the ADR 0024 split write), then let the dialog go.
+  // The rebuild runs in the background so closing feels instant.
+  function handleClose() {
+    if (isDirtyRef.current) {
+      void autoSave.flushAndRebuild();
       isDirtyRef.current = false;
-      onSaved();
-
-      if (closeAfter) {
-        onOpenChange(false);
-      }
-    } catch (err) {
-      console.error("Save annotation error:", err);
-      toast.error("Failed to save annotations.");
     }
-
-    setSaving(false);
-  }
-
-  function handleDiscard() {
     onOpenChange(false);
   }
 
   // ─── Photo Navigation ─────────────────────────────────────────────────────
 
+  // Leaving a photo is a "leave" event too: flush + rebuild the OUTGOING photo
+  // (passed explicitly so a write that lands after the swap can't be misfiled
+  // onto the incoming one), then advance immediately. No save/discard prompt —
+  // the edits are already persisted.
   function requestNav(targetIndex: number) {
     if (targetIndex < 0 || targetIndex >= photos.length) return;
-    if (isDirtyRef.current) {
-      setNavPrompt(targetIndex);
-    } else {
-      setCurrentIndex(targetIndex);
+    if (isDirtyRef.current && currentPhoto) {
+      void autoSave.flushAndRebuild(currentPhoto);
+      isDirtyRef.current = false;
     }
-  }
-
-  async function handleNavSave() {
-    if (navPrompt === null) return;
-    const target = navPrompt;
-    setNavPrompt(null);
-    await handleSave(false);
-    setCurrentIndex(target);
-  }
-
-  function handleNavDiscard() {
-    if (navPrompt === null) return;
-    const target = navPrompt;
-    setNavPrompt(null);
-    isDirtyRef.current = false;
-    setCurrentIndex(target);
+    setCurrentIndex(targetIndex);
   }
 
   // ─── Keyboard Navigation ──────────────────────────────────────────────────
@@ -1870,37 +1833,6 @@ export default function PhotoAnnotator({
           </button>
         )}
 
-        {/* Unsaved changes prompt */}
-        {navPrompt !== null && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60">
-            <div className="bg-white rounded-xl p-5 shadow-2xl max-w-sm">
-              <p className="text-sm text-gray-700 mb-4">
-                You have unsaved changes. Save before switching photos?
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleNavSave}
-                  className="px-4 py-2 bg-[#0F6E56] text-white text-sm font-medium rounded-lg hover:bg-[#0a5a46] transition-colors"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={handleNavDiscard}
-                  className="px-4 py-2 bg-[#C41E2A] text-white text-sm font-medium rounded-lg hover:bg-[#A3171F] transition-colors"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={() => setNavPrompt(null)}
-                  className="px-4 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Canvas */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">
           {!canvasReady && (
@@ -1914,26 +1846,14 @@ export default function PhotoAnnotator({
           </div>
         </div>
 
-        {/* Save / Discard - top right */}
+        {/* Done - top right. Edits auto-save; this just flushes + closes. */}
         <div className="absolute top-3 right-4 flex items-center gap-2">
           <button
-            onClick={() => handleSave(true)}
-            disabled={saving}
-            title="Save & Close"
-            className="w-10 h-10 rounded-full bg-[#0F6E56] hover:bg-[#0a5a46] text-white flex items-center justify-center transition-colors disabled:opacity-50 shadow-lg"
+            onClick={handleClose}
+            title="Done"
+            className="w-10 h-10 rounded-full bg-[#0F6E56] hover:bg-[#0a5a46] text-white flex items-center justify-center transition-colors shadow-lg"
           >
-            {saving ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Check size={20} />
-            )}
-          </button>
-          <button
-            onClick={handleDiscard}
-            title="Discard & Close"
-            className="w-10 h-10 rounded-full bg-[#C41E2A] hover:bg-[#A3171F] text-white flex items-center justify-center transition-colors shadow-lg"
-          >
-            <X size={20} />
+            <Check size={20} />
           </button>
         </div>
       </div>
