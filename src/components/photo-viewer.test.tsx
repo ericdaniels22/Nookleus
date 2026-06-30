@@ -29,6 +29,9 @@ const h = vi.hoisted(() => ({
   upload: vi.fn(),
   tagAssignments: [] as { tag_id: string }[],
   listResult: [] as { name: string }[],
+  // When set, every `photos` update resolves to this error so a test can drive
+  // the auto-save failure / retry path (#806 AC f). Reset in afterEach.
+  updateError: null as { message: string } | null,
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -39,7 +42,7 @@ vi.mock("@/lib/supabase", () => ({
         return {
           eq: async (col: string, val: unknown) => {
             h.updateEq(table, col, val);
-            return { error: null };
+            return { error: table === "photos" ? h.updateError : null };
           },
         };
       },
@@ -170,6 +173,7 @@ afterEach(() => {
   vi.clearAllMocks();
   h.tagAssignments = [];
   h.listResult = [];
+  h.updateError = null;
 });
 
 describe("PhotoViewer — display", () => {
@@ -195,33 +199,40 @@ describe("PhotoViewer — display", () => {
 });
 
 describe("PhotoViewer — Save (caption / Before-After / tags)", () => {
-  it("persists an edited caption to the photos row on Save", async () => {
-    const { photo } = renderViewer();
+  it("auto-saves an edited caption after the debounce window — no Save click", async () => {
+    vi.useFakeTimers();
+    try {
+      const { photo } = renderViewer();
+      await act(async () => {});
 
-    await act(async () => {
-      fireEvent.change(screen.getByLabelText("Caption"), {
-        target: { value: "Roof damage to NE corner" },
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Caption"), {
+          target: { value: "Roof damage to NE corner" },
+        });
       });
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
-    });
+      // Inside the quiet window nothing is written yet.
+      expect(h.update).not.toHaveBeenCalled();
 
-    expect(h.update).toHaveBeenCalledWith(
-      "photos",
-      expect.objectContaining({ caption: "Roof damage to NE corner" }),
-    );
-    expect(h.updateEq).toHaveBeenCalledWith("photos", "id", photo.id);
+      // After the 2s debounce (matching estimate-builder) the write lands.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(h.update).toHaveBeenCalledWith(
+        "photos",
+        expect.objectContaining({ caption: "Roof damage to NE corner" }),
+      );
+      expect(h.updateEq).toHaveBeenCalledWith("photos", "id", photo.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("persists a Before/After role on Save", async () => {
+  it("persists a Before/After role immediately on selection — no Save click", async () => {
     renderViewer();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "After" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
     });
 
     expect(h.update).toHaveBeenCalledWith(
@@ -230,14 +241,11 @@ describe("PhotoViewer — Save (caption / Before-After / tags)", () => {
     );
   });
 
-  it("clears Before/After when the active role is toggled off", async () => {
+  it("clears Before/After immediately when the active role is toggled off", async () => {
     renderViewer({ photos: [makePhoto({ before_after_role: "before" })] });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Before" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
     });
 
     expect(h.update).toHaveBeenCalledWith(
@@ -259,7 +267,7 @@ describe("PhotoViewer — Save (caption / Before-After / tags)", () => {
     expect(unselected.style.backgroundColor).toBeFalsy();
   });
 
-  it("replaces tag assignments (delete-all-then-insert) on Save", async () => {
+  it("replaces tag assignments (delete-all-then-insert) immediately on toggle", async () => {
     const { photo } = renderViewer({
       allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
     });
@@ -267,9 +275,6 @@ describe("PhotoViewer — Save (caption / Before-After / tags)", () => {
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Roof" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
     });
 
     expect(h.del).toHaveBeenCalledWith(
@@ -287,6 +292,164 @@ describe("PhotoViewer — Save (caption / Before-After / tags)", () => {
         }),
       ]),
     );
+  });
+
+  it("renders no 'Save Changes' control on the desktop side panel", async () => {
+    renderViewer();
+    await act(async () => {});
+
+    // Every field auto-saves now — there is nothing left to manually save.
+    expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
+  });
+
+  it("a silent successful auto-save surfaces no toast", async () => {
+    vi.useFakeTimers();
+    try {
+      renderViewer();
+      await act(async () => {});
+
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Caption"), {
+          target: { value: "Quietly saved" },
+        });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      // No "Photo updated" success toast, and no error toast either.
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed caption save and warns once after retries are exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      // Every `photos` write fails (network / 5xx).
+      h.updateError = { message: "503 Service Unavailable" };
+      renderViewer();
+      await act(async () => {});
+
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Caption"), {
+          target: { value: "Never persists" },
+        });
+      });
+
+      // Run the debounce window and every backoff retry to exhaustion.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      // Four attempts (initial + 3 retries), then a single human-readable
+      // warning — and never a success toast.
+      expect(h.update).toHaveBeenCalledTimes(4);
+      expect(toast.error).toHaveBeenCalledTimes(1);
+      expect(toast.success).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// AC (h): a caption edited inside the 2s debounce window must not be dropped
+// when the viewer closes or the user pages to another Photo. The viewer is
+// always mounted (the parent toggles `open`), so React unmount only fires on a
+// real navigate-away — close and paging need their own explicit flush.
+describe("PhotoViewer — caption flush on close / paging (#806, AC h)", () => {
+  const stableProps = {
+    onOpenChange: vi.fn(),
+    onUpdated: vi.fn(),
+    onAnnotate: vi.fn(),
+    allTags: [],
+    supabaseUrl: SUPABASE_URL,
+    coverPhotoId: null,
+  };
+
+  it("flushes a pending caption edit when the viewer closes", async () => {
+    vi.useFakeTimers();
+    try {
+      const photo = makePhoto();
+      const { rerender } = render(
+        <PhotoViewer open initialPhotoIndex={0} photos={[photo]} {...stableProps} />,
+      );
+      await act(async () => {});
+
+      // Type within the quiet window — nothing written yet.
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Caption"), {
+          target: { value: "Closed mid-edit" },
+        });
+      });
+      expect(h.update).not.toHaveBeenCalled();
+
+      // Close before the debounce elapses — the pending write must flush.
+      await act(async () => {
+        rerender(
+          <PhotoViewer open={false} initialPhotoIndex={0} photos={[photo]} {...stableProps} />,
+        );
+      });
+
+      expect(h.update).toHaveBeenCalledWith(
+        "photos",
+        expect.objectContaining({ caption: "Closed mid-edit" }),
+      );
+      expect(h.updateEq).toHaveBeenCalledWith("photos", "id", photo.id);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes a pending caption edit when paging to another Photo", async () => {
+    vi.useFakeTimers();
+    try {
+      // Newest-first: `first` (newer) opens at index 0; Next pages to `second`.
+      const first = makePhoto({
+        id: "a",
+        storage_path: "job-1/a.jpg",
+        created_at: "2026-05-02T10:00:00Z",
+      });
+      const second = makePhoto({
+        id: "b",
+        storage_path: "job-1/b.jpg",
+        created_at: "2026-05-01T10:00:00Z",
+      });
+      render(
+        <PhotoViewer
+          open
+          initialPhotoIndex={0}
+          photos={[first, second]}
+          {...stableProps}
+        />,
+      );
+      await act(async () => {});
+
+      // Type on `first` within the quiet window — nothing written yet.
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Caption"), {
+          target: { value: "Edited then paged" },
+        });
+      });
+      expect(h.update).not.toHaveBeenCalled();
+
+      // Page to the next Photo before the debounce elapses.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      });
+
+      // The in-window edit must persist — and land on the Photo it was typed
+      // on (`first`), not the one now on screen.
+      expect(h.update).toHaveBeenCalledWith(
+        "photos",
+        expect.objectContaining({ caption: "Edited then paged" }),
+      );
+      expect(h.updateEq).toHaveBeenCalledWith("photos", "id", first.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1419,7 +1582,7 @@ describe("PhotoViewer — phone layout", () => {
     expect(unselected.style.backgroundColor).toBeFalsy();
   });
 
-  it("adds/removes tags from the Tags panel and persists on Done", async () => {
+  it("persists a tag immediately on toggle from the Tags panel; Done only lowers it", async () => {
     const { photo } = renderViewer({
       allTags: [makeTag("tag-a", "Roof"), makeTag("tag-b", "Water")],
     });
@@ -1431,11 +1594,8 @@ describe("PhotoViewer — phone layout", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Roof" }));
     });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
-    });
 
-    // Persisted with the same delete-all-then-insert the desktop Save uses.
+    // Toggling persists right away — the same delete-all-then-insert, no Done.
     expect(h.del).toHaveBeenCalledWith(
       "photo_tag_assignments",
       "photo_id",
@@ -1451,6 +1611,17 @@ describe("PhotoViewer — phone layout", () => {
         }),
       ]),
     );
+
+    // Done is now a plain close: it lowers the panel and fires no extra save.
+    h.del.mockClear();
+    h.insert.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
+    });
+    expect(h.del).not.toHaveBeenCalled();
+    expect(h.insert).not.toHaveBeenCalled();
+    // The panel lowered — its tag toggles are gone from the DOM.
+    expect(screen.queryByRole("button", { name: "Roof" })).toBeNull();
   });
 
   it("raises the Before/After toggle when Before/After is tapped", async () => {
@@ -1468,7 +1639,7 @@ describe("PhotoViewer — phone layout", () => {
     expect(screen.getByRole("button", { name: "After" })).toBeTruthy();
   });
 
-  it("sets the Before/After role from the panel and persists on Done", async () => {
+  it("sets the Before/After role immediately from the panel; Done only lowers it", async () => {
     renderViewer();
     await act(async () => {});
 
@@ -1478,29 +1649,32 @@ describe("PhotoViewer — phone layout", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "After" }));
     });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
-    });
 
+    // Persisted on selection — no Done required.
     expect(h.update).toHaveBeenCalledWith(
       "photos",
       expect.objectContaining({ before_after_role: "after" }),
     );
+
+    // Done is a plain close: no extra write, and the panel lowers.
+    h.update.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
+    });
+    expect(h.update).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "After" })).toBeNull();
   });
 
-  it("clears the Before/After role from the panel and persists on Done", async () => {
+  it("clears the Before/After role immediately from the panel; Done only lowers it", async () => {
     renderViewer({ photos: [makePhoto({ before_after_role: "before" })] });
     await act(async () => {});
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /before.*after/i }));
     });
-    // Toggling the active role off clears it.
+    // Toggling the active role off clears it — persisted immediately.
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Before" }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
     });
 
     expect(h.update).toHaveBeenCalledWith(
