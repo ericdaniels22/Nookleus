@@ -20,6 +20,10 @@ import {
   serializeAnnotations,
   type Annotation,
 } from "@/lib/jobs/photo-annotation-format";
+import {
+  reseedBaseline,
+  snapshotMarkup,
+} from "@/lib/jobs/photo-annotator-baseline";
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
 import { createArrow, dragTip, dragTail } from "@/lib/jobs/arrow-geometry";
 import {
@@ -918,7 +922,7 @@ export default function PhotoAnnotator({
       // Seed the undo/redo history with the just-loaded markup as the baseline
       // present: there's nothing to undo back past a Photo's saved state, and a
       // fresh stack means undo can never step across into another Photo's edits.
-      historyRef.current = createHistory(snapshotObjects(canvas));
+      historyRef.current = reseedBaseline(canvas);
       setCanUndoState(false);
       setCanRedoState(false);
 
@@ -2410,6 +2414,20 @@ export default function PhotoAnnotator({
       scale: newScale,
     };
 
+    // #853: the crop removed every annotation and swapped in a smaller/rescaled
+    // background, so the pre-crop history snapshots describe markup at
+    // coordinates that no longer match the canvas. Reseed the stack to the
+    // rebuilt (empty) canvas as a fresh baseline so Undo/Redo can never repaint
+    // pre-crop annotations onto the cropped image. Then persist the emptied
+    // markup deterministically — set the dirty flag and schedule its save rather
+    // than relying on incidental object:removed events from the bulk remove.
+    const baseline = reseedBaseline(canvas);
+    historyRef.current = baseline;
+    setCanUndoState(false);
+    setCanRedoState(false);
+    isDirtyRef.current = true;
+    autoSave.scheduleMarkupSave(serializeAnnotations(baseline.present));
+
     setIsCropping(false);
     setActiveTool("arrow");
     toast.success("Image cropped and saved.");
@@ -2502,17 +2520,17 @@ export default function PhotoAnnotator({
 
     canvas.setDimensions({ width: canvasWidth, height: canvasHeight });
     canvas.renderAll();
+
+    // #853: the rotate re-dimensioned the canvas around a rotated background, so
+    // the earlier history snapshots were captured under the old geometry. Reseed
+    // the stack to the rotated canvas as a fresh baseline so Undo can never step
+    // back across the rotate boundary and replay markup at the pre-rotate scale.
+    historyRef.current = reseedBaseline(canvas);
+    setCanUndoState(false);
+    setCanRedoState(false);
   }
 
   // ─── History capture & restore ─────────────────────────────────────────────
-
-  /** Snapshot the current markup objects (carrying the FabricArrow custom props
-   *  so an arrow's geometry, color, label and styling round-trip) — the opaque
-   *  T the pure history stack stores. The background photo is excluded; only the
-   *  user-placed annotations are versioned. */
-  function snapshotObjects(canvas: any): Annotation[] {
-    return canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]).objects as Annotation[];
-  }
 
   /** Mirror the stack's derived canUndo/canRedo onto state so the toolbar
    *  buttons enable/disable immediately after every step, undo and redo. */
@@ -2529,7 +2547,7 @@ export default function PhotoAnnotator({
   function recordStep() {
     const canvas = fabricRef.current;
     if (!canvas || isRestoringRef.current) return;
-    const objects = snapshotObjects(canvas);
+    const objects = snapshotMarkup(canvas);
     historyRef.current = pushHistory(historyRef.current, objects);
     syncHistoryFlags();
     isDirtyRef.current = true;
