@@ -7,14 +7,17 @@
 // `parseAnnotations` and its save path reads `serializeAnnotations`.
 
 /**
- * The custom properties an Annotation carries beyond Fabric's built-ins. This
- * is the single source of truth: the FabricArrow subclass's `customProperties`
- * allowlist and the save path's `toJSON` projection both read it, so the set of
- * persisted custom fields is defined in exactly one place. The Arrow-only
- * geometry (`x1`..`arrowThickness`) sits alongside the shared Label fields
- * (`labelText`, `labelFontSize`, `labelColor`) that ANY Annotation may carry
- * (#812). `toJSON` projects only the props an object actually has, so an
- * unlabeled shape and an Arrow stay free of stray Label keys.
+ * The custom properties Annotations carry beyond Fabric's built-ins. This is the
+ * single source of truth: each Annotation subclass's `customProperties` allowlist
+ * and the save path's `toJSON` projection both read it, so the set of persisted
+ * fields is defined in exactly one place. A given subclass only writes the props
+ * it owns — a FabricArrow writes the `x1..arrowThickness` group, a Numbered
+ * marker (#816) writes `markerNumber`/`markerColor` — while the shared Label
+ * fields (`labelText`, `labelFontSize`, `labelColor`) belong to ANY Annotation
+ * that carries an attached Label (#812). The projection list is shared so one
+ * `toJSON([...ANNOTATION_CUSTOM_PROPS])` call serializes every kind, and `toJSON`
+ * projects only the props an object actually has, so an unlabeled shape stays
+ * free of stray Label keys.
  */
 export const ANNOTATION_CUSTOM_PROPS = [
   "x1",
@@ -26,6 +29,8 @@ export const ANNOTATION_CUSTOM_PROPS = [
   "labelFontSize",
   "labelColor",
   "arrowThickness",
+  "markerNumber",
+  "markerColor",
 ] as const;
 
 /** A single serialized Fabric object descriptor (a Rect, FabricArrow, etc.). */

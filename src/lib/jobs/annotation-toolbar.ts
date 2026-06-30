@@ -9,7 +9,8 @@ export type AnnotationKind =
   | "polyline"
   | "polygon"
   | "text"
-  | "freehand";
+  | "freehand"
+  | "marker";
 
 export type ToolbarControl = "label" | "copy" | "delete";
 
@@ -21,31 +22,41 @@ export type ToolbarControl = "label" | "copy" | "delete";
 export const DUPLICATE_OFFSET = 30;
 
 /**
- * The Annotation kind each Fabric object `type` maps to. Fabric stamps the
- * subclass name (PascalCase) on `type`; this is the single place that knows
- * which of those is a toolbar-eligible Annotation.
+ * The Annotation kind each Fabric object `type` maps to. The casing here is the
+ * subtle part: a *live* Fabric instance reports a lowercase `type`
+ * (`"rect"`, `"fabricarrow"`, and notably `"i-text"` with a hyphen for IText),
+ * while a *serialized* object and the static subclass `type` are PascalCase
+ * (`"Rect"`, `"FabricArrow"`, `"IText"`). `annotationKind` lowercases its input
+ * before the lookup, so the keys are lowercase — and IText carries both
+ * spellings (`"i-text"` live, `"itext"` from a lowercased static) since
+ * lowercasing alone cannot reconcile the hyphen. This is the single place that
+ * knows which Fabric type is a toolbar-eligible Annotation.
  */
 const KIND_BY_FABRIC_TYPE: Record<string, AnnotationKind> = {
-  FabricArrow: "arrow",
-  Ellipse: "ellipse",
-  Rect: "rectangle",
-  Polyline: "polyline",
-  Polygon: "polygon",
-  IText: "text",
-  Path: "freehand",
+  fabricarrow: "arrow",
+  ellipse: "ellipse",
+  rect: "rectangle",
+  polyline: "polyline",
+  polygon: "polygon",
+  "i-text": "text",
+  itext: "text",
+  path: "freehand",
+  fabricnumberedmarker: "marker",
 };
 
 /**
- * Map a Fabric object's `type` to the Annotation kind it represents. Tolerates
- * an absent type (the caller passes `target?.type`) — the background image,
- * groups, and anything else not in the map are not Annotations, so they return
- * null and get no toolbar.
+ * Map a Fabric object's `type` to the Annotation kind it represents. Case- and
+ * form-insensitive: it accepts a live instance's lowercase `type` and a
+ * serialized object's PascalCase `type` alike. Tolerates an absent type (the
+ * caller passes `target?.type`) — the background image, groups, and anything
+ * else not in the map are not Annotations, so they return null and get no
+ * toolbar.
  */
 export function annotationKind(
   fabricType: string | undefined | null
 ): AnnotationKind | null {
   if (!fabricType) return null;
-  return KIND_BY_FABRIC_TYPE[fabricType] ?? null;
+  return KIND_BY_FABRIC_TYPE[fabricType.toLowerCase()] ?? null;
 }
 
 /** An object's top-edge box in canvas/scene coordinates. */
@@ -80,12 +91,16 @@ export function toolbarAnchorPoint(
 
 /**
  * The ordered set of controls a selected Annotation of this kind exposes. Every
- * kind can carry a Label (#812), so all get a Label control; a text box or a
- * freehand drawing still exposes no Copy (an unchanged #811 decision), leaving
- * them Label, Delete, while every other kind gets the full Label, Copy, Delete
- * row.
+ * kind can carry a Label (#812), so all get a Label control. Copy is the
+ * narrower affordance: a text box or a freehand drawing exposes none (an
+ * unchanged #811 decision), and a Numbered marker withholds it too because
+ * duplicating it would clone its number, which the auto-sequence (#816) owns —
+ * so all three are Label, Delete. Every other kind gets the full Label, Copy,
+ * Delete row.
  */
 export function toolbarControls(kind: AnnotationKind): ToolbarControl[] {
-  if (kind === "text" || kind === "freehand") return ["label", "delete"];
+  if (kind === "text" || kind === "freehand" || kind === "marker") {
+    return ["label", "delete"];
+  }
   return ["label", "copy", "delete"];
 }
