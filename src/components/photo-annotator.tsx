@@ -11,6 +11,7 @@ import {
   parseAnnotations,
   serializeAnnotations,
 } from "@/lib/jobs/photo-annotation-format";
+import { createArrow } from "@/lib/jobs/arrow-geometry";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -828,8 +829,62 @@ export default function PhotoAnnotator({
     } else if (activeTool === "crop") {
       canvas.isDrawingMode = false;
       canvas.selection = false;
+    } else if (activeTool === "arrow") {
+      // ── Arrow: tap-to-drop (issue #809) ──
+      // A single tap drops one standard-size ↗ Arrow centered on the tap and
+      // scaled to the Photo (via the pure arrow-geometry module), then
+      // auto-selects it so its tip/tail handles are immediately grabbable —
+      // mirroring how the text tool auto-activates the object it creates.
+      // Drag-to-draw and its zero-length guard are gone: tap-drop can only ever
+      // produce a valid standard Arrow.
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+      canvas.forEachObject((obj: any) => {
+        obj.selectable = true;
+        obj.evented = true;
+      });
+
+      // Scene point of a mouse:down that landed on empty canvas. Null when the
+      // press hit an existing object, so tapping an Arrow selects it rather
+      // than dropping a new one on top.
+      let tapDown: { x: number; y: number } | null = null;
+
+      canvas.on("mouse:down", (opt: any) => {
+        if (opt.target) {
+          tapDown = null;
+          return;
+        }
+        const pointer = canvas.getScenePoint(opt.e);
+        tapDown = { x: pointer.x, y: pointer.y };
+      });
+
+      canvas.on("mouse:up", () => {
+        const tap = tapDown;
+        tapDown = null;
+        if (!tap) return;
+
+        // Photo dimensions in scene/display coordinates (the space getScenePoint
+        // reports): natural size scaled to the on-screen canvas.
+        const { width, height, scale } = imgDimensionsRef.current;
+        const { tip, tail } = createArrow(tap, {
+          width: width * scale,
+          height: height * scale,
+        });
+        const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
+        const arrow = new ArrowClass({
+          x1: tail.x,
+          y1: tail.y,
+          x2: tip.x,
+          y2: tip.y,
+          arrowColor: activeColorRef.current,
+          arrowThickness: activeThicknessRef.current,
+        });
+        canvas.add(arrow);
+        canvas.setActiveObject(arrow);
+        canvas.renderAll();
+      });
     } else {
-      // ── Shape tools: circle, rectangle, arrow ──
+      // ── Shape tools: circle, rectangle ──
       canvas.isDrawingMode = false;
       canvas.selection = true;
 
@@ -891,26 +946,6 @@ export default function PhotoAnnotator({
             selectable: false,
             shadow: new fabric.Shadow(SHADOW_CONFIG),
           });
-        } else if (tool === "arrow") {
-          // Preview arrow as temporary path
-          const ang = Math.atan2(dy, dx);
-          const hl = thick * 4;
-          const hx1 = pointer.x - hl * Math.cos(ang - Math.PI / 6);
-          const hy1 = pointer.y - hl * Math.sin(ang - Math.PI / 6);
-          const hx2 = pointer.x - hl * Math.cos(ang + Math.PI / 6);
-          const hy2 = pointer.y - hl * Math.sin(ang + Math.PI / 6);
-          shape = new fabric.Path(
-            `M ${sx} ${sy} L ${pointer.x} ${pointer.y} M ${hx1} ${hy1} L ${pointer.x} ${pointer.y} L ${hx2} ${hy2}`,
-            {
-              stroke: color,
-              strokeWidth: thick,
-              strokeLineCap: "round",
-              strokeLineJoin: "round",
-              fill: "transparent",
-              selectable: false,
-              evented: false,
-            }
-          );
         }
 
         if (shape) {
@@ -920,30 +955,11 @@ export default function PhotoAnnotator({
         }
       });
 
-      canvas.on("mouse:up", (opt: any) => {
+      canvas.on("mouse:up", () => {
         if (!isDrawingShape.current) return;
         isDrawingShape.current = false;
 
-        if (activeToolRef.current === "arrow" && currentShape.current) {
-          canvas.remove(currentShape.current);
-          const pointer = canvas.getScenePoint(opt.e);
-          const { x: sx, y: sy } = shapeStart.current;
-          const dist = Math.sqrt((pointer.x - sx) ** 2 + (pointer.y - sy) ** 2);
-
-          if (dist > 10) {
-            const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
-            const arrow = new ArrowClass({
-              x1: sx,
-              y1: sy,
-              x2: pointer.x,
-              y2: pointer.y,
-              arrowColor: activeColorRef.current,
-              arrowThickness: activeThicknessRef.current,
-            });
-            canvas.add(arrow);
-            canvas.renderAll();
-          }
-        } else if (currentShape.current) {
+        if (currentShape.current) {
           // Finalize circle/rectangle — make selectable
           currentShape.current.set({ selectable: true, evented: true });
           currentShape.current.setCoords();
