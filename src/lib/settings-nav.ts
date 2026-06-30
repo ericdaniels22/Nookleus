@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   LayoutTemplate,
   Link2,
+  Image,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -23,6 +24,7 @@ export const settingsNavItems: SettingsNavItem[] = [
   { href: "/settings/company", label: "Company", icon: Building2 },
   { href: "/settings/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings/templates", label: "Templates", icon: LayoutTemplate },
+  { href: "/settings/photos", label: "Photos", icon: Image },
   { href: "/settings/money", label: "Money", icon: CircleDollarSign },
   { href: "/settings/people", label: "People", icon: Users },
   { href: "/settings/email", label: "Email", icon: Mail },
