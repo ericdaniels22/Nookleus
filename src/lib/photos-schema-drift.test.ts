@@ -80,3 +80,41 @@ describe("schema-photos.sql annotation author drift guard (#808)", () => {
     expect(createdByDef).not.toMatch(/DEFAULT/i);
   });
 });
+
+/**
+ * Issue #832 — extend the #808 attribution fix to the remaining photo-domain
+ * tables that carried a `created_by text NOT NULL DEFAULT 'Eric'`:
+ *
+ *   - photo_report_templates — the template builder now stamps the resolved
+ *     signed-in user (resolvePhotoAuthor) on insert.
+ *   - photo_reports — already stamped explicitly (created_by: preparerName), so
+ *     its default was vestigial; dropped for consistency + loud failure.
+ *   - photo_tags — has no application write path at all; dropping the default
+ *     forces any future tag seeder to attribute explicitly rather than silently
+ *     crediting 'Eric'.
+ *
+ * Each keeps NOT NULL so an omitted write fails loudly instead of re-attributing
+ * to 'Eric'. This guards the snapshot (and, by mirror, prod) against re-drifting.
+ */
+describe("schema-photos.sql author drift guard (#832)", () => {
+  const sql = readFileSync(SCHEMA_PATH, "utf8");
+
+  const TABLES = [
+    "photo_report_templates",
+    "photo_reports",
+    "photo_tags",
+  ] as const;
+
+  it.each(TABLES)(
+    "does not default %s.created_by, but keeps it NOT NULL",
+    (table) => {
+      const block = createTableBlock(sql, table);
+      const createdByDef = (
+        block.split("\n").find((l) => /\bcreated_by\b/.test(l)) ?? ""
+      ).split("--")[0];
+      expect(createdByDef).toMatch(/\bcreated_by\b/);
+      expect(createdByDef).toMatch(/NOT NULL/i);
+      expect(createdByDef).not.toMatch(/DEFAULT/i);
+    },
+  );
+});

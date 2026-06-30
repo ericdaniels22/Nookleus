@@ -11,23 +11,46 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
+// The signed-in user the template should be attributed to (#832). The mock
+// `user_profiles` row carries this full_name, so `resolvePhotoAuthor` resolves
+// to it (full_name wins over email).
+const AUTHOR = "Jane Tech";
+
 const h = vi.hoisted(() => ({
   insertMock: vi.fn<(payload: Record<string, unknown>) => void>(),
   updateMock: vi.fn<(payload: Record<string, unknown>) => void>(),
 }));
 
+// `from` is now table-aware: `resolvePhotoAuthor` reads `user_profiles`, while
+// the builder writes `photo_report_templates`. The same fake serves both.
 vi.mock("@/lib/supabase", () => ({
   createClient: () => ({
-    from: () => ({
-      insert: (payload: Record<string, unknown>) => {
-        h.insertMock(payload);
-        return Promise.resolve({ error: null });
-      },
-      update: (payload: Record<string, unknown>) => {
-        h.updateMock(payload);
-        return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
-      },
-    }),
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: "user-1", email: "jane@aaacontracting.com" } },
+      }),
+    },
+    from: (table: string) => {
+      if (table === "user_profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { full_name: "Jane Tech" } }),
+            }),
+          }),
+        };
+      }
+      return {
+        insert: (payload: Record<string, unknown>) => {
+          h.insertMock(payload);
+          return Promise.resolve({ error: null });
+        },
+        update: (payload: Record<string, unknown>) => {
+          h.updateMock(payload);
+          return { eq: () => ({ eq: () => Promise.resolve({ error: null }) }) };
+        },
+      };
+    },
   }),
 }));
 
@@ -101,6 +124,60 @@ describe("ReportTemplateBuilder", () => {
     expect(payload).not.toHaveProperty("audience");
     expect(payload).not.toHaveProperty("cover_page");
     expect(payload).not.toHaveProperty("photos_per_page");
+  });
+
+  it("stamps created_by with the resolved signed-in user on create (#832)", async () => {
+    render(
+      <ReportTemplateBuilder
+        open
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+        editTemplate={null}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Findings"), {
+      target: { value: "Findings" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Section heading"), {
+      target: { value: "Findings" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create template/i }));
+
+    await waitFor(() => expect(h.insertMock).toHaveBeenCalledTimes(1));
+    expect(h.insertMock.mock.calls[0][0]).toMatchObject({ created_by: AUTHOR });
+  });
+
+  it("does not send created_by when editing, so the original author is preserved (#832)", async () => {
+    const editTemplate = {
+      id: "tmpl-1",
+      organization_id: "org-1",
+      name: "Existing",
+      sections: [{ title: "Intro", description: "<p>Boilerplate.</p>" }],
+      created_by: "Original Author",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    render(
+      <ReportTemplateBuilder
+        open
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+        editTemplate={editTemplate}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Findings"), {
+      target: { value: "Existing (renamed)" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /update template/i }));
+
+    await waitFor(() => expect(h.updateMock).toHaveBeenCalledTimes(1));
+    expect(h.updateMock.mock.calls[0][0]).not.toHaveProperty("created_by");
+    expect(h.insertMock).not.toHaveBeenCalled();
   });
 
   it("does not render the retired audience / cover page / photos-per-page controls", () => {
