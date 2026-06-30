@@ -46,6 +46,7 @@ import {
   type AnchorBox,
   type ToolbarControl,
 } from "@/lib/jobs/annotation-toolbar";
+import { labelAnchorPoint, readableTextColor } from "@/lib/jobs/label-pill";
 import {
   ANNOTATION_COLORS,
   ANNOTATION_THICKNESSES,
@@ -163,6 +164,7 @@ function initFabricClasses(fabric: any) {
     declare arrowColor: string;
     declare labelText: string | null;
     declare labelFontSize: number;
+    declare labelColor: string | null;
     declare arrowThickness: number;
 
     constructor(options: any = {}) {
@@ -174,6 +176,7 @@ function initFabricClasses(fabric: any) {
       this.arrowColor = options.arrowColor ?? "#F59E0B";
       this.labelText = options.labelText ?? null;
       this.labelFontSize = options.labelFontSize ?? 20;
+      this.labelColor = options.labelColor ?? null;
       this.arrowThickness = options.arrowThickness ?? 4;
 
       this.objectCaching = false;
@@ -253,21 +256,9 @@ function initFabricClasses(fabric: any) {
       ctx.lineTo(hx2, hy2);
       ctx.stroke();
 
-      // Label text
-      if (this.labelText) {
-        const fs = this.labelFontSize;
-        ctx.font = `bold ${fs}px Arial`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const labelOffset = ly1 > ly2 ? fs + 6 : -(fs + 6);
-        // Stroke outline for readability
-        ctx.strokeStyle = "#000000";
-        ctx.lineWidth = 1;
-        ctx.lineJoin = "round";
-        ctx.strokeText(this.labelText, lx1, ly1 + labelOffset);
-        ctx.fillStyle = this.arrowColor;
-        ctx.fillText(this.labelText, lx1, ly1 + labelOffset);
-      }
+      // The Label (if any) is no longer drawn here — every Annotation kind now
+      // shares one `after:render` pill drawer (#812), so an Arrow's Label is
+      // positioned and styled identically to a shape's or a text box's.
     }
 
     _initControls() {
@@ -345,6 +336,7 @@ function initFabricClasses(fabric: any) {
         arrowColor: this.arrowColor,
         labelText: this.labelText,
         labelFontSize: this.labelFontSize,
+        labelColor: this.labelColor,
         arrowThickness: this.arrowThickness,
       };
     }
@@ -427,21 +419,9 @@ function initFabricClasses(fabric: any) {
       ctx.fillStyle = "#FFFFFF";
       ctx.fillText(digits, 0, 1);
 
-      // Optional attached Label, drawn below the badge in the marker's colour
-      // with a dark outline for legibility (matching the Arrow's label style).
-      if (this.labelText) {
-        const lfs = this.labelFontSize;
-        ctx.font = `bold ${lfs}px Arial`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const ly = r + 6 + lfs / 2;
-        ctx.strokeStyle = "#000000";
-        ctx.lineWidth = 1;
-        ctx.lineJoin = "round";
-        ctx.strokeText(this.labelText, 0, ly);
-        ctx.fillStyle = this.markerColor;
-        ctx.fillText(this.labelText, 0, ly);
-      }
+      // The attached Label (if any) is no longer drawn here — every Annotation
+      // kind now shares one `after:render` pill drawer (#812), so a marker's
+      // Label is the same filled, rounded pill an Arrow or shape gets.
     }
 
     toObject(propertiesToInclude?: string[]) {
@@ -463,6 +443,63 @@ function initFabricClasses(fabric: any) {
 
   classRegistry.setClass(FabricNumberedMarker, "FabricNumberedMarker");
   fabricClassesReady = true;
+}
+
+// ─── Label pill drawing (#812) ───────────────────────────────────────────────
+
+/**
+ * Draw one filled, rounded Label pill onto `ctx`, centred horizontally on
+ * `anchor` (the pill's top-centre, as returned by `labelAnchorPoint`) and
+ * hanging straight down from it. The caller has already applied the canvas
+ * viewport transform, so `anchor` and the pill are in scene coordinates — the
+ * very same call paints the pill in the editor view and burns it into the
+ * flattened export PNG at the export's zoom. The text colour is chosen for
+ * legibility against `fill`.
+ */
+function drawLabelPill(
+  ctx: CanvasRenderingContext2D,
+  anchor: { x: number; y: number },
+  text: string,
+  fontSize: number,
+  fill: string
+) {
+  const padX = fontSize * 0.55;
+  const padY = fontSize * 0.32;
+
+  ctx.save();
+  ctx.font = `bold ${fontSize}px Arial`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const pillW = ctx.measureText(text).width + padX * 2;
+  const pillH = fontSize + padY * 2;
+  const x = anchor.x - pillW / 2;
+  const y = anchor.y;
+  const r = Math.min(pillH / 2, pillW / 2);
+
+  // Soft drop shadow so a pale pill stays separated from a busy photo.
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + pillW, y, x + pillW, y + pillH, r);
+  ctx.arcTo(x + pillW, y + pillH, x, y + pillH, r);
+  ctx.arcTo(x, y + pillH, x, y, r);
+  ctx.arcTo(x, y, x + pillW, y, r);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  // Drop the shadow before painting the text so the glyphs stay crisp.
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.fillStyle = readableTextColor(fill);
+  ctx.fillText(text, anchor.x, y + pillH / 2);
+  ctx.restore();
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -615,6 +652,8 @@ export default function PhotoAnnotator({
   const [labelInput, setLabelInput] = useState<{
     target: any;
     text: string;
+    x: number;
+    y: number;
   } | null>(null);
 
   // ── Photo navigation ──
@@ -982,37 +1021,74 @@ export default function PhotoAnnotator({
     };
   }, [canvasReady, autoSave]);
 
+  // The top-edge box an Annotation's floating UI anchors to. The Arrow anchors
+  // on its raw endpoints (unchanged from before); every other kind uses its
+  // post-transform bounding box. Shared by the toolbar and the Label input.
+  function anchorBoxFor(target: any): AnchorBox {
+    if (annotationKind(target?.type) === "arrow") {
+      return {
+        left: Math.min(target.x1, target.x2),
+        top: Math.min(target.y1, target.y2),
+        width: Math.abs(target.x2 - target.x1),
+      };
+    }
+    const r = target.getBoundingRect();
+    return { left: r.left, top: r.top, width: r.width };
+  }
+
+  // The client-space point an Annotation's floating UI hangs from (centred on
+  // the object's top edge), or null if there is no live canvas/target.
+  function annotationClientAnchor(target: any): { x: number; y: number } | null {
+    const canvas = fabricRef.current;
+    if (!canvas || !target) return null;
+    const rect = canvas.getElement().getBoundingClientRect();
+    return toolbarAnchorPoint(anchorBoxFor(target), rect);
+  }
+
+  // The fill colour a host's Label pill uses: an explicit Label colour wins;
+  // otherwise it inherits the host's own colour (an Arrow's arrowColor, a
+  // marker's markerColor, a shape's stroke, a text box's fill), falling back to
+  // the active palette colour so a Label is never invisible. Shared by the
+  // new-Label default and the render-time fallback for pre-#812 rows that carry
+  // text but no colour.
+  function labelColorFor(obj: any): string {
+    const stroke =
+      typeof obj.stroke === "string" && obj.stroke ? obj.stroke : null;
+    const fill =
+      typeof obj.fill === "string" && obj.fill && obj.fill !== "transparent"
+        ? obj.fill
+        : null;
+    return (
+      obj.labelColor ||
+      obj.arrowColor ||
+      obj.markerColor ||
+      stroke ||
+      fill ||
+      activeColorRef.current
+    );
+  }
+
   // ─── Selection / toolbar / movement sync (every Annotation kind) ────────────
 
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas || !canvasReady) return;
 
-    // The top-edge box the toolbar anchors to. The Arrow anchors on its raw
-    // endpoints (unchanged from before); every other kind uses its bounding box.
-    function anchorBoxFor(target: any): AnchorBox {
-      if (annotationKind(target?.type) === "arrow") {
-        return {
-          left: Math.min(target.x1, target.x2),
-          top: Math.min(target.y1, target.y2),
-          width: Math.abs(target.x2 - target.x1),
-        };
-      }
-      const r = target.getBoundingRect();
-      return { left: r.left, top: r.top, width: r.width };
-    }
-
     // Show the in-context toolbar for a selected object, or hide it if the
     // object is not a toolbar-eligible Annotation (background, crop rect, …).
     function showToolbar(target: any) {
       const kind = annotationKind(target?.type);
-      if (!kind || target === cropRectRef.current) {
+      const anchor = annotationClientAnchor(target);
+      if (!kind || !anchor || target === cropRectRef.current) {
         setObjectToolbar(null);
         return;
       }
-      const rect = canvas.getElement().getBoundingClientRect();
-      const { x, y } = toolbarAnchorPoint(anchorBoxFor(target), rect);
-      setObjectToolbar({ x, y, target, controls: toolbarControls(kind) });
+      setObjectToolbar({
+        x: anchor.x,
+        y: anchor.y,
+        target,
+        controls: toolbarControls(kind),
+      });
     }
 
     function onSelected(e: any) {
@@ -1132,6 +1208,63 @@ export default function PhotoAnnotator({
       canvas.off("object:moving", onMoving);
       canvas.off("object:modified", onModified);
       canvas.off("after:render", drawGuides);
+    };
+  }, [canvasReady]);
+
+  // ─── Label pills — one after:render drawer for every Annotation (#812) ──────
+  //
+  // A single persistent handler draws each labelled object's pill beneath its
+  // post-transform bounding box, so a Label tracks its host as it is dragged,
+  // scaled, or rotated (the anchor is recomputed every frame). Because the
+  // export path (`toDataURL`/`toCanvasElement`) renders through the same
+  // `after:render`, this is also what burns the pill into the flattened
+  // Annotated Photo — positioned identically to the editor view.
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas || !canvasReady) return;
+
+    const drawLabels = (opt: { ctx?: CanvasRenderingContext2D }) => {
+      const ctx = opt?.ctx;
+      if (!ctx) return;
+      const labeled = canvas
+        .getObjects()
+        .filter((o: any) => o.labelText && o.visible !== false);
+      if (labeled.length === 0) return;
+
+      // `after:render` fires with the viewport transform already restored off
+      // the ctx, and the export path renders at a multiplied zoom — so re-apply
+      // the live viewport transform to draw each pill in scene coordinates.
+      const vpt = canvas.viewportTransform;
+      ctx.save();
+      ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+      for (const obj of labeled) {
+        const center = obj.getCenterPoint();
+        const anchor = labelAnchorPoint({
+          centerX: center.x,
+          centerY: center.y,
+          width: obj.width ?? 0,
+          height: obj.height ?? 0,
+          scaleX: obj.scaleX ?? 1,
+          scaleY: obj.scaleY ?? 1,
+          angle: obj.angle ?? 0,
+        });
+        drawLabelPill(
+          ctx,
+          anchor,
+          obj.labelText,
+          obj.labelFontSize ?? 20,
+          labelColorFor(obj)
+        );
+      }
+      ctx.restore();
+    };
+
+    canvas.on("after:render", drawLabels);
+    // Restored annotations were rendered before this handler subscribed; one
+    // more render paints any pills loaded with the photo.
+    canvas.requestRenderAll();
+    return () => {
+      canvas.off("after:render", drawLabels);
     };
   }, [canvasReady]);
 
@@ -1750,27 +1883,42 @@ export default function PhotoAnnotator({
 
   // ─── In-context Toolbar Handlers (every Annotation kind) ────────────────────
 
-  // Label control. The per-object Label flow exists for Arrows and Numbered
-  // markers (both render their own `labelText`); on other shapes the Label
-  // control is present but a safe no-op until the Attached Labels slice (#804)
-  // lands — it must never throw or corrupt the object.
+  // Label control. Any Annotation can carry one Label (#812): open the text
+  // input anchored over the object, pre-filled with the existing Label text so
+  // re-tapping edits in place rather than starting blank. A non-Annotation
+  // (background image, crop rect) classifies as no kind and is ignored.
   function handleLabel(target: any) {
-    const kind = target ? annotationKind(target.type) : null;
-    if (kind !== "arrow" && kind !== "marker") return;
+    if (!target || !annotationKind(target.type)) return;
+    const anchor = annotationClientAnchor(target);
+    if (!anchor) return;
     setLabelInput({
       target,
-      text: target.labelText || "Label",
+      text: target.labelText ?? "",
+      x: anchor.x,
+      y: anchor.y,
     });
     setObjectToolbar(null);
   }
 
+  // Confirm a Label edit. An empty string removes the Label; otherwise the
+  // trimmed text is stored, and on first add the pill inherits a colour (via
+  // `labelColorFor`) and the default font size so it renders legibly. The shared
+  // `after:render` pill drawer repaints it; persistence happens at the
+  // `recordStep` commit point below (#813), so no separate save fire is needed.
   function handleLabelSubmit() {
     if (!labelInput) return;
     const canvas = fabricRef.current;
-    const target = labelInput.target;
-    target.labelText = labelInput.text || null;
+    const { target } = labelInput;
+    const text = labelInput.text.trim();
+    if (text) {
+      target.labelText = text;
+      target.labelColor = labelColorFor(target);
+      target.labelFontSize = target.labelFontSize ?? 20;
+    } else {
+      target.labelText = null;
+    }
     target.set("dirty", true);
-    canvas?.renderAll();
+    canvas?.requestRenderAll();
     setLabelInput(null);
     // recordStep is this edit's commit point (#813): it snapshots the canvas —
     // capturing the just-set labelText via ANNOTATION_CUSTOM_PROPS — into the
@@ -1799,6 +1947,7 @@ export default function PhotoAnnotator({
         arrowThickness: target.arrowThickness,
         labelText: target.labelText,
         labelFontSize: target.labelFontSize,
+        labelColor: target.labelColor,
       });
       canvas.add(copy);
       canvas.renderAll();
@@ -1807,7 +1956,9 @@ export default function PhotoAnnotator({
       return;
     }
 
-    const clone = await target.clone();
+    // Pass the custom-prop allowlist so the clone carries its Label (text,
+    // colour, font size) — a bare clone() projects only Fabric built-ins.
+    const clone = await target.clone([...ANNOTATION_CUSTOM_PROPS]);
     clone.set({
       left: (clone.left ?? 0) + DUPLICATE_OFFSET,
       top: (clone.top ?? 0) + DUPLICATE_OFFSET,
@@ -2706,51 +2857,44 @@ export default function PhotoAnnotator({
           </div>
         )}
 
-        {/* Label input (Arrow or Numbered marker) */}
-        {labelInput &&
-          (() => {
-            // Anchor above the object: an Arrow over its endpoints, a marker
-            // over its centre. Same canvas-pixel placement the Arrow has always
-            // used (it ignores the canvas's centring offset by design).
-            const t = labelInput.target;
-            const isArrow = t.type === "FabricArrow";
-            const popupLeft =
-              (isArrow ? (t.x1 + t.x2) / 2 : t.left ?? 0) - 28;
-            const popupTop =
-              (isArrow ? Math.min(t.y1, t.y2) : t.top ?? 0) - 80;
-            return (
-              <div
-                className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
-                style={{ left: popupLeft, top: popupTop }}
-              >
-                <input
-                  autoFocus
-                  value={labelInput.text}
-                  onChange={(e) =>
-                    setLabelInput({ ...labelInput, text: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleLabelSubmit();
-                    if (e.key === "Escape") setLabelInput(null);
-                  }}
-                  className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
-                  placeholder="Label text..."
-                />
-                <button
-                  onClick={handleLabelSubmit}
-                  className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
-                >
-                  <Check size={14} />
-                </button>
-                <button
-                  onClick={() => setLabelInput(null)}
-                  className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            );
-          })()}
+        {/* Label input (every Annotation kind) — anchored over the object like
+            the toolbar it replaces. */}
+        {labelInput && (
+          <div
+            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
+            style={{
+              left: labelInput.x,
+              top: Math.max(8, labelInput.y - 52),
+              transform: "translateX(-50%)",
+            }}
+          >
+            <input
+              autoFocus
+              value={labelInput.text}
+              onChange={(e) =>
+                setLabelInput({ ...labelInput, text: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleLabelSubmit();
+                if (e.key === "Escape") setLabelInput(null);
+              }}
+              className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
+              placeholder="Label text..."
+            />
+            <button
+              onClick={handleLabelSubmit}
+              className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
+            >
+              <Check size={14} />
+            </button>
+            <button
+              onClick={() => setLabelInput(null)}
+              className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Navigation arrows */}
         {photos.length > 1 && currentIndex > 0 && (

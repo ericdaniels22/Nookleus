@@ -12,9 +12,12 @@
  * and the save path's `toJSON` projection both read it, so the set of persisted
  * fields is defined in exactly one place. A given subclass only writes the props
  * it owns — a FabricArrow writes the `x1..arrowThickness` group, a Numbered
- * marker (#816) writes `markerNumber`/`markerColor` and reuses `labelText`/
- * `labelFontSize` for its attached label — but the projection list is shared so
- * one `toJSON([...ANNOTATION_CUSTOM_PROPS])` call serializes every kind.
+ * marker (#816) writes `markerNumber`/`markerColor` — while the shared Label
+ * fields (`labelText`, `labelFontSize`, `labelColor`) belong to ANY Annotation
+ * that carries an attached Label (#812). The projection list is shared so one
+ * `toJSON([...ANNOTATION_CUSTOM_PROPS])` call serializes every kind, and `toJSON`
+ * projects only the props an object actually has, so an unlabeled shape stays
+ * free of stray Label keys.
  */
 export const ANNOTATION_CUSTOM_PROPS = [
   "x1",
@@ -24,6 +27,7 @@ export const ANNOTATION_CUSTOM_PROPS = [
   "arrowColor",
   "labelText",
   "labelFontSize",
+  "labelColor",
   "arrowThickness",
   "markerNumber",
   "markerColor",

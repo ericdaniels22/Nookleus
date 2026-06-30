@@ -90,14 +90,17 @@ export function toolbarAnchorPoint(
 }
 
 /**
- * The ordered set of controls a selected Annotation of this kind exposes. A
- * text box or a freehand drawing carries no Label or Copy — only Delete. A
- * Numbered marker carries Label and Delete but no Copy: duplicating it would
- * clone its number, which the auto-sequence (#816) owns, so the copy is
- * deliberately withheld. Every other kind gets the full Label, Copy, Delete row.
+ * The ordered set of controls a selected Annotation of this kind exposes. Every
+ * kind can carry a Label (#812), so all get a Label control. Copy is the
+ * narrower affordance: a text box or a freehand drawing exposes none (an
+ * unchanged #811 decision), and a Numbered marker withholds it too because
+ * duplicating it would clone its number, which the auto-sequence (#816) owns —
+ * so all three are Label, Delete. Every other kind gets the full Label, Copy,
+ * Delete row.
  */
 export function toolbarControls(kind: AnnotationKind): ToolbarControl[] {
-  if (kind === "text" || kind === "freehand") return ["delete"];
-  if (kind === "marker") return ["label", "delete"];
+  if (kind === "text" || kind === "freehand" || kind === "marker") {
+    return ["label", "delete"];
+  }
   return ["label", "copy", "delete"];
 }

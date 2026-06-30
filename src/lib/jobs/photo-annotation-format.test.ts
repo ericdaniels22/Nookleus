@@ -191,6 +191,7 @@ describe("ANNOTATION_CUSTOM_PROPS", () => {
       "arrowColor",
       "labelText",
       "labelFontSize",
+      "labelColor",
       "arrowThickness",
       "markerNumber",
       "markerColor",
