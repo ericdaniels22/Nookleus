@@ -6,9 +6,19 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
 import {
+  createHistory,
+  push as pushHistory,
+  undo as undoHistory,
+  redo as redoHistory,
+  canUndo as historyCanUndo,
+  canRedo as historyCanRedo,
+  type HistoryState,
+} from "@/lib/jobs/photo-annotator-history";
+import {
   ANNOTATION_CUSTOM_PROPS,
   parseAnnotations,
   serializeAnnotations,
+  type Annotation,
 } from "@/lib/jobs/photo-annotation-format";
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
 import { createArrow } from "@/lib/jobs/arrow-geometry";
@@ -33,6 +43,7 @@ import {
   Type,
   MousePointer,
   Undo2,
+  Redo2,
   Trash2,
   Loader2,
   ArrowUpRight,
@@ -425,6 +436,18 @@ export default function PhotoAnnotator({
   const shapeStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const currentShape = useRef<any>(null);
 
+  // ── History (undo / redo) ──
+  // The pure stack (past/present/future of markup snapshots) is the source of
+  // truth for what undo and redo restore; the two booleans mirror its derived
+  // canUndo/canRedo so the toolbar buttons enable/disable in render.
+  // isRestoringRef suppresses step capture while we replay a snapshot onto the
+  // canvas. The cheap debounced markup write itself lives in the auto-save hook
+  // (ADR 0024's split write); recordStep just feeds it.
+  const historyRef = useRef<HistoryState<Annotation[]>>(createHistory([]));
+  const isRestoringRef = useRef(false);
+  const [canUndoState, setCanUndoState] = useState(false);
+  const [canRedoState, setCanRedoState] = useState(false);
+
   // ── Refs that sync with state ──
   const activeToolRef = useRef<Tool>(activeTool);
   const activeColorRef = useRef(activeColor);
@@ -513,6 +536,13 @@ export default function PhotoAnnotator({
       await loadAnnotations(canvas, currentPhoto.id);
       setCanvasReady(true);
       isDirtyRef.current = false;
+
+      // Seed the undo/redo history with the just-loaded markup as the baseline
+      // present: there's nothing to undo back past a Photo's saved state, and a
+      // fresh stack means undo can never step across into another Photo's edits.
+      historyRef.current = createHistory(snapshotObjects(canvas));
+      setCanUndoState(false);
+      setCanRedoState(false);
 
       // Check for original backup
       const supabase = createClient();
@@ -607,6 +637,12 @@ export default function PhotoAnnotator({
       polyDrawingRef.current = null;
       polyPreviewRef.current = null;
       isDirtyRef.current = false;
+      // Drop the previous Photo's undo/redo history immediately; initCanvas
+      // re-seeds the stack once the new canvas loads. (Any pending markup save
+      // is owned and flushed by the auto-save hook, not here.)
+      historyRef.current = createHistory([]);
+      setCanUndoState(false);
+      setCanRedoState(false);
       const timer = setTimeout(() => initCanvas(), 200);
       return () => clearTimeout(timer);
     }
@@ -634,14 +670,25 @@ export default function PhotoAnnotator({
       const json = canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]);
       autoSave.scheduleMarkupSave(serializeAnnotations(json.objects));
     };
+    // A finished freehand stroke and a committed text edit are completed steps
+    // too — record them here. (Moves/resizes are recorded in the arrow-sync
+    // effect's object:modified, after endpoint sync, so an arrow's geometry is
+    // already current when snapshotted; shape/arrow/polyline placement is
+    // recorded at their explicit finalize points, never on raw object:added,
+    // so a mid-draw preview never lands in the stack.)
+    const onCommit = () => recordStep();
     canvas.on("object:added", markDirty);
     canvas.on("object:modified", markDirty);
     canvas.on("object:removed", markDirty);
+    canvas.on("path:created", onCommit);
+    canvas.on("text:editing:exited", onCommit);
 
     return () => {
       canvas.off("object:added", markDirty);
       canvas.off("object:modified", markDirty);
       canvas.off("object:removed", markDirty);
+      canvas.off("path:created", onCommit);
+      canvas.off("text:editing:exited", onCommit);
     };
   }, [canvasReady, autoSave]);
 
@@ -702,6 +749,9 @@ export default function PhotoAnnotator({
         target._syncEndpointsToPosition();
       }
       showToolbar(target);
+      // Record the move/resize/endpoint-drag as one undoable step — after any
+      // arrow endpoint sync above so the snapshot captures its final geometry.
+      recordStep();
     }
 
     canvas.on("selection:created", onSelected);
@@ -956,6 +1006,7 @@ export default function PhotoAnnotator({
         canvas.add(arrow);
         canvas.setActiveObject(arrow);
         canvas.renderAll();
+        recordStep();
       });
     } else {
       // ── Shape tools: circle, rectangle ──
@@ -1042,6 +1093,7 @@ export default function PhotoAnnotator({
           });
           currentShape.current.setCoords();
           canvas.renderAll();
+          recordStep();
         }
         currentShape.current = null;
       });
@@ -1098,6 +1150,7 @@ export default function PhotoAnnotator({
 
     polyDrawingRef.current = null;
     polyPreviewRef.current = null;
+    recordStep();
   }
 
   // ─── In-context Toolbar Handlers (every Annotation kind) ────────────────────
@@ -1122,6 +1175,7 @@ export default function PhotoAnnotator({
     labelInput.arrow.set("dirty", true);
     canvas?.renderAll();
     setLabelInput(null);
+    recordStep();
   }
 
   // Duplicate control. The Arrow keeps its bespoke copy (its endpoints, not just
@@ -1148,6 +1202,7 @@ export default function PhotoAnnotator({
       canvas.add(copy);
       canvas.renderAll();
       setObjectToolbar(null);
+      recordStep();
       return;
     }
 
@@ -1173,6 +1228,7 @@ export default function PhotoAnnotator({
     }
     canvas.renderAll();
     setObjectToolbar(null);
+    recordStep();
   }
 
   // Delete control. Uniform across kinds — remove the object, drop the
@@ -1184,6 +1240,7 @@ export default function PhotoAnnotator({
     canvas.discardActiveObject();
     canvas.renderAll();
     setObjectToolbar(null);
+    recordStep();
   }
 
   // ─── Crop System ───────────────────────────────────────────────────────────
@@ -1552,43 +1609,127 @@ export default function PhotoAnnotator({
     canvas.renderAll();
   }
 
-  // ─── Undo & Clear ─────────────────────────────────────────────────────────
+  // ─── History capture & restore ─────────────────────────────────────────────
+
+  /** Snapshot the current markup objects (carrying the FabricArrow custom props
+   *  so an arrow's geometry, color, label and styling round-trip) — the opaque
+   *  T the pure history stack stores. The background photo is excluded; only the
+   *  user-placed annotations are versioned. */
+  function snapshotObjects(canvas: any): Annotation[] {
+    return canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]).objects as Annotation[];
+  }
+
+  /** Mirror the stack's derived canUndo/canRedo onto state so the toolbar
+   *  buttons enable/disable immediately after every step, undo and redo. */
+  function syncHistoryFlags() {
+    setCanUndoState(historyCanUndo(historyRef.current));
+    setCanRedoState(historyCanRedo(historyRef.current));
+  }
+
+  /** Push the canvas's current state as one completed step, refresh the derived
+   *  flags, mark the Photo dirty (so the on-exit PNG rebuild still fires per ADR
+   *  0024), and feed the cheap debounced markup save. Called at every commit
+   *  point — never mid-draw, so a preview object can't land in the stack — and
+   *  suppressed while we're replaying a snapshot back onto the canvas. */
+  function recordStep() {
+    const canvas = fabricRef.current;
+    if (!canvas || isRestoringRef.current) return;
+    const objects = snapshotObjects(canvas);
+    historyRef.current = pushHistory(historyRef.current, objects);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    autoSave.scheduleMarkupSave(serializeAnnotations(objects));
+  }
+
+  /** Replay a stored snapshot onto the canvas, preserving the background and
+   *  re-attaching polyline vertex controls, exactly like the initial load.
+   *  Guarded with isRestoringRef so the object churn it causes never records a
+   *  new step. */
+  async function restoreSnapshot(objects: Annotation[]) {
+    const canvas = fabricRef.current;
+    const fabric = fabricModuleRef.current;
+    if (!canvas || !fabric) return;
+    isRestoringRef.current = true;
+    try {
+      const bg = canvas.backgroundImage;
+      canvas.discardActiveObject();
+      await canvas.loadFromJSON({ version: "7.2.0", objects });
+      canvas.backgroundImage = bg;
+      attachEditorHandles(canvas, fabric);
+      canvas.renderAll();
+    } finally {
+      isRestoringRef.current = false;
+    }
+    setObjectToolbar(null);
+  }
+
+  // ─── Undo / Redo / Clear ───────────────────────────────────────────────────
 
   function handleUndo() {
     const canvas = fabricRef.current;
     if (!canvas) return;
 
-    // If actively drawing a polyline, undo the last placed point
+    // While a polyline is actively being drawn, Undo backs out the last placed
+    // vertex (and dismisses the in-progress polyline once a single point is
+    // left) instead of popping the committed history stack.
     if (polyDrawingRef.current) {
       const pts = polyDrawingRef.current.points;
       if (pts.length > 1) {
         pts.pop();
-        canvas.renderAll();
-        return;
       } else {
         polyDrawingRef.current = null;
         polyPreviewRef.current = null;
-        canvas.renderAll();
-        return;
       }
+      canvas.renderAll();
+      return;
     }
 
-    const objects = canvas.getObjects();
-    if (objects.length === 0) return;
-    const last = objects[objects.length - 1];
-    canvas.remove(last);
-    setObjectToolbar(null);
-    canvas.renderAll();
+    if (!historyCanUndo(historyRef.current)) return;
+    historyRef.current = undoHistory(historyRef.current);
+    const restored = historyRef.current.present;
+    void restoreSnapshot(restored);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    // Feed the cheap debounced markup save from the restored snapshot itself,
+    // not the canvas — restoreSnapshot's loadFromJSON is async, so reading the
+    // canvas here would capture the pre-undo state (and an undo back to an empty
+    // canvas fires no object events to piggyback on).
+    autoSave.scheduleMarkupSave(serializeAnnotations(restored));
+  }
+
+  function handleRedo() {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (!historyCanRedo(historyRef.current)) return;
+    historyRef.current = redoHistory(historyRef.current);
+    const restored = historyRef.current.present;
+    void restoreSnapshot(restored);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    autoSave.scheduleMarkupSave(serializeAnnotations(restored));
   }
 
   function handleClear() {
     const canvas = fabricRef.current;
     if (!canvas) return;
-    canvas.getObjects().slice().forEach((obj: any) => canvas.remove(obj));
+
+    // Dismiss any in-progress polyline first — it isn't a committed object.
     polyDrawingRef.current = null;
     polyPreviewRef.current = null;
+
+    const objects = canvas.getObjects().slice();
+    if (objects.length === 0) {
+      canvas.renderAll();
+      return;
+    }
+    objects.forEach((obj: any) => canvas.remove(obj));
     setObjectToolbar(null);
     canvas.renderAll();
+
+    // Record the emptied canvas as ONE undoable step (a push of the empty
+    // snapshot, not the stack-reset clear) so an immediate Undo brings every
+    // annotation back at once.
+    recordStep();
   }
 
   // ─── Close ─────────────────────────────────────────────────────────────────
@@ -1627,9 +1768,17 @@ export default function PhotoAnnotator({
     if (!open || !canvasReady) return;
 
     function onKeyDown(e: KeyboardEvent) {
-      // Don't navigate when editing text
+      // Don't navigate or undo/redo when editing text
       const active = fabricRef.current?.getActiveObject();
       if (active?.isEditing) return;
+
+      // Undo / Redo: ⌘Z / Ctrl+Z, and ⇧⌘Z / Ctrl+Shift+Z to redo.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+        return;
+      }
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -1760,13 +1909,32 @@ export default function PhotoAnnotator({
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Undo / Clear */}
+        {/* Undo / Redo / Clear */}
         <button
           onClick={handleUndo}
-          title="Undo"
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-[#999] hover:text-white hover:bg-[#333] transition-colors"
+          disabled={!canUndoState}
+          title="Undo (⌘Z)"
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+            canUndoState
+              ? "text-[#999] hover:text-white hover:bg-[#333]"
+              : "text-[#555] cursor-not-allowed"
+          )}
         >
           <Undo2 size={18} />
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={!canRedoState}
+          title="Redo (⇧⌘Z)"
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+            canRedoState
+              ? "text-[#999] hover:text-white hover:bg-[#333]"
+              : "text-[#555] cursor-not-allowed"
+          )}
+        >
+          <Redo2 size={18} />
         </button>
         <button
           onClick={handleClear}
