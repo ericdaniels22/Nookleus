@@ -88,6 +88,15 @@ export const GOOGLE_BUSINESS_ENDPOINTS = {
   performanceBase: "https://businessprofileperformance.googleapis.com/v1",
 } as const;
 
+// Google Ads API (#610) — paid-search + Local Services Ads reporting via GAQL.
+// READ-ONLY: the only resource the Insights feed ever hits is googleAds:searchStream
+// (a query endpoint). No mutate/campaign endpoint is referenced anywhere, by
+// design (acceptance criterion: "no write/mutation path to any ads API exists").
+export const GOOGLE_ADS_ENDPOINTS = {
+  // POST {searchBase}/{customerId}/googleAds:searchStream — streams GAQL rows.
+  searchBase: "https://googleads.googleapis.com/v18/customers",
+} as const;
+
 // Search Console API (#607) — search performance for a verified site. Single
 // source of truth for the fetch helpers in insights/search-console.ts.
 export const GOOGLE_SEARCH_CONSOLE_ENDPOINTS = {
@@ -113,4 +122,10 @@ export const GOOGLE_SCOPES = [
   // the only consent change the Insights slice needs; existing connections pick
   // it up on a reconnect with include_granted_scopes=true.
   "https://www.googleapis.com/auth/webmasters.readonly",
+  // #610 — Google Ads + Local Services Ads reporting. There is no read-only Ads
+  // scope; `adwords` is the only scope Google offers. Read-only posture is
+  // enforced in code instead: the feed hits googleAds:searchStream only, never a
+  // mutate endpoint. The same single link widens on a reconnect with
+  // include_granted_scopes=true.
+  "https://www.googleapis.com/auth/adwords",
 ] as const;

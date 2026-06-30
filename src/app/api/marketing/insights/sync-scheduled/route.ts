@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-api";
 import { listConnectedOrganizationIds } from "@/lib/google/connection";
-import { ingestAllConnectedInsights } from "@/lib/insights/ingest";
+import { ingestAllConnectedInsights, resolveAdsIngestConfig } from "@/lib/insights/ingest";
 import { getGoogleClient } from "@/lib/google/client";
 
 // GET /api/marketing/insights/sync-scheduled — Vercel Cron endpoint. Runs daily
@@ -35,6 +35,16 @@ export async function GET(request: Request) {
     organizationIds,
     today,
     getClient: (organizationId) => getGoogleClient(service, organizationId),
+    // Paid feeds (#610) light up once #611 provisions the Ads developer token
+    // and discovers each org's Ads customer id. Until then the customer id has
+    // no per-org source, so resolveAdsIngestConfig returns null and the paid
+    // pulls are skipped — the free Google feeds ingest unchanged. #611 swaps the
+    // null below for the discovered per-org customer id; nothing else changes.
+    getAdsConfig: async () =>
+      resolveAdsIngestConfig({
+        developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        customerId: null,
+      }),
   });
   const durationMs = Date.now() - startedAt;
   console.log(

@@ -20,7 +20,33 @@ import {
   fetchSearchConsoleMetrics,
   mapSearchConsoleMetrics,
 } from "./search-console";
+import { fetchGoogleAdsMetrics, mapGoogleAdsMetrics } from "./google-ads";
+import { fetchLocalServicesMetrics, mapLocalServicesMetrics } from "./local-services";
 import { upsertInsightMetrics, type InsightMetricUpsert } from "./metrics-store";
+
+// Per-organization Google Ads access: the account to report on plus the Google
+// Ads API developer token (the API requires it as a header alongside the OAuth
+// bearer). When absent, the paid feeds are simply not pulled — an org that has
+// not connected Ads (live data is gated on the developer-token approval, #611)
+// keeps ingesting its free Google sources unchanged.
+export interface AdsIngestConfig {
+  customerId: string;
+  developerToken: string;
+}
+
+// Decide an org's Ads ingest config from the app-level developer token and the
+// org's linked Ads customer. Both are required: the developer token is the app's
+// API-access grant (one env var), the customer id is per-org. Either being
+// absent means the paid feeds stay dark — the gated-until-#611 state, where the
+// developer-token approval and per-org Ads-customer discovery land. Pure so the
+// cron route stays a thin wiring over a tested decision.
+export function resolveAdsIngestConfig(input: {
+  developerToken: string | undefined;
+  customerId: string | null;
+}): AdsIngestConfig | null {
+  if (!input.developerToken || !input.customerId) return null;
+  return { customerId: input.customerId, developerToken: input.developerToken };
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,8 +93,11 @@ export async function ingestOrganizationInsights(input: {
   client: InsightsApiClient;
   today: string;
   windowDays?: number;
+  // When present, also pull the paid feeds (Google Ads + Local Services Ads) for
+  // this Ads customer. Omitted for orgs with no Ads connection (#611).
+  ads?: AdsIngestConfig;
 }): Promise<InsightIngestResult> {
-  const { db, organizationId, client, today } = input;
+  const { db, organizationId, client, today, ads } = input;
   const range = trailingWindow(today, input.windowDays ?? DEFAULT_WINDOW_DAYS);
   const rows: InsightMetricUpsert[] = [];
 
@@ -82,6 +111,8 @@ export async function ingestOrganizationInsights(input: {
   let sites = 0;
   let businessProfileOk = false;
   let searchConsoleOk = false;
+  let googleAdsOk = false;
+  let localServicesAdsOk = false;
 
   // Business Profile performance, per location (reusing the reviews discovery).
   try {
@@ -113,10 +144,42 @@ export async function ingestOrganizationInsights(input: {
     logSourceFailure("search_console", organizationId, err);
   }
 
-  // Both sources failed → the connection is wholly broken; throw so the run
-  // tally counts the org as FAILED rather than synced-with-zero.
-  if (!businessProfileOk && !searchConsoleOk) {
-    throw new Error(`both Insights sources failed for org ${organizationId}`);
+  // Paid feeds (#610), only when the org has an Ads connection. Each runs in its
+  // own try so a Local Services failure never discards the search-ads rows (an
+  // account may run search ads but no LSA campaign, or vice versa). Both are
+  // read-only GAQL pulls — searchStream only, never a mutate endpoint.
+  if (ads) {
+    try {
+      const response = await fetchGoogleAdsMetrics(client, {
+        customerId: ads.customerId,
+        developerToken: ads.developerToken,
+        range,
+      });
+      rows.push(...mapGoogleAdsMetrics({ organizationId, response }));
+      googleAdsOk = true;
+    } catch (err) {
+      logSourceFailure("google_ads", organizationId, err);
+    }
+
+    try {
+      const response = await fetchLocalServicesMetrics(client, {
+        customerId: ads.customerId,
+        developerToken: ads.developerToken,
+        range,
+      });
+      rows.push(...mapLocalServicesMetrics({ organizationId, response }));
+      localServicesAdsOk = true;
+    } catch (err) {
+      logSourceFailure("local_services_ads", organizationId, err);
+    }
+  }
+
+  // Every attempted source failed → the connection is wholly broken; throw so the
+  // run tally counts the org as FAILED rather than synced-with-zero. Unconfigured
+  // paid feeds leave their flags false, which is harmless: a free source
+  // succeeding is enough to keep the org out of this branch.
+  if (!businessProfileOk && !searchConsoleOk && !googleAdsOk && !localServicesAdsOk) {
+    throw new Error(`all Insights sources failed for org ${organizationId}`);
   }
 
   const metricsSynced = await upsertInsightMetrics(db, rows);
@@ -147,8 +210,11 @@ export async function ingestAllConnectedInsights(input: {
   today: string;
   getClient: (organizationId: string) => Promise<InsightsApiClient | null>;
   windowDays?: number;
+  // Resolves each org's paid-feed config (Google Ads + LSA), or null when the
+  // org has no Ads connection. Omitted entirely until the cron is wired to it.
+  getAdsConfig?: (organizationId: string) => Promise<AdsIngestConfig | null>;
 }): Promise<InsightIngestRunResult> {
-  const { db, organizationIds, today, getClient, windowDays } = input;
+  const { db, organizationIds, today, getClient, windowDays, getAdsConfig } = input;
   let synced = 0;
   let skipped = 0;
   let failed = 0;
@@ -161,12 +227,14 @@ export async function ingestAllConnectedInsights(input: {
         skipped += 1;
         continue;
       }
+      const ads = getAdsConfig ? await getAdsConfig(organizationId) : null;
       const result = await ingestOrganizationInsights({
         db,
         organizationId,
         client,
         today,
         windowDays,
+        ads: ads ?? undefined,
       });
       synced += 1;
       metricsSynced += result.metricsSynced;

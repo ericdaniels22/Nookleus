@@ -11,8 +11,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InsightMetricRow } from "./series";
 
-// The sources that land in the store today. Later slices append to this union.
-export type InsightMetricSource = "business_profile" | "search_console";
+// The sources that land in the store. Free Google sources (Business Profile,
+// Search Console) and the paid ad feeds (Google Ads, Local Services Ads, #610)
+// all share this one long/narrow table — a new `source` value is the only change
+// a new feed needs, no schema migration.
+export type InsightMetricSource =
+  | "business_profile"
+  | "search_console"
+  | "google_ads"
+  | "local_services_ads";
 
 // The row we upsert into insight_metric. Mirrors the table columns one-for-one
 // so the mapper output IS the write payload.
