@@ -6,6 +6,11 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
 import { persistAnnotatedRender } from "@/lib/jobs/persist-annotated-render";
+import {
+  ANNOTATION_CUSTOM_PROPS,
+  parseAnnotations,
+  serializeAnnotations,
+} from "@/lib/jobs/photo-annotation-format";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -87,16 +92,7 @@ function initFabricClasses(fabric: any) {
 
   class FabricArrow extends FabricObject {
     static type = "FabricArrow";
-    static customProperties = [
-      "x1",
-      "y1",
-      "x2",
-      "y2",
-      "arrowColor",
-      "labelText",
-      "labelFontSize",
-      "arrowThickness",
-    ];
+    static customProperties = [...ANNOTATION_CUSTOM_PROPS];
 
     declare x1: number;
     declare y1: number;
@@ -507,107 +503,15 @@ export default function PhotoAnnotator({
     if (!data?.annotation_data || typeof data.annotation_data !== "object")
       return;
 
-    const saved = data.annotation_data;
+    // Migrate any stored shape (format 3 / version 2 / version 1) into one
+    // uniform markup-object array, then load it over the freshly-attached
+    // original photo. All format knowledge lives in parseAnnotations; the
+    // background is preserved here because loadFromJSON replaces it.
+    const objects = parseAnnotations(data.annotation_data);
 
-    // ── Format 3: native Fabric JSON (new format from this rewrite) ──
-    if (saved.format === 3 && saved.canvas) {
-      await canvas.loadFromJSON(saved.canvas);
-      attachPolyControls(canvas, fabric);
-      canvas.renderAll();
-      return;
-    }
-
-    // ── Version 2: old custom format with explicit arrow data ──
-    if (saved.version === 2) {
-      const fabricObjects: any[] = [];
-
-      // Convert v2 arrows → FabricArrow serialized objects
-      if (saved.arrows && Array.isArray(saved.arrows)) {
-        for (const a of saved.arrows) {
-          fabricObjects.push({
-            type: "FabricArrow",
-            x1: a.x1,
-            y1: a.y1,
-            x2: a.x2,
-            y2: a.y2,
-            arrowColor: a.color || "#F59E0B",
-            labelText: a.label?.text || null,
-            labelFontSize: a.label?.fontSize || 20,
-            arrowThickness: 6,
-          });
-        }
-      }
-
-      // Add non-arrow objects as-is
-      if (saved.objects && Array.isArray(saved.objects)) {
-        fabricObjects.push(...saved.objects);
-      }
-
-      const syntheticJson = { version: "7.2.0", objects: fabricObjects };
-      const bg = canvas.backgroundImage;
-      await canvas.loadFromJSON(syntheticJson);
-      canvas.backgroundImage = bg;
-      attachPolyControls(canvas, fabric);
-      canvas.renderAll();
-      return;
-    }
-
-    // ── Version 1: raw canvas.toJSON with Path+Circle arrow triples ──
     const bg = canvas.backgroundImage;
-    await canvas.loadFromJSON(saved);
+    await canvas.loadFromJSON({ version: "7.2.0", objects });
     canvas.backgroundImage = bg;
-
-    // Scan for arrow-like objects (Path + 2 Circle handles)
-    const objects = canvas.getObjects().slice();
-    const toRemove: any[] = [];
-    const arrowsToCreate: any[] = [];
-
-    for (let i = 0; i < objects.length; i++) {
-      const obj = objects[i];
-      if (
-        obj.type === "path" &&
-        obj.strokeWidth === 6 &&
-        obj.strokeLineCap === "round" &&
-        (obj.fill === "transparent" || obj.fill === "" || !obj.fill)
-      ) {
-        const n1 = objects[i + 1];
-        const n2 = objects[i + 2];
-        if (
-          n1?.type === "circle" &&
-          n2?.type === "circle" &&
-          n1.radius === 8 &&
-          n2.radius === 8 &&
-          n1.fill === "#FFFFFF" &&
-          n2.fill === "#FFFFFF"
-        ) {
-          arrowsToCreate.push({
-            x1: n1.left,
-            y1: n1.top,
-            x2: n2.left,
-            y2: n2.top,
-            color: obj.stroke || "#F59E0B",
-          });
-          toRemove.push(obj, n1, n2);
-          i += 2;
-        }
-      }
-    }
-
-    toRemove.forEach((obj) => canvas.remove(obj));
-
-    // Recreate as FabricArrow objects
-    for (const ad of arrowsToCreate) {
-      const arrow = new (fabric.classRegistry.getClass("FabricArrow"))({
-        x1: ad.x1,
-        y1: ad.y1,
-        x2: ad.x2,
-        y2: ad.y2,
-        arrowColor: ad.color,
-        arrowThickness: 6,
-      });
-      canvas.add(arrow);
-    }
-
     attachPolyControls(canvas, fabric);
     canvas.renderAll();
   }
@@ -1566,18 +1470,12 @@ export default function PhotoAnnotator({
     const supabase = createClient();
 
     try {
-      // Serialize using native Fabric JSON with custom properties
-      const json = canvas.toJSON([
-        "x1",
-        "y1",
-        "x2",
-        "y2",
-        "arrowColor",
-        "labelText",
-        "labelFontSize",
-        "arrowThickness",
-      ]);
-      const annotationData = { format: 3, canvas: json };
+      // Serialize the markup objects (with their FabricArrow custom props) into
+      // the stored envelope. serializeAnnotations owns the annotation_data shape
+      // and carries markup only — the flattened Annotated Photo is a separate
+      // write below (ADR 0024).
+      const json = canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]);
+      const annotationData = serializeAnnotations(json.objects);
 
       // Upsert annotation record
       const { data: existing } = await supabase
