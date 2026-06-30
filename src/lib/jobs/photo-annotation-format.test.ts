@@ -182,7 +182,7 @@ describe("serializeAnnotations", () => {
 });
 
 describe("ANNOTATION_CUSTOM_PROPS", () => {
-  it("is the single allowlist of FabricArrow custom properties", () => {
+  it("is the single allowlist of custom Annotation properties (Arrow + shared Label)", () => {
     expect([...ANNOTATION_CUSTOM_PROPS]).toEqual([
       "x1",
       "y1",
@@ -191,6 +191,7 @@ describe("ANNOTATION_CUSTOM_PROPS", () => {
       "arrowColor",
       "labelText",
       "labelFontSize",
+      "labelColor",
       "arrowThickness",
     ]);
   });

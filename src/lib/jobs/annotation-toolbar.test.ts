@@ -43,9 +43,11 @@ describe("toolbarControls — which controls a kind's toolbar shows", () => {
     }
   });
 
-  it("gives a text box and a freehand drawing a Delete-only toolbar", () => {
-    expect(toolbarControls("text")).toEqual(["delete"]);
-    expect(toolbarControls("freehand")).toEqual(["delete"]);
+  it("gives a text box and a freehand drawing a Label then Delete toolbar (no Copy)", () => {
+    // #812 — every Annotation can carry a Label, so text and freehand gain the
+    // Label control; they still expose no Copy (an unchanged #811 decision).
+    expect(toolbarControls("text")).toEqual(["label", "delete"]);
+    expect(toolbarControls("freehand")).toEqual(["label", "delete"]);
   });
 });
 

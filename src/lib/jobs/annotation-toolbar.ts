@@ -79,11 +79,13 @@ export function toolbarAnchorPoint(
 }
 
 /**
- * The ordered set of controls a selected Annotation of this kind exposes. A
- * text box or a freehand drawing carries no Label or Copy — only Delete — while
- * every other kind gets the full Label, Copy, Delete row.
+ * The ordered set of controls a selected Annotation of this kind exposes. Every
+ * kind can carry a Label (#812), so all get a Label control; a text box or a
+ * freehand drawing still exposes no Copy (an unchanged #811 decision), leaving
+ * them Label, Delete, while every other kind gets the full Label, Copy, Delete
+ * row.
  */
 export function toolbarControls(kind: AnnotationKind): ToolbarControl[] {
-  if (kind === "text" || kind === "freehand") return ["delete"];
+  if (kind === "text" || kind === "freehand") return ["label", "delete"];
   return ["label", "copy", "delete"];
 }
