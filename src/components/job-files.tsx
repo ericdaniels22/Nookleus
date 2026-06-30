@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import JobFilePreview from "@/components/job-file-preview";
+import { uploadJobFiles } from "@/lib/jobs/upload-job-files";
 
 interface UploadingFile {
   id: string;
@@ -90,27 +91,26 @@ export default function JobFiles({ jobId }: { jobId: string }) {
       }));
       setUploading((prev) => [...prev, ...placeholders]);
 
-      const formData = new FormData();
-      for (const f of arr) formData.append("file", f);
-
       try {
-        const res = await fetch(`/api/jobs/${jobId}/files`, {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
+        // Direct-to-storage signed-URL upload — large photo reports no longer
+        // stream through the 4.5 MB-capped serverless function.
+        const { succeeded, failed } = await uploadJobFiles(jobId, arr);
 
-        if (data.succeeded?.length) {
+        if (succeeded.length) {
           toast.success(
-            data.succeeded.length === 1
+            succeeded.length === 1
               ? "File uploaded"
-              : `${data.succeeded.length} files uploaded`
+              : `${succeeded.length} files uploaded`
           );
         }
-        if (data.failed?.length) {
+        // Surface the actual per-file reason (e.g. "File is too large to
+        // upload.") instead of a bare filename list or a cryptic parse error.
+        if (failed.length === 1) {
+          toast.error(`${failed[0].filename}: ${failed[0].error}`);
+        } else if (failed.length > 1) {
           toast.error(
-            `Failed to upload: ${data.failed
-              .map((f: { filename: string }) => f.filename)
+            `Failed to upload ${failed.length} files: ${failed
+              .map((f) => f.filename)
               .join(", ")}`
           );
         }
