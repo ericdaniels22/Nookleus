@@ -335,6 +335,49 @@ describe("POST /api/jobs/[id]/showcases/[showcaseId]/publish-gbp", () => {
     expect(publishShowcaseGbpPost).not.toHaveBeenCalled();
   });
 
+  it("422s with gbp_photo_unsupported when the lead photo is not a JPG/PNG (AC#2)", async () => {
+    // GBP local posts accept ONLY JPG/PNG media, but a job photo can be a WebP/HEIC
+    // original (the uploader takes image/*) or a video. Such a lead is rejected UP
+    // FRONT with a distinct, actionable code — never hot-linked to Google, where the
+    // format reject would otherwise masquerade as a transient "try again"
+    // (gbp_unreachable) the user could never clear by retrying (AC#2, AC#5).
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      fakeUserClient({
+        user: { id: "user-1" },
+        tables: memberTables({
+          userId: "user-1",
+          role: "admin",
+          extraTables: {
+            showcases: [draftShowcase()],
+            photos: [
+              {
+                id: "p1",
+                job_id: "job-1",
+                storage_path: "job-1/lead.webp",
+                annotated_path: null,
+              },
+            ],
+          },
+        }),
+      }) as never,
+    );
+    vi.mocked(createServiceClient).mockReturnValue(
+      connectedServiceClient() as never,
+    );
+
+    const res = await POST(
+      publishRequest({ consent: true }),
+      paramsFor("job-1", "sc-1"),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.code).toBe("gbp_photo_unsupported");
+    // Rejected before any Google call — not surfaced as a transient publish failure.
+    expect(getGoogleClient).not.toHaveBeenCalled();
+    expect(publishShowcaseGbpPost).not.toHaveBeenCalled();
+  });
+
   it("409s with connection_broken when authorizing the Google client just failed (AC#5)", async () => {
     // The connection row reads connected, but getGoogleClient returns null — the
     // refresh token was just rejected (invalid_grant) and the chokepoint already
@@ -457,6 +500,49 @@ describe("POST /api/jobs/[id]/showcases/[showcaseId]/publish-gbp", () => {
     expect(body.liveUrl).toBe("https://www.google.com/search?q=gbp-post");
   });
 
+  it("falls through a trashed lead photo to the next surviving one (AC#1)", async () => {
+    // Gallery order is meaningful: the first photo_id is the lead, but if it was
+    // trashed since the Showcase was built, resolution falls through to the next
+    // SURVIVING photo rather than blocking with gbp_photo_required. Seed the lead
+    // (p1) with no surviving row and a later id (p2) that does, and assert the
+    // publisher receives p2's URL — a regression to byId.get(photo_ids[0]) would
+    // 422 here instead.
+    const userClient = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "admin",
+        extraTables: {
+          showcases: [draftShowcase({ photo_ids: ["p1", "p2"] })],
+          photos: [
+            {
+              id: "p2",
+              job_id: "job-1",
+              storage_path: "job-1/two.jpg",
+              annotated_path: null,
+            },
+          ],
+        },
+      }),
+    });
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(userClient as never);
+    vi.mocked(createServiceClient).mockReturnValue(
+      connectedServiceClient() as never,
+    );
+
+    const res = await POST(
+      publishRequest({ consent: true }),
+      paramsFor("job-1", "sc-1"),
+    );
+
+    expect(res.status).toBe(200);
+    // Not gbp_photo_required — the surviving p2 becomes the lead.
+    expect(publishShowcaseGbpPost).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(publishShowcaseGbpPost).mock.calls[0][2].photoUrl).toBe(
+      "https://sb.test/storage/v1/object/public/photos/job-1/two.jpg",
+    );
+  });
+
   it("re-pushes the SAME local post on edit and leaves the website channel untouched (AC#3)", async () => {
     const userClient = fakeUserClient({
       user: { id: "user-2" },
@@ -553,6 +639,49 @@ describe("POST /api/jobs/[id]/showcases/[showcaseId]/publish-gbp", () => {
     expect(stamp).toBeUndefined();
   });
 
+  it("returns gbp_unreachable and leaves the connection intact on a NON-grant 403 (AC#5)", async () => {
+    // A 403 is overloaded on the legacy My Business v4 API: only PERMISSION_DENIED
+    // is the connected account's grant failing. A 403 carrying RESOURCE_EXHAUSTED
+    // (a zero/exhausted project quota — or a disabled API) is NOT the grant;
+    // reconnecting can't clear it, and the connection is SHARED with reviews/insights.
+    // So it must surface as transient gbp_unreachable and leave the connection alone.
+    const userClient = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "admin",
+        extraTables: {
+          showcases: [draftShowcase()],
+          photos: photoRows(),
+        },
+      }),
+    });
+    const serviceClient = connectedServiceClient();
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(userClient as never);
+    vi.mocked(createServiceClient).mockReturnValue(serviceClient as never);
+    vi.mocked(publishShowcaseGbpPost).mockRejectedValue(
+      new GbpPublishError(403, "RESOURCE_EXHAUSTED", "Quota exceeded"),
+    );
+
+    const res = await POST(
+      publishRequest({ consent: true }),
+      paramsFor("job-1", "sc-1"),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.code).toBe("gbp_unreachable");
+    // A non-grant 403 must NEVER break the shared connection.
+    const brokenFlip = serviceClient.__mutations.find(
+      (m) => m.table === "google_connection" && m.op === "update",
+    );
+    expect(brokenFlip).toBeUndefined();
+    const stamp = userClient.__mutations.find(
+      (m) => m.table === "showcases" && m.op === "update",
+    );
+    expect(stamp).toBeUndefined();
+  });
+
   it("returns gbp_unreachable and leaves the connection intact on a transient failure (AC#5)", async () => {
     const userClient = fakeUserClient({
       user: { id: "user-1" },
@@ -587,6 +716,80 @@ describe("POST /api/jobs/[id]/showcases/[showcaseId]/publish-gbp", () => {
     );
     expect(brokenFlip).toBeUndefined();
     // And it must NOT stamp the Showcase published.
+    const stamp = userClient.__mutations.find(
+      (m) => m.table === "showcases" && m.op === "update",
+    );
+    expect(stamp).toBeUndefined();
+  });
+
+  it("returns gbp_unreachable when authorizing the Google client throws transiently (AC#5)", async () => {
+    // getGoogleClient returns null only on a revoked refresh token (invalid_grant);
+    // a transient token-endpoint 5xx during the refresh THROWS instead. That must
+    // surface as the DISTINCT gbp_unreachable (not an opaque 500) and leave the
+    // connection untouched — the grant isn't revoked, the endpoint just blipped.
+    const userClient = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "admin",
+        extraTables: { showcases: [draftShowcase()], photos: photoRows() },
+      }),
+    });
+    const serviceClient = connectedServiceClient();
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(userClient as never);
+    vi.mocked(createServiceClient).mockReturnValue(serviceClient as never);
+    vi.mocked(getGoogleClient).mockRejectedValue(
+      new Error("token endpoint 503"),
+    );
+
+    const res = await POST(
+      publishRequest({ consent: true }),
+      paramsFor("job-1", "sc-1"),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.code).toBe("gbp_unreachable");
+    const brokenFlip = serviceClient.__mutations.find(
+      (m) => m.table === "google_connection" && m.op === "update",
+    );
+    expect(brokenFlip).toBeUndefined();
+    expect(listReviewLocations).not.toHaveBeenCalled();
+    expect(publishShowcaseGbpPost).not.toHaveBeenCalled();
+  });
+
+  it("returns gbp_unreachable when discovering the location throws transiently (AC#5)", async () => {
+    // listReviewLocations walks accounts→locations and throws on a 5xx/network
+    // blip. That transient discovery failure must surface as the DISTINCT
+    // gbp_unreachable (not an opaque 500) and must NEVER break the connection.
+    const userClient = fakeUserClient({
+      user: { id: "user-1" },
+      tables: memberTables({
+        userId: "user-1",
+        role: "admin",
+        extraTables: { showcases: [draftShowcase()], photos: photoRows() },
+      }),
+    });
+    const serviceClient = connectedServiceClient();
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(userClient as never);
+    vi.mocked(createServiceClient).mockReturnValue(serviceClient as never);
+    vi.mocked(listReviewLocations).mockRejectedValue(
+      new Error("Google accounts fetch failed (503)"),
+    );
+
+    const res = await POST(
+      publishRequest({ consent: true }),
+      paramsFor("job-1", "sc-1"),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.code).toBe("gbp_unreachable");
+    const brokenFlip = serviceClient.__mutations.find(
+      (m) => m.table === "google_connection" && m.op === "update",
+    );
+    expect(brokenFlip).toBeUndefined();
+    expect(publishShowcaseGbpPost).not.toHaveBeenCalled();
     const stamp = userClient.__mutations.find(
       (m) => m.table === "showcases" && m.op === "update",
     );

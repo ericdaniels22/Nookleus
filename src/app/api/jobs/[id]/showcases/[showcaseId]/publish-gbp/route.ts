@@ -29,17 +29,55 @@ import {
 import { deriveShowcaseGbpPublishState } from "@/lib/google/showcase-gbp-state";
 import type { Showcase } from "@/lib/types";
 
+// Every transient Google failure (a 5xx/network/timeout during the token
+// refresh, the location discovery, or the publish itself) reports the SAME
+// distinct, retryable outcome and — crucially — leaves the connection untouched
+// (AC#5). One helper so all three call sites stay in lockstep.
+function gbpUnreachable() {
+  return NextResponse.json(
+    {
+      code: "gbp_unreachable",
+      message:
+        "Couldn't reach Google Business Profile. Try again shortly — your connection is unchanged.",
+    },
+    { status: 502 },
+  );
+}
+
+// Google Business Profile local posts accept ONLY JPG/PNG media. A job photo,
+// though, can be a WebP/HEIC original (the uploader takes image/*) or even a
+// video — and the "full" photoUrl hot-links the raw original with its extension
+// intact. So the lead's format must be checked here, before the URL ever reaches
+// Google; otherwise the format reject surfaces as a misleading transient
+// gbp_unreachable the user can never clear by retrying (AC#2).
+const GBP_SUPPORTED_PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
+
+function isGbpSupportedPhoto(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return GBP_SUPPORTED_PHOTO_EXTENSIONS.has(ext);
+}
+
+// The outcome of resolving a Showcase's lead photo: a usable URL, or a DISTINCT
+// reason the route maps to its own actionable failure code. "missing" → no
+// resolvable photo at all (gbp_photo_required); "unsupported" → the lead exists
+// but isn't a format the Business Profile accepts (gbp_photo_unsupported).
+type LeadPhotoResolution =
+  | { kind: "ok"; url: string }
+  | { kind: "missing" }
+  | { kind: "unsupported" };
+
 // Resolve a Showcase's LEAD photo to a public Supabase URL for the local post's
 // single media item (AC#1 — "with one of its Photos"). Gallery order is
-// meaningful: the first photo_id that still has a surviving Photo row wins, so a
-// trashed lead photo falls through to the next rather than blocking. Returns null
-// when no id resolves — the route turns that into a distinct gbp_photo_required.
+// meaningful: the first photo_id that still has a surviving Photo row IS the lead,
+// so a trashed lead photo falls through to the next rather than blocking. Once the
+// lead is found its format is enforced (AC#2) — a WebP/HEIC/video lead is reported
+// distinctly rather than hot-linked to a sure-to-fail Google call.
 async function resolveLeadPhotoUrl(
   db: SupabaseClient,
   jobId: string,
   photoIds: string[],
-): Promise<string | null> {
-  if (photoIds.length === 0) return null;
+): Promise<LeadPhotoResolution> {
+  if (photoIds.length === 0) return { kind: "missing" };
   const { data } = await db
     .from("photos")
     .select("id, storage_path, annotated_path")
@@ -54,9 +92,15 @@ async function resolveLeadPhotoUrl(
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   for (const id of photoIds) {
     const row = byId.get(id);
-    if (row) return photoUrl(row, supabaseUrl, "full");
+    if (!row) continue; // trashed — fall through to the next surviving photo
+    // The first surviving photo IS the lead. photoUrl("full") hot-links the raw
+    // original at `annotated_path || storage_path`, so guard that exact path.
+    if (!isGbpSupportedPhoto(row.annotated_path ?? row.storage_path)) {
+      return { kind: "unsupported" };
+    }
+    return { kind: "ok", url: photoUrl(row, supabaseUrl, "full") };
   }
-  return null;
+  return { kind: "missing" };
 }
 
 export const POST = withRequestContext(
@@ -193,15 +237,16 @@ export const POST = withRequestContext(
       );
     }
 
-    // Media requirement (AC#1). A Business Profile update carries exactly one
-    // photo; resolve the Showcase's lead photo first so a Showcase with none is
-    // rejected distinctly before any Google call.
-    const photoUrlForPost = await resolveLeadPhotoUrl(
+    // Media requirement (AC#1, AC#2). A Business Profile update carries exactly one
+    // photo, and only a JPG/PNG one. Resolve the Showcase's lead photo first so
+    // both shortfalls are rejected DISTINCTLY before any Google call: no resolvable
+    // photo → gbp_photo_required; a WebP/HEIC/video lead → gbp_photo_unsupported.
+    const lead = await resolveLeadPhotoUrl(
       ctx.supabase,
       jobId,
       showcase.photo_ids,
     );
-    if (!photoUrlForPost) {
+    if (lead.kind === "missing") {
       return NextResponse.json(
         {
           code: "gbp_photo_required",
@@ -211,13 +256,32 @@ export const POST = withRequestContext(
         { status: 422 },
       );
     }
+    if (lead.kind === "unsupported") {
+      return NextResponse.json(
+        {
+          code: "gbp_photo_unsupported",
+          message:
+            "This Showcase's lead photo isn't a format Google Business Profile accepts. Make a JPG or PNG photo the first one, then publish again.",
+        },
+        { status: 422 },
+      );
+    }
+    const photoUrlForPost = lead.url;
 
     // Authorize against Google with the PRIVILEGED service client (the token
     // chokepoint persists a refreshed token and may flip the row broken — both
     // admin-only writes). A null client means the refresh token was just rejected
-    // and the row is already broken, so report the same reconnect-prompt state as
-    // the precondition above.
-    const client = await getGoogleClient(service, ctx.orgId!);
+    // (invalid_grant) and the row is already broken, so report the same
+    // reconnect-prompt state as the precondition above. A THROW is different: a
+    // transient 5xx/network blip at the token endpoint during the refresh — the
+    // grant isn't revoked, so surface the DISTINCT gbp_unreachable (AC#5) rather
+    // than letting it escape as an opaque 500, and leave the connection untouched.
+    let client;
+    try {
+      client = await getGoogleClient(service, ctx.orgId!);
+    } catch {
+      return gbpUnreachable();
+    }
     if (!client) {
       return NextResponse.json(
         {
@@ -233,7 +297,21 @@ export const POST = withRequestContext(
     // (or, while a profile is pending verification, none); the first wins —
     // reusing the same discovery the reviews sync leans on. No location → a
     // distinct, actionable failure rather than an opaque publish error.
-    const locations = await listReviewLocations(client);
+    //
+    // listReviewLocations walks accounts→locations over the network and throws a
+    // plain Error on any non-ok response (a 5xx/429/network blip, or a discovery
+    // 401/403). Catch it like the publish call's transient branch: surface the
+    // DISTINCT gbp_unreachable (AC#5) instead of letting the throw escape as an
+    // opaque 500. We do NOT flip the connection broken here — the throw carries no
+    // typed status to safely tell a grant failure from a quota/rate-limit one, and
+    // this connection is shared with reviews (#604) + insights (#607); only the
+    // publish call below, which throws a typed GbpPublishError, breaks it.
+    let locations: string[];
+    try {
+      locations = await listReviewLocations(client);
+    } catch {
+      return gbpUnreachable();
+    }
     const locationName = locations[0];
     if (!locationName) {
       return NextResponse.json(
@@ -284,14 +362,7 @@ export const POST = withRequestContext(
           { status: 422 },
         );
       }
-      return NextResponse.json(
-        {
-          code: "gbp_unreachable",
-          message:
-            "Couldn't reach Google Business Profile. Try again shortly — your connection is unchanged.",
-        },
-        { status: 502 },
-      );
+      return gbpUnreachable();
     }
 
     // Stamp the GBP channel INDEPENDENTLY (AC#3): only the gbp_* columns and the

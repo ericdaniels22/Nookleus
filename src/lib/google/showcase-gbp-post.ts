@@ -107,17 +107,27 @@ async function toGbpPublishError(res: Response): Promise<GbpPublishError> {
 }
 
 // The one signal the route branches on: was this failure the connected account
-// being unable to publish to the profile? A 401 (token rejected) or 403
-// (PERMISSION_DENIED — the account lacks manage rights on the location) means the
-// CONNECTION is the problem, so the route flips it broken and prompts a
-// reconnect. Every other failure (5xx, 429, network) is transient — never break
-// the connection on it. The GBP analogue of wordpress.ts's isRevokedError, but
-// 403 counts too: unlike a WordPress Application Password, a Google grant can be
-// scoped to an account that simply can't manage this Business Profile.
+// being unable to publish to the profile? Only then does the route flip the
+// connection broken and prompt a reconnect. The GBP analogue of wordpress.ts's
+// isRevokedError, but it must gate on Google's error CODE, not just the HTTP
+// status — and 403 is overloaded:
+//
+//   • 401 — the token was rejected outright. Always a connection problem.
+//   • 403 with code PERMISSION_DENIED — the grant is scoped to an account that
+//     can't manage this Business Profile. A real reconnect-worthy failure (unlike
+//     a WordPress Application Password, a Google grant can be so scoped).
+//   • 403 with any OTHER code (RESOURCE_EXHAUSTED, a disabled-API / zero-quota
+//     project condition) — NOT the user's grant. Reconnecting can't clear it, and
+//     this connection is SHARED with reviews (#604) and insights (#607), so
+//     breaking it would silently disable them and loop the user through
+//     reconnect→403→broken. Treat as transient instead.
+//
+// Every other failure (5xx, 429, network) is transient — never break on it.
 export function isGbpAuthError(err: unknown): boolean {
-  return (
-    err instanceof GbpPublishError && (err.status === 401 || err.status === 403)
-  );
+  if (!(err instanceof GbpPublishError)) return false;
+  if (err.status === 401) return true;
+  if (err.status === 403) return err.code === "PERMISSION_DENIED";
+  return false;
 }
 
 // Local posts are authored in the connection's locale; en-US is the app's only
@@ -164,8 +174,18 @@ export async function publishShowcaseGbpPost(
   if (!res.ok) throw await toGbpPublishError(res);
 
   const created = (await res.json()) as { name?: unknown; searchUrl?: unknown };
+  // `name` is the LocalPost resource id we record as gbp_post_name — the SOLE
+  // signal the channel keys 'published' on and re-pushes the SAME post by. A 2xx
+  // without it is a contract violation; coercing it to "" would stamp an empty
+  // name (reported as draft, re-POSTed as a duplicate). Fail loudly instead — the
+  // GBP analogue of wordpress.ts throwing when a create returns no id.
+  if (typeof created.name !== "string" || created.name.length === 0) {
+    throw new Error(
+      "Google Business Profile returned no post name for the published local post",
+    );
+  }
   return {
-    name: typeof created.name === "string" ? created.name : "",
+    name: created.name,
     url: typeof created.searchUrl === "string" ? created.searchUrl : "",
   };
 }

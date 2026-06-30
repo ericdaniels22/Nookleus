@@ -143,6 +143,28 @@ describe("publishShowcaseGbpPost", () => {
     expect(err).toBeInstanceOf(GbpPublishError);
     expect((err as GbpPublishError).status).toBe(500);
   });
+
+  it("rejects a 2xx response whose body carries no post name (never stamps an empty name)", async () => {
+    // A successful v4 create/patch always returns the LocalPost resource `name`. A
+    // 2xx WITHOUT one is a contract violation — and `name` is the SOLE signal the
+    // GBP channel keys 'published' on and re-pushes the SAME post by. Coercing it to
+    // "" would stamp an empty gbp_post_name: reported as 'draft' and re-POSTed as a
+    // duplicate on the next publish. Fail loudly instead, matching wordpress.ts's
+    // "returned no id" guard.
+    const { client } = fakeGbpClient({
+      body: { searchUrl: "https://www.google.com/search?q=gbp-post" },
+    });
+
+    const err = await publishShowcaseGbpPost(
+      client,
+      "accounts/1/locations/2",
+      { summary: "We replaced the roof.", photoUrl: "https://sb.test/p/one.jpg" },
+      null,
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/name/i);
+  });
 });
 
 describe("isGbpAuthError", () => {
@@ -157,5 +179,15 @@ describe("isGbpAuthError", () => {
     expect(isGbpAuthError(new GbpPublishError(500, "INTERNAL", "no"))).toBe(false);
     expect(isGbpAuthError(new GbpPublishError(429, "RESOURCE_EXHAUSTED", "no"))).toBe(false);
     expect(isGbpAuthError(new Error("network down"))).toBe(false);
+  });
+
+  it("treats a NON-grant 403 (quota/API-disabled) as transient, not a broken connection", () => {
+    // The legacy My Business v4 API returns 403 not only for a revoked/insufficient
+    // grant but also for project-side conditions — a zero/exhausted daily quota or a
+    // disabled API — that carry a code OTHER than PERMISSION_DENIED. Reconnecting
+    // can't clear those, and the connection is SHARED with reviews (#604) and
+    // insights (#607), so breaking it on such a 403 would silently disable them and
+    // loop the user through reconnect→403→broken. Gate on the code, not the status.
+    expect(isGbpAuthError(new GbpPublishError(403, "RESOURCE_EXHAUSTED", "quota"))).toBe(false);
   });
 });
