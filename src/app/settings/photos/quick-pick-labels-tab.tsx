@@ -5,6 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Pencil, GripVertical, Check, X, Lock } from "lucide-react";
 import { toast } from "sonner";
 import type { QuickPickLabel } from "@/lib/types";
+import {
+  buildReorderPayload,
+  isDefaultLabel,
+  moveOrgLabel,
+} from "@/lib/jobs/quick-pick-labels";
 
 // Quick-pick labels (#819, #820) — reusable phrases an org saves so a user can
 // later tap one to apply as a Label on an Annotation. This page lists the org's
@@ -103,31 +108,43 @@ export function QuickPickLabelsTab() {
     }
   }
 
-  function moveUp(index: number) {
-    if (index === 0) return;
-    const updated = [...labels];
-    [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
-    setLabels(updated);
-    saveSortOrder(updated);
+  // `orgIndex` is the position among the org's own (movable) rows — the
+  // defaults are pinned on top and never move. moveOrgLabel returns a no-op
+  // order at the boundaries, so the optimistic update is a clean skip there.
+  function moveUp(orgIndex: number) {
+    applyReorder(moveOrgLabel(labels, orgIndex, "up"));
   }
 
-  function moveDown(index: number) {
-    if (index === labels.length - 1) return;
-    const updated = [...labels];
-    [updated[index], updated[index + 1]] = [updated[index + 1], updated[index]];
-    setLabels(updated);
-    saveSortOrder(updated);
+  function moveDown(orgIndex: number) {
+    applyReorder(moveOrgLabel(labels, orgIndex, "down"));
   }
 
-  // Reorder sends the array (bulk) PUT; the route applies it to org rows only.
-  async function saveSortOrder(items: QuickPickLabel[]) {
-    await fetch("/api/settings/quick-pick-labels", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        items.map((ql, i) => ({ id: ql.id, label: ql.label, sort_order: i + 1 })),
-      ),
-    });
+  // Optimistically show the new order, then await the write. On failure, snap
+  // the UI back to the true persisted order (re-fetch) and surface a toast —
+  // no silent fire-and-forget, no optimistic order that the DB never accepted.
+  async function applyReorder(reordered: QuickPickLabel[]) {
+    setLabels(reordered);
+    const ok = await saveSortOrder(reordered);
+    if (!ok) {
+      toast.error("Failed to reorder labels");
+      fetchLabels();
+    }
+  }
+
+  // Reorder sends the array (bulk) PUT scoped to the org's own rows, each given
+  // a collision-free sort_order above every default's. Returns whether the
+  // write succeeded so the caller can revert on failure.
+  async function saveSortOrder(items: QuickPickLabel[]): Promise<boolean> {
+    try {
+      const res = await fetch("/api/settings/quick-pick-labels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildReorderPayload(items)),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   if (loading) {
@@ -135,6 +152,10 @@ export function QuickPickLabelsTab() {
       <div className="text-center py-12 text-muted-foreground">Loading...</div>
     );
   }
+
+  // Shared defaults pin to the top; the org's own rows follow and are movable.
+  const defaults = labels.filter(isDefaultLabel);
+  const orgRows = labels.filter((ql) => !isDefaultLabel(ql));
 
   return (
     <div className="space-y-6">
@@ -201,29 +222,39 @@ export function QuickPickLabelsTab() {
         </div>
       ) : (
         <div className="space-y-1">
-          {labels.map((ql, index) => {
-            const isDefault = ql.organization_id === null;
+          {/* Defaults are pinned on top (immovable); the org's own rows follow
+              and are the only ones that can be reordered (#856). */}
+          {[...defaults, ...orgRows].map((ql) => {
+            const isDefault = isDefaultLabel(ql);
+            const orgIndex = isDefault ? -1 : orgRows.indexOf(ql);
             return (
               <div
                 key={ql.id}
                 className="bg-card rounded-xl border border-border p-3 flex items-center gap-3"
               >
-                {/* Reorder */}
-                <div className="flex flex-col gap-0.5">
-                  <button
-                    onClick={() => moveUp(index)}
-                    disabled={index === 0}
-                    className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
-                  >
-                    <GripVertical size={14} className="rotate-180" />
-                  </button>
-                  <button
-                    onClick={() => moveDown(index)}
-                    disabled={index === labels.length - 1}
-                    className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
-                  >
-                    <GripVertical size={14} />
-                  </button>
+                {/* Reorder — org rows only; defaults keep an empty slot for
+                    alignment and show a Lock alongside their text instead. */}
+                <div className="flex flex-col gap-0.5 w-[14px]">
+                  {!isDefault && (
+                    <>
+                      <button
+                        aria-label={`Move ${ql.label} up`}
+                        onClick={() => moveUp(orgIndex)}
+                        disabled={orgIndex === 0}
+                        className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <GripVertical size={14} className="rotate-180" />
+                      </button>
+                      <button
+                        aria-label={`Move ${ql.label} down`}
+                        onClick={() => moveDown(orgIndex)}
+                        disabled={orgIndex === orgRows.length - 1}
+                        className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 {/* Edit or display */}
