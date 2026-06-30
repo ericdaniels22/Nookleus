@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Pencil, GripVertical, Check, X, Lock } from "lucide-react";
 import { toast } from "sonner";
-import type { QuickPickLabel } from "@/lib/types";
+import { QUICK_PICK_LABEL_MAX_LENGTH, type QuickPickLabel } from "@/lib/types";
 
 // Quick-pick labels (#819, #820) — reusable phrases an org saves so a user can
 // later tap one to apply as a Label on an Annotation. This page lists the org's
@@ -172,6 +172,7 @@ export function QuickPickLabelsTab() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleAdd();
                 }}
+                maxLength={QUICK_PICK_LABEL_MAX_LENGTH}
                 placeholder="e.g. Source of loss"
               />
             </div>
@@ -213,6 +214,7 @@ export function QuickPickLabelsTab() {
                   <button
                     onClick={() => moveUp(index)}
                     disabled={index === 0}
+                    aria-label={`Move ${ql.label} up`}
                     className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                   >
                     <GripVertical size={14} className="rotate-180" />
@@ -220,6 +222,7 @@ export function QuickPickLabelsTab() {
                   <button
                     onClick={() => moveDown(index)}
                     disabled={index === labels.length - 1}
+                    aria-label={`Move ${ql.label} down`}
                     className="text-muted-foreground/40 hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
                   >
                     <GripVertical size={14} />
@@ -236,18 +239,21 @@ export function QuickPickLabelsTab() {
                         if (e.key === "Enter") handleSaveEdit();
                         if (e.key === "Escape") setEditId(null);
                       }}
+                      maxLength={QUICK_PICK_LABEL_MAX_LENGTH}
                       autoFocus
                       className="h-8 text-sm flex-1 min-w-[120px]"
                     />
                     <button
                       onClick={handleSaveEdit}
                       disabled={saving}
+                      aria-label="Save label"
                       className="p-1.5 rounded-lg text-primary hover:bg-primary/10"
                     >
                       <Check size={16} />
                     </button>
                     <button
                       onClick={() => setEditId(null)}
+                      aria-label="Cancel edit"
                       className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent"
                     >
                       <X size={16} />
@@ -259,22 +265,28 @@ export function QuickPickLabelsTab() {
                       {ql.label}
                     </span>
                     <div className="flex items-center gap-1">
-                      {isDefault && (
+                      {/* Default rows are read-only: the route 403s mutations to
+                          them, so showing Edit/Delete would only ever no-op. The
+                          Lock signals that; no Edit or Delete control here (#857). */}
+                      {isDefault ? (
                         <Lock size={12} className="text-muted-foreground/40 mr-1" />
-                      )}
-                      <button
-                        onClick={() => startEdit(ql)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      {!isDefault && (
-                        <button
-                          onClick={() => handleDelete(ql.id)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEdit(ql)}
+                            aria-label={`Edit ${ql.label}`}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(ql.id)}
+                            aria-label={`Delete ${ql.label}`}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
