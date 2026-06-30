@@ -21,7 +21,7 @@ import {
   type Annotation,
 } from "@/lib/jobs/photo-annotation-format";
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
-import { createArrow } from "@/lib/jobs/arrow-geometry";
+import { createArrow, dragTip, dragTail } from "@/lib/jobs/arrow-geometry";
 import {
   FIT,
   MIN_SCALE,
@@ -316,21 +316,33 @@ function initFabricClasses(fabric: any) {
           },
         });
 
+      // Both handles route through the pure arrow-geometry helpers (x1/y1 is the
+      // tail, x2/y2 the tip) so the same tested math — including the min-length
+      // clamp that stops a handle dragged onto its partner from collapsing the
+      // Arrow — governs the shipping drag path (#849).
       this.controls = {
         start: makeHandle(
           () => self.x1 - (self.left ?? 0),
           () => self.y1 - (self.top ?? 0),
           (x, y) => {
-            self.x1 = x;
-            self.y1 = y;
+            const { tail } = dragTail(
+              { tip: { x: self.x2, y: self.y2 }, tail: { x: self.x1, y: self.y1 } },
+              { x, y }
+            );
+            self.x1 = tail.x;
+            self.y1 = tail.y;
           }
         ),
         end: makeHandle(
           () => self.x2 - (self.left ?? 0),
           () => self.y2 - (self.top ?? 0),
           (x, y) => {
-            self.x2 = x;
-            self.y2 = y;
+            const { tip } = dragTip(
+              { tip: { x: self.x2, y: self.y2 }, tail: { x: self.x1, y: self.y1 } },
+              { x, y }
+            );
+            self.x2 = tip.x;
+            self.y2 = tip.y;
           }
         ),
       };
