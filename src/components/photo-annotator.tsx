@@ -23,6 +23,17 @@ import {
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
 import { createArrow } from "@/lib/jobs/arrow-geometry";
 import {
+  FIT,
+  MIN_SCALE,
+  MAX_SCALE,
+  ZOOM_STEP,
+  zoomBy,
+  pan,
+  fabricViewportTransform,
+  type Transform,
+  type ViewportContext,
+} from "@/lib/jobs/photo-zoom-transform";
+import {
   ARROW_HANDLE_RADIUS,
   arrowHandleHitArea,
   handleSizeProps,
@@ -73,6 +84,10 @@ import {
   ChevronRight,
   Share2,
   ImageOff,
+  Hand,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
   MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -81,6 +96,7 @@ import { toast } from "sonner";
 
 type Tool =
   | "select"
+  | "pan"
   | "freehand"
   | "circle"
   | "rectangle"
@@ -473,6 +489,10 @@ export default function PhotoAnnotator({
 
   // ── Canvas state ──
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Wrapper around the <canvas>; multitouch (pinch / two-finger pan) is caught
+  // here in the capture phase, before Fabric's own (bubble-phase) listeners, so
+  // a two-finger gesture pans/zooms instead of drawing (#814, AC5).
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const fabricRef = useRef<any>(null);
   const fabricModuleRef = useRef<any>(null);
   const bgImageRef = useRef<any>(null);
@@ -481,6 +501,26 @@ export default function PhotoAnnotator({
     height: number;
     scale: number;
   }>({ width: 800, height: 600, scale: 1 });
+
+  // ── Zoom / pan (issue #814) ──
+  // The same pure transform model the Photo viewer uses, fed to Fabric as a
+  // viewport transform. `transform` drives the on-screen zoom control; the ref
+  // is the source of truth the gesture handlers read (no stale closures). The
+  // annotator's canvas IS its viewport, sized to the fit-scaled Photo, so the
+  // fit baseline is scale 1 and the ViewportContext is the canvas's own dims.
+  const [transform, setTransform] = useState<Transform>(FIT);
+  const transformRef = useRef<Transform>(FIT);
+  // True from the moment a second finger lands until every finger lifts. While
+  // set, the per-tool draw/place handlers bail, so a pinch never leaves a stray
+  // Annotation behind (#814, AC5).
+  const gestureActiveRef = useRef(false);
+  // Pinch baseline carried move-to-move: last finger distance + midpoint.
+  const pinchRef = useRef<{
+    lastDist: number;
+    lastMid: { x: number; y: number };
+  } | null>(null);
+  // Desktop Pan tool drag origin (viewport pixels), null when not dragging.
+  const panDragRef = useRef<{ x: number; y: number } | null>(null);
 
   // ── Auto-save (issue #807, ADR 0024 split write) ──
   // One stable client for the whole annotator lifetime; the org claim is
@@ -518,8 +558,20 @@ export default function PhotoAnnotator({
     // clean too.
     guideLinesRef.current = [];
     canvas.discardActiveObject();
+    // The flattened Annotated Photo must render at full Photo resolution
+    // irrespective of on-screen zoom (#814 AC6): toDataURL bakes the viewport
+    // transform into its output, so neutralise it to identity for the capture,
+    // then restore the live view. This runs entirely before the first await, so
+    // the OUTGOING pixels are still snapshotted before any photo switch. The
+    // multiplier scales up from the fit-sized canvas to native resolution.
+    const vpt = canvas.viewportTransform
+      ? ([...canvas.viewportTransform] as number[])
+      : [1, 0, 0, 1, 0, 0];
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     canvas.renderAll();
     const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
+    canvas.setViewportTransform(vpt);
+    canvas.renderAll();
     const res = await fetch(dataUrl);
     return await res.blob();
   }, []);
@@ -597,6 +649,10 @@ export default function PhotoAnnotator({
   const activeToolRef = useRef<Tool>(activeTool);
   const activeColorRef = useRef(activeColor);
   const activeThicknessRef = useRef(activeThickness);
+  // Read by the (tool-independent) view-gesture handlers so pinch/wheel/pan are
+  // no-ops while cropping — the crop overlay reasons in raw canvas pixels and
+  // would mis-align under a viewport transform.
+  const isCroppingRef = useRef(isCropping);
   useEffect(() => {
     activeToolRef.current = activeTool;
   }, [activeTool]);
@@ -606,6 +662,88 @@ export default function PhotoAnnotator({
   useEffect(() => {
     activeThicknessRef.current = activeThickness;
   }, [activeThickness]);
+  useEffect(() => {
+    isCroppingRef.current = isCropping;
+  }, [isCropping]);
+
+  // ─── Zoom / pan helpers (issue #814) ───────────────────────────────────────
+
+  // The transform math's view of the canvas. The annotator's canvas IS its
+  // viewport — it's sized to the fit-scaled Photo — so the image and viewport
+  // dimensions are identical and the fit baseline is scale 1. Null until the
+  // Fabric canvas exists.
+  const viewportCtx = useCallback((): ViewportContext | null => {
+    const canvas = fabricRef.current;
+    if (!canvas) return null;
+    const w = canvas.getWidth();
+    const h = canvas.getHeight();
+    return { imageW: w, imageH: h, viewportW: w, viewportH: h };
+  }, []);
+
+  // Adopt `next` as the live view: the ref is the source of truth the gesture
+  // handlers read (no stale closures), the state drives the on-screen zoom
+  // control, and the matrix magnifies the whole Fabric scene about the viewport
+  // centre. Because Fabric inverts the same matrix in getScenePoint, every
+  // placement/hit-test keeps landing on the right Photo pixel while zoomed
+  // (#814 AC3). The floating toolbar is dropped — its screen anchor is now stale.
+  const commitTransform = useCallback((next: Transform) => {
+    transformRef.current = next;
+    setTransform(next);
+    const canvas = fabricRef.current;
+    if (canvas) {
+      canvas.setViewportTransform(
+        fabricViewportTransform(next, canvas.getWidth(), canvas.getHeight())
+      );
+      canvas.requestRenderAll();
+    }
+    setObjectToolbar(null);
+  }, []);
+
+  // A client (pointer / touch) coordinate mapped into canvas viewport pixels —
+  // the focal point the shared zoom math takes. Uses the upper (event) canvas's
+  // on-screen rect, folding in the CSS-vs-backing-store scale so a responsively
+  // sized canvas still focuses on the true cursor / pinch point.
+  const clientToViewport = useCallback(
+    (clientX: number, clientY: number): { x: number; y: number } | null => {
+      const canvas = fabricRef.current;
+      const el = canvas?.upperCanvasEl as HTMLCanvasElement | undefined;
+      if (!canvas || !el) return null;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      return {
+        x: ((clientX - rect.left) / rect.width) * canvas.getWidth(),
+        y: ((clientY - rect.top) / rect.height) * canvas.getHeight(),
+      };
+    },
+    []
+  );
+
+  // Abandon any half-finished draw when a view gesture (a second finger) takes
+  // over, so a pinch never commits a stray Annotation (#814 AC5). The in-flight
+  // shape preview is removed and the brush stroke dropped; an in-progress
+  // polyline is multi-tap and survives deliberately (the next tap continues it).
+  const cancelInProgressDraw = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (isDrawingShape.current) {
+      if (currentShape.current) canvas.remove(currentShape.current);
+      currentShape.current = null;
+      isDrawingShape.current = false;
+    }
+    canvas._isCurrentlyDrawing = false;
+    canvas.requestRenderAll();
+  }, []);
+
+  // The ＋ / − buttons zoom one step about the viewport centre (no cursor focal).
+  const zoomStep = useCallback(
+    (factor: number) => {
+      const ctx = viewportCtx();
+      if (!ctx) return;
+      const centre = { x: ctx.viewportW / 2, y: ctx.viewportH / 2 };
+      commitTransform(zoomBy(transformRef.current, factor, centre, ctx));
+    },
+    [viewportCtx, commitTransform]
+  );
 
   // Reset index when annotator opens
   useEffect(() => {
@@ -783,6 +921,12 @@ export default function PhotoAnnotator({
       polyDrawingRef.current = null;
       polyPreviewRef.current = null;
       isDirtyRef.current = false;
+      // Every photo opens / pages in at the fit baseline (#814 AC6). initCanvas
+      // builds a fresh Fabric canvas, which starts at the identity viewport
+      // transform that FIT maps to, so resetting the ref/state here is enough —
+      // no canvas to write to yet.
+      transformRef.current = FIT;
+      setTransform(FIT);
       // Drop the previous Photo's undo/redo history immediately; initCanvas
       // re-seeds the stack once the new canvas loads. (Any pending markup save
       // is owned and flushed by the auto-save hook, not here.)
@@ -1004,6 +1148,10 @@ export default function PhotoAnnotator({
     canvas.off("mouse:up");
     canvas.off("mouse:dblclick");
 
+    // Clear any Pan-tool state the prior tool may have left behind.
+    canvas.defaultCursor = "default";
+    panDragRef.current = null;
+
     // Finalize any in-progress polyline when switching tools
     if (
       polyDrawingRef.current &&
@@ -1175,6 +1323,49 @@ export default function PhotoAnnotator({
     } else if (activeTool === "crop") {
       canvas.isDrawingMode = false;
       canvas.selection = false;
+    } else if (activeTool === "pan") {
+      // ── Desktop Pan tool (issue #814 AC4) ──
+      // A drag pans the magnified scene. Selection and drawing are off and every
+      // object is made non-evented so a drag can never grab an Annotation; the
+      // pan is clamped through the shared model so the Photo can't gap at an edge.
+      // (Touch panning is two-finger, handled by the capture-phase listeners.)
+      canvas.isDrawingMode = false;
+      canvas.selection = false;
+      canvas.forEachObject((obj: any) => {
+        obj.selectable = false;
+        obj.evented = false;
+      });
+      canvas.defaultCursor = "grab";
+      canvas.setCursor("grab");
+
+      const clientXY = (e: any) =>
+        e.touches?.[0]
+          ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+          : { x: e.clientX, y: e.clientY };
+
+      canvas.on("mouse:down", (opt: any) => {
+        const { x, y } = clientXY(opt.e);
+        panDragRef.current = { x, y };
+        canvas.setCursor("grabbing");
+      });
+      canvas.on("mouse:move", (opt: any) => {
+        if (!panDragRef.current) return;
+        const ctx = viewportCtx();
+        if (!ctx) return;
+        const { x, y } = clientXY(opt.e);
+        const fPrev = clientToViewport(panDragRef.current.x, panDragRef.current.y);
+        const fCur = clientToViewport(x, y);
+        panDragRef.current = { x, y };
+        if (fPrev && fCur) {
+          commitTransform(
+            pan(transformRef.current, fCur.x - fPrev.x, fCur.y - fPrev.y, ctx)
+          );
+        }
+      });
+      canvas.on("mouse:up", () => {
+        panDragRef.current = null;
+        canvas.setCursor("grab");
+      });
     } else if (activeTool === "arrow") {
       // ── Arrow: tap-to-drop (issue #809) ──
       // A single tap drops one standard-size ↗ Arrow centered on the tap and
@@ -1382,6 +1573,135 @@ export default function PhotoAnnotator({
       canvas.off("mouse:dblclick");
     };
   }, [activeTool, activeColor, activeThickness, canvasReady]);
+
+  // ─── Desktop wheel zoom (issue #814 AC1) ───────────────────────────────────
+  // Scroll / trackpad-pinch magnifies about the cursor, independent of the
+  // active tool. Fabric's mouse:wheel hands us the native event; an exponential
+  // factor keeps each notch proportional so wheel and trackpad feel even.
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas || !canvasReady) return;
+
+    const onWheel = (opt: any) => {
+      if (isCroppingRef.current) return;
+      const e = opt.e as WheelEvent;
+      e.preventDefault();
+      e.stopPropagation();
+      const ctx = viewportCtx();
+      const focal = clientToViewport(e.clientX, e.clientY);
+      if (!ctx || !focal) return;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      commitTransform(zoomBy(transformRef.current, factor, focal, ctx));
+    };
+
+    canvas.on("mouse:wheel", onWheel);
+    return () => canvas.off("mouse:wheel", onWheel);
+  }, [canvasReady, viewportCtx, commitTransform, clientToViewport]);
+
+  // ─── Touch: pinch-zoom + two-finger pan (issue #814 AC1/AC4/AC5) ───────────
+  // Fabric has no native pinch and every one of its canvas listeners is
+  // bubble-phase, so capture-phase listeners on the wrapper see each touch
+  // first. The moment a second finger lands we own the gesture: stop
+  // propagation (Fabric never draws), zoom by the change in finger spread about
+  // the pinch midpoint, and pan by the midpoint's travel — both clamped through
+  // the shared model. A lone finger falls straight through to Fabric, so
+  // drawing / placing / selecting is untouched (AC5). `gestureActiveRef` stays
+  // set until the LAST finger lifts, so a leftover finger can't resume a draw
+  // mid-gesture, and at release Fabric's touch bookkeeping is reset so the next
+  // single-finger draw isn't rejected by its main-touch identifier check.
+  useEffect(() => {
+    const wrapper = canvasWrapperRef.current;
+    if (!wrapper || !canvasReady) return;
+
+    const dist = (a: Touch, b: Touch) =>
+      Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const mid = (a: Touch, b: Touch) => ({
+      x: (a.clientX + b.clientX) / 2,
+      y: (a.clientY + b.clientY) / 2,
+    });
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (isCroppingRef.current || e.touches.length < 2) return;
+      e.stopPropagation();
+      e.preventDefault();
+      // A second finger just joined a single-finger draw — abandon that draw.
+      if (!gestureActiveRef.current) cancelInProgressDraw();
+      gestureActiveRef.current = true;
+      pinchRef.current = {
+        lastDist: dist(e.touches[0], e.touches[1]),
+        lastMid: mid(e.touches[0], e.touches[1]),
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (isCroppingRef.current || !gestureActiveRef.current) return;
+      // While the gesture owns the surface, eat every move — including a
+      // momentary single-finger frame — so the leftover finger never draws.
+      e.stopPropagation();
+      e.preventDefault();
+      if (e.touches.length < 2 || !pinchRef.current) return;
+      const ctx = viewportCtx();
+      if (!ctx) return;
+
+      const d = dist(e.touches[0], e.touches[1]);
+      const m = mid(e.touches[0], e.touches[1]);
+      const prev = pinchRef.current;
+      const fPrev = clientToViewport(prev.lastMid.x, prev.lastMid.y);
+      const fCur = clientToViewport(m.x, m.y);
+      pinchRef.current = { lastDist: d, lastMid: m };
+
+      let next = transformRef.current;
+      if (fCur && prev.lastDist > 0) {
+        next = zoomBy(next, d / prev.lastDist, fCur, ctx);
+      }
+      if (fPrev && fCur) {
+        next = pan(next, fCur.x - fPrev.x, fCur.y - fPrev.y, ctx);
+      }
+      commitTransform(next);
+    };
+
+    const endGesture = (e: TouchEvent) => {
+      if (!gestureActiveRef.current) return;
+      // Hold the gesture (and keep eating events) until EVERY finger is up.
+      if (e.touches.length > 0) {
+        e.stopPropagation();
+        e.preventDefault();
+        pinchRef.current =
+          e.touches.length >= 2
+            ? {
+                lastDist: dist(e.touches[0], e.touches[1]),
+                lastMid: mid(e.touches[0], e.touches[1]),
+              }
+            : null;
+        return;
+      }
+      pinchRef.current = null;
+      gestureActiveRef.current = false;
+      const canvas = fabricRef.current;
+      if (canvas) {
+        delete canvas.mainTouchId;
+        canvas._isCurrentlyDrawing = false;
+      }
+    };
+
+    const opts = { capture: true, passive: false } as AddEventListenerOptions;
+    wrapper.addEventListener("touchstart", onTouchStart, opts);
+    wrapper.addEventListener("touchmove", onTouchMove, opts);
+    wrapper.addEventListener("touchend", endGesture, opts);
+    wrapper.addEventListener("touchcancel", endGesture, opts);
+    return () => {
+      wrapper.removeEventListener("touchstart", onTouchStart, opts);
+      wrapper.removeEventListener("touchmove", onTouchMove, opts);
+      wrapper.removeEventListener("touchend", endGesture, opts);
+      wrapper.removeEventListener("touchcancel", endGesture, opts);
+    };
+  }, [
+    canvasReady,
+    viewportCtx,
+    commitTransform,
+    clientToViewport,
+    cancelInProgressDraw,
+  ]);
 
   // ─── Finalize Polyline ─────────────────────────────────────────────────────
 
@@ -1628,6 +1948,11 @@ export default function PhotoAnnotator({
     const fabric = fabricModuleRef.current;
     if (!canvas || !fabric) return;
 
+    // Crop reasons in raw canvas pixels (overlay + toCanvasElement), so snap the
+    // view back to fit first — any active zoom would otherwise mis-align the
+    // crop rectangle against the Photo (#814).
+    commitTransform(FIT);
+
     setIsCropping(true);
     setActiveTool("crop");
 
@@ -1856,6 +2181,10 @@ export default function PhotoAnnotator({
     const canvas = fabricRef.current;
     const bgImg = bgImageRef.current;
     if (!canvas || !bgImg) return;
+
+    // Rotating resizes the canvas; reset the view to fit so a prior zoom can't
+    // leave the re-dimensioned scene mis-framed (#814).
+    commitTransform(FIT);
 
     const { width, height } = imgDimensionsRef.current;
     const newImgWidth = height;
@@ -2138,6 +2467,20 @@ export default function PhotoAnnotator({
           )}
         >
           <MousePointer size={18} />
+        </button>
+
+        {/* Pan tool (issue #814) */}
+        <button
+          onClick={() => !isCropping && setActiveTool("pan")}
+          title="Pan"
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+            activeTool === "pan"
+              ? "bg-[#2B5EA7] text-white"
+              : "text-[#999] hover:text-white hover:bg-[#333]"
+          )}
+        >
+          <Hand size={18} />
         </button>
 
         <div className="w-8 h-px bg-[#333] my-1" />
@@ -2435,10 +2778,50 @@ export default function PhotoAnnotator({
               <span className="text-sm text-[#999]">Loading editor...</span>
             </div>
           )}
-          <div className={cn(!canvasReady && "hidden")}>
+          <div
+            ref={canvasWrapperRef}
+            className={cn(!canvasReady && "hidden")}
+            // touch-action:none lets our capture-phase pinch / two-finger-pan
+            // handlers own multitouch instead of the browser's native scroll-zoom.
+            style={{ touchAction: "none" }}
+          >
             <canvas ref={canvasRef} />
           </div>
         </div>
+
+        {/* Zoom control (issue #814) — magnifies the whole scene (Photo +
+            Annotations) via the shared transform model the Photo viewer uses. */}
+        {canvasReady && !isCropping && (
+          <div className="absolute bottom-4 right-4 z-10 flex items-center gap-0.5 bg-black/60 text-white rounded-full p-1 shadow-lg">
+            <button
+              onClick={() => zoomStep(1 / ZOOM_STEP)}
+              disabled={transform.scale <= MIN_SCALE}
+              aria-label="zoom out"
+              title="Zoom out"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors"
+            >
+              <ZoomOut size={18} />
+            </button>
+            <button
+              onClick={() => commitTransform(FIT)}
+              aria-label="reset zoom to fit"
+              title="Fit to screen"
+              className="px-2 min-w-[3.75rem] h-9 rounded-full flex items-center justify-center gap-1 text-xs font-medium hover:bg-white/10 transition-colors"
+            >
+              <Maximize2 size={13} />
+              {Math.round(transform.scale * 100)}%
+            </button>
+            <button
+              onClick={() => zoomStep(ZOOM_STEP)}
+              disabled={transform.scale >= MAX_SCALE}
+              aria-label="zoom in"
+              title="Zoom in"
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors"
+            >
+              <ZoomIn size={18} />
+            </button>
+          </div>
+        )}
 
         {/* Done - top right. Edits auto-save; this just flushes + closes. */}
         <div className="absolute top-3 right-4 flex items-center gap-2">

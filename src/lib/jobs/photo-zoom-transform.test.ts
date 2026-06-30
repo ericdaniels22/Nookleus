@@ -20,8 +20,10 @@ import {
   zoomAbout,
   doubleTap,
   zoomBy,
+  fabricViewportTransform,
   DOUBLE_TAP_SCALE,
   ZOOM_STEP,
+  type Transform,
   type ViewportContext,
 } from "./photo-zoom-transform";
 
@@ -196,5 +198,89 @@ describe("zoomBy — a relative factor (wheel / pinch / ＋－)", () => {
     expect(inOnce.scale).toBeGreaterThan(1);
     const backOut = zoomBy(inOnce, 1 / ZOOM_STEP, centre, ctx);
     expect(backOut.scale).toBeCloseTo(1);
+  });
+});
+
+describe("fabricViewportTransform — a Transform as Fabric's scene→screen matrix", () => {
+  // The annotator's canvas IS its viewport: a 1000×800 fit-scaled Photo, so the
+  // scene plane already fills the viewport at scale 1 (fitScale === 1).
+  const W = 1000;
+  const H = 800;
+  const square: ViewportContext = {
+    imageW: W,
+    imageH: H,
+    viewportW: W,
+    viewportH: H,
+  };
+  // Fabric maps a scene point (x, y) to screen with [a, b, c, d, e, f]:
+  //   screenX = a·x + c·y + e ;  screenY = b·x + d·y + f
+  const toScreen = (
+    m: ReturnType<typeof fabricViewportTransform>,
+    x: number,
+    y: number,
+  ) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+
+  it("is the identity matrix at FIT (no magnification, no shift)", () => {
+    expect(fabricViewportTransform(FIT, W, H)).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it("scales about the viewport centre — the centre pixel stays put", () => {
+    const m = fabricViewportTransform(
+      { scale: 3, offsetX: 0, offsetY: 0 },
+      W,
+      H,
+    );
+    expect(m[0]).toBe(3);
+    expect(m[3]).toBe(3);
+    expect(toScreen(m, W / 2, H / 2)).toEqual({ x: W / 2, y: H / 2 });
+  });
+
+  it("keeps the content under the focal fixed — a zoomAbout round-trips", () => {
+    // At FIT the matrix is the identity, so the scene point under an off-centre
+    // focal IS the focal itself. After zooming about that focal via the shared
+    // model, the matrix must map that same scene point back onto the focal —
+    // this is exactly the property AC3 (precise placement while zoomed) needs.
+    const focal = { x: 250, y: 600 };
+    const zoomed = zoomAbout(FIT, 4, focal, square);
+    const moved = toScreen(fabricViewportTransform(zoomed, W, H), focal.x, focal.y);
+    expect(moved.x).toBeCloseTo(focal.x);
+    expect(moved.y).toBeCloseTo(focal.y);
+  });
+
+  it("folds the pan offset straight into the translation terms", () => {
+    const t: Transform = { scale: 2, offsetX: 40, offsetY: -25 };
+    const m = fabricViewportTransform(t, W, H);
+    expect(m[4]).toBe((1 - 2) * (W / 2) + 40);
+    expect(m[5]).toBe((1 - 2) * (H / 2) - 25);
+  });
+
+  it("inverts to recover the Photo point under a screen coordinate, zoomed AND panned", () => {
+    // The placement guarantee (AC3): Fabric inverts this same matrix in
+    // getScenePoint to turn a pointer's on-screen position into the
+    // underlying-Photo coordinate a new Annotation (or a dragged Arrow handle)
+    // lands on. Model that inverse for a view that is both magnified and panned
+    // — the case where a naive screen==scene assumption would mis-place markup.
+    const t: Transform = { scale: 2.5, offsetX: 60, offsetY: -40 };
+    const m = fabricViewportTransform(t, W, H);
+    // Affine inverse for this shear-free matrix (b === c === 0): undo the
+    // translation, then the scale.
+    const toScene = (sx: number, sy: number) => ({
+      x: (sx - m[4]) / m[0],
+      y: (sy - m[5]) / m[3],
+    });
+
+    // A click at the viewport centre maps to whatever scene point the centred
+    // zoom parked there: the image centre shifted by the (descaled) pan offset.
+    const atCentre = toScene(W / 2, H / 2);
+    expect(atCentre.x).toBeCloseTo(W / 2 - t.offsetX / t.scale);
+    expect(atCentre.y).toBeCloseTo(H / 2 - t.offsetY / t.scale);
+
+    // And the projection is a true round-trip: any scene point pushed to screen
+    // inverts back to itself, so placement is exact wherever the user taps.
+    const scene = { x: 321, y: 477 };
+    const screen = toScreen(m, scene.x, scene.y);
+    const back = toScene(screen.x, screen.y);
+    expect(back.x).toBeCloseTo(scene.x);
+    expect(back.y).toBeCloseTo(scene.y);
   });
 });

@@ -192,3 +192,46 @@ export function zoomBy(
 ): Transform {
   return zoomAbout(t, t.scale * factor, focal, ctx);
 }
+
+/** The 6-element affine matrix `[a, b, c, d, e, f]` Fabric maps scene→screen
+ *  with: `screenX = a·x + c·y + e`, `screenY = b·x + d·y + f`. */
+export type FabricViewportMatrix = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
+/**
+ * Render a {@link Transform} as a Fabric canvas viewport transform (issue #814).
+ *
+ * The Photo viewer writes its transform out as a CSS `translate(...) scale(...)`;
+ * the annotator instead drives a Fabric canvas, where the background Photo and
+ * every Annotation share one scene plane. Feeding this matrix to
+ * `canvas.setViewportTransform` magnifies that whole scene about the viewport
+ * centre — and, because Fabric inverts the same matrix in `getScenePoint`,
+ * every placement/hit-test keeps landing on the correct underlying-Photo point
+ * while zoomed (no per-tool coordinate math needed).
+ *
+ * This assumes the annotator's fit baseline: the scene already fills the
+ * viewport at `scale === 1` (the canvas is sized to the fit-scaled Photo), so
+ * the only magnification is `Transform.scale`. Holding the viewport centre fixed
+ * under a centred zoom, a scene point `u` lands at `scale·u + (1 − scale)·W/2`,
+ * shifted by the pan offset — exactly the `a`/`e` (and `d`/`f`) below.
+ */
+export function fabricViewportTransform(
+  t: Transform,
+  viewportW: number,
+  viewportH: number,
+): FabricViewportMatrix {
+  return [
+    t.scale,
+    0,
+    0,
+    t.scale,
+    (1 - t.scale) * (viewportW / 2) + t.offsetX,
+    (1 - t.scale) * (viewportH / 2) + t.offsetY,
+  ];
+}
