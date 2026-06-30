@@ -397,6 +397,18 @@ export interface DamageType {
   updated_at: string;
 }
 
+// A Quick-pick label (#819) — a reusable phrase an org saves so a user can
+// later tap one to apply as a Label on an Annotation. `organization_id` is
+// null for the shared defaults visible to every org.
+export interface QuickPickLabel {
+  id: string;
+  organization_id: string | null;
+  label: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FormFieldOption {
   value: string;
   label: string;
