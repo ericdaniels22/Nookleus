@@ -46,6 +46,7 @@ import {
   type AnchorBox,
   type ToolbarControl,
 } from "@/lib/jobs/annotation-toolbar";
+import { shouldRecordModifiedStep } from "@/lib/jobs/annotation-history-events";
 import {
   applyLabel,
   labelAnchorPoint,
@@ -1213,6 +1214,12 @@ export default function PhotoAnnotator({
       showToolbar(target);
       // Record the move/resize/endpoint-drag as one undoable step — after any
       // arrow endpoint sync above so the snapshot captures its final geometry.
+      // A committed text edit, though, fires text:editing:exited AND
+      // object:modified back to back (Fabric v7), and text:editing:exited
+      // already records it — so defer the text kind here to avoid a double push
+      // (#854). The guide-clear / toolbar re-anchor above still run for a dragged
+      // text box; only the redundant second recordStep is skipped.
+      if (!shouldRecordModifiedStep(target)) return;
       recordStep();
     }
 
