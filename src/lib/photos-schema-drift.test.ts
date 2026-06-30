@@ -54,3 +54,29 @@ describe("schema-photos.sql multi-tenant drift guard", () => {
     }
   );
 });
+
+/**
+ * Issue #808 — annotation author attribution.
+ *
+ * `photo_annotations.created_by` used to default to the literal 'Eric'. It is
+ * now stamped explicitly with the signed-in user (resolvePhotoAuthor) on the
+ * first save, so the schema must NOT carry a DEFAULT — an omitted write should
+ * fail the NOT NULL constraint loudly rather than silently re-attribute to
+ * 'Eric'. This guards against the snapshot (and, by mirror, prod) re-drifting
+ * back to a default.
+ */
+describe("schema-photos.sql annotation author drift guard (#808)", () => {
+  const sql = readFileSync(SCHEMA_PATH, "utf8");
+
+  it("does not default photo_annotations.created_by, but keeps it NOT NULL", () => {
+    const block = createTableBlock(sql, "photo_annotations");
+    // The column definition only — strip any trailing `-- ...` comment so the
+    // guard reads the SQL, not prose that happens to mention "default".
+    const createdByDef = (
+      block.split("\n").find((l) => /\bcreated_by\b/.test(l)) ?? ""
+    ).split("--")[0];
+    expect(createdByDef).toMatch(/\bcreated_by\b/);
+    expect(createdByDef).toMatch(/NOT NULL/i);
+    expect(createdByDef).not.toMatch(/DEFAULT/i);
+  });
+});

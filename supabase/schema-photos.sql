@@ -88,7 +88,7 @@ CREATE TABLE photo_annotations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
   annotation_data jsonb NOT NULL DEFAULT '{}',
-  created_by text NOT NULL DEFAULT 'Eric',
+  created_by text NOT NULL,                    -- #808: stamped with the signed-in user (resolvePhotoAuthor) on first save; no default so an omitted write fails loudly instead of silently re-attributing to 'Eric'
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   organization_id uuid NOT NULL REFERENCES organizations(id)

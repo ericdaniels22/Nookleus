@@ -25,6 +25,10 @@ const annotationData: AnnotationData = {
   canvas: { version: "7.2.0", objects: [{ type: "FabricArrow" }] },
 };
 
+// The display name resolvePhotoAuthor yields from the faked user_profiles row;
+// a first-time annotation's created_by should carry exactly this (#808).
+const AUTHOR = "Casey Kim";
+
 // A faked Supabase transport covering BOTH split-write paths:
 //   • persistPhotoMarkup → from("photo_annotations").select…/update…/insert
 //   • persistAnnotatedRender → storage.from("photos").upload/remove +
@@ -48,10 +52,19 @@ function makeStore(
   const photosUpdateEq = vi.fn().mockResolvedValue({ error: null });
   const photosUpdate = vi.fn(() => ({ eq: photosUpdateEq }));
 
+  // The user_profiles lookup behind resolvePhotoAuthor — an INSERT resolves the
+  // signed-in user's display name for created_by (#808). Updates never hit this.
+  const profileMaybeSingle = vi
+    .fn()
+    .mockResolvedValue({ data: { full_name: AUTHOR }, error: null });
+  const profileEq = vi.fn(() => ({ maybeSingle: profileMaybeSingle }));
+  const profileSelect = vi.fn(() => ({ eq: profileEq }));
+
   const from = vi.fn((table: string) => {
     if (table === "photo_annotations")
       return { select: annSelect, update: annUpdate, insert: annInsert };
     if (table === "photos") return { update: photosUpdate };
+    if (table === "user_profiles") return { select: profileSelect };
     throw new Error(`unexpected table ${table}`);
   });
 
@@ -60,7 +73,14 @@ function makeStore(
   const storageFrom = vi.fn(() => ({ upload, remove }));
   const storage = { from: storageFrom };
 
-  const store = { from, storage } as unknown as Parameters<
+  // resolvePhotoAuthor reads the signed-in user from here before the profile.
+  const auth = {
+    getUser: vi.fn().mockResolvedValue({
+      data: { user: { id: "u1", email: "u1@example.com" } },
+    }),
+  };
+
+  const store = { from, storage, auth } as unknown as Parameters<
     typeof useAnnotatorAutoSave
   >[0]["supabase"];
 
@@ -137,7 +157,7 @@ describe("useAnnotatorAutoSave — debounced markup save", () => {
       organization_id: "org-1",
       photo_id: "p1",
       annotation_data: annotationData,
-      created_by: "Eric",
+      created_by: AUTHOR,
     });
 
     // The EXPENSIVE half stayed untouched — no flatten/upload, no annotated_path.
