@@ -12,6 +12,11 @@ import {
   serializeAnnotations,
 } from "@/lib/jobs/photo-annotation-format";
 import { createArrow } from "@/lib/jobs/arrow-geometry";
+import {
+  ARROW_HANDLE_RADIUS,
+  arrowHandleHitArea,
+  handleSizeProps,
+} from "@/lib/jobs/annotation-handles";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -220,10 +225,7 @@ function initFabricClasses(fabric: any) {
         new Control({
           actionName: "modifyArrow",
           cursorStyle: "grab",
-          sizeX: 20,
-          sizeY: 20,
-          touchSizeX: 30,
-          touchSizeY: 30,
+          ...arrowHandleHitArea(),
           positionHandler(dim: any, finalMatrix: any) {
             return new Point(getLocalX(), getLocalY()).transform(finalMatrix);
           },
@@ -250,7 +252,7 @@ function initFabricClasses(fabric: any) {
             ctx.strokeStyle = fabricObject.arrowColor || "#F59E0B";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(left, top, 8, 0, 2 * Math.PI);
+            ctx.arc(left, top, ARROW_HANDLE_RADIUS, 0, 2 * Math.PI);
             ctx.fill();
             ctx.stroke();
             ctx.restore();
@@ -513,13 +515,23 @@ export default function PhotoAnnotator({
     const bg = canvas.backgroundImage;
     await canvas.loadFromJSON({ version: "7.2.0", objects });
     canvas.backgroundImage = bg;
-    attachPolyControls(canvas, fabric);
+    attachEditorHandles(canvas, fabric);
     canvas.renderAll();
   }
 
-  /** After loading from JSON, add vertex controls to Polyline/Polygon objects */
-  function attachPolyControls(canvas: any, fabric: any) {
+  /**
+   * After loading from JSON, give every reloaded Annotation the same
+   * finger-sized editor handles as a freshly-drawn one (#810, AC6): the shared
+   * handle size is not serialized, so loadFromJSON restores objects at Fabric's
+   * small defaults. Re-apply it here, and re-attach vertex controls to
+   * Polyline/Polygon (createPolyControls is likewise not restored). FabricArrow
+   * brings its own custom endpoint controls from its constructor, so it is left
+   * untouched.
+   */
+  function attachEditorHandles(canvas: any, fabric: any) {
     canvas.getObjects().forEach((obj: any) => {
+      if (obj.type === "FabricArrow") return;
+      obj.set(handleSizeProps());
       if (obj.type === "Polyline" || obj.type === "Polygon") {
         if (fabric.createPolyControls) {
           obj.controls = fabric.createPolyControls(obj);
@@ -529,7 +541,6 @@ export default function PhotoAnnotator({
         obj.cornerStyle = "circle";
         obj.cornerColor = "#FFFFFF";
         obj.cornerStrokeColor = obj.stroke || "#F59E0B";
-        obj.cornerSize = 14;
         obj.transparentCorners = false;
       }
     });
@@ -711,6 +722,7 @@ export default function PhotoAnnotator({
           strokeWidth: 0.5,
           padding: 4,
           shadow: makeShadow(),
+          ...handleSizeProps(),
         });
         canvas.add(text);
         canvas.setActiveObject(text);
@@ -961,7 +973,11 @@ export default function PhotoAnnotator({
 
         if (currentShape.current) {
           // Finalize circle/rectangle — make selectable
-          currentShape.current.set({ selectable: true, evented: true });
+          currentShape.current.set({
+            selectable: true,
+            evented: true,
+            ...handleSizeProps(),
+          });
           currentShape.current.setCoords();
           canvas.renderAll();
         }
@@ -1012,7 +1028,7 @@ export default function PhotoAnnotator({
     poly.cornerStyle = "circle";
     poly.cornerColor = "#FFFFFF";
     poly.cornerStrokeColor = activeColorRef.current;
-    poly.cornerSize = 14;
+    poly.set(handleSizeProps());
     poly.transparentCorners = false;
 
     canvas.add(poly);
