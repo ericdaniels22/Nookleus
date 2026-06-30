@@ -48,7 +48,7 @@ CREATE TABLE photo_tags (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   color text NOT NULL DEFAULT '#2B5EA7',
-  created_by text NOT NULL DEFAULT 'Eric',
+  created_by text NOT NULL,                    -- #832: no default — there is no app write path; any future tag seeder must attribute explicitly instead of silently crediting 'Eric'
   created_at timestamptz NOT NULL DEFAULT now(),
   organization_id uuid NOT NULL REFERENCES organizations(id)
 );
@@ -88,7 +88,7 @@ CREATE TABLE photo_annotations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
   annotation_data jsonb NOT NULL DEFAULT '{}',
-  created_by text NOT NULL DEFAULT 'Eric',
+  created_by text NOT NULL,                    -- #808: stamped with the signed-in user (resolvePhotoAuthor) on first save; no default so an omitted write fails loudly instead of silently re-attributing to 'Eric'
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   organization_id uuid NOT NULL REFERENCES organizations(id)
@@ -101,7 +101,7 @@ CREATE TABLE photo_report_templates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   sections jsonb NOT NULL DEFAULT '[]',
-  created_by text NOT NULL DEFAULT 'Eric',
+  created_by text NOT NULL,                    -- #832: stamped with the signed-in user (resolvePhotoAuthor) on create; no default so an omitted write fails loudly instead of silently re-attributing to 'Eric'
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   organization_id uuid NOT NULL REFERENCES organizations(id)
@@ -121,7 +121,7 @@ CREATE TABLE photo_reports (
   pdf_path text,
   status text NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft', 'generated')),
-  created_by text NOT NULL DEFAULT 'Eric',
+  created_by text NOT NULL,                    -- #832: already stamped explicitly (created_by: preparerName); the default was vestigial and is dropped for consistency with #808
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,                      -- soft-delete for the recoverable trash (#402); NULL = not deleted

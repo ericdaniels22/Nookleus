@@ -6,9 +6,19 @@ import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import { Photo } from "@/lib/types";
 import { originalPhotoUrl } from "@/lib/jobs/photo-url";
 import {
+  createHistory,
+  push as pushHistory,
+  undo as undoHistory,
+  redo as redoHistory,
+  canUndo as historyCanUndo,
+  canRedo as historyCanRedo,
+  type HistoryState,
+} from "@/lib/jobs/photo-annotator-history";
+import {
   ANNOTATION_CUSTOM_PROPS,
   parseAnnotations,
   serializeAnnotations,
+  type Annotation,
 } from "@/lib/jobs/photo-annotation-format";
 import { useAnnotatorAutoSave } from "@/components/photo-annotator-auto-save";
 import { createArrow } from "@/lib/jobs/arrow-geometry";
@@ -36,6 +46,23 @@ import {
   type AnchorBox,
   type ToolbarControl,
 } from "@/lib/jobs/annotation-toolbar";
+import {
+  ANNOTATION_COLORS,
+  ANNOTATION_THICKNESSES,
+  applyColor,
+  applyThickness,
+  arrowHeadLength,
+  currentColor,
+  currentThickness,
+  supportsStyleEditor,
+  type StyleTarget,
+} from "@/lib/jobs/annotation-style";
+import {
+  snapAnnotation,
+  type GuideLine,
+  type Rect,
+} from "@/lib/jobs/annotation-snapping";
+import { nextMarkerNumber } from "@/lib/jobs/numbered-marker-sequence";
 import { cn } from "@/lib/utils";
 import {
   Pencil,
@@ -44,6 +71,7 @@ import {
   Type,
   MousePointer,
   Undo2,
+  Redo2,
   Trash2,
   Loader2,
   ArrowUpRight,
@@ -60,6 +88,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -74,22 +103,8 @@ type Tool =
   | "text"
   | "arrow"
   | "polyline"
+  | "marker"
   | "crop";
-
-const COLORS = [
-  { value: "#F59E0B", label: "Yellow" },
-  { value: "#C41E2A", label: "Red" },
-  { value: "#2B5EA7", label: "Blue" },
-  { value: "#0F6E56", label: "Green" },
-  { value: "#FFFFFF", label: "White" },
-  { value: "#1A1A1A", label: "Black" },
-];
-
-const THICKNESSES = [
-  { value: 2, label: "Thin" },
-  { value: 4, label: "Medium" },
-  { value: 8, label: "Thick" },
-];
 
 const TOOLS: {
   value: Tool;
@@ -102,6 +117,7 @@ const TOOLS: {
   { value: "rectangle", label: "Rectangle", icon: Square },
   { value: "text", label: "Text", icon: Type },
   { value: "polyline", label: "Polyline", icon: Share2 },
+  { value: "marker", label: "Numbered marker", icon: MapPin },
 ];
 
 const SHADOW_CONFIG = {
@@ -110,6 +126,22 @@ const SHADOW_CONFIG = {
   offsetX: 2,
   offsetY: 2,
 };
+
+// ── Snapping & alignment guides (#818) ──
+// How close, in canvas pixels, a dragged Annotation's edge or center must come
+// to another Annotation's edge or center before it snaps into alignment.
+const SNAP_THRESHOLD = 8;
+// Colour of the transient alignment guide lines drawn during a snap. Cyan reads
+// clearly over light and dark Photo content and over every Annotation colour in
+// the palette. Guides are editor-only chrome: drawn directly on the canvas in
+// an after:render overlay, so they are never serialized into saved markup and
+// never flattened into the exported Annotated Photo PNG.
+const GUIDE_COLOR = "#22D3EE";
+
+// Radius of a Numbered marker's badge disc, in canvas pixels (#816). Fixed like
+// the text tool's font size — a marker is a small, consistent badge, not scaled
+// per-photo the way an Arrow is — so it reads the same regardless of Photo size.
+const MARKER_BADGE_RADIUS = 16;
 
 // ─── FabricArrow Custom Class (initialized once on first fabric import) ──────
 
@@ -197,7 +229,7 @@ function initFabricClasses(fabric: any) {
       const lx2 = this.x2 - cx;
       const ly2 = this.y2 - cy;
       const thick = this.arrowThickness;
-      const headLen = thick * 4;
+      const headLen = arrowHeadLength(thick);
       const ang = Math.atan2(ly2 - ly1, lx2 - lx1);
 
       // Shaft
@@ -326,6 +358,110 @@ function initFabricClasses(fabric: any) {
   const FabricArrowRef = FabricArrow;
 
   classRegistry.setClass(FabricArrow, "FabricArrow");
+
+  // ── FabricNumberedMarker (issue #816) ──
+  // A small numbered badge dropped on a Photo by the marker tool. It is one
+  // Annotation: the disc, its number, and an optional attached Label below it
+  // all move together. The number is assigned by the pure nextMarkerNumber rule
+  // at drop time; the marker only renders whatever `markerNumber` it carries. It
+  // is move-only — no resize/rotate — so a badge never distorts; you drag it to
+  // reposition. Persists via the shared ANNOTATION_CUSTOM_PROPS allowlist
+  // (`markerNumber`/`markerColor`, reusing `labelText`/`labelFontSize` for the
+  // label) and burns into the flattened Annotated Photo like every other kind.
+  class FabricNumberedMarker extends FabricObject {
+    static type = "FabricNumberedMarker";
+    static customProperties = [...ANNOTATION_CUSTOM_PROPS];
+
+    declare markerNumber: number;
+    declare markerColor: string;
+    declare labelText: string | null;
+    declare labelFontSize: number;
+
+    constructor(options: any = {}) {
+      super(options);
+      this.markerNumber = options.markerNumber ?? 1;
+      this.markerColor = options.markerColor ?? "#F59E0B";
+      this.labelText = options.labelText ?? null;
+      this.labelFontSize = options.labelFontSize ?? 20;
+
+      this.objectCaching = false;
+      this.selectable = true;
+      this.evented = true;
+      this.originX = "center";
+      this.originY = "center";
+      // Move-only: drag to reposition, but no scaling or rotation so the badge
+      // stays a fixed circle. No corner controls; the selection border alone
+      // signals the active marker.
+      this.hasControls = false;
+      this.hasBorders = true;
+      this.lockScalingX = true;
+      this.lockScalingY = true;
+      this.lockRotation = true;
+      this.shadow = new Shadow(SHADOW_CONFIG);
+
+      const r = MARKER_BADGE_RADIUS;
+      this.set({ width: r * 2, height: r * 2 });
+      this.setCoords();
+    }
+
+    _render(ctx: CanvasRenderingContext2D) {
+      const r = MARKER_BADGE_RADIUS;
+
+      // Badge disc, centred on the object's origin (Fabric translates the ctx
+      // to the centre before _render, exactly as FabricArrow relies on).
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, 2 * Math.PI);
+      ctx.fillStyle = this.markerColor;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.stroke();
+
+      // The number. Shrink a touch for two-or-more digits so it stays inside
+      // the disc.
+      const digits = String(this.markerNumber);
+      const fs = digits.length >= 2 ? r * 1.0 : r * 1.25;
+      ctx.font = `bold ${fs}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillText(digits, 0, 1);
+
+      // Optional attached Label, drawn below the badge in the marker's colour
+      // with a dark outline for legibility (matching the Arrow's label style).
+      if (this.labelText) {
+        const lfs = this.labelFontSize;
+        ctx.font = `bold ${lfs}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const ly = r + 6 + lfs / 2;
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1;
+        ctx.lineJoin = "round";
+        ctx.strokeText(this.labelText, 0, ly);
+        ctx.fillStyle = this.markerColor;
+        ctx.fillText(this.labelText, 0, ly);
+      }
+    }
+
+    toObject(propertiesToInclude?: string[]) {
+      return {
+        ...super.toObject(propertiesToInclude),
+        markerNumber: this.markerNumber,
+        markerColor: this.markerColor,
+        labelText: this.labelText,
+        labelFontSize: this.labelFontSize,
+      };
+    }
+
+    static fromObject(object: any) {
+      return Promise.resolve(new FabricNumberedMarkerRef(object));
+    }
+  }
+
+  const FabricNumberedMarkerRef = FabricNumberedMarker;
+
+  classRegistry.setClass(FabricNumberedMarker, "FabricNumberedMarker");
   fabricClassesReady = true;
 }
 
@@ -401,6 +537,14 @@ export default function PhotoAnnotator({
     };
   }, [supabase]);
 
+  // Empty the transient alignment guides and repaint so they vanish (#818).
+  // Safe to call when there are none — drawGuides simply draws nothing.
+  const clearGuides = useCallback(() => {
+    if (guideLinesRef.current.length === 0) return;
+    guideLinesRef.current = [];
+    fabricRef.current?.requestRenderAll();
+  }, []);
+
   // Flatten the live canvas to a PNG blob for the Annotated Photo render. The
   // synchronous toDataURL runs first so the OUTGOING pixels are snapshotted
   // before any photo switch swaps the canvas; the fetch→blob tail is
@@ -409,6 +553,10 @@ export default function PhotoAnnotator({
   const captureFlattenedBlob = useCallback(async (): Promise<Blob | null> => {
     const canvas = fabricRef.current;
     if (!canvas) return null;
+    // Belt-and-suspenders: guides are after:render chrome and never enter
+    // toDataURL anyway, but drop them before the snapshot so the live canvas is
+    // clean too.
+    guideLinesRef.current = [];
     canvas.discardActiveObject();
     // The flattened Annotated Photo must render at full Photo resolution
     // irrespective of on-screen zoom (#814 AC6): toDataURL bakes the viewport
@@ -449,6 +597,14 @@ export default function PhotoAnnotator({
   const cropRenderCallbackRef = useRef<any>(null);
   const hiddenObjectsRef = useRef<any[]>([]);
 
+  // ── Snapping alignment guides (#818) ──
+  // The transient guide lines to draw on the next render while a drag is
+  // snapping. Written in object:moving and read by the after:render overlay; a
+  // ref (not state) so updating it never re-renders React mid-drag. Always
+  // emptied on drop / deselect so guides never persist — and, being canvas-only
+  // chrome, they are absent from the flattened export regardless.
+  const guideLinesRef = useRef<GuideLine[]>([]);
+
   // ── In-context toolbar (any selected Annotation) ──
   const [objectToolbar, setObjectToolbar] = useState<{
     x: number;
@@ -457,7 +613,7 @@ export default function PhotoAnnotator({
     controls: ToolbarControl[];
   } | null>(null);
   const [labelInput, setLabelInput] = useState<{
-    arrow: any;
+    target: any;
     text: string;
   } | null>(null);
 
@@ -476,6 +632,18 @@ export default function PhotoAnnotator({
   const isDrawingShape = useRef(false);
   const shapeStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const currentShape = useRef<any>(null);
+
+  // ── History (undo / redo) ──
+  // The pure stack (past/present/future of markup snapshots) is the source of
+  // truth for what undo and redo restore; the two booleans mirror its derived
+  // canUndo/canRedo so the toolbar buttons enable/disable in render.
+  // isRestoringRef suppresses step capture while we replay a snapshot onto the
+  // canvas. The cheap debounced markup write itself lives in the auto-save hook
+  // (ADR 0024's split write); recordStep just feeds it.
+  const historyRef = useRef<HistoryState<Annotation[]>>(createHistory([]));
+  const isRestoringRef = useRef(false);
+  const [canUndoState, setCanUndoState] = useState(false);
+  const [canRedoState, setCanRedoState] = useState(false);
 
   // ── Refs that sync with state ──
   const activeToolRef = useRef<Tool>(activeTool);
@@ -652,6 +820,13 @@ export default function PhotoAnnotator({
       setCanvasReady(true);
       isDirtyRef.current = false;
 
+      // Seed the undo/redo history with the just-loaded markup as the baseline
+      // present: there's nothing to undo back past a Photo's saved state, and a
+      // fresh stack means undo can never step across into another Photo's edits.
+      historyRef.current = createHistory(snapshotObjects(canvas));
+      setCanUndoState(false);
+      setCanRedoState(false);
+
       // Check for original backup
       const supabase = createClient();
       const backupPath = currentPhoto.storage_path.replace(
@@ -710,14 +885,15 @@ export default function PhotoAnnotator({
    * handle size is not serialized, so loadFromJSON restores objects at Fabric's
    * small defaults. Re-apply it here, and re-attach vertex controls to
    * Polyline/Polygon (createPolyControls is likewise not restored). FabricArrow
-   * brings its own custom endpoint controls from its constructor, so it is left
-   * untouched.
+   * brings its own custom endpoint controls from its constructor, and a
+   * FabricNumberedMarker its own move-only config, so both are left untouched.
    */
   function attachEditorHandles(canvas: any, fabric: any) {
     canvas.getObjects().forEach((obj: any) => {
-      if (obj.type === "FabricArrow") return;
+      const kind = annotationKind(obj.type);
+      if (kind === "arrow" || kind === "marker") return;
       obj.set(handleSizeProps());
-      if (obj.type === "Polyline" || obj.type === "Polygon") {
+      if (kind === "polyline" || kind === "polygon") {
         if (fabric.createPolyControls) {
           obj.controls = fabric.createPolyControls(obj);
         }
@@ -751,6 +927,12 @@ export default function PhotoAnnotator({
       // no canvas to write to yet.
       transformRef.current = FIT;
       setTransform(FIT);
+      // Drop the previous Photo's undo/redo history immediately; initCanvas
+      // re-seeds the stack once the new canvas loads. (Any pending markup save
+      // is owned and flushed by the auto-save hook, not here.)
+      historyRef.current = createHistory([]);
+      setCanUndoState(false);
+      setCanRedoState(false);
       const timer = setTimeout(() => initCanvas(), 200);
       return () => clearTimeout(timer);
     }
@@ -778,14 +960,25 @@ export default function PhotoAnnotator({
       const json = canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]);
       autoSave.scheduleMarkupSave(serializeAnnotations(json.objects));
     };
+    // A finished freehand stroke and a committed text edit are completed steps
+    // too — record them here. (Moves/resizes are recorded in the arrow-sync
+    // effect's object:modified, after endpoint sync, so an arrow's geometry is
+    // already current when snapshotted; shape/arrow/polyline placement is
+    // recorded at their explicit finalize points, never on raw object:added,
+    // so a mid-draw preview never lands in the stack.)
+    const onCommit = () => recordStep();
     canvas.on("object:added", markDirty);
     canvas.on("object:modified", markDirty);
     canvas.on("object:removed", markDirty);
+    canvas.on("path:created", onCommit);
+    canvas.on("text:editing:exited", onCommit);
 
     return () => {
       canvas.off("object:added", markDirty);
       canvas.off("object:modified", markDirty);
       canvas.off("object:removed", markDirty);
+      canvas.off("path:created", onCommit);
+      canvas.off("text:editing:exited", onCommit);
     };
   }, [canvasReady, autoSave]);
 
@@ -798,7 +991,7 @@ export default function PhotoAnnotator({
     // The top-edge box the toolbar anchors to. The Arrow anchors on its raw
     // endpoints (unchanged from before); every other kind uses its bounding box.
     function anchorBoxFor(target: any): AnchorBox {
-      if (target?.type === "FabricArrow") {
+      if (annotationKind(target?.type) === "arrow") {
         return {
           left: Math.min(target.x1, target.x2),
           top: Math.min(target.y1, target.y2),
@@ -828,12 +1021,55 @@ export default function PhotoAnnotator({
 
     function onDeselected() {
       setObjectToolbar(null);
+      // Drop any guides left from the last drag so none linger after deselect.
+      clearGuides();
     }
 
     function onMoving(e: any) {
       const target = e.target;
-      // Sync FabricArrow endpoints when the body is dragged
-      if (target?.type === "FabricArrow") {
+      // Snap the dragged Annotation into alignment with the others and record
+      // which transient guide lines to draw this frame (#818). Only real
+      // Annotations snap — never the crop rect or a multi-object selection
+      // (annotationKind is falsy for both), and never the background image.
+      const kind = annotationKind(target?.type);
+      if (kind && target !== cropRectRef.current) {
+        const movingRect = target.getBoundingRect();
+        const others = (
+          canvas.getObjects() as Array<{
+            type?: string;
+            getBoundingRect: () => Rect;
+          }>
+        )
+          .filter(
+            (o) =>
+              o !== target &&
+              o !== cropRectRef.current &&
+              annotationKind(o.type)
+          )
+          .map((o) => o.getBoundingRect());
+        const { snappedPosition, guideLines } = snapAnnotation(
+          movingRect,
+          others,
+          { x: SNAP_THRESHOLD, y: SNAP_THRESHOLD }
+        );
+        // The engine returns the snapped bounding-box position; apply the shift
+        // as a plain translation so it works for center-origin Arrows and
+        // top-left shapes alike.
+        const dx = snappedPosition.left - movingRect.left;
+        const dy = snappedPosition.top - movingRect.top;
+        if (dx !== 0 || dy !== 0) {
+          target.set({
+            left: (target.left ?? 0) + dx,
+            top: (target.top ?? 0) + dy,
+          });
+          target.setCoords();
+        }
+        guideLinesRef.current = guideLines;
+      }
+      // Sync the Arrow's endpoints to the (possibly snapped) body position so
+      // the whole Arrow — tip and tail — moves together and stays consistent.
+      // Route through annotationKind: the live Fabric type is lowercase (#831).
+      if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
       // Hide toolbar during movement; it re-anchors on object:modified
@@ -842,10 +1078,44 @@ export default function PhotoAnnotator({
 
     function onModified(e: any) {
       const target = e.target;
-      if (target?.type === "FabricArrow") {
+      if (annotationKind(target?.type) === "arrow") {
         target._syncEndpointsToPosition();
       }
+      // The drag is over — clear the guides so they vanish on drop.
+      clearGuides();
       showToolbar(target);
+      // Record the move/resize/endpoint-drag as one undoable step — after any
+      // arrow endpoint sync above so the snapshot captures its final geometry.
+      recordStep();
+    }
+
+    // After:render overlay for the transient alignment guides. Drawn directly
+    // on the canvas context (mirroring the crop / polyline overlays) so it is
+    // editor-only chrome and never enters the flattened export. With no
+    // zoom/pan yet, canvas coords equal the scene coords the engine works in.
+    function drawGuides() {
+      const guides = guideLinesRef.current;
+      if (!guides || guides.length === 0) return;
+      const ctx = canvas.getContext();
+      if (!ctx) return;
+      const cw = canvas.width!;
+      const ch = canvas.height!;
+      ctx.save();
+      ctx.strokeStyle = GUIDE_COLOR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      for (const g of guides) {
+        if (g.orientation === "vertical") {
+          ctx.moveTo(g.position, 0);
+          ctx.lineTo(g.position, ch);
+        } else {
+          ctx.moveTo(0, g.position);
+          ctx.lineTo(cw, g.position);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
     }
 
     canvas.on("selection:created", onSelected);
@@ -853,6 +1123,7 @@ export default function PhotoAnnotator({
     canvas.on("selection:cleared", onDeselected);
     canvas.on("object:moving", onMoving);
     canvas.on("object:modified", onModified);
+    canvas.on("after:render", drawGuides);
 
     return () => {
       canvas.off("selection:created", onSelected);
@@ -860,6 +1131,7 @@ export default function PhotoAnnotator({
       canvas.off("selection:cleared", onDeselected);
       canvas.off("object:moving", onMoving);
       canvas.off("object:modified", onModified);
+      canvas.off("after:render", drawGuides);
     };
   }, [canvasReady]);
 
@@ -1147,6 +1419,60 @@ export default function PhotoAnnotator({
         canvas.add(arrow);
         canvas.setActiveObject(arrow);
         canvas.renderAll();
+        recordStep();
+      });
+    } else if (activeTool === "marker") {
+      // ── Numbered marker: tap-to-drop & auto-sequence (issue #816) ──
+      // A single tap drops one badge centred on the tap, auto-numbered as the
+      // next in the Photo's sequence and auto-selected — mirroring the Arrow's
+      // tap-drop. The number comes from the pure nextMarkerNumber rule, fed the
+      // numbers already on the canvas, so placement order is deterministic.
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+      canvas.forEachObject((obj: any) => {
+        obj.selectable = true;
+        obj.evented = true;
+      });
+
+      // Scene point of a mouse:down on empty canvas; null when the press hit an
+      // existing object, so tapping a marker selects it rather than stacking a
+      // new one on top.
+      let tapDown: { x: number; y: number } | null = null;
+
+      canvas.on("mouse:down", (opt: any) => {
+        if (opt.target) {
+          tapDown = null;
+          return;
+        }
+        const pointer = canvas.getScenePoint(opt.e);
+        tapDown = { x: pointer.x, y: pointer.y };
+      });
+
+      canvas.on("mouse:up", () => {
+        const tap = tapDown;
+        tapDown = null;
+        if (!tap) return;
+
+        const existingNumbers = canvas
+          .getObjects()
+          .filter((o: any) => o.type === "FabricNumberedMarker")
+          .map((o: any) => o.markerNumber as number);
+        const MarkerClass = fabric.classRegistry.getClass(
+          "FabricNumberedMarker"
+        );
+        const marker = new MarkerClass({
+          left: tap.x,
+          top: tap.y,
+          markerNumber: nextMarkerNumber(existingNumbers),
+          markerColor: activeColorRef.current,
+        });
+        canvas.add(marker);
+        canvas.setActiveObject(marker);
+        canvas.renderAll();
+        // Drop is this marker's explicit commit point (#813): record it into the
+        // undo stack and schedule the markup save. object:added alone only
+        // markDirty's the save — placement is never recorded on raw add.
+        recordStep();
       });
     } else {
       // ── Shape tools: circle, rectangle ──
@@ -1233,6 +1559,7 @@ export default function PhotoAnnotator({
           });
           currentShape.current.setCoords();
           canvas.renderAll();
+          recordStep();
         }
         currentShape.current = null;
       });
@@ -1418,30 +1745,38 @@ export default function PhotoAnnotator({
 
     polyDrawingRef.current = null;
     polyPreviewRef.current = null;
+    recordStep();
   }
 
   // ─── In-context Toolbar Handlers (every Annotation kind) ────────────────────
 
-  // Label control. The per-object Label flow today exists only for Arrows; on
-  // other shapes the Label control is present but a safe no-op until the
-  // Attached Labels slice (#804) lands — it must never throw or corrupt the
-  // object.
+  // Label control. The per-object Label flow exists for Arrows and Numbered
+  // markers (both render their own `labelText`); on other shapes the Label
+  // control is present but a safe no-op until the Attached Labels slice (#804)
+  // lands — it must never throw or corrupt the object.
   function handleLabel(target: any) {
-    if (!target || target.type !== "FabricArrow") return;
+    const kind = target ? annotationKind(target.type) : null;
+    if (kind !== "arrow" && kind !== "marker") return;
     setLabelInput({
-      arrow: target,
+      target,
       text: target.labelText || "Label",
     });
     setObjectToolbar(null);
   }
 
-  function handleArrowLabelSubmit() {
+  function handleLabelSubmit() {
     if (!labelInput) return;
     const canvas = fabricRef.current;
-    labelInput.arrow.labelText = labelInput.text || null;
-    labelInput.arrow.set("dirty", true);
+    const target = labelInput.target;
+    target.labelText = labelInput.text || null;
+    target.set("dirty", true);
     canvas?.renderAll();
     setLabelInput(null);
+    // recordStep is this edit's commit point (#813): it snapshots the canvas —
+    // capturing the just-set labelText via ANNOTATION_CUSTOM_PROPS — into the
+    // undo stack AND schedules the debounced markup save, so the new label
+    // reaches saved markup without a separate object:modified fire.
+    recordStep();
   }
 
   // Duplicate control. The Arrow keeps its bespoke copy (its endpoints, not just
@@ -1453,7 +1788,7 @@ export default function PhotoAnnotator({
     const fabric = fabricModuleRef.current;
     if (!canvas || !fabric || !target) return;
 
-    if (target.type === "FabricArrow") {
+    if (annotationKind(target.type) === "arrow") {
       const ArrowClass = fabric.classRegistry.getClass("FabricArrow");
       const copy = new ArrowClass({
         x1: target.x1 + DUPLICATE_OFFSET,
@@ -1468,6 +1803,7 @@ export default function PhotoAnnotator({
       canvas.add(copy);
       canvas.renderAll();
       setObjectToolbar(null);
+      recordStep();
       return;
     }
 
@@ -1484,8 +1820,9 @@ export default function PhotoAnnotator({
     clone.setCoords();
     canvas.add(clone);
     // Restore vertex editing on duplicated polylines/polygons.
+    const cloneKind = annotationKind(clone.type);
     if (
-      (clone.type === "Polyline" || clone.type === "Polygon") &&
+      (cloneKind === "polyline" || cloneKind === "polygon") &&
       fabric.createPolyControls
     ) {
       clone.controls = fabric.createPolyControls(clone);
@@ -1493,6 +1830,7 @@ export default function PhotoAnnotator({
     }
     canvas.renderAll();
     setObjectToolbar(null);
+    recordStep();
   }
 
   // Delete control. Uniform across kinds — remove the object, drop the
@@ -1504,6 +1842,7 @@ export default function PhotoAnnotator({
     canvas.discardActiveObject();
     canvas.renderAll();
     setObjectToolbar(null);
+    recordStep();
   }
 
   // ─── Crop System ───────────────────────────────────────────────────────────
@@ -1881,43 +2220,127 @@ export default function PhotoAnnotator({
     canvas.renderAll();
   }
 
-  // ─── Undo & Clear ─────────────────────────────────────────────────────────
+  // ─── History capture & restore ─────────────────────────────────────────────
+
+  /** Snapshot the current markup objects (carrying the FabricArrow custom props
+   *  so an arrow's geometry, color, label and styling round-trip) — the opaque
+   *  T the pure history stack stores. The background photo is excluded; only the
+   *  user-placed annotations are versioned. */
+  function snapshotObjects(canvas: any): Annotation[] {
+    return canvas.toJSON([...ANNOTATION_CUSTOM_PROPS]).objects as Annotation[];
+  }
+
+  /** Mirror the stack's derived canUndo/canRedo onto state so the toolbar
+   *  buttons enable/disable immediately after every step, undo and redo. */
+  function syncHistoryFlags() {
+    setCanUndoState(historyCanUndo(historyRef.current));
+    setCanRedoState(historyCanRedo(historyRef.current));
+  }
+
+  /** Push the canvas's current state as one completed step, refresh the derived
+   *  flags, mark the Photo dirty (so the on-exit PNG rebuild still fires per ADR
+   *  0024), and feed the cheap debounced markup save. Called at every commit
+   *  point — never mid-draw, so a preview object can't land in the stack — and
+   *  suppressed while we're replaying a snapshot back onto the canvas. */
+  function recordStep() {
+    const canvas = fabricRef.current;
+    if (!canvas || isRestoringRef.current) return;
+    const objects = snapshotObjects(canvas);
+    historyRef.current = pushHistory(historyRef.current, objects);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    autoSave.scheduleMarkupSave(serializeAnnotations(objects));
+  }
+
+  /** Replay a stored snapshot onto the canvas, preserving the background and
+   *  re-attaching polyline vertex controls, exactly like the initial load.
+   *  Guarded with isRestoringRef so the object churn it causes never records a
+   *  new step. */
+  async function restoreSnapshot(objects: Annotation[]) {
+    const canvas = fabricRef.current;
+    const fabric = fabricModuleRef.current;
+    if (!canvas || !fabric) return;
+    isRestoringRef.current = true;
+    try {
+      const bg = canvas.backgroundImage;
+      canvas.discardActiveObject();
+      await canvas.loadFromJSON({ version: "7.2.0", objects });
+      canvas.backgroundImage = bg;
+      attachEditorHandles(canvas, fabric);
+      canvas.renderAll();
+    } finally {
+      isRestoringRef.current = false;
+    }
+    setObjectToolbar(null);
+  }
+
+  // ─── Undo / Redo / Clear ───────────────────────────────────────────────────
 
   function handleUndo() {
     const canvas = fabricRef.current;
     if (!canvas) return;
 
-    // If actively drawing a polyline, undo the last placed point
+    // While a polyline is actively being drawn, Undo backs out the last placed
+    // vertex (and dismisses the in-progress polyline once a single point is
+    // left) instead of popping the committed history stack.
     if (polyDrawingRef.current) {
       const pts = polyDrawingRef.current.points;
       if (pts.length > 1) {
         pts.pop();
-        canvas.renderAll();
-        return;
       } else {
         polyDrawingRef.current = null;
         polyPreviewRef.current = null;
-        canvas.renderAll();
-        return;
       }
+      canvas.renderAll();
+      return;
     }
 
-    const objects = canvas.getObjects();
-    if (objects.length === 0) return;
-    const last = objects[objects.length - 1];
-    canvas.remove(last);
-    setObjectToolbar(null);
-    canvas.renderAll();
+    if (!historyCanUndo(historyRef.current)) return;
+    historyRef.current = undoHistory(historyRef.current);
+    const restored = historyRef.current.present;
+    void restoreSnapshot(restored);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    // Feed the cheap debounced markup save from the restored snapshot itself,
+    // not the canvas — restoreSnapshot's loadFromJSON is async, so reading the
+    // canvas here would capture the pre-undo state (and an undo back to an empty
+    // canvas fires no object events to piggyback on).
+    autoSave.scheduleMarkupSave(serializeAnnotations(restored));
+  }
+
+  function handleRedo() {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (!historyCanRedo(historyRef.current)) return;
+    historyRef.current = redoHistory(historyRef.current);
+    const restored = historyRef.current.present;
+    void restoreSnapshot(restored);
+    syncHistoryFlags();
+    isDirtyRef.current = true;
+    autoSave.scheduleMarkupSave(serializeAnnotations(restored));
   }
 
   function handleClear() {
     const canvas = fabricRef.current;
     if (!canvas) return;
-    canvas.getObjects().slice().forEach((obj: any) => canvas.remove(obj));
+
+    // Dismiss any in-progress polyline first — it isn't a committed object.
     polyDrawingRef.current = null;
     polyPreviewRef.current = null;
+
+    const objects = canvas.getObjects().slice();
+    if (objects.length === 0) {
+      canvas.renderAll();
+      return;
+    }
+    objects.forEach((obj: any) => canvas.remove(obj));
     setObjectToolbar(null);
     canvas.renderAll();
+
+    // Record the emptied canvas as ONE undoable step (a push of the empty
+    // snapshot, not the stack-reset clear) so an immediate Undo brings every
+    // annotation back at once.
+    recordStep();
   }
 
   // ─── Close ─────────────────────────────────────────────────────────────────
@@ -1956,9 +2379,17 @@ export default function PhotoAnnotator({
     if (!open || !canvasReady) return;
 
     function onKeyDown(e: KeyboardEvent) {
-      // Don't navigate when editing text
+      // Don't navigate or undo/redo when editing text
       const active = fabricRef.current?.getActiveObject();
       if (active?.isEditing) return;
+
+      // Undo / Redo: ⌘Z / Ctrl+Z, and ⇧⌘Z / Ctrl+Shift+Z to redo.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+        return;
+      }
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -1972,6 +2403,47 @@ export default function PhotoAnnotator({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, canvasReady, currentIndex, photos.length]);
+
+  // ─── Color / thickness editor for the selected Annotation (issue #815) ──────
+
+  // With a styleable Annotation selected, the bottom palette edits THAT object
+  // and pre-highlights its current color/thickness; with nothing styleable
+  // selected it sets the defaults for the next new markup. Text boxes and the
+  // background are excluded by supportsStyleEditor.
+  const styleTarget =
+    objectToolbar &&
+    supportsStyleEditor(annotationKind(objectToolbar.target?.type))
+      ? objectToolbar.target
+      : null;
+  const paletteColor = styleTarget ? currentColor(styleTarget) : activeColor;
+  const paletteThickness = styleTarget
+    ? currentThickness(styleTarget)
+    : activeThickness;
+
+  // Restyle the selected Annotation in place, then persist via the cheap markup
+  // path: refresh an Arrow's bounds for its rescaled head, repaint, and fire
+  // object:modified so the existing markDirty → debounced save runs (the
+  // expensive flattened rebuild still waits for leave/close). Returns false when
+  // nothing styleable is selected, so the caller falls back to setting defaults.
+  function restyleSelected(mutate: (target: StyleTarget) => void): boolean {
+    if (!styleTarget) return false;
+    mutate(styleTarget);
+    if (styleTarget.type === "FabricArrow") styleTarget._updateBounds();
+    styleTarget.set("dirty", true);
+    const canvas = fabricRef.current;
+    canvas?.requestRenderAll();
+    canvas?.fire("object:modified", { target: styleTarget });
+    return true;
+  }
+
+  function handlePickColor(value: string) {
+    if (!restyleSelected((t) => applyColor(t, value))) setActiveColor(value);
+  }
+
+  function handlePickThickness(value: number) {
+    if (!restyleSelected((t) => applyThickness(t, value)))
+      setActiveThickness(value);
+  }
 
   // ─── Guard ─────────────────────────────────────────────────────────────────
 
@@ -2033,14 +2505,14 @@ export default function PhotoAnnotator({
         <div className="w-8 h-px bg-[#333] my-1" />
 
         {/* Colors */}
-        {COLORS.map((color) => (
+        {ANNOTATION_COLORS.map((color) => (
           <button
             key={color.value}
-            onClick={() => setActiveColor(color.value)}
+            onClick={() => handlePickColor(color.value)}
             title={color.label}
             className={cn(
               "w-6 h-6 rounded-full border-2 transition-all",
-              activeColor === color.value
+              paletteColor === color.value
                 ? "border-white scale-125"
                 : "border-[#555] hover:border-[#888]"
             )}
@@ -2051,14 +2523,14 @@ export default function PhotoAnnotator({
         <div className="w-8 h-px bg-[#333] my-1" />
 
         {/* Line Thickness */}
-        {THICKNESSES.map((t) => (
+        {ANNOTATION_THICKNESSES.map((t) => (
           <button
             key={t.value}
-            onClick={() => setActiveThickness(t.value)}
+            onClick={() => handlePickThickness(t.value)}
             title={t.label}
             className={cn(
               "w-10 h-8 rounded-lg flex items-center justify-center transition-all",
-              activeThickness === t.value
+              paletteThickness === t.value
                 ? "border border-white scale-110"
                 : "border border-transparent hover:border-[#555]"
             )}
@@ -2068,7 +2540,7 @@ export default function PhotoAnnotator({
               style={{
                 width: 20,
                 height: t.value,
-                backgroundColor: activeColor,
+                backgroundColor: paletteColor,
               }}
             />
           </button>
@@ -2103,13 +2575,32 @@ export default function PhotoAnnotator({
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Undo / Clear */}
+        {/* Undo / Redo / Clear */}
         <button
           onClick={handleUndo}
-          title="Undo"
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-[#999] hover:text-white hover:bg-[#333] transition-colors"
+          disabled={!canUndoState}
+          title="Undo (⌘Z)"
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+            canUndoState
+              ? "text-[#999] hover:text-white hover:bg-[#333]"
+              : "text-[#555] cursor-not-allowed"
+          )}
         >
           <Undo2 size={18} />
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={!canRedoState}
+          title="Redo (⇧⌘Z)"
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+            canRedoState
+              ? "text-[#999] hover:text-white hover:bg-[#333]"
+              : "text-[#555] cursor-not-allowed"
+          )}
+        >
+          <Redo2 size={18} />
         </button>
         <button
           onClick={handleClear}
@@ -2215,42 +2706,51 @@ export default function PhotoAnnotator({
           </div>
         )}
 
-        {/* Arrow label input */}
-        {labelInput && (
-          <div
-            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
-            style={{
-              left: ((labelInput.arrow.x1 + labelInput.arrow.x2) / 2) - 28,
-              top: Math.min(labelInput.arrow.y1, labelInput.arrow.y2) - 80,
-            }}
-          >
-            <input
-              autoFocus
-              value={labelInput.text}
-              onChange={(e) =>
-                setLabelInput({ ...labelInput, text: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleArrowLabelSubmit();
-                if (e.key === "Escape") setLabelInput(null);
-              }}
-              className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
-              placeholder="Label text..."
-            />
-            <button
-              onClick={handleArrowLabelSubmit}
-              className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
-            >
-              <Check size={14} />
-            </button>
-            <button
-              onClick={() => setLabelInput(null)}
-              className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        {/* Label input (Arrow or Numbered marker) */}
+        {labelInput &&
+          (() => {
+            // Anchor above the object: an Arrow over its endpoints, a marker
+            // over its centre. Same canvas-pixel placement the Arrow has always
+            // used (it ignores the canvas's centring offset by design).
+            const t = labelInput.target;
+            const isArrow = t.type === "FabricArrow";
+            const popupLeft =
+              (isArrow ? (t.x1 + t.x2) / 2 : t.left ?? 0) - 28;
+            const popupTop =
+              (isArrow ? Math.min(t.y1, t.y2) : t.top ?? 0) - 80;
+            return (
+              <div
+                className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex items-center gap-2"
+                style={{ left: popupLeft, top: popupTop }}
+              >
+                <input
+                  autoFocus
+                  value={labelInput.text}
+                  onChange={(e) =>
+                    setLabelInput({ ...labelInput, text: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleLabelSubmit();
+                    if (e.key === "Escape") setLabelInput(null);
+                  }}
+                  className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
+                  placeholder="Label text..."
+                />
+                <button
+                  onClick={handleLabelSubmit}
+                  className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  onClick={() => setLabelInput(null)}
+                  className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Navigation arrows */}
         {photos.length > 1 && currentIndex > 0 && (

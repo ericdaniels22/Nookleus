@@ -7,10 +7,14 @@
 // `parseAnnotations` and its save path reads `serializeAnnotations`.
 
 /**
- * The custom properties a FabricArrow carries beyond Fabric's built-ins. This
- * is the single source of truth: the FabricArrow subclass's `customProperties`
- * allowlist and the save path's `toJSON` projection both read it, so the set of
- * persisted arrow fields is defined in exactly one place.
+ * The custom properties Annotations carry beyond Fabric's built-ins. This is the
+ * single source of truth: each Annotation subclass's `customProperties` allowlist
+ * and the save path's `toJSON` projection both read it, so the set of persisted
+ * fields is defined in exactly one place. A given subclass only writes the props
+ * it owns — a FabricArrow writes the `x1..arrowThickness` group, a Numbered
+ * marker (#816) writes `markerNumber`/`markerColor` and reuses `labelText`/
+ * `labelFontSize` for its attached label — but the projection list is shared so
+ * one `toJSON([...ANNOTATION_CUSTOM_PROPS])` call serializes every kind.
  */
 export const ANNOTATION_CUSTOM_PROPS = [
   "x1",
@@ -21,6 +25,8 @@ export const ANNOTATION_CUSTOM_PROPS = [
   "labelText",
   "labelFontSize",
   "arrowThickness",
+  "markerNumber",
+  "markerColor",
 ] as const;
 
 /** A single serialized Fabric object descriptor (a Rect, FabricArrow, etc.). */

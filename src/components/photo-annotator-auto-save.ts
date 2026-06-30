@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import type { AnnotationData } from "@/lib/jobs/photo-annotation-format";
 import { persistPhotoMarkup } from "@/lib/jobs/persist-photo-markup";
 import { persistAnnotatedRender } from "@/lib/jobs/persist-annotated-render";
+import { resolvePhotoAuthor } from "@/lib/jobs/resolve-photo-author";
 
 /** ~1s feels instant to the editor but still collapses a flurry of strokes into
  *  one write. ADR 0024 calls for a "cheap, debounced" markup save. */
@@ -91,6 +92,9 @@ export function useAnnotatorAutoSave(
           photoId: photo.id,
           organizationId,
           annotationData: data,
+          // First-time annotations are attributed to the signed-in user (#808),
+          // resolved lazily so a re-save (the common case) skips the lookup.
+          resolveAuthor: () => resolvePhotoAuthor(supabase),
         });
         // Success: drop the pending edit and reset the backoff ladder. Silent.
         pendingMarkupRef.current = null;
@@ -135,6 +139,7 @@ export function useAnnotatorAutoSave(
       photoId: photo.id,
       organizationId,
       annotationData: data,
+      resolveAuthor: () => resolvePhotoAuthor(supabase),
     }).catch(() => {
       // Teardown is best-effort; nothing left to surface a warning to.
     });

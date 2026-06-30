@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
+import { resolvePhotoAuthor } from "@/lib/jobs/resolve-photo-author";
 import { PhotoReportTemplate } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import TiptapEditor from "@/components/tiptap-editor";
@@ -112,8 +113,13 @@ export default function ReportTemplateBuilder({
         .eq("id", editTemplate.id)
         .eq("organization_id", await getActiveOrganizationId(supabase)));
     } else {
+      // Stamp the creating user the same way the photo-upload and annotator
+      // surfaces do (#832, shared with #808). Resolved only on the insert: the
+      // edit branch above sends `payload` alone, so editing never rewrites the
+      // original author.
       ({ error } = await supabase.from("photo_report_templates").insert({
         ...payload,
+        created_by: await resolvePhotoAuthor(supabase),
         organization_id: await getActiveOrganizationId(supabase),
       }));
     }
