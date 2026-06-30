@@ -70,12 +70,14 @@ function thicknessProperty(
 
 /**
  * Whether a selected Annotation of this kind gets the color/thickness editor.
- * Every drawn Annotation does; a text box is excluded (it carries its own text
- * styling), as is a non-Annotation selection (`null` — the background image or
- * an unknown object).
+ * Every drawn line/shape does; a text box is excluded (it carries its own text
+ * styling), and a Numbered marker is excluded (#816) — a fixed-radius badge has
+ * no stroke weight to re-thicken and takes its color from the active color at
+ * drop time, not from a post-hoc editor. A non-Annotation selection (`null` —
+ * the background image or an unknown object) is excluded too.
  */
 export function supportsStyleEditor(kind: AnnotationKind | null): boolean {
-  return kind !== null && kind !== "text";
+  return kind !== null && kind !== "text" && kind !== "marker";
 }
 
 /** Repaint the selected Annotation to `color`, mutating it in place. */

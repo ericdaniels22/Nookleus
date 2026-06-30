@@ -154,8 +154,12 @@ describe("supportsStyleEditor — which selected Annotations get the color/thick
     }
   });
 
-  it("withholds the editor from a text box and from a non-Annotation selection", () => {
+  it("withholds the editor from a text box, a Numbered marker, and a non-Annotation selection", () => {
     expect(supportsStyleEditor("text")).toBe(false);
+    // A Numbered marker (#816) is a fixed-radius badge: it has no line weight to
+    // re-thicken, and its color is set from the active color at drop time, not
+    // edited after the fact — so the color/thickness editor does not apply.
+    expect(supportsStyleEditor("marker")).toBe(false);
     expect(supportsStyleEditor(null)).toBe(false);
   });
 });
