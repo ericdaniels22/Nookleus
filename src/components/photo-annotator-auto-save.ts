@@ -19,6 +19,15 @@ const MAX_MARKUP_RETRIES = 3;
 /** Backoff is capped so a long outage doesn't stretch to absurd retry gaps. */
 const MAX_BACKOFF_MS = 30_000;
 
+/** A failed Annotated-Photo rebuild (flatten / upload / repoint) is retried this
+ *  many times before we surface a warning — mirroring the markup half so a
+ *  transient blip recovers silently and only a durable outage reaches the user. */
+const MAX_REBUILD_RETRIES = 3;
+
+/** Base backoff before the first rebuild retry; doubles each attempt, capped at
+ *  MAX_BACKOFF_MS — the same 1s → 2s → 4s ladder the markup half climbs. */
+const REBUILD_RETRY_BASE_MS = 1000;
+
 type SupabaseLike = ReturnType<typeof createClient>;
 
 interface AnnotatorPhoto {
@@ -193,15 +202,39 @@ export function useAnnotatorAutoSave(
       const blob = await blobPromise;
       if (!blob) return;
 
-      await persistAnnotatedRender(supabase, {
-        photoId: photo.id,
-        storagePath: photo.storage_path,
-        previousAnnotatedPath: photo.annotated_path,
-        blob,
-        token: Date.now().toString(36),
-      });
-
-      onPersisted?.();
+      // The expensive half can corrupt the Photo's render pointer, so it earns
+      // the same retry-then-warn contract as the markup half (story 25).
+      // persistAnnotatedRender throws on a failed upload or repoint WITHOUT
+      // touching the row, so every failure here leaves the prior render intact.
+      // Retry with backoff; only once the ladder is exhausted warn the user AND
+      // rethrow — the leave/close caller clears its dirty flag on success only,
+      // so a rejected rebuild stays dirty and a later leave/close re-attempts it.
+      const token = Date.now().toString(36);
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await persistAnnotatedRender(supabase, {
+            photoId: photo.id,
+            storagePath: photo.storage_path,
+            previousAnnotatedPath: photo.annotated_path,
+            blob,
+            token,
+          });
+          onPersisted?.();
+          return;
+        } catch (err) {
+          if (attempt >= MAX_REBUILD_RETRIES) {
+            toast.error(
+              "Couldn't save your annotated photo. Check your connection.",
+            );
+            throw err;
+          }
+          const delay = Math.min(
+            REBUILD_RETRY_BASE_MS * 2 ** attempt,
+            MAX_BACKOFF_MS,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     },
     [flushMarkup],
   );

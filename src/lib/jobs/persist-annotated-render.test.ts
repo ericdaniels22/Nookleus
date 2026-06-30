@@ -40,6 +40,24 @@ describe("persistAnnotatedRender", () => {
     });
   });
 
+  it("throws and skips the row update + delete when the Storage upload fails", async () => {
+    const { store, upload, update, remove } = makeStore();
+    // Supabase Storage reports a failed upload in the result, not by throwing.
+    upload.mockResolvedValue({ error: new Error("storage 503") });
+
+    await expect(
+      persistAnnotatedRender(store, {
+        ...base,
+        previousAnnotatedPath: "job-1/abc-annotated-k1.png",
+      }),
+    ).rejects.toThrow("storage 503");
+
+    // The row must never be repointed at a path whose file failed to land…
+    expect(update).not.toHaveBeenCalled();
+    // …and the prior good render must be left intact.
+    expect(remove).not.toHaveBeenCalled();
+  });
+
   it("does NOT delete when there is no previous annotated path", async () => {
     const { store, remove } = makeStore();
     await persistAnnotatedRender(store, { ...base, previousAnnotatedPath: null });
@@ -55,12 +73,16 @@ describe("persistAnnotatedRender", () => {
     expect(remove).toHaveBeenCalledWith(["job-1/abc-annotated-k1.png"]);
   });
 
-  it("does NOT delete the prior render when the update returns an error", async () => {
+  it("throws and does NOT delete the prior render when the row update returns an error", async () => {
     const { store, remove } = makeStore({ message: "rls denied" });
-    await persistAnnotatedRender(store, {
-      ...base,
-      previousAnnotatedPath: "job-1/abc-annotated-k1.png",
-    });
+    // A failed repoint must surface so the rebuild loop retries it (story 25),
+    // and the prior good render must survive an unconfirmed repoint.
+    await expect(
+      persistAnnotatedRender(store, {
+        ...base,
+        previousAnnotatedPath: "job-1/abc-annotated-k1.png",
+      }),
+    ).rejects.toEqual({ message: "rls denied" });
     expect(remove).not.toHaveBeenCalled();
   });
 
