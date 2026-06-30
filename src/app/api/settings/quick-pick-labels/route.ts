@@ -49,3 +49,76 @@ export const POST = withRequestContext({ permission: "access_settings" }, async 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { status: 201 });
 });
+
+// PUT /api/settings/quick-pick-labels — edit one label's text (single object)
+// or bulk-reorder the org's rows (array). Every write is scoped to the active
+// org, so a request targeting another org's row or a NULL-org default makes no
+// change. Mirrors the damage-types route shape.
+export const PUT = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
+  const body = await request.json();
+  const orgId = ctx.orgId;
+
+  // Bulk reorder: one update per row, each scoped to the active org.
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const { error } = await ctx.supabase
+        .from("quick_pick_labels")
+        .update({ label: item.label, sort_order: item.sort_order })
+        .eq("id", item.id)
+        .eq("organization_id", orgId);
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  }
+
+  // Single inline edit: save the new (trimmed) label text and its position.
+  const id = body.id;
+  const label = typeof body.label === "string" ? body.label.trim() : "";
+  if (!label) {
+    return NextResponse.json({ error: "label is required" }, { status: 400 });
+  }
+
+  const { error } = await ctx.supabase
+    .from("quick_pick_labels")
+    .update({ label, sort_order: body.sort_order })
+    .eq("id", id)
+    .eq("organization_id", orgId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
+});
+
+// DELETE /api/settings/quick-pick-labels?id=xxx — remove an org-owned label.
+// The shared NULL-org defaults are protected (403); the org filter on the
+// delete keeps a caller from removing another org's row.
+export const DELETE = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  const orgId = ctx.orgId;
+
+  const { data: row } = await ctx.supabase
+    .from("quick_pick_labels")
+    .select("organization_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  // A NULL-org row is a shared default — visible to every org, owned by none.
+  if (row && row.organization_id === null) {
+    return NextResponse.json(
+      { error: "Default quick-pick labels cannot be deleted" },
+      { status: 403 }
+    );
+  }
+
+  const { error } = await ctx.supabase
+    .from("quick_pick_labels")
+    .delete()
+    .eq("id", id)
+    .eq("organization_id", orgId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
+});
