@@ -14,6 +14,7 @@ import {
   indexAfterDelete,
 } from "@/lib/jobs/photo-viewer-navigation";
 import { mediaCapabilities } from "@/lib/jobs/photo-media-capabilities";
+import { useDebouncedSave } from "@/lib/jobs/use-debounced-save";
 import { isPhoneViewport } from "@/lib/jobs/photo-viewer-layout";
 import { useViewportOrientation } from "@/lib/mobile/use-viewport-orientation";
 import { exportVersion } from "@/lib/jobs/photo-export-version";
@@ -32,7 +33,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  Save,
   Loader2,
   Check,
   Tag,
@@ -403,7 +403,6 @@ export default function PhotoViewer({
     "before" | "after" | null
   >(null);
   const [assignedTagIds, setAssignedTagIds] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -419,6 +418,18 @@ export default function PhotoViewer({
   // spinner and both stay disabled until the share/download settles.
   const [exporting, setExporting] = useState<null | "share" | "save">(null);
   const [duplicating, setDuplicating] = useState(false);
+
+  // Auto-save (#806): every editable field persists itself — no Save button.
+  // A failed write retries silently and only warns if it still can't land; a
+  // successful save is completely silent (no toast, no indicator). Caption
+  // debounces on a 2s quiet window (matching estimate-builder); tags and
+  // Before/After save immediately on change (delay 0). Each field gets its own
+  // saver so one field's retry backoff never blocks another's write.
+  const warnSaveFailed = () =>
+    toast.error("Couldn't save your changes — check your connection.");
+  const captionSaver = useDebouncedSave({ delay: 2000, onError: warnSaveFailed });
+  const roleSaver = useDebouncedSave({ delay: 0, onError: warnSaveFailed });
+  const tagsSaver = useDebouncedSave({ delay: 0, onError: warnSaveFailed });
 
   async function fetchTags(photoId: string) {
     const supabase = createClient();
@@ -456,7 +467,21 @@ export default function PhotoViewer({
       fetchTags(currentPhoto.id);
       checkOriginalBackup(currentPhoto);
     }
+    // AC (h): paging to another Photo re-runs this effect; flush any caption
+    // edit still inside its window first. The pending thunk closed over the
+    // Photo it was typed on, so the write lands there — not on the new Photo.
+    return () => captionSaver.flush();
   }, [currentPhoto?.id]);
+
+  // AC (h): the viewer stays mounted when it closes (the parent only flips
+  // `open`), so React's unmount flush never fires on close. Flush any caption
+  // edit still inside its debounce window the moment the viewer is hidden, so
+  // an in-window edit is persisted rather than silently dropped.
+  useEffect(() => {
+    if (!open) captionSaver.flush();
+    // captionSaver.flush is stable; re-run only when open toggles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   async function handleRestoreOriginal() {
     if (!currentPhoto) return;
@@ -543,59 +568,81 @@ export default function PhotoViewer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, safeIndex, visiblePhotos.length]);
 
-  function toggleTag(tagId: string) {
-    setAssignedTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
-    );
-  }
-
-  async function handleSave() {
-    if (!currentPhoto) return;
-    setSaving(true);
+  // Persist just the caption for a specific Photo. Throws on a Supabase error so
+  // the saver's retry sees a rejection; refreshes the parent only on success.
+  // Takes the Photo id (not currentPhoto) so a write still in flight when the
+  // user pages to another Photo lands on the Photo that was edited.
+  async function persistCaption(photoId: string, value: string) {
     const supabase = createClient();
-
     const { error } = await supabase
       .from("photos")
-      .update({
-        caption: caption || null,
-        before_after_role: beforeAfterRole,
-      })
-      .eq("id", currentPhoto.id);
-
-    if (error) {
-      toast.error("Failed to update photo.");
-      setSaving(false);
-      return;
-    }
-
-    // Sync tags: delete all existing, re-insert current (modal parity).
-    await supabase
-      .from("photo_tag_assignments")
-      .delete()
-      .eq("photo_id", currentPhoto.id);
-
-    if (assignedTagIds.length > 0) {
-      const orgId = await getActiveOrganizationId(supabase);
-      await supabase.from("photo_tag_assignments").insert(
-        assignedTagIds.map((tagId) => ({
-          organization_id: orgId,
-          photo_id: currentPhoto.id,
-          tag_id: tagId,
-        })),
-      );
-    }
-
-    toast.success("Photo updated.");
-    setSaving(false);
+      .update({ caption: value || null })
+      .eq("id", photoId);
+    if (error) throw error;
     onUpdated();
   }
 
-  // A phone slide-up panel's "Done" persists its change through the same write
-  // the desktop side panel's Save uses, then lowers the panel (#520). The Tags
-  // and Before/After panels both route through here so there is one save path.
-  async function handlePhoneSheetDone() {
-    await handleSave();
-    setPhoneSheet(null);
+  // Persist just the Before/After role for a specific Photo. Throws on error so
+  // the saver retries; refreshes the parent only on success.
+  async function persistRole(
+    photoId: string,
+    role: "before" | "after" | null,
+  ) {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("photos")
+      .update({ before_after_role: role })
+      .eq("id", photoId);
+    if (error) throw error;
+    onUpdated();
+  }
+
+  // Toggle the Before/After role (clicking the active role clears it) and persist
+  // immediately — no debounce, mirroring the modal's discrete choice (#806).
+  function chooseRole(target: "before" | "after") {
+    if (!currentPhoto) return;
+    const next = beforeAfterRole === target ? null : target;
+    setBeforeAfterRole(next);
+    roleSaver.save(() => persistRole(currentPhoto.id, next));
+  }
+
+  // Replace a Photo's tag assignments with the modal's delete-all-then-insert,
+  // scoped to the active org. Throws on error so the saver retries; refreshes the
+  // parent only on success.
+  async function persistTags(photoId: string, tagIds: string[]) {
+    const supabase = createClient();
+    const { error: deleteError } = await supabase
+      .from("photo_tag_assignments")
+      .delete()
+      .eq("photo_id", photoId);
+    if (deleteError) throw deleteError;
+
+    if (tagIds.length > 0) {
+      const orgId = await getActiveOrganizationId(supabase);
+      const { error: insertError } = await supabase
+        .from("photo_tag_assignments")
+        .insert(
+          tagIds.map((tagId) => ({
+            organization_id: orgId,
+            photo_id: photoId,
+            tag_id: tagId,
+          })),
+        );
+      if (insertError) throw insertError;
+    }
+    onUpdated();
+  }
+
+  // Toggle a tag and persist immediately (delay 0) — no debounce. `next` is
+  // computed from the current ids outside setState so the save thunk and the
+  // optimistic UI agree even under StrictMode's double-invoked updater (#806).
+  function toggleTag(tagId: string) {
+    if (!currentPhoto) return;
+    const next = assignedTagIds.includes(tagId)
+      ? assignedTagIds.filter((t) => t !== tagId)
+      : [...assignedTagIds, tagId];
+    setAssignedTagIds(next);
+    tagsSaver.save(() => persistTags(currentPhoto.id, next));
   }
 
   // Download the original-quality image. Reuses the grid's download route
@@ -1174,7 +1221,15 @@ export default function PhotoViewer({
             id="photo-viewer-caption"
             aria-label="Caption"
             value={caption}
-            onChange={(e) => setCaption(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setCaption(value);
+              // Scheduling from the change handler (not a [caption] effect) means
+              // only user edits enqueue a save — re-seeding on Photo change never
+              // does. The thunk captures this Photo's id so a debounced write
+              // still lands here if the user pages away before it fires.
+              captionSaver.save(() => persistCaption(currentPhoto.id, value));
+            }}
             placeholder="Describe this photo..."
           />
         </div>
@@ -1187,9 +1242,7 @@ export default function PhotoViewer({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() =>
-                setBeforeAfterRole(beforeAfterRole === "before" ? null : "before")
-              }
+              onClick={() => chooseRole("before")}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
                 beforeAfterRole === "before"
@@ -1201,9 +1254,7 @@ export default function PhotoViewer({
             </button>
             <button
               type="button"
-              onClick={() =>
-                setBeforeAfterRole(beforeAfterRole === "after" ? null : "after")
-              }
+              onClick={() => chooseRole("after")}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
                 beforeAfterRole === "after"
@@ -1280,28 +1331,12 @@ export default function PhotoViewer({
             </button>
           </div>
         )}
-
-        {/* Actions */}
-        <div className="flex items-center justify-end pt-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
-          >
-            {saving ? (
-              <Loader2 size={14} className="animate-spin mr-1" />
-            ) : (
-              <Save size={14} className="mr-1" />
-            )}
-            Save Changes
-          </button>
-        </div>
       </aside>
       )}
 
       {/* Phone slide-up panels (#520). Each action button raises its own; only
-          one is open at a time. Tags and Before/After persist on Done through
-          the same writes the desktop Save uses. */}
+          one is open at a time. Tags and Before/After auto-save the moment they
+          change (#806); the panel's Done just lowers it. */}
       {isPhone && (
         <>
           <PhoneSheet
@@ -1337,11 +1372,9 @@ export default function PhotoViewer({
             </div>
             <button
               type="button"
-              onClick={handlePhoneSheetDone}
-              disabled={saving}
+              onClick={() => setPhoneSheet(null)}
               className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
             >
-              {saving && <Loader2 size={14} className="animate-spin mr-1.5" />}
               Done
             </button>
           </PhoneSheet>
@@ -1354,11 +1387,7 @@ export default function PhotoViewer({
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() =>
-                  setBeforeAfterRole(
-                    beforeAfterRole === "before" ? null : "before",
-                  )
-                }
+                onClick={() => chooseRole("before")}
                 className={cn(
                   "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   beforeAfterRole === "before"
@@ -1370,11 +1399,7 @@ export default function PhotoViewer({
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  setBeforeAfterRole(
-                    beforeAfterRole === "after" ? null : "after",
-                  )
-                }
+                onClick={() => chooseRole("after")}
                 className={cn(
                   "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   beforeAfterRole === "after"
@@ -1387,11 +1412,9 @@ export default function PhotoViewer({
             </div>
             <button
               type="button"
-              onClick={handlePhoneSheetDone}
-              disabled={saving}
+              onClick={() => setPhoneSheet(null)}
               className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
             >
-              {saving && <Loader2 size={14} className="animate-spin mr-1.5" />}
               Done
             </button>
           </PhoneSheet>
