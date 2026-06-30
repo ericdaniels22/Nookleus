@@ -2554,8 +2554,16 @@ export default function PhotoAnnotator({
   // The rebuild runs in the background so closing feels instant.
   function handleClose() {
     if (isDirtyRef.current) {
-      void autoSave.flushAndRebuild();
-      isDirtyRef.current = false;
+      // Clear the dirty flag only once the rebuild CONFIRMS success (story 25).
+      // A rebuild that fails after its retries rejects (having already warned),
+      // so the flag survives and a later close re-attempts it rather than
+      // masking the loss. The .catch keeps that rejection from going unhandled.
+      void autoSave
+        .flushAndRebuild()
+        .then(() => {
+          isDirtyRef.current = false;
+        })
+        .catch(() => {});
     }
     onOpenChange(false);
   }
@@ -2569,8 +2577,12 @@ export default function PhotoAnnotator({
   function requestNav(targetIndex: number) {
     if (targetIndex < 0 || targetIndex >= photos.length) return;
     if (isDirtyRef.current && currentPhoto) {
-      void autoSave.flushAndRebuild(currentPhoto);
-      isDirtyRef.current = false;
+      // Rebuild the OUTGOING photo. We deliberately don't clear isDirtyRef here:
+      // the incoming photo's load resets it, so by the time the rebuild settles
+      // the flag already tracks the NEW photo — clearing it on a slow eventual
+      // success would clobber a fresh edit. A failed rebuild has already warned
+      // (and rejects); swallow it so it isn't an unhandled rejection.
+      void autoSave.flushAndRebuild(currentPhoto).catch(() => {});
     }
     setCurrentIndex(targetIndex);
   }

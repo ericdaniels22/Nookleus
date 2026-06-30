@@ -30,18 +30,30 @@ export async function persistAnnotatedRender(
 ): Promise<{ annotatedPath: string }> {
   const annotatedPath = buildAnnotatedPath(args.storagePath, args.token);
 
-  await supabase.storage.from("photos").upload(annotatedPath, args.blob, {
-    upsert: true,
-    contentType: "image/png",
-  });
+  // Storage reports a failed upload in the result, not by throwing. If the new
+  // render never landed, repointing the row would aim it at a 404 and the
+  // best-effort delete below would destroy the prior good render — so bail
+  // BEFORE the row update, leaving annotated_path untouched. Throwing lets the
+  // caller's rebuild loop retry then warn (story 25).
+  const { error: uploadError } = await supabase.storage
+    .from("photos")
+    .upload(annotatedPath, args.blob, {
+      upsert: true,
+      contentType: "image/png",
+    });
+  if (uploadError) throw uploadError;
 
   const { error: updateError } = await supabase
     .from("photos")
     .update({ annotated_path: annotatedPath })
     .eq("id", args.photoId);
+  // A failed repoint leaves the row on the prior render; throw so the rebuild
+  // retries (story 25) — and so we never delete a render the row still points at.
+  if (updateError) throw updateError;
 
+  // Only past a confirmed upload AND repoint do we drop the prior render. A
+  // failed delete is harmless (an orphan, never a stale render), so swallow it.
   if (
-    !updateError &&
     args.previousAnnotatedPath &&
     args.previousAnnotatedPath !== annotatedPath
   ) {

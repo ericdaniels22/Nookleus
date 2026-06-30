@@ -281,6 +281,114 @@ describe("useAnnotatorAutoSave — flushAndRebuild (leave/close)", () => {
   });
 });
 
+describe("useAnnotatorAutoSave — rebuild retry then warn (leave/close)", () => {
+  it("retries a failing rebuild with backoff, warning once only after retries are exhausted", async () => {
+    const { store, upload, photosUpdate } = makeStore();
+    // Every flatten upload fails — persistAnnotatedRender throws on the error,
+    // so the whole rebuild fails (and must never repoint the row).
+    upload.mockResolvedValue({ error: new Error("network") });
+    const config = makeConfig(store);
+    const { result } = renderHook(() => useAnnotatorAutoSave(config));
+
+    // Fire the leave/close rebuild; swallow the eventual rejection here so it's
+    // the retry/warn behavior — not an unhandled rejection — under test.
+    let rejected = false;
+    result.current.flushAndRebuild().catch(() => {
+      rejected = true;
+    });
+
+    // Attempt 1 fires right away (the rebuild has no debounce) — fails, but
+    // stays silent while it still has retries left.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(photosUpdate).not.toHaveBeenCalled(); // a failed upload never repoints
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Backoff retries: 1s, then 2s, then 4s — mirroring the markup ladder.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    // Fourth attempt fails → retries exhausted → exactly one warn, fired only now.
+    expect(upload).toHaveBeenCalledTimes(4);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    // The row was never repointed across the entire failed rebuild.
+    expect(photosUpdate).not.toHaveBeenCalled();
+    expect(rejected).toBe(true);
+  });
+});
+
+describe("useAnnotatorAutoSave — rebuild leaves the photo dirty on failure", () => {
+  it("rejects after the rebuild's retries are exhausted, so a leave/close keeps the photo dirty", async () => {
+    const { store, upload } = makeStore();
+    upload.mockResolvedValue({ error: new Error("network") });
+    const config = makeConfig(store);
+    const { result } = renderHook(() => useAnnotatorAutoSave(config));
+
+    // The leave/close caller clears its dirty flag ONLY when this resolves, so
+    // the contract that keeps a failed photo dirty is: a spent rebuild rejects.
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    result.current.flushAndRebuild().then(
+      () => (outcome = "resolved"),
+      () => (outcome = "rejected"),
+    );
+
+    // Drive the whole ladder: initial attempt + 1s + 2s + 4s backoffs.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(7000);
+    });
+
+    expect(outcome).toBe("rejected");
+  });
+
+  it("resolves once a retry lands, so the caller can clear the dirty flag — silently", async () => {
+    const { store, upload, photosUpdate } = makeStore();
+    // Fail the first flatten upload, then succeed on the retry.
+    upload
+      .mockResolvedValueOnce({ error: new Error("network") })
+      .mockResolvedValue({ error: null });
+    const onPersisted = vi.fn();
+    const config = makeConfig(store, { onPersisted });
+    const { result } = renderHook(() => useAnnotatorAutoSave(config));
+
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    result.current.flushAndRebuild().then(
+      () => (outcome = "resolved"),
+      () => (outcome = "rejected"),
+    );
+
+    // First attempt fails before it can repoint the row.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(photosUpdate).not.toHaveBeenCalled();
+
+    // The 1s-backoff retry lands: the row is repointed once, the host refreshed,
+    // and no warning shows.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(outcome).toBe("resolved");
+    expect(photosUpdate).toHaveBeenCalledTimes(1);
+    expect(onPersisted).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
 describe("useAnnotatorAutoSave — retry then warn", () => {
   it("retries a failing markup upsert with backoff, warning once only after retries are exhausted", async () => {
     const { store, annInsert } = makeStore();
