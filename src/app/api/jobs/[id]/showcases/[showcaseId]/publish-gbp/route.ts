@@ -25,6 +25,7 @@ import {
   summarizeShowcaseForGbp,
   publishShowcaseGbpPost,
   isGbpAuthError,
+  GbpPublishError,
 } from "@/lib/google/showcase-gbp-post";
 import { deriveShowcaseGbpPublishState } from "@/lib/google/showcase-gbp-state";
 import type { Showcase } from "@/lib/types";
@@ -279,7 +280,16 @@ export const POST = withRequestContext(
     let client;
     try {
       client = await getGoogleClient(service, ctx.orgId!);
-    } catch {
+    } catch (err) {
+      // Diagnostic (#609): the route folds every transient failure into the same
+      // opaque gbp_unreachable, so without this the real cause never reaches the
+      // logs. Surface the token-refresh failure so a Business Profile API access
+      // gap reads differently from a genuine network blip at the token endpoint.
+      console.error(
+        `[gbp-publish] token refresh failed for org ${ctx.orgId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
       return gbpUnreachable();
     }
     if (!client) {
@@ -309,7 +319,16 @@ export const POST = withRequestContext(
     let locations: string[];
     try {
       locations = await listReviewLocations(client);
-    } catch {
+    } catch (err) {
+      // Diagnostic (#609): discovery walks accounts→locations across the Business
+      // Profile APIs and its throw embeds the HTTP status in its message. Log it
+      // so a disabled-API / zero-quota project (which surfaces here as a 403/429)
+      // is visible instead of a bare gbp_unreachable.
+      console.error(
+        `[gbp-publish] location discovery failed for org ${ctx.orgId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
       return gbpUnreachable();
     }
     const locationName = locations[0];
@@ -347,6 +366,22 @@ export const POST = withRequestContext(
         showcase.gbp_post_name,
       );
     } catch (err) {
+      // Diagnostic (#609): a GbpPublishError carries Google's HTTP status AND its
+      // own error code — the one place that tells RESOURCE_EXHAUSTED (zero quota /
+      // disabled API) apart from PERMISSION_DENIED (account can't manage the
+      // profile) apart from a transient http_5xx. The branches below collapse all
+      // of these into two opaque responses, so log the distinguishing pair first.
+      if (err instanceof GbpPublishError) {
+        console.error(
+          `[gbp-publish] publish failed for org ${ctx.orgId}: status=${err.status} code=${err.code} ${err.message}`,
+        );
+      } else {
+        console.error(
+          `[gbp-publish] publish failed for org ${ctx.orgId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
       if (isGbpAuthError(err)) {
         await markBroken(
           service,
