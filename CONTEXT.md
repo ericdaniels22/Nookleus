@@ -261,6 +261,48 @@ Belongs to one Organization. Distinct from an **Estimate** template, a
 separate feature (see [ADR 0004](docs/adr/0004-template-line-items-snapshot.md)).
 _Avoid_: preset (in code — "preset" is older UI copy), report template (unqualified), layout
 
+**Sketch**:
+A scaled model of a Job's property — organized into one or more **Floors**, each a
+set of measured **Rooms** — that yields the area and length quantities (floor and
+ceiling area, wall area, perimeter) an Organization estimates and documents the Job
+from. The single source of truth for "how big is this space" no matter how it was
+captured: a Sketch may be drawn by hand on a tablet or populated from a LiDAR room
+scan, but the measured model is one entity either way. Its measurements reach money
+by feeding an **Estimate** — a line item pulls its quantity from a Room measurement
+as a re-pullable snapshot (see Room) — never through a second estimating system of
+its own. Belongs to exactly one Job, where it is reached as its own surface alongside
+Photos and Photo Reports — an Estimate references it to pull quantities, and a Photo
+Report can include its dimensioned plan as a page. Distinct from a photo **annotation** — freehand
+markup drawn on top of one Photo: a Sketch is the room geometry itself, not a drawing
+on an image, and the two share no table or component. (Staged build — hand-drawn
+measurement first, LiDAR capture second, a Matterport-style 3D walkthrough later —
+but all one Sketch.) See [ADR 0024](docs/adr/0024-sketch-is-one-parametric-spine-feeding-the-estimate.md).
+_Avoid_: drawing, diagram, markup, annotation (that's the photo-markup feature),
+blueprint; "floor plan" is fine in UI copy
+
+**Floor** (of a Sketch):
+One level of a property within a Sketch — "Ground Floor", "Basement", "Second
+Floor" — that groups the **Rooms** on that level and carries the level-wide defaults
+those Rooms inherit: ceiling height and wall thickness (interior and exterior). A
+Sketch has one or more Floors; a Floor's totals — surface area, volume, and
+room/door/window counts — aggregate its Rooms. Used loosely for *any* captured
+level or separate structure: a detached garage is modeled as its own Floor (e.g.
+"Detached Garage"), not a second Sketch. A dedicated Structure tier above Floor is
+deferred until multi-building jobs prove common.
+_Avoid_: level, storey; "story" is fine in UI copy
+
+**Room** (of a Sketch):
+One measured space on a **Floor** — a closed wall footprint plus a ceiling height —
+from which the engine derives floor area, ceiling area, wall area (perimeter ×
+height, less its openings), and perimeter. Rooms are authored one at a time, drawn
+by hand or captured by a LiDAR scan, and assembled into the Floor by snapping shared
+walls. A Room carries its openings (doors, windows) and detected objects (cabinets,
+appliances, fixtures). A Room's measurement is the unit an **Estimate** line item
+draws a quantity from: the line item remembers its source Room and measurement kind
+but freezes the value, re-pulled on demand, so re-scanning never rewrites a sent
+Estimate.
+_Avoid_: space, zone; "area" names a measurement output, not the Room
+
 **Estimate**:
 A priced proposal for a Job — line items grouped into sections, with overhead
 & profit, discount, and tax — that an Organization sends a customer for
@@ -562,6 +604,8 @@ _Avoid_: local time, device time, user timezone
 - An **Intake** produces exactly one **Job** (and the **Contact** it belongs to) in a single submit; that submission is what notifies the rest of the team of the new Job, carrying its **Urgency** tier — see [ADR 0018](docs/adr/0018-new-intake-push-notifications.md).
 - A **Job** has zero or one referring **Referral Partner** (the Partner who sent the job our way). Only Active rows are eligible — see [ADR 0002](docs/adr/0002-only-active-partners-attach-to-jobs.md).
 - A **Job** has zero or more **Estimates**; each Estimate converts into at most one **Invoice**, and every Invoice is born from exactly one Estimate — conversion is the only way to create one. A deposit or staged payment is a partial payment on that single Invoice, not an additional Invoice. See [ADR 0007](docs/adr/0007-estimates-are-the-single-billing-entry-point.md).
+- A **Job** has at most one **Sketch**, and a Sketch belongs to exactly one Job (1:1). A Sketch is organized into one or more **Floors**; each Floor groups the **Rooms** on one level (or a separate structure, e.g. a detached garage) and holds the defaults (ceiling height, wall thickness) those Rooms inherit. A **Room** is one measured space on a Floor, authored by hand or by LiDAR scan and assembled into its Floor by snapping shared walls. See [ADR 0024](docs/adr/0024-sketch-is-one-parametric-spine-feeding-the-estimate.md).
+- A **Room**'s measurement feeds an **Estimate** line item's quantity as a re-pullable snapshot — the line item remembers its source Room and measurement kind but freezes the value, so editing or re-scanning the Sketch never changes a sent Estimate until someone re-pulls. There is one estimating system: the Sketch is a measurement source, not a second estimator.
 - An **Estimate** or **Invoice** has zero or one **PDF layout** of its own; with none it renders using its Organization's **default preset**. A document's own layout always wins over the default, resolved by a pure precedence rule, and is locked once the document is frozen (Estimate converted, Invoice paid or voided). A **PDF preset** belongs to one **Organization** and seeds a document's layout; applying one copies its preferences in, it is not a binding link.
 - A **Job** has zero or more **Photo Reports**; each Photo Report belongs to exactly one Job, gathers that Job's **Photos** into ordered **Sections**, and is created and edited only from within the Job. Reports are numbered per Job (Report #1, #2, …). Each Photo Report also owns a per-report **Cover Page** and per-report **Report Settings**, seeded from the Organization at creation (the settings from the **Report layout default**, the cover photo from the Job) and editable per report thereafter — a later change to the Organization default does not rewrite an existing report.
 - A **Photo Report template** belongs to one **Organization** and seeds a new Photo Report's **Sections**; applying one is a starting point, not a binding link.
