@@ -17,6 +17,13 @@ import {
   type StoredReportSettings,
 } from "@/lib/photo-report-settings";
 import { photoUrl, reportCoverPhotoUrl } from "@/lib/jobs/photo-url";
+import {
+  buildJobSketchPlans,
+  type SketchPlanFloor,
+  type SketchPlanRoom,
+} from "@/lib/sketch/job-sketch-plans";
+import type { PlanRender } from "@/lib/sketch/plan-render";
+import type { Point } from "@/lib/sketch/footprint";
 import type { CompanySettings } from "@/lib/types";
 
 interface ReportSection {
@@ -91,6 +98,70 @@ async function resolveCoverPhotoUrl(
     .eq("id", coverPhotoId)
     .maybeSingle();
   return reportCoverPhotoUrl(data ?? null, supabaseUrl);
+}
+
+/**
+ * Load the Job's Sketch and turn each Floor into a dimensioned plan page (#868).
+ * Ordering mirrors the Sketch editor's load (`sort_order`, then `created_at`),
+ * so the pages follow the same Floor/Room order the user sees. Returns [] when
+ * the Job has no Sketch, no Floors, or only Floors with nothing drawn yet — the
+ * report simply grows no plan pages. Called only when the resolved look opts in.
+ */
+async function loadJobSketchPlans(
+  supabase: ReturnType<typeof createClient>,
+  jobId: string,
+): Promise<PlanRender[]> {
+  const { data: sketch } = await supabase
+    .from("sketches")
+    .select("id")
+    .eq("job_id", jobId)
+    .maybeSingle<{ id: string }>();
+  if (!sketch) return [];
+
+  const { data: floorData } = await supabase
+    .from("floors")
+    .select("id, name")
+    .eq("sketch_id", sketch.id)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  const floors: SketchPlanFloor[] = (floorData ?? []).map(
+    (f: { id: string; name: string }) => ({ id: f.id, name: f.name }),
+  );
+  if (floors.length === 0) return [];
+
+  const { data: roomData } = await supabase
+    .from("rooms")
+    .select("floor_id, name, footprint, origin, floor_area")
+    .in(
+      "floor_id",
+      floors.map((f) => f.id),
+    )
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  const rooms: SketchPlanRoom[] = (roomData ?? []).map(
+    (r: {
+      floor_id: string;
+      name: string;
+      footprint: unknown;
+      origin: unknown;
+      floor_area: unknown;
+    }) => ({
+      floor_id: r.floor_id,
+      name: r.name,
+      // jsonb columns arrive parsed; guard a null / non-array footprint or a
+      // missing origin so a half-saved Room can't crash the render.
+      footprint: Array.isArray(r.footprint) ? (r.footprint as Point[]) : [],
+      origin:
+        r.origin && typeof r.origin === "object"
+          ? (r.origin as Point)
+          : { x: 0, y: 0 },
+      // PostgREST serializes numerics as strings — coerce to a number.
+      floor_area: Number(r.floor_area) || 0,
+    }),
+  );
+
+  return buildJobSketchPlans(floors, rooms);
 }
 
 /**
@@ -226,7 +297,13 @@ async function assembleReportPdf(
     };
   }
 
-  // 6. Assemble the complete, render-ready model: page structure + cover blocks
+  // 6. Load the Job's Sketch as dimensioned plan pages, only when the report's
+  //    resolved look opts in (#868). Off (the default) skips the load entirely.
+  const sketchPlans = settings.includeSketchPlan
+    ? await loadJobSketchPlans(supabase, job.id)
+    : [];
+
+  // 7. Assemble the complete, render-ready model: page structure + cover blocks
   //    + each slot's enabled detail fields, all decided here (the @react-pdf
   //    components stay dumb).
   const model = buildReportRenderModel({
@@ -241,9 +318,10 @@ async function assembleReportPdf(
     coverData,
     coverPhotoUrl,
     propertyAddress: job.property_address,
+    sketchPlans,
   });
 
-  // 7. Render PDF
+  // 8. Render PDF
   const blob = await pdf(
     <ReportPDFDocument
       model={model}
@@ -274,7 +352,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
   const supabase = createClient();
   const { blob, jobNumber } = await assembleReportPdf(reportId);
 
-  // 8. Upload PDF to Supabase Storage
+  // 9. Upload PDF to Supabase Storage
   const pdfPath = `${jobNumber}/${reportId}.pdf`;
   const { error: uploadErr } = await supabase.storage
     .from("reports")
@@ -287,7 +365,7 @@ export async function generateReportPDF(reportId: string): Promise<string> {
     throw new Error(`Failed to upload PDF: ${uploadErr.message}`);
   }
 
-  // 9. Update report record
+  // 10. Update report record
   const { error: updateErr } = await supabase
     .from("photo_reports")
     .update({

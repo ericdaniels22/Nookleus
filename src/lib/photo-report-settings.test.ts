@@ -187,6 +187,32 @@ describe("resolveReportSettings", () => {
       null,
     );
   });
+
+  it("defaults includeSketchPlan to false — a report omits the Sketch unless enabled (#868)", () => {
+    // Unlike the detail toggles (which default on), the Sketch plan is opt-in:
+    // a pre-#868 report with nothing stored must not suddenly grow a plan page.
+    expect(resolveReportSettings(null, null).includeSketchPlan).toBe(false);
+  });
+
+  it("lets a report's snapshot enable includeSketchPlan, then the Org default, then false", () => {
+    // Same precedence as every other field: report snapshot > Org default >
+    // hardcoded default (here, off).
+    expect(
+      resolveReportSettings(
+        { report_settings: { includeSketchPlan: true } },
+        { includeSketchPlan: false },
+      ).includeSketchPlan,
+    ).toBe(true); // snapshot wins over the Org's off
+
+    expect(
+      resolveReportSettings(null, { includeSketchPlan: true }).includeSketchPlan,
+    ).toBe(true); // no snapshot → Org default on
+
+    expect(
+      resolveReportSettings({ report_settings: { photosPerPage: 3 } }, null)
+        .includeSketchPlan,
+    ).toBe(false); // silent in both → hardcoded off
+  });
 });
 
 describe("companySettingsToReportDefault", () => {
@@ -241,5 +267,22 @@ describe("companySettingsToReportDefault", () => {
         [REPORT_DEFAULT_SETTING_KEYS.photosPerPage]: "1",
       }),
     ).toEqual({ photosPerPage: 2 });
+  });
+
+  it("parses the Organization's include-Sketch-plan default from its key-value row (#868)", () => {
+    expect(
+      companySettingsToReportDefault({
+        [REPORT_DEFAULT_SETTING_KEYS.includeSketchPlan]: "true",
+      }),
+    ).toEqual({ includeSketchPlan: true });
+
+    expect(
+      companySettingsToReportDefault({
+        [REPORT_DEFAULT_SETTING_KEYS.includeSketchPlan]: "false",
+      }),
+    ).toEqual({ includeSketchPlan: false });
+
+    // Unset → omitted, so it falls through to the hardcoded off default.
+    expect(companySettingsToReportDefault({})).toEqual({});
   });
 });

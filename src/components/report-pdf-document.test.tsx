@@ -98,4 +98,47 @@ describe("ReportPDFDocument", () => {
     expect(pageNodes).toHaveLength(model.pages.length);
     expect(collectText(pageNodes[0])).toContain("Point of contact");
   });
+
+  it("routes a sketchPlan page to SketchPlanPage, drawing the Floor's plan (#868)", () => {
+    const planModel: ReportRenderModel = {
+      title: "Mitigation Scope",
+      cover,
+      pages: [
+        { kind: "cover" },
+        {
+          kind: "sketchPlan",
+          plan: {
+            floorName: "Ground Floor",
+            viewBox: { width: 14, height: 12 },
+            rooms: [
+              {
+                polygon: [
+                  { x: 1, y: 1 },
+                  { x: 13, y: 1 },
+                  { x: 13, y: 11 },
+                  { x: 1, y: 11 },
+                ],
+                name: "Bedroom",
+                areaLabel: "120 sq ft",
+                labelAt: { x: 7, y: 6 },
+                wallLabels: [{ x: 7, y: 1, text: "12'" }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const tree = expandTree(
+      <ReportPDFDocument model={planModel} logoUrl={null} />,
+    );
+
+    const text = collectText(tree);
+    expect(text).toContain("SKETCH PLAN");
+    expect(text).toContain("Ground Floor");
+    expect(text).toContain("Bedroom");
+    expect(text).toContain("120 sq ft");
+    // The plan is drawn as SVG geometry, not routed to a photo page.
+    expect(findAll(tree, (n) => n.type === "POLYGON")).toHaveLength(1);
+  });
 });

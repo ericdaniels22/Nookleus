@@ -25,6 +25,12 @@ const h = vi.hoisted(() => {
     companySettingsKeys: [] as string[],
     uploads: [] as Array<{ bucket: string; path: string }>,
     templateQueried: false,
+    // Sketch plan wiring (#868): the report_include_sketch_plan default, plus the
+    // Job's Sketch rows the generator loads when that setting resolves on.
+    includeSketchPlan: false,
+    sketchRow: null as { id: string } | null,
+    floorRows: [] as Array<Record<string, unknown>>,
+    roomRows: [] as Array<Record<string, unknown>>,
   };
 
   const reportRow = {
@@ -83,6 +89,9 @@ const h = vi.hoisted(() => {
         value: state.companySettingsValue,
       });
     }
+    if (state.includeSketchPlan) {
+      rows.push({ key: "report_include_sketch_plan", value: "true" });
+    }
     return rows;
   }
 
@@ -93,13 +102,19 @@ const h = vi.hoisted(() => {
       select: () => q,
       update: () => q,
       eq: () => q,
+      order: () => q,
       in: (col: string, vals: string[]) => {
         if (table === "company_settings" && col === "key") {
           state.companySettingsKeys = vals;
         }
         return q;
       },
-      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+      maybeSingle: () => {
+        if (table === "sketches") {
+          return Promise.resolve({ data: state.sketchRow, error: null });
+        }
+        return Promise.resolve({ data: null, error: null });
+      },
       single: () => {
         if (table === "photo_report_templates") {
           state.templateQueried = true;
@@ -120,6 +135,10 @@ const h = vi.hoisted(() => {
           result = { data: companyRows(), error: null };
         } else if (table === "photos") {
           result = { data: photoRows, error: null };
+        } else if (table === "floors") {
+          result = { data: state.floorRows, error: null };
+        } else if (table === "rooms") {
+          result = { data: state.roomRows, error: null };
         } else {
           result = { data: null, error: null };
         }
@@ -186,19 +205,15 @@ function resetState() {
   h.state.companySettingsKeys = [];
   h.state.uploads = [];
   h.state.templateQueried = false;
+  h.state.includeSketchPlan = false;
+  h.state.sketchRow = null;
+  h.state.floorRows = [];
+  h.state.roomRows = [];
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
 }
 
 describe("generateReportPDF — render-model wiring", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    h.state.companySettingsValue = "4";
-    h.state.fromTables = [];
-    h.state.companySettingsKeys = [];
-    h.state.uploads = [];
-    h.state.templateQueried = false;
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
-  });
+  beforeEach(resetState);
 
   afterEach(() => {
     // Hermetic: don't leak the env stub into other files sharing this worker.
@@ -258,6 +273,62 @@ describe("generateReportPDF — render-model wiring", () => {
     await generateReportPDF(h.REPORT_ID);
 
     expect(modelArg().propertyAddress).toBe("123 Main St");
+  });
+
+  it("builds a Sketch plan per Floor and threads them onto the render model when the report opts in (#868)", async () => {
+    // Organization default turns the Sketch plan on; the Job has a two-Floor
+    // Sketch. floor_area arrives as a PostgREST string and must coerce.
+    h.state.includeSketchPlan = true;
+    h.state.sketchRow = { id: "sketch-1" };
+    h.state.floorRows = [
+      { id: "f1", name: "Ground Floor" },
+      { id: "f2", name: "Second Floor" },
+    ];
+    h.state.roomRows = [
+      {
+        floor_id: "f1",
+        name: "Bedroom",
+        footprint: [
+          { x: 0, y: 0 },
+          { x: 12, y: 0 },
+          { x: 12, y: 10 },
+          { x: 0, y: 10 },
+        ],
+        origin: { x: 0, y: 0 },
+        floor_area: "120",
+      },
+      {
+        floor_id: "f2",
+        name: "Office",
+        footprint: [
+          { x: 0, y: 0 },
+          { x: 8, y: 0 },
+          { x: 8, y: 8 },
+          { x: 0, y: 8 },
+        ],
+        origin: { x: 0, y: 0 },
+        floor_area: "64",
+      },
+    ];
+
+    await generateReportPDF(h.REPORT_ID);
+
+    const plans = modelArg().sketchPlans;
+    expect(plans?.map((p) => p.floorName)).toEqual([
+      "Ground Floor",
+      "Second Floor",
+    ]);
+    expect(plans?.[0].rooms[0].name).toBe("Bedroom");
+    expect(plans?.[0].rooms[0].areaLabel).toBe("120 sq ft");
+  });
+
+  it("omits the Sketch plan and never queries the Sketch when the report opts out (#868)", async () => {
+    // Default state: includeSketchPlan off. The generator must not load the
+    // Sketch at all, and hands the model no plans.
+    await generateReportPDF(h.REPORT_ID);
+
+    expect(modelArg().sketchPlans ?? []).toEqual([]);
+    expect(h.state.fromTables).not.toContain("sketches");
   });
 
   it("uploads the PDF to {job_number}/{reportId}.pdf in the reports bucket", async () => {

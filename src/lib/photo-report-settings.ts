@@ -41,6 +41,12 @@ export interface ResolvedReportSettings {
   photosPerPage: ReportPhotosPerPage;
   details: ReportDetailToggles;
   cover: ResolvedCoverConfig;
+  /**
+   * Whether the report includes the Job's Sketch as dimensioned plan pages
+   * (#868). Opt-in: unlike the detail toggles it defaults *off*, so a report
+   * predating the feature never grows a plan page on its own.
+   */
+  includeSketchPlan: boolean;
 }
 
 /**
@@ -52,6 +58,8 @@ export interface ResolvedReportSettings {
 export interface ReportLayoutDefault {
   photosPerPage?: ReportPhotosPerPage;
   details?: Partial<ReportDetailToggles>;
+  /** The Organization's default for including the Sketch plan (#868). */
+  includeSketchPlan?: boolean;
 }
 
 /**
@@ -63,6 +71,8 @@ export interface ReportLayoutDefault {
  */
 export interface StoredReportSettingsJson extends Partial<ReportDetailToggles> {
   photosPerPage?: ReportPhotosPerPage | number | string | null;
+  /** The report's own choice to include the Sketch plan (#868). */
+  includeSketchPlan?: boolean | null;
 }
 
 /**
@@ -131,6 +141,7 @@ export const REPORT_DEFAULT_SETTING_KEYS = {
   location: "report_detail_location",
   dateCaptured: "report_detail_date_captured",
   photoTags: "report_detail_photo_tags",
+  includeSketchPlan: "report_include_sketch_plan",
 } as const;
 
 // Parse a key-value string into a boolean, or undefined when unset/unparseable
@@ -163,6 +174,11 @@ export function companySettingsToReportDefault(
     if (parsed !== undefined) details[key] = parsed;
   }
   if (Object.keys(details).length > 0) result.details = details;
+
+  const includeSketchPlan = parseBool(
+    settings?.[REPORT_DEFAULT_SETTING_KEYS.includeSketchPlan],
+  );
+  if (includeSketchPlan !== undefined) result.includeSketchPlan = includeSketchPlan;
 
   return result;
 }
@@ -205,5 +221,13 @@ export function resolveReportSettings(
     cover[key] = storedCover?.[key] ?? ALL_COVER_BLOCKS_ON[key];
   }
 
-  return { photosPerPage, details, cover };
+  // Same precedence as every other field, but the hardcoded default is off:
+  // the Sketch plan is opt-in (#868). `?? false` also treats a stored null
+  // (JSONB) as "unset → off".
+  const includeSketchPlan =
+    stored?.includeSketchPlan ??
+    organizationDefault?.includeSketchPlan ??
+    false;
+
+  return { photosPerPage, details, cover, includeSketchPlan };
 }
