@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ArrowLeft, Maximize, Minus, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import type { Floor, Room, SketchObject } from "@/lib/types";
@@ -16,6 +17,18 @@ import {
 } from "@/lib/sketch/object-inventory";
 import PlanCanvas from "./plan-canvas";
 import { StatisticsPanel } from "./statistics-panel";
+
+// The 3D dollhouse is a client-only WebGL island (three needs a real GL
+// context, so it can't server-render). Load it lazily on the first flip to 3D —
+// no three in the initial bundle, matching the Jarvis NeuralNetwork3D idiom.
+const Sketch3DViewer = dynamic(() => import("./sketch-3d-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Loading 3D view…
+    </div>
+  ),
+});
 
 /** Trim trailing zeros so "12.000" reads as "12" but "12.5" survives. */
 function fmt(value: number): string {
@@ -70,6 +83,10 @@ export default function PlanEditor({
   // the category menu; null draft means nothing is armed.
   const [objectDraft, setObjectDraft] = useState<ObjectCategory | null>(null);
   const [objectPaletteOpen, setObjectPaletteOpen] = useState(false);
+  // Which dimension the plan is shown in. 2D is the authoring surface; 3D is the
+  // read-only extruded dollhouse (#870). Switching to 3D drops any selection and
+  // the add-a-Room arm so returning to 2D is clean.
+  const [viewDim, setViewDim] = useState<"2d" | "3d">("2d");
   // Which Floor is on the canvas. Rooms are filtered to it; switching Floors
   // just changes this id (the Rooms of other Floors stay in state for stats).
   const [activeFloorId, setActiveFloorId] = useState<string>(floors[0]?.id ?? "");
@@ -370,144 +387,192 @@ export default function PlanEditor({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Object palette (#867): arm a known category, then the next canvas
-              drop places it. Toggling the menu never enters room-draw mode; arming
-              a category cancels any half-drawn Room. */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setObjectPaletteOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={objectPaletteOpen}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/60"
-            >
-              <Plus size={16} />
-              Add object
-            </button>
-            {objectPaletteOpen ? (
-              <div
-                role="menu"
-                aria-label="Object categories"
-                className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-border bg-card py-1 shadow-lg"
+          <div
+            role="group"
+            aria-label="View"
+            className="inline-flex items-center rounded-lg border border-border p-0.5"
+          >
+            {(["2d", "3d"] as const).map((dim) => (
+              <button
+                key={dim}
+                type="button"
+                onClick={() => {
+                  setViewDim(dim);
+                  // Entering the read-only dollhouse drops any 2D selection and
+                  // disarms add-a-Room / any armed object, so returning to 2D is a
+                  // clean slate.
+                  if (dim === "3d") {
+                    setSelectedRoomId(null);
+                    setSelectedObjectId(null);
+                    setObjectDraft(null);
+                    setObjectPaletteOpen(false);
+                    setMode("idle");
+                  }
+                }}
+                aria-pressed={viewDim === dim}
+                className={`rounded-md px-3 py-1 text-sm font-medium ${
+                  viewDim === dim
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                {OBJECT_CATEGORIES.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setObjectDraft(category);
-                      setObjectPaletteOpen(false);
-                      setMode("idle");
-                    }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted/60"
-                  >
-                    {OBJECT_CATEGORY_LABELS[category]}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+                {dim.toUpperCase()}
+              </button>
+            ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setObjectDraft(null);
-              setMode("adding");
-            }}
-            className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus size={16} />
-            Add room
-          </button>
+          {viewDim === "2d" ? (
+            <>
+              {/* Object palette (#867): arm a known category, then the next canvas
+                  drop places it. Toggling the menu never enters room-draw mode;
+                  arming a category cancels any half-drawn Room. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setObjectPaletteOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={objectPaletteOpen}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/60"
+                >
+                  <Plus size={16} />
+                  Add object
+                </button>
+                {objectPaletteOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="Object categories"
+                    className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-border bg-card py-1 shadow-lg"
+                  >
+                    {OBJECT_CATEGORIES.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setObjectDraft(category);
+                          setObjectPaletteOpen(false);
+                          setMode("idle");
+                        }}
+                        className="block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted/60"
+                      >
+                        {OBJECT_CATEGORY_LABELS[category]}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setObjectDraft(null);
+                  setMode("adding");
+                }}
+                className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus size={16} />
+                Add room
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 
       <div className="relative flex-1">
-        <PlanCanvas
-          rooms={activeRooms}
-          selectedRoomId={selectedRoomId}
-          mode={mode}
-          zoom={zoom}
-          objects={activeObjects}
-          objectDraft={objectDraft}
-          selectedObjectId={selectedObjectId}
-          onSelectRoom={selectRoom}
-          onMoveRoom={moveRoom}
-          onFootprintComplete={completeFootprint}
-          onEditFootprint={editFootprint}
-          onPlaceObject={placeObject}
-          onSelectObject={selectObject}
-          onZoomChange={(z) => setZoom(clampZoom(z))}
-        />
-
-        {selectedObject ? (
-          <ObjectInspector
-            key={selectedObject.id}
-            object={selectedObject}
-            onChangeCategory={(category) =>
-              changeObjectCategory(
-                selectedObject.id,
-                selectedObject.room_id,
-                category,
-              )
-            }
-            onDelete={() =>
-              deleteObject(selectedObject.id, selectedObject.room_id)
-            }
-          />
-        ) : selectedRoom ? (
-          <RoomInspector
-            key={selectedRoom.id}
-            room={selectedRoom}
-            floor={activeFloor}
-            objects={objects.filter((o) => o.room_id === selectedRoom.id)}
-            onSave={(edits) => saveRoom(selectedRoom.id, edits)}
-            onEditFootprint={(placed) => editFootprint(selectedRoom.id, placed)}
-            onDelete={() => deleteRoom(selectedRoom.id)}
-          />
+        {viewDim === "3d" ? (
+          // The read-only dollhouse: the same active Floor's Rooms, extruded. No
+          // inspector, no 2D zoom control — orbiting is the only interaction.
+          <Sketch3DViewer rooms={activeRooms} floor={activeFloor} />
         ) : (
-          <aside
-            aria-label="Statistics"
-            className="absolute right-0 top-0 h-full w-72 overflow-y-auto border-l border-border bg-card p-4"
-          >
-            <StatisticsPanel
-              floor={floorAggregate}
-              sketch={sketchAggregate}
-              floorName={activeFloor?.name}
+          <>
+            <PlanCanvas
+              rooms={activeRooms}
+              selectedRoomId={selectedRoomId}
+              mode={mode}
+              zoom={zoom}
+              objects={activeObjects}
+              objectDraft={objectDraft}
+              selectedObjectId={selectedObjectId}
+              onSelectRoom={selectRoom}
+              onMoveRoom={moveRoom}
+              onFootprintComplete={completeFootprint}
+              onEditFootprint={editFootprint}
+              onPlaceObject={placeObject}
+              onSelectObject={selectObject}
+              onZoomChange={(z) => setZoom(clampZoom(z))}
             />
-          </aside>
-        )}
 
-        <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur">
-          <button
-            type="button"
-            aria-label="Zoom out"
-            onClick={zoomOut}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
-          >
-            <Minus size={16} />
-          </button>
-          <span className="w-14 text-center text-sm font-medium tabular-nums text-foreground">
-            {zoom}%
-          </span>
-          <button
-            type="button"
-            aria-label="Zoom in"
-            onClick={zoomIn}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
-          >
-            <Plus size={16} />
-          </button>
-          <button
-            type="button"
-            aria-label="Fit to content"
-            onClick={zoomFit}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
-          >
-            <Maximize size={16} />
-          </button>
-        </div>
+            {selectedObject ? (
+              <ObjectInspector
+                key={selectedObject.id}
+                object={selectedObject}
+                onChangeCategory={(category) =>
+                  changeObjectCategory(
+                    selectedObject.id,
+                    selectedObject.room_id,
+                    category,
+                  )
+                }
+                onDelete={() =>
+                  deleteObject(selectedObject.id, selectedObject.room_id)
+                }
+              />
+            ) : selectedRoom ? (
+              <RoomInspector
+                key={selectedRoom.id}
+                room={selectedRoom}
+                floor={activeFloor}
+                objects={objects.filter((o) => o.room_id === selectedRoom.id)}
+                onSave={(edits) => saveRoom(selectedRoom.id, edits)}
+                onEditFootprint={(placed) =>
+                  editFootprint(selectedRoom.id, placed)
+                }
+                onDelete={() => deleteRoom(selectedRoom.id)}
+              />
+            ) : (
+              <aside
+                aria-label="Statistics"
+                className="absolute right-0 top-0 h-full w-72 overflow-y-auto border-l border-border bg-card p-4"
+              >
+                <StatisticsPanel
+                  floor={floorAggregate}
+                  sketch={sketchAggregate}
+                  floorName={activeFloor?.name}
+                />
+              </aside>
+            )}
+
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                onClick={zoomOut}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
+              >
+                <Minus size={16} />
+              </button>
+              <span className="w-14 text-center text-sm font-medium tabular-nums text-foreground">
+                {zoom}%
+              </span>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                onClick={zoomIn}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
+              >
+                <Plus size={16} />
+              </button>
+              <button
+                type="button"
+                aria-label="Fit to content"
+                onClick={zoomFit}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground hover:bg-muted"
+              >
+                <Maximize size={16} />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

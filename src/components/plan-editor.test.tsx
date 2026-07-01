@@ -114,6 +114,23 @@ vi.mock("./plan-canvas", () => ({
   ),
 }));
 
+// The 3D dollhouse is a WebGL R3F island the shell loads client-only (dynamic
+// ssr:false), untested glue like the canvas. Mock it to a harness that echoes the
+// plan it was handed (the active Floor and its Rooms) so these tests prove the
+// read-only viewer receives the right model — not three.js.
+vi.mock("./sketch-3d-viewer", () => ({
+  default: ({ rooms, floor }: { rooms: Room[]; floor: Floor }) => (
+    <div data-testid="sketch-3d-viewer">
+      <div data-testid="viewer-floor">{floor?.name}</div>
+      {rooms.map((r) => (
+        <div key={r.id} data-testid="viewer-room">
+          {r.name}
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
 import PlanEditor from "./plan-editor";
 
 function makeFloor(overrides: Partial<Floor> = {}): Floor {
@@ -955,5 +972,81 @@ describe("PlanEditor — objects (#867)", () => {
         (screen.getByLabelText(/category/i) as HTMLSelectElement).value,
       ).toBe("sink"),
     );
+  });
+});
+
+describe("PlanEditor — 2D⇄3D toggle (#870)", () => {
+  it("opens in 2D — the plan canvas is shown, the 3D viewer is not, and a 3D toggle is offered", () => {
+    // Sketch S10 adds a read-only 3D dollhouse of the same model. It opens flat:
+    // authoring lives on the 2D canvas, and the 3D view is an opt-in toggle.
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+      />,
+    );
+
+    expect(screen.getByTestId("plan-canvas")).toBeDefined();
+    expect(screen.queryByTestId("sketch-3d-viewer")).toBeNull();
+    expect(screen.getByRole("button", { name: /^3d$/i })).toBeDefined();
+  });
+
+  it("toggles to 3D — the plan canvas gives way to the dollhouse viewer, and back to 2D restores the canvas", async () => {
+    // The same model, one surface at a time: flipping to 3D swaps the 2D canvas
+    // out for the (client-only) viewer; flipping back brings the canvas home.
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^3d$/i }));
+
+    // The dollhouse (dynamically imported) mounts and the 2D canvas leaves.
+    expect(await screen.findByTestId("sketch-3d-viewer")).toBeDefined();
+    expect(screen.queryByTestId("plan-canvas")).toBeNull();
+
+    // Back to 2D restores the authoring canvas and unmounts the viewer.
+    fireEvent.click(screen.getByRole("button", { name: /^2d$/i }));
+    expect(screen.getByTestId("plan-canvas")).toBeDefined();
+    expect(screen.queryByTestId("sketch-3d-viewer")).toBeNull();
+  });
+
+  it("in 3D the view is read-only and shows the active Floor's model — no Add-room affordance", async () => {
+    // Criterion (a)+(c): the dollhouse is the SAME model — the active Floor and
+    // only its Rooms, extruded — and it's read-only: authoring stays in 2D, so
+    // 3D offers no way to add a Room.
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[
+          makeFloor({ id: "floor-1", name: "Ground Floor" }),
+          makeFloor({ id: "floor-2", name: "Second Floor" }),
+        ]}
+        initialRooms={[
+          makeRoom({ id: "room-1", name: "Kitchen", floor_id: "floor-1" }),
+          makeRoom({ id: "room-2", name: "Bedroom", floor_id: "floor-2" }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^3d$/i }));
+
+    // The viewer gets the active Floor and only its Rooms (Kitchen, not Bedroom).
+    await screen.findByTestId("sketch-3d-viewer");
+    expect(screen.getByTestId("viewer-floor").textContent).toBe("Ground Floor");
+    const roomNames = screen
+      .getAllByTestId("viewer-room")
+      .map((n) => n.textContent);
+    expect(roomNames).toEqual(["Kitchen"]);
+
+    // Read-only: no "Add room" in 3D.
+    expect(screen.queryByRole("button", { name: /add room/i })).toBeNull();
   });
 });

@@ -186,3 +186,101 @@ describe("renderContractEmailFrame — reminder (#692)", () => {
     expect(html).toContain("<p>Just a quick nudge to wrap this up.</p>");
   });
 });
+
+describe("renderContractEmailFrame — signed confirmation (#693)", () => {
+  it("renders no action button when the action url is null (post-sign confirmation)", () => {
+    const html = renderContractEmailFrame(
+      frameInput({ kind: "signed_confirmation", actionUrl: null }),
+    );
+    expect(html.split("<a ").length - 1).toBe(0);
+  });
+
+  it("swaps the document icon for a signed-check glyph", () => {
+    const html = renderContractEmailFrame(
+      frameInput({ kind: "signed_confirmation", actionUrl: null }),
+    );
+    expect(html).toContain("✅");
+    expect(html).not.toContain("📄");
+  });
+
+  it("reads as a done-state confirmation naming the company, not the signing-request copy", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "signed_confirmation",
+        actionUrl: null,
+        companyName: "AAA Disaster Recovery",
+      }),
+    );
+    expect(html).toContain("AAA Disaster Recovery: your document is signed");
+    expect(html).not.toContain("sent you a document to review and sign");
+  });
+
+  it("embeds the already-sanitized message verbatim in the confirmation", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "signed_confirmation",
+        actionUrl: null,
+        message: "<p>Thanks for signing — your copy is attached.</p>",
+      }),
+    );
+    expect(html).toContain("<p>Thanks for signing — your copy is attached.</p>");
+  });
+
+  it("wraps the confirmation in the presentation-table frame", () => {
+    const html = renderContractEmailFrame(
+      frameInput({ kind: "signed_confirmation", actionUrl: null }),
+    );
+    expect(html).toContain("<table");
+    expect(html).toContain('role="presentation"');
+  });
+});
+
+describe("renderContractEmailFrame — internal notification (#693)", () => {
+  it("labels the button with the app-fixed 'View contract', not the contractor's signing label", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "internal_notification",
+        actionUrl: "https://app.test/jobs/job-1",
+        buttonLabel: "Review & sign",
+      }),
+    );
+    expect(html).toContain("View contract");
+    // the customer-facing signing label never drives the internal button
+    expect(html).not.toContain("Review &amp; sign");
+  });
+
+  it("points the View contract button at the internal platform url", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "internal_notification",
+        actionUrl: "https://app.test/jobs/job-1",
+      }),
+    );
+    expect(html).toContain('href="https://app.test/jobs/job-1"');
+    expect(html.split("<a ").length - 1).toBe(1);
+  });
+
+  it("paints the internal button with the contractor's configured color and a contrasting label", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "internal_notification",
+        actionUrl: "https://app.test/jobs/job-1",
+        buttonColor: "#dc2626",
+      }),
+    );
+    expect(html).toContain("background-color:#dc2626");
+    expect(html).toContain("color:#ffffff");
+  });
+
+  it("reads as a staff signed-notice, not the customer signing-request copy", () => {
+    const html = renderContractEmailFrame(
+      frameInput({
+        kind: "internal_notification",
+        actionUrl: "https://app.test/jobs/job-1",
+        companyName: "AAA Disaster Recovery",
+      }),
+    );
+    expect(html).toContain("AAA Disaster Recovery: a document was signed");
+    expect(html).not.toContain("sent you a document to review and sign");
+  });
+});

@@ -165,6 +165,25 @@ describe("photoReportBuilderReducer", () => {
     expect(twice.details.sectionTitlePages).toBe(true);
   });
 
+  it("toggling Include-Sketch-Plan flips it, marks dirty, and bumps the revision (#868)", () => {
+    const before = loaded();
+    // The Sketch-plan page is opt-in, so a settings-less report starts off.
+    expect(before.includeSketchPlan).toBe(false);
+    const on = photoReportBuilderReducer(before, {
+      type: "toggleIncludeSketchPlan",
+    });
+    expect(on.includeSketchPlan).toBe(true);
+    expect(on.dirty).toBe(true);
+    expect(on.revision).toBeGreaterThan(before.revision);
+    // The detail toggles are a separate group — flipping the plan leaves them.
+    expect(on.details).toEqual(before.details);
+    // Toggling again returns it to off.
+    const off = photoReportBuilderReducer(on, {
+      type: "toggleIncludeSketchPlan",
+    });
+    expect(off.includeSketchPlan).toBe(false);
+  });
+
   it("seeds photos-per-page and detail toggles from the loaded report's snapshot", () => {
     const state = initBuilderState({
       title: "R",
@@ -189,6 +208,18 @@ describe("photoReportBuilderReducer", () => {
       dateCaptured: true,
       photoTags: true,
     });
+  });
+
+  it("seeds Include-Sketch-Plan on from the loaded report's snapshot (#868)", () => {
+    const state = initBuilderState({
+      title: "R",
+      report_date: "2026-06-04",
+      sections: [{ title: "Photos", description: "", photo_ids: [] }],
+      report_settings: { includeSketchPlan: true },
+    });
+    expect(state.includeSketchPlan).toBe(true);
+    // Seeding a loaded report is not an edit.
+    expect(state.dirty).toBe(false);
   });
 
   it("marking saved clears the dirty flag once the current revision lands", () => {

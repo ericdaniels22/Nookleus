@@ -8,6 +8,29 @@ import type {
 } from "./report-render-model";
 import type { CoverPageData } from "./cover-page-data";
 import type { ResolvedReportSettings } from "./photo-report-settings";
+import type { PlanRender } from "./sketch/plan-render";
+
+function makePlan(overrides: Partial<PlanRender> = {}): PlanRender {
+  return {
+    floorName: "Ground Floor",
+    viewBox: { width: 14, height: 12 },
+    rooms: [
+      {
+        polygon: [
+          { x: 1, y: 1 },
+          { x: 13, y: 1 },
+          { x: 13, y: 11 },
+          { x: 1, y: 11 },
+        ],
+        name: "Bedroom",
+        areaLabel: "120 sq ft",
+        labelAt: { x: 7, y: 6 },
+        wallLabels: [{ x: 7, y: 1, text: "12'" }],
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function makePhoto(
   overrides: Partial<RenderPhotoInput> = {},
@@ -48,6 +71,7 @@ function makeSettings(
       coverPhotoId: null,
       ...overrides.cover,
     },
+    includeSketchPlan: overrides.includeSketchPlan ?? false,
     ...("photosPerPage" in overrides
       ? { photosPerPage: overrides.photosPerPage! }
       : {}),
@@ -244,6 +268,50 @@ describe("buildReportRenderModel", () => {
     expect(pair.before.location).toBe("123 Main St");
     expect(pair.before.number).toBe(1);
     expect(pair.after.number).toBe(2);
+  });
+
+  it("threads each Floor's Sketch plan through as a sketchPlan render page after the cover", () => {
+    // Issue #868: the render model forwards the pre-built plan models onto their
+    // own pages so the @react-pdf component draws them without any geometry of
+    // its own (ADR 0026 — the Photo-Report plan is a separate render).
+    const model = buildReportRenderModel(
+      makeArgs({
+        sections: [{ title: "S", description: null, photoIds: ["a"] }],
+        photos: { a: makePhoto({ id: "a" }) },
+        sketchPlans: [
+          makePlan({ floorName: "Ground Floor" }),
+          makePlan({ floorName: "Second Floor" }),
+        ],
+      }),
+    );
+
+    expect(model.pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sketchPlan",
+      "sketchPlan",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const planPages = model.pages.filter(
+      (p): p is Extract<RenderPage, { kind: "sketchPlan" }> =>
+        p.kind === "sketchPlan",
+    );
+    expect(planPages.map((p) => p.plan.floorName)).toEqual([
+      "Ground Floor",
+      "Second Floor",
+    ]);
+    expect(planPages[0].plan.rooms[0].name).toBe("Bedroom");
+  });
+
+  it("emits no sketchPlan page when the report has no Sketch plans", () => {
+    const model = buildReportRenderModel(
+      makeArgs({
+        sections: [{ title: "S", description: null, photoIds: ["a"] }],
+        photos: { a: makePhoto({ id: "a" }) },
+      }),
+    );
+    expect(model.pages.some((p) => p.kind === "sketchPlan")).toBe(false);
   });
 
   it("resolves the Cover Page: visible blocks pass through, hidden blocks become null, title and cover photo are carried", () => {

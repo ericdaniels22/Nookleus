@@ -6,6 +6,29 @@ import {
   type ReportPhotoInput,
   type ReportSectionInput,
 } from "./build-report-document";
+import type { PlanRender } from "./sketch/plan-render";
+
+function makePlan(overrides: Partial<PlanRender> = {}): PlanRender {
+  return {
+    floorName: "Ground Floor",
+    viewBox: { width: 14, height: 12 },
+    rooms: [
+      {
+        polygon: [
+          { x: 1, y: 1 },
+          { x: 13, y: 1 },
+          { x: 13, y: 11 },
+          { x: 1, y: 11 },
+        ],
+        name: "Bedroom",
+        areaLabel: "120 sq ft",
+        labelAt: { x: 7, y: 6 },
+        wallLabels: [{ x: 7, y: 1, text: "12'" }],
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function makePhoto(overrides: Partial<ReportPhotoInput> = {}): ReportPhotoInput {
   return {
@@ -772,6 +795,56 @@ describe("buildReportDocument", () => {
     // Dropping the title pages does not disturb continuous photo numbering.
     expect(photoPages.flatMap((p) => p.slots.map((s) => s.number))).toEqual([
       1, 2, 3, 4,
+    ]);
+  });
+
+  it("inserts one sketchPlan page per Floor plan directly after the cover, before the first Section", () => {
+    // Issue #868: when the report includes the Job's Sketch, each Floor's
+    // dimensioned plan is its own page, laid out right after the cover so the
+    // reader sees the space before the photo tour of it.
+    const pages = buildReportDocument({
+      sections: [makeSection({ title: "Living Room", photoIds: ["a"] })],
+      photos: { a: makePhoto({ id: "a" }) },
+      photosPerPage: 2,
+      sketchPlans: [
+        makePlan({ floorName: "Ground Floor" }),
+        makePlan({ floorName: "Second Floor" }),
+      ],
+    });
+
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sketchPlan",
+      "sketchPlan",
+      "sectionDivider",
+      "photoPage",
+    ]);
+
+    const plans = pages.filter((p) => p.kind === "sketchPlan") as Extract<
+      DocumentPage,
+      { kind: "sketchPlan" }
+    >[];
+    expect(plans.map((p) => p.plan.floorName)).toEqual([
+      "Ground Floor",
+      "Second Floor",
+    ]);
+    // The plan model is forwarded verbatim for the renderer to draw.
+    expect(plans[0].plan.rooms[0].areaLabel).toBe("120 sq ft");
+  });
+
+  it("emits no sketchPlan page when no Sketch plans are supplied", () => {
+    const pages = buildReportDocument({
+      sections: [makeSection({ title: "S", photoIds: ["a"] })],
+      photos: { a: makePhoto({ id: "a" }) },
+      photosPerPage: 2,
+      sketchPlans: [],
+    });
+
+    expect(pages.some((p) => p.kind === "sketchPlan")).toBe(false);
+    expect(pages.map((p) => p.kind)).toEqual([
+      "cover",
+      "sectionDivider",
+      "photoPage",
     ]);
   });
 
