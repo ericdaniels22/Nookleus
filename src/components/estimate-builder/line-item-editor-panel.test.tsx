@@ -5,7 +5,7 @@
 // separately in line-item-editor-panel.integration.test.tsx.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor, act } from "@testing-library/react";
 import React from "react";
 
 import { LineItemEditorPanel } from "./line-item-editor-panel";
@@ -1438,6 +1438,242 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       const empty = await screen.findByTestId("sketch-picker-empty");
       expect(empty.textContent?.length).toBeGreaterThan(0);
       expect(screen.queryByTestId("sketch-picker-room")).toBeNull();
+    });
+  });
+
+  describe("Re-pull contract (#864)", () => {
+    const SOURCE: SketchSource = {
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Living Room",
+      kind: "wall_area_net",
+      value: 100,
+      pulled_at: "2026-06-01T00:00:00.000Z",
+    };
+
+    function sourcedItem() {
+      return makeItem({ sketch_source: SOURCE, quantity: 100, total: 10000 });
+    }
+
+    it("offers a Re-pull affordance for a line that already has a Sketch source", () => {
+      // A Sketch-sourced line's primary Sketch action is Re-pull (#864), not the
+      // fresh-pull picker — the picker button is not the primary control here.
+      render(
+        <LineItemEditorPanel
+          item={sourcedItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+          onRepullPreview={vi.fn()}
+          onRepullApply={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId("sketch-repull-button")).toBeDefined();
+      expect(screen.queryByTestId("sketch-pull-button")).toBeNull();
+    });
+
+    it("previews old-vs-new and applies only after the user confirms", async () => {
+      // Clicking Re-pull runs the dry-run preview, then shows old (100) vs new
+      // (125) in a confirm — nothing changes yet (#864 AC #2). Only on confirm is
+      // the re-pull applied (AC #3).
+      const onRepullPreview = vi
+        .fn()
+        .mockResolvedValue({ old_value: 100, new_value: 125, changed: true });
+      const onRepullApply = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={sourcedItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+          onRepullPreview={onRepullPreview}
+          onRepullApply={onRepullApply}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-repull-button"));
+
+      // The confirm shows old-vs-new; the apply hasn't fired yet.
+      const diff = await screen.findByTestId("repull-old-vs-new");
+      expect(diff.textContent).toContain("100");
+      expect(diff.textContent).toContain("125");
+      expect(onRepullPreview).toHaveBeenCalledTimes(1);
+      expect(onRepullApply).not.toHaveBeenCalled();
+
+      // Confirm ("Update quantity") applies the re-pull, echoing the confirmed
+      // new value so the server can refuse one that drifted since the preview.
+      fireEvent.click(screen.getByRole("button", { name: /update quantity/i }));
+      await waitFor(() => expect(onRepullApply).toHaveBeenCalledWith(125));
+    });
+
+    it("cancels the re-pull without applying — nothing changes", async () => {
+      // Cancelling the confirm leaves the frozen quantity exactly as it was: the
+      // apply never fires (#864 AC #3, cancel branch).
+      const onRepullPreview = vi
+        .fn()
+        .mockResolvedValue({ old_value: 100, new_value: 125, changed: true });
+      const onRepullApply = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={sourcedItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+          onRepullPreview={onRepullPreview}
+          onRepullApply={onRepullApply}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-repull-button"));
+      await screen.findByTestId("repull-old-vs-new");
+
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("repull-old-vs-new")).toBeNull(),
+      );
+      expect(onRepullApply).not.toHaveBeenCalled();
+    });
+
+    it("opens no confirm when the preview fails (deleted source)", async () => {
+      // A null preview means the source Room is gone (the parent already surfaced
+      // the reason). The panel opens no confirm and never applies — the frozen
+      // quantity is left untouched (#864 AC #4).
+      const onRepullPreview = vi.fn().mockResolvedValue(null);
+      const onRepullApply = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={sourcedItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+          onRepullPreview={onRepullPreview}
+          onRepullApply={onRepullApply}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-repull-button"));
+
+      await waitFor(() => expect(onRepullPreview).toHaveBeenCalledTimes(1));
+      expect(screen.queryByTestId("repull-old-vs-new")).toBeNull();
+      expect(onRepullApply).not.toHaveBeenCalled();
+    });
+
+    it("keeps the fresh-pull picker reachable via Change source", async () => {
+      // Re-pointing a sourced line to a different Room/measurement is still
+      // possible (#861 capability preserved): "Change source" opens the picker.
+      const onLoadSketchRooms = vi.fn().mockResolvedValue([
+        {
+          id: "rm-1",
+          name: "Living Room",
+          floor_id: "fl-1",
+          floor_name: "Ground floor",
+          measurements: {
+            floor_area: 12,
+            ceiling_area: 13,
+            perimeter: 14,
+            wall_area_gross: 112,
+            wall_area_net: 100,
+            volume: 96,
+          },
+        },
+      ]);
+      render(
+        <LineItemEditorPanel
+          item={sourcedItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={onLoadSketchRooms}
+          onPullFromSketch={vi.fn()}
+          onRepullPreview={vi.fn()}
+          onRepullApply={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-change-source-button"));
+
+      await screen.findByTestId("sketch-picker-room");
+      expect(onLoadSketchRooms).toHaveBeenCalledTimes(1);
+    });
+
+    it("discards an in-flight preview when the user switches lines mid-check", async () => {
+      // The panel is reused (not remounted) across line switches. If the user
+      // clicks Re-pull on line A and switches to line B before A's preview
+      // resolves, A's stale preview must NOT open the confirm on B (which would
+      // show A's numbers against B's Room and apply to B), and B's button must
+      // not be stuck "Checking Sketch…". Guards AC #2's correct-line contract.
+      let resolvePreview!: (v: { old_value: number; new_value: number; changed: boolean } | null) => void;
+      const onRepullPreview = vi.fn(
+        () =>
+          new Promise<{ old_value: number; new_value: number; changed: boolean } | null>(
+            (r) => {
+              resolvePreview = r;
+            },
+          ),
+      );
+      const onRepullApply = vi.fn().mockResolvedValue(undefined);
+
+      const itemA = makeItem({
+        id: "A",
+        quantity: 100,
+        total: 10000,
+        sketch_source: { ...SOURCE, room_id: "rm-a", room_name: "Kitchen" },
+      });
+      const itemB = makeItem({
+        id: "B",
+        quantity: 30,
+        total: 3000,
+        sketch_source: {
+          ...SOURCE,
+          room_id: "rm-b",
+          room_name: "Bathroom",
+          kind: "floor_area",
+          value: 30,
+        },
+      });
+
+      const props = {
+        onChange: vi.fn(),
+        onClose: vi.fn(),
+        mode: "estimate" as const,
+        onLoadSketchRooms: vi.fn(),
+        onPullFromSketch: vi.fn(),
+        onRepullPreview,
+        onRepullApply,
+      };
+
+      const { rerender } = render(<LineItemEditorPanel item={itemA} {...props} />);
+
+      // Start the preview for A (still pending).
+      fireEvent.click(screen.getByTestId("sketch-repull-button"));
+      expect(onRepullPreview).toHaveBeenCalledTimes(1);
+
+      // Switch to line B before A's preview resolves.
+      rerender(<LineItemEditorPanel item={itemB} {...props} />);
+
+      // Now A's preview resolves late.
+      await act(async () => {
+        resolvePreview({ old_value: 100, new_value: 50, changed: true });
+      });
+
+      // No confirm opened on B, and B's button is live (not stuck checking).
+      expect(screen.queryByTestId("repull-old-vs-new")).toBeNull();
+      const button = screen.getByTestId("sketch-repull-button") as HTMLButtonElement;
+      expect(button.textContent).toContain("Re-pull from Sketch");
+      expect(button.disabled).toBe(false);
+      expect(onRepullApply).not.toHaveBeenCalled();
     });
   });
 });

@@ -26,6 +26,13 @@ interface Props {
   body: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  /**
+   * Visual tone of the confirm button. Defaults to `destructive` (red) — this
+   * dialog's original home is delete/void guards. A constructive confirm (e.g.
+   * the Sketch re-pull's "update quantity", #864) passes `primary` so the button
+   * doesn't read as a destructive action.
+   */
+  tone?: "destructive" | "primary";
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -37,6 +44,7 @@ export default function ConfirmDialog({
   body,
   confirmLabel = "Delete",
   cancelLabel = "Cancel",
+  tone = "destructive",
   onCancel,
   onConfirm,
 }: Props) {
@@ -154,7 +162,11 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 min-h-[44px] bg-red-500/90 text-white hover:bg-red-500 transition-colors"
+            className={
+              tone === "primary"
+                ? "inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 min-h-[44px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                : "inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 min-h-[44px] bg-red-500/90 text-white hover:bg-red-500 transition-colors"
+            }
           >
             {confirmLabel}
           </button>

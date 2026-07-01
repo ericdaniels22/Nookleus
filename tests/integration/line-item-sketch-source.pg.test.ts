@@ -30,7 +30,8 @@ import EmbeddedPostgres from "embedded-postgres";
 import type { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { resolveRoomPull } from "../../src/lib/sketch/pull-resolver";
+import { resolveRoomPull, resolveRoomRepull } from "../../src/lib/sketch/pull-resolver";
+import type { SketchSource } from "../../src/lib/sketch/pull-resolver";
 
 const SCHEMA_SQL = readFileSync(
   join(process.cwd(), "tests", "integration", "line-item-sketch-source-schema.sql"),
@@ -230,6 +231,61 @@ describe("line-item sketch_source migration (#861)", () => {
       [roomId],
     );
     expect(Number(room[0].net_wall_area)).toBe(999);
+  });
+
+  // Re-pull (#864, S3). A frozen line item is refreshed from the live Sketch: the
+  // Room grew from 100 to 125 net wall area, and an explicit re-pull recomputes the
+  // frozen quantity + total and re-stamps the sketch_source (new value + pulled_at)
+  // through the same column. Proves the refreshed jsonb persists exactly — the
+  // re-pull half of the snapshot contract, not just the initial freeze.
+  it("re-pull refreshes the frozen quantity + sketch_source (value + pulled_at)", async () => {
+    const { itemId } = await seedLineItem(10);
+    const { rows: roomRows } = await client.query<{ id: string }>(
+      "INSERT INTO rooms (net_wall_area) VALUES (100) RETURNING id",
+    );
+    const roomId = roomRows[0].id;
+
+    await pullNetWallArea(itemId, roomId, 100, 10);
+
+    // The Room grows to 125; the user re-pulls the same source against the live value.
+    const { rows: frozen } = await client.query<{ sketch_source: SketchSource }>(
+      "SELECT sketch_source FROM estimate_line_items WHERE id = $1",
+      [itemId],
+    );
+    const repull = resolveRoomRepull({
+      source: frozen[0].sketch_source,
+      measurements: {
+        floorArea: 0,
+        ceilingArea: 0,
+        perimeter: 0,
+        grossWallArea: 0,
+        netWallArea: 125,
+        volume: 0,
+      },
+      currentQuantity: 100, // the frozen quantity from the initial pull
+      pulledAt: "2026-06-30T18:00:00.000Z",
+    });
+    expect(repull.status).toBe("ok");
+    if (repull.status !== "ok") return;
+    await client.query(
+      `UPDATE estimate_line_items
+          SET quantity = $2, total = $3, sketch_source = $4::jsonb
+        WHERE id = $1`,
+      [itemId, repull.newValue, repull.newValue * 10, JSON.stringify(repull.source)],
+    );
+
+    const { rows } = await client.query(
+      "SELECT quantity, total, sketch_source FROM estimate_line_items WHERE id = $1",
+      [itemId],
+    );
+    // The refreshed value is frozen anew; total recomputes off it.
+    expect(Number(rows[0].quantity)).toBe(125);
+    expect(Number(rows[0].total)).toBe(1250);
+    // The source's value + pulled_at moved; its Room identity/kind stayed frozen.
+    expect(rows[0].sketch_source.value).toBe(125);
+    expect(rows[0].sketch_source.pulled_at).toBe("2026-06-30T18:00:00.000Z");
+    expect(rows[0].sketch_source.room_id).toBe(roomId);
+    expect(rows[0].sketch_source.kind).toBe("wall_area_net");
   });
 
   // The additive, nullable contract (acceptance #2). A hand-typed line item — one
