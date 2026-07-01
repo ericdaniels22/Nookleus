@@ -11,6 +11,7 @@ import { round2 } from "../format";
 import type { RoomMeasurements } from "./measure-room";
 import {
   objectCountValue,
+  OBJECT_CATEGORY_LABELS,
   type ObjectCategory,
   type ObjectInventory,
 } from "./object-inventory";
@@ -158,6 +159,23 @@ export function sketchSourceLabel(source: SketchSource): string {
 }
 
 /**
+ * The "what was pulled" label a source badge shows, per kind: a measurement pull
+ * reads its kind's human label ("Floor area"); an object_count pull reads the
+ * counted category's label ("Cabinets"), since a count is scoped by category and
+ * the widened kind alone ("object_count") would name nothing (#867). Kept beside
+ * {@link sketchSourceLabel} so the badge composes "<scope name> · <this>" in one
+ * place and can't miss a kind. Whatever the scope, the kind is read the same way.
+ */
+export function sketchSourceKindLabel(source: SketchSource): string {
+  if (source.kind === "object_count") {
+    return source.object_category
+      ? OBJECT_CATEGORY_LABELS[source.object_category]
+      : "Objects";
+  }
+  return ROOM_MEASUREMENT_KIND_LABELS[source.kind];
+}
+
+/**
  * One Room as the "Pull from Sketch" picker sees it: identity, its Floor's name
  * for grouping, and its six measurements already keyed by pull kind so the
  * picker can preview `measurements[kind]` before freezing it. This is the shape
@@ -218,12 +236,29 @@ export interface SketchPickerFeed {
 /**
  * What the picker hands back on Pull, discriminated by scope — the shape the
  * pull route accepts. Room and Floor carry their id; the whole-Sketch pull needs
- * none. Every scope names a measurement kind.
+ * none. Each scope names EITHER one of the six measurement kinds, OR the widened
+ * `object_count` kind — in which case it additionally carries the
+ * `object_category` the count is scoped by (#867, "widen kind, add
+ * object_category"). Mirrors the route's validation: `object_count` requires an
+ * `object_category`; a measurement kind never carries one.
  */
 export type SketchPullArgs =
   | { scope: "room"; roomId: string; kind: RoomMeasurementKind }
   | { scope: "floor"; floorId: string; kind: RoomMeasurementKind }
-  | { scope: "sketch"; kind: RoomMeasurementKind };
+  | { scope: "sketch"; kind: RoomMeasurementKind }
+  | {
+      scope: "room";
+      roomId: string;
+      kind: "object_count";
+      object_category: ObjectCategory;
+    }
+  | {
+      scope: "floor";
+      floorId: string;
+      kind: "object_count";
+      object_category: ObjectCategory;
+    }
+  | { scope: "sketch"; kind: "object_count"; object_category: ObjectCategory };
 
 export interface ResolveRoomPullInput {
   measurements: RoomMeasurements;

@@ -8,13 +8,13 @@
 import { Ruler } from "lucide-react";
 
 import {
-  ROOM_MEASUREMENT_KIND_LABELS,
+  sketchSourceKindLabel,
   sketchSourceLabel,
   type SketchSource,
 } from "@/lib/sketch/pull-resolver";
 
 export function SketchSourceBadge({ source }: { source: SketchSource }) {
-  const kindLabel = ROOM_MEASUREMENT_KIND_LABELS[source.kind];
+  const kindLabel = sketchSourceKindLabel(source);
   const sourceLabel = sketchSourceLabel(source);
   return (
     <span

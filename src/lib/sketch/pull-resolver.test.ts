@@ -24,6 +24,7 @@ import {
   resolveSketchPull,
   roomMeasurementValue,
   sketchSourceLabel,
+  sketchSourceKindLabel,
   type SketchSource,
 } from "./pull-resolver";
 
@@ -452,5 +453,38 @@ describe("sketchSourceLabel", () => {
     expect(sketchSourceLabel(room.source)).toBe("Living Room");
     expect(sketchSourceLabel(floor.source)).toBe("Ground Floor");
     expect(sketchSourceLabel(sketch.source)).toBe("Whole Sketch");
+  });
+});
+
+describe("sketchSourceKindLabel", () => {
+  it("labels a measurement source by its kind and an object_count source by its category", () => {
+    // The badge shows one "what was pulled" label per source. A measurement pull
+    // reads its kind's label ("Floor area"); an object_count pull reads the
+    // counted category's label ("Cabinets") — a count is scoped by category, so
+    // the widened kind alone ("object_count") would tell the reader nothing.
+    const measurement = resolveRoomPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Living Room",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+    const objectCount = resolveRoomObjectPull({
+      inventory: objectInventory([
+        { category: "cabinets" },
+        { category: "cabinets" },
+      ]),
+      category: "cabinets",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Kitchen",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(sketchSourceKindLabel(measurement.source)).toBe("Floor area");
+    expect(sketchSourceKindLabel(objectCount.source)).toBe("Cabinets");
   });
 });

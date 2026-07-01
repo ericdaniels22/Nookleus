@@ -65,6 +65,26 @@ describe("SketchSourceBadge", () => {
     expect(badge.textContent).toContain("Floor area");
   });
 
+  it("names the object category for an object_count pull", () => {
+    // An object_count pull is scoped by category, not a measurement — the badge
+    // must name the category ("Cabinets"), since the widened "object_count" kind
+    // alone tells the reader nothing about what was counted (#867).
+    render(
+      <SketchSourceBadge
+        source={makeSource({
+          kind: "object_count",
+          object_category: "cabinets",
+          room_name: "Kitchen",
+          value: 3,
+        })}
+      />,
+    );
+
+    const badge = screen.getByTestId("sketch-source-badge");
+    expect(badge.textContent).toContain("Kitchen");
+    expect(badge.textContent).toContain("Cabinets");
+  });
+
   it("names the whole Sketch for a Sketch-scoped pull", () => {
     // The coarsest pull spans every Floor — the badge shows a fixed "Whole
     // Sketch" label since there is no single Room or Floor to name.

@@ -25,6 +25,7 @@ import { SketchSourceBadge } from "./sketch-source-badge";
 import {
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
+  sketchSourceKindLabel,
   type RoomMeasurementKind,
   type RepullPreview,
   type SketchPickerFeed,
@@ -1019,7 +1020,7 @@ export function LineItemEditorPanel({
             body={
               <span data-testid="repull-old-vs-new">
                 {repullSource.room_name} ·{" "}
-                {ROOM_MEASUREMENT_KIND_LABELS[repullSource.kind]}
+                {sketchSourceKindLabel(repullSource)}
                 {repullPreview && (
                   <>
                     {" — "}
