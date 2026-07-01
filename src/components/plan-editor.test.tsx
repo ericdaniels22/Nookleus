@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-import type { Floor, Room } from "@/lib/types";
+import type { Floor, Room, SketchObject } from "@/lib/types";
 
 const RECT_FOOTPRINT = [
   { x: 0, y: 0 },
@@ -41,24 +41,50 @@ vi.mock("./plan-canvas", () => ({
     selectedRoomId,
     mode,
     zoom,
+    objects,
+    objectDraft,
+    selectedObjectId,
     onSelectRoom,
     onMoveRoom,
     onEditFootprint,
     onFootprintComplete,
+    onPlaceObject,
+    onSelectObject,
   }: {
     rooms: Room[];
     selectedRoomId: string | null;
     mode: string;
     zoom: number;
+    // #867 — the placed objects on the active Floor, the armed category the
+    // next canvas drop places (null when nothing is armed), and which object is
+    // selected. Optional so the pre-#867 tests, which don't wire objects, still
+    // render the mock.
+    objects?: { id: string; room_id: string; category: string }[];
+    objectDraft?: string | null;
+    selectedObjectId?: string | null;
     onSelectRoom: (id: string | null) => void;
     onMoveRoom: (id: string, origin: { x: number; y: number }) => void;
     onEditFootprint: (id: string, placed: { x: number; y: number }[]) => void;
     onFootprintComplete: (points: { x: number; y: number }[]) => void;
+    onPlaceObject?: (roomId: string, position: { x: number; y: number }) => void;
+    onSelectObject?: (id: string | null) => void;
   }) => (
     <div data-testid="plan-canvas">
       <div data-testid="canvas-mode">{mode}</div>
       <div data-testid="canvas-zoom">{zoom}</div>
       <div data-testid="canvas-selected">{selectedRoomId ?? ""}</div>
+      <div data-testid="canvas-object-draft">{objectDraft ?? ""}</div>
+      <div data-testid="canvas-object-count">{objects?.length ?? 0}</div>
+      <div data-testid="canvas-selected-object">{selectedObjectId ?? ""}</div>
+      {objects?.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onSelectObject?.(o.id)}
+        >
+          select object {o.id}
+        </button>
+      ))}
       {rooms.map((r) => (
         <div key={r.id}>
           <button type="button" onClick={() => onSelectRoom(r.id)}>
@@ -72,6 +98,12 @@ vi.mock("./plan-canvas", () => ({
             onClick={() => onEditFootprint(r.id, VERTEX_DRAG_FOOTPRINT)}
           >
             drag vertex {r.name}
+          </button>
+          <button
+            type="button"
+            onClick={() => onPlaceObject?.(r.id, { x: 1, y: 2 })}
+          >
+            place object in {r.name}
           </button>
         </div>
       ))}
@@ -120,6 +152,18 @@ function makeRoom(overrides: Partial<Room> = {}): Room {
     sort_order: 0,
     created_at: "2026-06-30T00:00:00Z",
     updated_at: "2026-06-30T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeObject(overrides: Partial<SketchObject> = {}): SketchObject {
+  return {
+    id: "obj-1",
+    room_id: "room-1",
+    category: "cabinets",
+    position: { x: 1, y: 1 },
+    rotation: 0,
+    sort_order: 0,
     ...overrides,
   };
 }
@@ -718,5 +762,198 @@ describe("PlanEditor — shell (#890)", () => {
     fireEvent.click(screen.getByRole("button", { name: /fit/i }));
     expect(screen.getByText("100%")).toBeDefined();
     expect(screen.getByTestId("canvas-zoom").textContent).toBe("100");
+  });
+});
+
+// #867 — Sketch S7. A Room's object inventory: known-category objects (cabinets,
+// fixtures, appliances…) placed on the canvas so a line item can pull an
+// object_count for a category. Placement follows the Room "adding" pattern — the
+// shell arms a category, the canvas reports the drop position, and the shell POSTs
+// with the armed category. Object measurement is count-only.
+describe("PlanEditor — objects (#867)", () => {
+  it("places an object: arm a category, drop it on a Room, and POST to that Room's objects", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            object: {
+              id: "obj-1",
+              room_id: "room-1",
+              category: "cabinets",
+              position: { x: 1, y: 2 },
+              rotation: 0,
+              sort_order: 0,
+            },
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+        initialObjects={[]}
+      />,
+    );
+
+    // Nothing armed, nothing placed yet.
+    expect(screen.getByTestId("canvas-object-draft").textContent).toBe("");
+    expect(screen.getByTestId("canvas-object-count").textContent).toBe("0");
+
+    // Open the object palette and arm "Cabinets" — the canvas now knows which
+    // category the next drop will place.
+    fireEvent.click(screen.getByRole("button", { name: /add object/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^cabinets$/i }));
+    expect(screen.getByTestId("canvas-object-draft").textContent).toBe("cabinets");
+
+    // Drop it into the Kitchen — the shell POSTs the armed category and the drop
+    // position to that Room's objects collection.
+    fireEvent.click(screen.getByRole("button", { name: /place object in kitchen/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1/objects");
+    expect(init?.method).toBe("POST");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent.category).toBe("cabinets");
+    expect(sent.position).toEqual({ x: 1, y: 2 });
+
+    // The echoed object joins the inventory and the draft disarms.
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-object-count").textContent).toBe("1"),
+    );
+    expect(screen.getByTestId("canvas-object-draft").textContent).toBe("");
+  });
+
+  it("reports the selected Room's object inventory in the inspector — a count per present category, count-only", () => {
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+        initialObjects={[
+          makeObject({ id: "o1", room_id: "room-1", category: "cabinets" }),
+          makeObject({ id: "o2", room_id: "room-1", category: "cabinets" }),
+          makeObject({ id: "o3", room_id: "room-1", category: "sink" }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+
+    // The inspector reports this Room's object inventory: each category the Room
+    // holds, labelled, with its count.
+    const cabinets = screen.getByTestId("room-object-cabinets");
+    expect(cabinets.textContent).toContain("Cabinets");
+    expect(cabinets.textContent).toContain("2");
+    const sink = screen.getByTestId("room-object-sink");
+    expect(sink.textContent).toContain("Sink");
+    expect(sink.textContent).toContain("1");
+
+    // Categories the Room has none of aren't listed — the readout is what's here.
+    expect(screen.queryByTestId("room-object-refrigerator")).toBeNull();
+  });
+
+  it("removes a placed object: select it, delete, and DELETE that Room's object", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+        initialObjects={[
+          makeObject({ id: "obj-1", room_id: "room-1", category: "cabinets" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("canvas-object-count").textContent).toBe("1");
+
+    // Select the placed object on the canvas — an object inspector opens.
+    fireEvent.click(screen.getByRole("button", { name: /select object obj-1/i }));
+    expect(screen.getByTestId("canvas-selected-object").textContent).toBe("obj-1");
+
+    // Delete it — the shell DELETEs that Room's object and drops it from state.
+    fireEvent.click(screen.getByRole("button", { name: /delete object/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1/objects/obj-1");
+    expect(init?.method).toBe("DELETE");
+
+    // The object leaves the inventory and the selection clears.
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-object-count").textContent).toBe("0"),
+    );
+    expect(screen.getByTestId("canvas-selected-object").textContent).toBe("");
+  });
+
+  it("edits a placed object's category: change it in the inspector and PATCH that object", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            object: {
+              id: "obj-1",
+              room_id: "room-1",
+              category: "sink",
+              position: { x: 1, y: 1 },
+              rotation: 0,
+              sort_order: 0,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+        initialObjects={[
+          makeObject({ id: "obj-1", room_id: "room-1", category: "cabinets" }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select object obj-1/i }));
+
+    // The inspector shows the object's current category, editable.
+    const select = screen.getByLabelText(/category/i) as HTMLSelectElement;
+    expect(select.value).toBe("cabinets");
+
+    // Change it to Sink — the shell PATCHes the new category to that object.
+    fireEvent.change(select, { target: { value: "sink" } });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1/objects/obj-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent.category).toBe("sink");
+
+    // The echoed row updates state — the inspector now reads "Sink".
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/category/i) as HTMLSelectElement).value,
+      ).toBe("sink"),
+    );
   });
 });

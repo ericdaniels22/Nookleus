@@ -303,6 +303,34 @@ but freezes the value, re-pulled on demand, so re-scanning never rewrites a sent
 Estimate.
 _Avoid_: space, zone; "area" names a measurement output, not the Room
 
+**Object** (of a Room):
+A known-category thing placed inside a **Room** — cabinets, an appliance
+(refrigerator, stove, oven, dishwasher, washer/dryer), a fixture (sink, toilet,
+bathtub), or furniture — either detected by a scan or placed by hand in the 2D
+editor. An Object is measured by **count only**: it contributes to its Room's
+inventory but is never billed as linear footage or area. Its position is
+Room-local (drawn relative to the Room's origin), so moving the Room moves its
+Objects with it.
+_Avoid_: fixture/appliance as the umbrella term (each is one *category* of
+Object); "furnishing"
+
+**Object inventory**:
+A Room's per-category **counts** of its Objects (e.g. *2 cabinets, 1 sink*),
+with every known category present and absent categories reading zero. Inventories
+**roll up** the same way measurements do: a **Floor**'s inventory sums its Rooms',
+and the whole **Sketch**'s sums its Floors'. This is the source an **Estimate**
+line item reads for an `object_count` pull.
+_Avoid_: "object list" (it's counts, not the individual Objects)
+
+**object_count** (a Sketch pull kind):
+The pull kind an **Estimate line item** uses to freeze the **count** of one
+Object category from a Room, a Floor's total, or the whole Sketch's total. It
+rides the same source-scope contract as a measurement pull but carries an
+`object_category` naming which category to count — the only pull kind that is a
+tally rather than a derived measurement. Like every pull it freezes the value as
+a re-pullable snapshot, never live.
+_Avoid_: billing an object_count as area or length — it is count-only
+
 **Estimate**:
 A priced proposal for a Job — line items grouped into sections, with overhead
 & profit, discount, and tax — that an Organization sends a customer for
