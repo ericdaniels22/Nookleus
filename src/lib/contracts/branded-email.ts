@@ -9,13 +9,16 @@ import type { ContractEmailSettings } from "./types";
 
 export interface BrandedContractEmailInput {
   // Which email kind the card renders as — the initial send / resend are
-  // "signing_request", the nudge is "reminder" (#691/#692).
+  // "signing_request", the nudge is "reminder" (#691/#692), and finalize's two
+  // emails are "signed_confirmation" / "internal_notification" (#693).
   kind: ContractEmailFrameInput["kind"];
   organizationId: string;
   // The contractor's RAW message (pre-sanitize). This function sanitizes it.
   message: string;
-  // The signing link injected into the card's action button.
-  actionUrl: string;
+  // The url injected into the card's action button — the signing link for the
+  // customer paths, the internal platform view for the staff notification. Null
+  // for the post-sign confirmation (#693), which draws no button at all.
+  actionUrl: string | null;
   documentTitle: string;
 }
 

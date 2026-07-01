@@ -185,6 +185,11 @@ export interface ContractEmailSettings {
   // Same safety-net snapshot for the reminder body, taken when #692 reset
   // reminder_body_template to the message-only default (ADR 0017 §7).
   reminder_body_template_archived: string | null;
+  // Safety-net snapshots for the two finalize-time bodies, taken when #693 reset
+  // them to their message-only defaults (ADR 0017 §7). Null on rows seeded after
+  // the reset.
+  signed_confirmation_body_template_archived: string | null;
+  signed_confirmation_internal_body_template_archived: string | null;
   updated_at: string;
 }
 

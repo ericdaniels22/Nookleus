@@ -29,6 +29,8 @@ function makeSettings(
     logo_visible: true,
     signing_request_body_template_archived: null,
     reminder_body_template_archived: null,
+    signed_confirmation_body_template_archived: null,
+    signed_confirmation_internal_body_template_archived: null,
     updated_at: "2026-06-23T00:00:00Z",
     ...overrides,
   };

@@ -148,6 +148,8 @@ function makeEmailSettings(
     logo_visible: true,
     signing_request_body_template_archived: null,
     reminder_body_template_archived: null,
+    signed_confirmation_body_template_archived: null,
+    signed_confirmation_internal_body_template_archived: null,
     updated_at: "2026-05-13T00:00:00Z",
     ...overrides,
   };
@@ -189,7 +191,12 @@ function buildClient(state: {
 }) {
   function matchesFilters(row: Record<string, unknown>, filters: Filters): boolean {
     for (const [k, v] of Object.entries(filters)) {
-      if (row[k] !== v) return false;
+      // An array filter value comes from `.in(col, [...])` — membership match.
+      if (Array.isArray(v)) {
+        if (!v.includes(row[k])) return false;
+      } else if (row[k] !== v) {
+        return false;
+      }
     }
     return true;
   }
@@ -199,6 +206,10 @@ function buildClient(state: {
     const builder = {
       eq(col: string, val: unknown) {
         filters[col] = val;
+        return builder;
+      },
+      in(col: string, vals: unknown[]) {
+        filters[col] = vals;
         return builder;
       },
       order(_col: string) {
@@ -913,5 +924,115 @@ describe("finalizeSignedContract — error-checked status flip", () => {
 
     expect(sendModule.sendContractEmail).not.toHaveBeenCalled();
     expect(fake.inserts["contract_events"] ?? []).toHaveLength(0);
+  });
+});
+
+// The two finalize-time emails now wear the app-owned branded card (#693,
+// ADR 0017 §4). resolveEmailTemplate (the merge engine) is stubbed to a plain
+// message, but the branding resolve → sanitize → frame seam runs for real, so
+// the HTML each recipient would receive is under test. Only the contractor's
+// message is stubbed; the frame is assembled around it.
+describe("finalizeSignedContract — branded card emails (#693)", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const merge = await import("./email-merge-fields");
+    vi.mocked(merge.resolveEmailTemplate).mockResolvedValue({
+      subject: "stub subject",
+      html: "<p>stub body</p>",
+      unresolvedFields: [],
+    });
+  });
+
+  function customerHtml(sendMock: {
+    mock: { calls: Array<[unknown, unknown, { to: string; html: string; attachments?: Array<{ filename: string }> }]> };
+  }) {
+    return sendMock.mock.calls.find((c) => c[2].to === "jane@example.com")![2];
+  }
+
+  function internalHtml(sendMock: {
+    mock: { calls: Array<[unknown, unknown, { to: string; html: string; attachments?: Array<{ filename: string }> }]> };
+  }) {
+    return sendMock.mock.calls.find((c) => c[2].to === "internal@example.com")![2];
+  }
+
+  it("renders the customer post-sign confirmation as the card — signed-check state, no button, PDF attached", async () => {
+    const sendModule = await import("./email");
+    const fake = makeSupabaseFake();
+    const signer = makeSigner({ id: "sig-1", email: "jane@example.com" });
+    const { contract } = seedHappyPathFake(fake, { signers: [signer] });
+
+    await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers: [signer],
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    const sent = customerHtml(vi.mocked(sendModule.sendContractEmail));
+    // The app-owned card frame …
+    expect(sent.html).toContain('role="presentation"');
+    // … the signed-check done state instead of the document icon …
+    expect(sent.html).toContain("✅");
+    // … no action button (null action url on the post-sign path) …
+    expect(sent.html.split("<a ").length - 1).toBe(0);
+    // … and the signed PDF still attached for the customer's records.
+    expect(sent.attachments?.[0]?.filename).toContain(".pdf");
+  });
+
+  it("renders the internal notification as the card with a View contract button to the platform view", async () => {
+    const sendModule = await import("./email");
+    const fake = makeSupabaseFake();
+    const signer = makeSigner({ id: "sig-1", email: "jane@example.com" });
+    const { contract } = seedHappyPathFake(fake, { signers: [signer] });
+
+    await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers: [signer],
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    const sent = internalHtml(vi.mocked(sendModule.sendContractEmail));
+    expect(sent.html).toContain('role="presentation"');
+    expect(sent.html).toContain("View contract");
+    // the internal platform link is injected into the button, not the body
+    expect(sent.html).toContain('href="https://app.test/jobs/job-1"');
+    expect(sent.attachments?.[0]?.filename).toContain(".pdf");
+  });
+
+  it("sanitizes only the contractor's message, leaving the app-owned frame intact", async () => {
+    const sendModule = await import("./email");
+    const merge = await import("./email-merge-fields");
+    vi.mocked(merge.resolveEmailTemplate).mockResolvedValue({
+      subject: "stub subject",
+      html: '<p>Thanks for signing.</p><script>alert("xss")</script>',
+      unresolvedFields: [],
+    });
+
+    const fake = makeSupabaseFake();
+    const signer = makeSigner({ id: "sig-1", email: "jane@example.com" });
+    const { contract } = seedHappyPathFake(fake, { signers: [signer] });
+
+    await finalizeSignedContract({
+      supabase: fake.client as never,
+      contract,
+      template: makeTemplate(),
+      signers: [signer],
+      customerInputs: {},
+      signedAt: new Date("2026-05-13T12:00:00Z"),
+    });
+
+    const sent = customerHtml(vi.mocked(sendModule.sendContractEmail));
+    // the message is sanitized …
+    expect(sent.html).not.toContain("<script");
+    expect(sent.html).not.toContain('alert("xss")');
+    expect(sent.html).toContain("Thanks for signing.");
+    // … but the frame survives — assembled around the sanitized message, never
+    // through the sanitizer (whose ALLOWED_TAGS has no table/tr/td).
+    expect(sent.html).toContain('role="presentation"');
   });
 });
