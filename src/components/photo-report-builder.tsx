@@ -94,7 +94,11 @@ function snapshotOf(state: PhotoReportBuilderState) {
     title: state.title,
     reportDate: state.reportDate,
     sections: state.sections,
-    reportSettings: { photosPerPage: state.photosPerPage, ...state.details },
+    reportSettings: {
+      photosPerPage: state.photosPerPage,
+      ...state.details,
+      includeSketchPlan: state.includeSketchPlan,
+    },
     cover: state.cover,
     revision: state.revision,
   };
@@ -310,7 +314,11 @@ export default function PhotoReportBuilder({
         title: state.title,
         report_date: state.reportDate,
         sections: state.sections,
-        report_settings: { photosPerPage: state.photosPerPage, ...state.details },
+        report_settings: {
+          photosPerPage: state.photosPerPage,
+          ...state.details,
+          includeSketchPlan: state.includeSketchPlan,
+        },
         ...coverColumns(state.cover),
       }),
       keepalive: true,
@@ -744,6 +752,7 @@ export default function PhotoReportBuilder({
         <ReportSettingsPanel
           photosPerPage={state.photosPerPage}
           details={state.details}
+          includeSketchPlan={state.includeSketchPlan}
           dispatch={dispatch}
           onClose={() => setSettingsOpen(false)}
         />
