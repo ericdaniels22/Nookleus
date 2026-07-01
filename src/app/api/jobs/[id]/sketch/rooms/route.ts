@@ -6,20 +6,39 @@ import { apiDbError } from "@/lib/api-errors";
 interface CreateRoomPayload {
   floorId?: unknown;
   name?: unknown;
-  width?: unknown;
-  length?: unknown;
+  footprint?: unknown;
   ceilingHeightOverride?: unknown;
 }
 
-/** A finite, non-negative number — the only kind a footprint dimension can be. */
+/** A finite, non-negative number — the only kind a ceiling height can be. */
 function isDimension(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-// POST /api/jobs/[id]/sketch/rooms — add a rectangular Room to a Job's Sketch
-// (#860). Runs server-side because the Room's cached measurements are computed
-// there from M1 (createSketchRoom), keeping the app the single writer of the
-// cache (migration-build88). Like the reports route (#446) it first verifies the
+/**
+ * A drawable footprint: an ordered loop of at least three corners, each a point
+ * with finite x/y. Fewer than three corners can't enclose a Room (#879). Corner
+ * coordinates may be any finite number — the grid origin is arbitrary and the
+ * shoelace area is sign-independent.
+ */
+function isFootprint(value: unknown): value is { x: number; y: number }[] {
+  return (
+    Array.isArray(value) &&
+    value.length >= 3 &&
+    value.every(
+      (p): p is { x: number; y: number } =>
+        typeof p === "object" &&
+        p !== null &&
+        Number.isFinite((p as { x: unknown }).x) &&
+        Number.isFinite((p as { y: unknown }).y),
+    )
+  );
+}
+
+// POST /api/jobs/[id]/sketch/rooms — add a Room to a Job's Sketch (#860, #879).
+// Runs server-side because the Room's cached measurements are computed there from
+// M1 (createSketchRoom), keeping the app the single writer of the cache
+// (migration-build88/89). Like the reports route (#446) it first verifies the
 // URL's Job is visible to the caller's org before writing anything for it.
 export const POST = withRequestContext(
   { permission: "edit_jobs" },
@@ -51,15 +70,16 @@ export const POST = withRequestContext(
       .json()
       .catch(() => ({}))) as CreateRoomPayload;
 
-    // A Room needs a Floor to live on and a finite, non-negative footprint. The
-    // ceiling height is optional — null means "inherit the Floor's default".
+    // A Room needs a Floor to live on and a drawn footprint of at least three
+    // corners. The ceiling height is optional — null means "inherit the Floor's
+    // default".
     const floorId = typeof body.floorId === "string" ? body.floorId : null;
     const ceilingHeightOverride = isDimension(body.ceilingHeightOverride)
       ? body.ceilingHeightOverride
       : null;
-    if (!floorId || !isDimension(body.width) || !isDimension(body.length)) {
+    if (!floorId || !isFootprint(body.footprint)) {
       return NextResponse.json(
-        { error: "floorId, width and length are required" },
+        { error: "floorId and a footprint of at least three corners are required" },
         { status: 400 },
       );
     }
@@ -71,8 +91,7 @@ export const POST = withRequestContext(
         organizationId: ctx.orgId,
         floorId,
         name,
-        width: body.width,
-        length: body.length,
+        footprint: body.footprint,
         ceilingHeightOverride,
       });
       return NextResponse.json({ room }, { status: 201 });

@@ -9,7 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { measureRoom } from "./measure-room";
+import { rectangleFootprint, type Point } from "./footprint";
+import { measureFootprint, measureRoom } from "./measure-room";
 
 describe("measureRoom", () => {
   it("derives every measurement of a 3 × 4 rectangular Room at 8′ ceiling", () => {
@@ -93,5 +94,80 @@ describe("measureRoom", () => {
     expect(() => measureRoom({ width: -3, length: 4, ceilingHeight: 8 })).toThrow();
     expect(() => measureRoom({ width: 3, length: -4, ceilingHeight: 8 })).toThrow();
     expect(() => measureRoom({ width: 3, length: 4, ceilingHeight: -8 })).toThrow();
+  });
+});
+
+describe("measureFootprint", () => {
+  // S2 generalizes M1 from a width × length rectangle to an arbitrary polygon
+  // footprint. The rectangle is now one shape among many, so the same six
+  // quantities must fall out of the shoelace/perimeter formulas (CONTEXT.md
+  // "Room"; ADR 0024). An L-shaped Room: a 4×4 square missing a 2×2 top-right
+  // bite — area 12, perimeter 16, all corners right-angled.
+  const L_SHAPE: Point[] = [
+    { x: 0, y: 0 },
+    { x: 4, y: 0 },
+    { x: 4, y: 2 },
+    { x: 2, y: 2 },
+    { x: 2, y: 4 },
+    { x: 0, y: 4 },
+  ];
+
+  it("reproduces the rectangle case exactly — a rectangle is just 4 points", () => {
+    // The generalized engine must not move a single #860 number: the 3 × 4 × 8
+    // rectangle still reads floor 12, perimeter 14, gross wall 112, volume 96.
+    const m = measureFootprint({
+      footprint: rectangleFootprint(3, 4),
+      ceilingHeight: 8,
+    });
+
+    expect(m.floorArea).toBe(12);
+    expect(m.ceilingArea).toBe(12);
+    expect(m.perimeter).toBe(14);
+    expect(m.grossWallArea).toBe(112);
+    expect(m.netWallArea).toBe(112);
+    expect(m.volume).toBe(96);
+  });
+
+  it("measures an arbitrary L-shaped Room the rectangle model could not", () => {
+    const m = measureFootprint({ footprint: L_SHAPE, ceilingHeight: 8 });
+
+    expect(m.floorArea).toBe(12); // shoelace: 4×4 − 2×2
+    expect(m.ceilingArea).toBe(12);
+    expect(m.perimeter).toBe(16); // 4 + 2 + 2 + 2 + 2 + 4
+    expect(m.grossWallArea).toBe(128); // 16 · 8
+    expect(m.netWallArea).toBe(128);
+    expect(m.volume).toBe(96); // 12 · 8
+  });
+
+  it("scales only wall area and volume when the ceiling height changes", () => {
+    // Overriding a Room's ceiling height moves wall area and volume but leaves
+    // the footprint-derived floor/ceiling area and perimeter untouched.
+    const low = measureFootprint({ footprint: L_SHAPE, ceilingHeight: 8 });
+    const high = measureFootprint({ footprint: L_SHAPE, ceilingHeight: 10 });
+
+    expect(high.floorArea).toBe(low.floorArea);
+    expect(high.ceilingArea).toBe(low.ceilingArea);
+    expect(high.perimeter).toBe(low.perimeter);
+
+    expect(high.grossWallArea).toBe(160); // 16 · 10
+    expect(high.volume).toBe(120); // 12 · 10
+  });
+
+  it("returns zeros — never NaN — for a degenerate footprint of under three points", () => {
+    // A half-drawn Room (no corners, one corner, a single wall) reads as all
+    // zeros so the live readout shows 0 while the user is still tapping corners.
+    for (const footprint of [[], [{ x: 0, y: 0 }], [{ x: 0, y: 0 }, { x: 3, y: 0 }]]) {
+      const m = measureFootprint({ footprint, ceilingHeight: 8 });
+      for (const value of Object.values(m)) {
+        expect(Number.isNaN(value)).toBe(false);
+        expect(value).toBe(0);
+      }
+    }
+  });
+
+  it("rejects a negative ceiling height at the calculator boundary", () => {
+    expect(() =>
+      measureFootprint({ footprint: L_SHAPE, ceilingHeight: -8 }),
+    ).toThrow();
   });
 });

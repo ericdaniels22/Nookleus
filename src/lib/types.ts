@@ -288,11 +288,23 @@ export interface PhotoReport {
   cover_photo_id: string | null;
 }
 
-// --- Sketch surface (#860) ---------------------------------------------------
+// --- Sketch surface (#860, #879) ---------------------------------------------
 // A Sketch is the measured-geometry model attached 1:1 to a Job: one or more
-// Floors, each holding rectangular Rooms whose measurements derive from M1
-// (src/lib/sketch/measure-room.ts). Persisted by migration-build88; see
-// CONTEXT.md "Sketch / Floor / Room".
+// Floors, each holding Rooms whose measurements derive from M1
+// (src/lib/sketch/measure-room.ts). A Room's shape is a hand-drawn polygon
+// footprint (#879) — a rectangle is just its 4-point special case. Persisted by
+// migration-build88 (+ build89 footprint); see CONTEXT.md "Sketch / Floor / Room".
+
+/**
+ * One corner of a Room's footprint, on the Sketch's scaled grid (1 unit = 1 ft).
+ * Structurally identical to the drawing layer's `Point`
+ * (src/lib/sketch/footprint.ts); the walls are the edges between consecutive
+ * points on a closed loop.
+ */
+export interface SketchPoint {
+  x: number;
+  y: number;
+}
 
 /** The six M1-derived measurements a Room reports (areas + lengths + volume). */
 export interface RoomMeasurements {
@@ -337,13 +349,20 @@ export interface Floor {
   updated_at: string;
 }
 
-/** A rectangular Room on a Floor, with its cached M1 measurements. */
+/** A Room on a Floor: a hand-drawn polygon footprint with cached M1 measurements. */
 export interface Room extends RoomMeasurements {
   id: string;
   organization_id: string;
   floor_id: string;
   name: string;
+  /**
+   * The drawn footprint (#879) — ordered corners of a closed loop, the source of
+   * truth for the Room's shape and every measurement. A rectangle is 4 points.
+   */
+  footprint: SketchPoint[];
+  /** Bounding-box width of the footprint; kept for legacy readers and roll-ups. */
   width: number;
+  /** Bounding-box length of the footprint; kept for legacy readers and roll-ups. */
   length: number;
   /** null → the Room inherits its Floor's default_ceiling_height. */
   ceiling_height_override: number | null;

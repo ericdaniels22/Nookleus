@@ -98,6 +98,9 @@ export default async function SketchBuilderPage({
     : { data: [] as Room[] };
   const rooms: Room[] = (roomRows ?? []).map((r) => ({
     ...r,
+    // `footprint` is jsonb — PostgREST returns it already parsed, so it passes
+    // through as-is (unlike the numeric columns, which arrive as strings).
+    footprint: Array.isArray(r.footprint) ? r.footprint : [],
     width: n(r.width),
     length: n(r.length),
     ceiling_height_override:

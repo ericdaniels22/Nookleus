@@ -3,14 +3,16 @@
 import { useMemo, useState } from "react";
 
 import type { Floor, Room } from "@/lib/types";
-import { measureRoom } from "@/lib/sketch/measure-room";
+import { type Point } from "@/lib/sketch/footprint";
+import { measureFootprint } from "@/lib/sketch/measure-room";
+import FootprintCanvas from "./footprint-canvas";
 
-// The in-Job Sketch builder (#860). A builder route in the AppShell sense
+// The in-Job Sketch builder (#860, #879). A builder route in the AppShell sense
 // (BUILDER_ROUTE_PATTERNS), so the nav collapses to a rail beside it. The Sketch
 // and its first Floor are established server-side before this mounts; here the
-// user gives a Room its width × length (and, optionally, a ceiling height that
-// overrides the Floor default) and watches the M1-derived measurements update
-// live, then persists the Room through the rooms API.
+// user draws a Room's footprint corner-by-corner (and, optionally, sets a ceiling
+// height that overrides the Floor default) and watches the M1-derived
+// measurements update live, then persists the Room through the rooms API.
 
 interface SketchBuilderProps {
   jobId: string;
@@ -38,9 +40,10 @@ export default function SketchBuilder({
   initialRooms,
 }: SketchBuilderProps) {
   const [name, setName] = useState("");
-  const [width, setWidth] = useState("");
-  const [length, setLength] = useState("");
   const [ceiling, setCeiling] = useState("");
+  const [footprint, setFootprint] = useState<Point[]>([]);
+  // Bumped after a successful save to remount the canvas with a clean slate.
+  const [drawSession, setDrawSession] = useState(0);
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,25 +53,20 @@ export default function SketchBuilder({
   const ceilingHeight =
     ceiling.trim() === "" ? floor.default_ceiling_height : toDimension(ceiling);
 
-  // Live M1 preview. measureRoom is pure, so this recomputes on every keystroke.
+  // Live M1 preview. measureFootprint is pure and reads zeros for a footprint of
+  // under three corners, so this recomputes safely on every tap.
   const preview = useMemo(
-    () =>
-      measureRoom({
-        width: toDimension(width),
-        length: toDimension(length),
-        ceilingHeight,
-      }),
-    [width, length, ceilingHeight],
+    () => measureFootprint({ footprint, ceilingHeight }),
+    [footprint, ceilingHeight],
   );
 
-  const w = toDimension(width);
-  const l = toDimension(length);
-  const canAdd = w > 0 && l > 0 && !saving;
+  // A Room needs an enclosable footprint — at least three drawn corners.
+  const canAdd = footprint.length >= 3 && !saving;
 
   // Persist the Room through the rooms API — the server is the single writer of
   // the cached measurements (it recomputes them from M1), so we take the row it
   // returns rather than trusting the client preview. On success the Room joins
-  // the list and the footprint fields reset for the next one.
+  // the list and the canvas resets for the next one.
   async function addRoom() {
     if (!canAdd) return;
     setSaving(true);
@@ -80,8 +78,7 @@ export default function SketchBuilder({
         body: JSON.stringify({
           floorId: floor.id,
           name: name.trim() || "Room",
-          width: w,
-          length: l,
+          footprint,
           ceilingHeightOverride: ceiling.trim() === "" ? null : toDimension(ceiling),
         }),
       });
@@ -92,9 +89,9 @@ export default function SketchBuilder({
       const { room } = (await res.json()) as { room: Room };
       setRooms((prev) => [...prev, room]);
       setName("");
-      setWidth("");
-      setLength("");
       setCeiling("");
+      setFootprint([]);
+      setDrawSession((s) => s + 1);
     } catch {
       setError("Could not add the room. Please try again.");
     } finally {
@@ -123,50 +120,25 @@ export default function SketchBuilder({
         />
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="room-width" className="text-sm text-muted-foreground">
-            Width (ft)
-          </label>
-          <input
-            id="room-width"
-            type="number"
-            min="0"
-            step="0.1"
-            value={width}
-            onChange={(e) => setWidth(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="room-length" className="text-sm text-muted-foreground">
-            Length (ft)
-          </label>
-          <input
-            id="room-length"
-            type="number"
-            min="0"
-            step="0.1"
-            value={length}
-            onChange={(e) => setLength(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="room-ceiling" className="text-sm text-muted-foreground">
-            Ceiling height (ft)
-          </label>
-          <input
-            id="room-ceiling"
-            type="number"
-            min="0"
-            step="0.1"
-            value={ceiling}
-            onChange={(e) => setCeiling(e.target.value)}
-            placeholder={`${fmt(floor.default_ceiling_height)} (inherited)`}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
+      <div className="mt-4 flex flex-col gap-1">
+        <span className="text-sm text-muted-foreground">Footprint</span>
+        <FootprintCanvas key={drawSession} onFootprintChange={setFootprint} />
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1 sm:max-w-xs">
+        <label htmlFor="room-ceiling" className="text-sm text-muted-foreground">
+          Ceiling height (ft)
+        </label>
+        <input
+          id="room-ceiling"
+          type="number"
+          min="0"
+          step="0.1"
+          value={ceiling}
+          onChange={(e) => setCeiling(e.target.value)}
+          placeholder={`${fmt(floor.default_ceiling_height)} (inherited)`}
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
       </div>
 
       <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -200,7 +172,7 @@ export default function SketchBuilder({
         </h2>
         {rooms.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">
-            No rooms yet. Add the first one above.
+            No rooms yet. Draw the first one above.
           </p>
         ) : (
           <ul className="mt-2 divide-y divide-border rounded-lg border border-border">

@@ -1,8 +1,12 @@
-// Issue #860 — persisting a Room. The app is the single writer of a Room's cached
-// measurement columns (migration-build88): it computes them server-side from M1
-// so the cache can never drift from the dimensions. This pins that the write path
-//   - feeds measureRoom the EFFECTIVE ceiling height (the Floor default unless the
-//     Room overrides it), and
+// Issue #860 / #879 — persisting a Room. The app is the single writer of a
+// Room's cached measurement columns (migration-build88): it computes them
+// server-side from M1 so the cache can never drift from the geometry. S2 (#879)
+// makes the input a drawn polygon footprint instead of width × length; the
+// bounding box still backfills the legacy width/length columns. This pins that
+// the write path
+//   - measures the FOOTPRINT at the EFFECTIVE ceiling height (the Floor default
+//     unless the Room overrides it),
+//   - persists the footprint and its bounding-box dimensions together, and
 //   - refuses to write against a Floor the caller can't see.
 // The pure geometry is M1's own test; the round-trip against real tables is the
 // pg test. Here a chainable Supabase stub lets us assert the exact insert payload.
@@ -11,7 +15,19 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createSketchRoom } from "./create-room";
-import { measureRoom } from "./measure-room";
+import { boundingBox, rectangleFootprint, type Point } from "./footprint";
+import { measureFootprint } from "./measure-room";
+
+// An L-shaped footprint the rectangle model could not express: a 4×4 square with
+// a 2×2 bite removed — area 12, bounding box 4 × 4.
+const L_SHAPE: Point[] = [
+  { x: 0, y: 0 },
+  { x: 4, y: 0 },
+  { x: 4, y: 2 },
+  { x: 2, y: 2 },
+  { x: 2, y: 4 },
+  { x: 0, y: 4 },
+];
 
 // Stub covering the two tables createSketchRoom touches:
 //   - floors: `.eq("id").maybeSingle()` resolves to `opts.floor`. Its
@@ -49,22 +65,23 @@ describe("createSketchRoom", () => {
     const { client, inserts } = fakeSupabase({
       floor: { id: "floor-1", default_ceiling_height: "8" },
     });
+    const footprint = rectangleFootprint(3, 4);
 
     await createSketchRoom(client, {
       organizationId: "org-1",
       floorId: "floor-1",
       name: "Living Room",
-      width: 3,
-      length: 4,
+      footprint,
       ceilingHeightOverride: null,
     });
 
-    const expected = measureRoom({ width: 3, length: 4, ceilingHeight: 8 });
+    const expected = measureFootprint({ footprint, ceilingHeight: 8 });
     expect(inserts.rooms).toMatchObject({
       organization_id: "org-1",
       floor_id: "floor-1",
       name: "Living Room",
-      width: 3,
+      footprint,
+      width: 3, // bounding box of the rectangle
       length: 4,
       ceiling_height_override: null,
       floor_area: expected.floorArea,
@@ -80,22 +97,46 @@ describe("createSketchRoom", () => {
     const { client, inserts } = fakeSupabase({
       floor: { id: "floor-1", default_ceiling_height: "8" },
     });
+    const footprint = rectangleFootprint(3, 4);
 
     await createSketchRoom(client, {
       organizationId: "org-1",
       floorId: "floor-1",
       name: "Tall Room",
-      width: 3,
-      length: 4,
+      footprint,
       ceilingHeightOverride: 10,
     });
 
     // The override (10), not the Floor default (8), drives wall area + volume.
-    const expected = measureRoom({ width: 3, length: 4, ceilingHeight: 10 });
+    const expected = measureFootprint({ footprint, ceilingHeight: 10 });
     expect(inserts.rooms).toMatchObject({
       ceiling_height_override: 10,
       gross_wall_area: expected.grossWallArea, // 140, not 112
       volume: expected.volume, // 120, not 96
+    });
+  });
+
+  it("measures an arbitrary footprint and backfills width/length from its bounding box", async () => {
+    const { client, inserts } = fakeSupabase({
+      floor: { id: "floor-1", default_ceiling_height: "8" },
+    });
+
+    await createSketchRoom(client, {
+      organizationId: "org-1",
+      floorId: "floor-1",
+      name: "L Room",
+      footprint: L_SHAPE,
+      ceilingHeightOverride: null,
+    });
+
+    const expected = measureFootprint({ footprint: L_SHAPE, ceilingHeight: 8 });
+    const bbox = boundingBox(L_SHAPE);
+    expect(inserts.rooms).toMatchObject({
+      footprint: L_SHAPE,
+      width: bbox.width, // 4 — the envelope, not a wall
+      length: bbox.length, // 4
+      floor_area: expected.floorArea, // 12, the true polygon area (not 16)
+      perimeter: expected.perimeter, // 16
     });
   });
 
@@ -107,8 +148,7 @@ describe("createSketchRoom", () => {
         organizationId: "org-1",
         floorId: "ghost-floor",
         name: "Nowhere",
-        width: 3,
-        length: 4,
+        footprint: rectangleFootprint(3, 4),
         ceilingHeightOverride: null,
       }),
     ).rejects.toThrow(/floor not found/i);
