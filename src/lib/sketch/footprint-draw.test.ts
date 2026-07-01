@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type Point } from "./footprint";
-import { shouldClosePolygon, snapWall } from "./footprint-draw";
+import { mergeCollinear, shouldClosePolygon, snapWall } from "./footprint-draw";
 
 describe("snapWall", () => {
   it("snaps a mostly-horizontal drag to a level wall and rounds it to clean feet", () => {
@@ -64,5 +64,108 @@ describe("shouldClosePolygon", () => {
 
   it("treats a tap exactly on the threshold as closing", () => {
     expect(shouldClosePolygon(TRIANGLE, { x: 0.5, y: 0 }, 0.5)).toBe(true);
+  });
+});
+
+describe("mergeCollinear", () => {
+  it("drops a redundant corner sitting mid-wall on a straight run", () => {
+    // A square with an extra corner planted halfway along its top wall. That
+    // corner adds no shape — the wall is dead straight through it — so M4 folds
+    // the two collinear segments back into the single 4-corner square.
+    const withSeam: Point[] = [
+      { x: 0, y: 0 },
+      { x: 2, y: 0 }, // seam mid-wall between (0,0) and (4,0)
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    expect(mergeCollinear(withSeam)).toEqual([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ]);
+  });
+
+  it("keeps every real corner of an L-shape — a right-angle turn is not a seam", () => {
+    // The L has six genuine corners; none lies on the line through its
+    // neighbours, so M4 must leave the shape exactly as drawn.
+    const lShape: Point[] = [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 2 },
+      { x: 2, y: 2 },
+      { x: 2, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    expect(mergeCollinear(lShape)).toEqual(lShape);
+  });
+
+  it("folds a seam that wraps across the first corner", () => {
+    // The redundant corner is at index 0, so folding it exercises the closed
+    // loop's wrap: its neighbours are the last corner and the second corner.
+    const wrapped: Point[] = [
+      { x: 2, y: 0 }, // collinear between (0,0) [last] and (4,0)
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+      { x: 0, y: 0 },
+    ];
+    expect(mergeCollinear(wrapped)).toEqual([
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+      { x: 0, y: 0 },
+    ]);
+  });
+
+  it("collapses a whole straightened run back to the two wall ends", () => {
+    // Three interior corners planted along one wall all disappear — a removal
+    // leaves the next corner newly collinear, so the scan re-runs to the end.
+    const stitched: Point[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 3, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    expect(mergeCollinear(stitched)).toEqual([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ]);
+  });
+
+  it("folds a corner only once it bulges within the tolerance", () => {
+    // A corner 0.001 ft off the straight wall: kept at the default (near-exact)
+    // tolerance, folded once the tolerance is opened past its deviation.
+    const nearlyStraight: Point[] = [
+      { x: 0, y: 0 },
+      { x: 2, y: 0.001 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    expect(mergeCollinear(nearlyStraight)).toHaveLength(5); // default: kept
+    expect(mergeCollinear(nearlyStraight, 0.01)).toEqual([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ]);
+  });
+
+  it("leaves a triangle — the smallest Room — untouched and unmutated", () => {
+    const triangle: Point[] = [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+    ];
+    expect(mergeCollinear(triangle)).toEqual(triangle);
+    // Pure: the returned corners are a fresh array, not the caller's input.
+    expect(mergeCollinear(triangle)).not.toBe(triangle);
   });
 });
