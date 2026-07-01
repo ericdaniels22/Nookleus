@@ -39,7 +39,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen gradient-sidebar flex items-center justify-center p-4">
+    <div className="min-h-dvh gradient-sidebar flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex justify-center mb-8">

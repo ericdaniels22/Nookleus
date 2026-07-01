@@ -16,7 +16,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
+    <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-background">
       <Image
         src="/nookleus-lockup.png"
         alt="Nookleus"

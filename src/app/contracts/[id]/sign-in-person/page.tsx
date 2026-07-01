@@ -116,7 +116,7 @@ export default async function SignInPersonPage({
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-dvh bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-6 py-8">
         <Link
           href={`/jobs/${result.contract.job_id}`}
@@ -161,7 +161,7 @@ function HeaderBlock({ company, title }: { company: CompanyBrand; title: string 
 
 function ErrorShell({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="bg-card border border-border rounded-xl p-8 max-w-md w-full text-center">
         <h1 className="text-lg font-semibold mb-2 text-foreground">{title}</h1>
         <p className="text-sm text-muted-foreground">{subtitle}</p>

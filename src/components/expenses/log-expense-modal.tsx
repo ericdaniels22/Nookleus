@@ -186,7 +186,7 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
         showCloseButton={false}
         className={cn(
           "p-0 overflow-hidden flex flex-col",
-          "max-w-full h-screen max-h-screen inset-0 translate-x-0 translate-y-0 rounded-none top-0 left-0", // mobile
+          "max-w-full h-dvh max-h-dvh inset-0 translate-x-0 translate-y-0 rounded-none top-0 left-0", // mobile
           "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-lg sm:h-[min(90vh,720px)] sm:rounded-xl", // desktop: fixed height so inner flex can scroll
         )}
       >

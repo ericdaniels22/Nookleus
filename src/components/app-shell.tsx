@@ -76,7 +76,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       />
       <main
         className={cn(
-          "pt-[calc(env(safe-area-inset-top)+3.5rem)] lg:pt-0 min-h-screen transition-[margin] duration-200 ease-out",
+          "pt-[calc(env(safe-area-inset-top)+3.5rem)] lg:pt-0 min-h-dvh transition-[margin] duration-200 ease-out",
           effectiveCollapsed ? "lg:ml-16" : "lg:ml-52",
         )}
       >

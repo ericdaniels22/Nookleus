@@ -458,7 +458,7 @@ export function LiveLayoutPanel({
           (#465); the rail stays slim (w-72) to leave the preview that room, which
           at a 1280px viewport with the sidebar open is what tips it over 640. */}
       <aside className="hidden lg:block lg:w-72 lg:shrink-0">
-        <div className="rounded-lg border border-border bg-card px-5 py-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+        <div className="rounded-lg border border-border bg-card px-5 py-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto">
           <h2 className="text-sm font-medium text-foreground mb-3">
             Document layout
           </h2>

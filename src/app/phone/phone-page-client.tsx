@@ -823,7 +823,7 @@ export function PhonePageClient({
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)]">
+    <div className="flex h-[calc(100dvh-4rem)]">
       {/* Left pane — Conversations list */}
       <aside className="w-80 border-r border-border overflow-y-auto">
         <div className="flex items-center justify-between p-3 border-b border-border">

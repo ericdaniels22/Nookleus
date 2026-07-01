@@ -131,14 +131,40 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
+  :root {
+    /* §7.4: native controls (scrollbars, date pickers, selects) render dark */
+    color-scheme: dark;
   }
   html {
     @apply font-sans;
+    /* §7.4: kill the flash overlay; components provide :active feedback */
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* §3: Inter alternates + cleaner digits */
+    font-feature-settings: "cv11", "ss01";
+    /* §7.4: no rubber-band scroll revealing the canvas behind fixed chrome */
+    overscroll-behavior: none;
   }
   h1, h2, h3, h4 {
     @apply tracking-tight;
+  }
+  /* §7.4: form controls default to 16px — smaller triggers iOS auto-zoom
+   * on focus. This is the one exception to the §3 type scale. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  /* §7.4: override WebKit autofill's yellow fill on the dark theme */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--muted) inset;
+    caret-color: var(--foreground);
+    transition: background-color 9999s ease-in-out 0s;
   }
 }
 

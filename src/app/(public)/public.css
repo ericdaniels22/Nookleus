@@ -6,7 +6,7 @@
 .public-scope {
   background-color: #f7f8fa;
   color: #1a1a1a;
-  min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 

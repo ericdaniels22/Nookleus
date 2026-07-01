@@ -2326,7 +2326,7 @@ export function EstimateBuilder({
       : null;
 
     return (
-      <div className="relative min-h-screen bg-background">
+      <div className="relative min-h-dvh bg-background">
         {/* Voided banner */}
         {isVoided && (
           <div className="w-full bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2 text-sm text-destructive font-medium">
@@ -2470,7 +2470,7 @@ export function EstimateBuilder({
       : null;
 
     return (
-      <div className="relative min-h-screen bg-background">
+      <div className="relative min-h-dvh bg-background">
         {/* Builder document — full-width shell. The editor panel docks in
             BuilderLayout's editor slot (#544); templates have no totals bar
             (hidden in Template mode), so the totals slot is left empty. */}
@@ -2584,7 +2584,7 @@ export function EstimateBuilder({
     : null;
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-dvh bg-background">
       {/* Voided banner */}
       {isVoided && (
         <div className="w-full bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2 text-sm text-destructive font-medium">

@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Token contract for design system v2 (docs/design-system.md §2, ADR 0027).
@@ -278,5 +278,38 @@ describe("radius scale — §4 derives from --radius, not per-component hardcodi
     ["xl", 12], // dialogs
   ])("--radius-%s computes to %dpx", (step, px) => {
     expect(radiusStepPx(step)).toBeCloseTo(px, 1);
+  });
+});
+
+describe("iOS/desktop globals — §7.4 applies globally, not per-page", () => {
+  it.each([
+    ["color-scheme: dark (native controls render dark)", /color-scheme:\s*dark/],
+    ["transparent tap highlight", /-webkit-tap-highlight-color:\s*transparent/],
+    ["overscroll containment on the shell", /overscroll-behavior:\s*none/],
+    ["WebKit autofill override", /input:-webkit-autofill/],
+    [
+      "16px minimum form-control default (iOS auto-zoom)",
+      /input,\s*\n?\s*select,\s*\n?\s*textarea\s*\{[^}]*font-size:\s*16px/,
+    ],
+  ])("globals.css sets %s", (_rule, pattern) => {
+    expect(css).toMatch(pattern);
+  });
+
+  it("ships no 100vh or *-screen viewport-height utilities anywhere in src", () => {
+    const offenders: string[] = [];
+    for (const entry of readdirSync(resolve(process.cwd(), "src"), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+      const path = join(entry.parentPath, name);
+      const source = readFileSync(path, "utf8");
+      if (source.includes("100vh") || source.includes("h-screen")) {
+        offenders.push(path);
+      }
+    }
+    expect(offenders, "files still using 100vh/h-screen (use dvh — §7.4)").toEqual([]);
   });
 });
