@@ -29,6 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   boundingBox,
+  normalizeFootprint,
   rectangleFootprint,
   type Point,
 } from "../../src/lib/sketch/footprint";
@@ -46,6 +47,13 @@ const MIGRATION_SQL = readFileSync(
 // in order, on top of build88 — the live up-migration, never a copy.
 const MIGRATION_89_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-build89-room-footprint.sql"),
+  "utf8",
+);
+// #890 (ADR 0026) adds rooms.origin and normalizes existing footprints so a
+// Room's shape is stored position-independent of where it sits on the Floor.
+// Loaded verbatim on top of build89 — the live up-migration, never a copy.
+const MIGRATION_91_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-build91-room-origin.sql"),
   "utf8",
 );
 
@@ -112,6 +120,7 @@ beforeAll(async () => {
   await client.query(SCHEMA_SQL);
   await client.query(MIGRATION_SQL);
   await client.query(MIGRATION_89_SQL);
+  await client.query(MIGRATION_91_SQL);
   // The tables now exist — grant the RLS test caller the privileges it needs to
   // evaluate (and be filtered by) the tenant_isolation policies.
   await client.query(
@@ -452,6 +461,144 @@ describe("sketch/floor/room migration (#860)", () => {
 
     const after = await client.query("SELECT footprint FROM rooms WHERE id = $1", [roomId]);
     expect(after.rows[0].footprint).toEqual(rectangleFootprint(3, 4));
+  });
+
+  // #890 (ADR 0026) — a Room stores its footprint normalized (min corner at 0,0)
+  // and its position as a separate `origin {x,y}`. Both must survive the trip as
+  // jsonb, and the normalized shape must be independent of where the Room sits —
+  // so its cached measurements are position-invariant.
+  it("round-trips a Room's origin alongside its normalized footprint", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    // A 3×4 Room normalized at (0,0) but placed at origin (10, 20) on the Floor.
+    const footprint = rectangleFootprint(3, 4);
+    const m = measureFootprint({ footprint, ceilingHeight: 8 });
+    const bbox = boundingBox(footprint);
+    const { rows: ins } = await client.query<{ id: string }>(
+      `INSERT INTO rooms (
+         organization_id, floor_id, name, footprint, origin, width, length,
+         floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume
+       ) VALUES ($1,$2,'Placed',$3::jsonb,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [
+        orgId, floorId,
+        JSON.stringify(footprint),
+        JSON.stringify({ x: 10, y: 20 }),
+        bbox.width, bbox.length,
+        m.floorArea, m.ceilingArea, m.perimeter, m.grossWallArea, m.netWallArea, m.volume,
+      ],
+    );
+    const roomId = ins[0].id;
+
+    const { rows } = await client.query(
+      "SELECT footprint, origin, floor_area, perimeter FROM rooms WHERE id = $1",
+      [roomId],
+    );
+    // Origin round-trips as {x, y}; the normalized shape is unchanged by position.
+    expect(rows[0].origin).toEqual({ x: 10, y: 20 });
+    expect(rows[0].footprint).toEqual(footprint);
+    // Measurements are those of the 3×4 shape — the origin never entered them.
+    expect(Number(rows[0].floor_area)).toBe(m.floorArea); // 12
+    expect(Number(rows[0].perimeter)).toBe(m.perimeter); // 14
+  });
+
+  // A Room inserted without an explicit origin defaults to the Floor's own
+  // coordinate origin — the column's NOT NULL DEFAULT, so pre-#890 write paths
+  // and legacy rows are never null.
+  it("defaults a Room's origin to (0,0) when unset", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+    const roomId = await insertRoom(
+      orgId, floorId, "Origin Room", { width: 3, length: 4, ceilingHeightOverride: null }, 8,
+    );
+
+    const { rows } = await client.query("SELECT origin FROM rooms WHERE id = $1", [roomId]);
+    expect(rows[0].origin).toEqual({ x: 0, y: 0 });
+  });
+
+  // #890 — the migration backfills pre-#890 Rooms whose footprint was drawn away
+  // from the origin: it normalizes the shape (min corner → 0,0) and lifts the old
+  // min corner into `origin`, so the two together still reconstruct the drawn
+  // placement and the cached measurements are untouched. Insert a Room exactly as
+  // build89 stored it (off-origin footprint, origin still the (0,0) default), then
+  // re-run the LIVE build91 migration and prove it's normalized.
+  it("backfills a legacy off-origin footprint into a normalized shape + origin", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    // A 3×4 rectangle drawn at (10, 20) — the min corner is not at the origin.
+    const drawn: Point[] = [
+      { x: 10, y: 20 },
+      { x: 13, y: 20 },
+      { x: 13, y: 24 },
+      { x: 10, y: 24 },
+    ];
+    const roomId = await insertRoomFootprint(orgId, floorId, "Legacy", drawn, null, 8);
+
+    // Precondition: stored off-origin with the default origin, as build89 left it.
+    const before = await client.query(
+      "SELECT footprint, origin, floor_area, perimeter FROM rooms WHERE id = $1",
+      [roomId],
+    );
+    expect(before.rows[0].footprint).toEqual(drawn);
+    expect(before.rows[0].origin).toEqual({ x: 0, y: 0 });
+    const floorAreaBefore = Number(before.rows[0].floor_area);
+    const perimeterBefore = Number(before.rows[0].perimeter);
+
+    // Re-running the migration normalizes the shape and lifts the min corner.
+    await client.query(MIGRATION_91_SQL);
+
+    const after = await client.query(
+      "SELECT footprint, origin, floor_area, perimeter FROM rooms WHERE id = $1",
+      [roomId],
+    );
+    const expected = normalizeFootprint(drawn);
+    expect(after.rows[0].footprint).toEqual(expected.footprint); // (0,0)..(3,4)
+    expect(after.rows[0].origin).toEqual(expected.origin); // (10, 20)
+    // Position-invariant: the measurement cache did not move.
+    expect(Number(after.rows[0].floor_area)).toBe(floorAreaBefore);
+    expect(Number(after.rows[0].perimeter)).toBe(perimeterBefore);
+  });
+
+  // Re-running build91 on an already-normalized Room is a true no-op: its min
+  // corner is already (0,0), so neither the footprint nor a previously-set origin
+  // is disturbed.
+  it("leaves an already-normalized Room untouched on re-run (idempotent)", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    // Normalized shape already at (0,0), but positioned at origin (7, 9).
+    const footprint = rectangleFootprint(3, 4);
+    const m = measureFootprint({ footprint, ceilingHeight: 8 });
+    const bbox = boundingBox(footprint);
+    const { rows: ins } = await client.query<{ id: string }>(
+      `INSERT INTO rooms (
+         organization_id, floor_id, name, footprint, origin, width, length,
+         floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume
+       ) VALUES ($1,$2,'Fixed',$3::jsonb,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [
+        orgId, floorId,
+        JSON.stringify(footprint),
+        JSON.stringify({ x: 7, y: 9 }),
+        bbox.width, bbox.length,
+        m.floorArea, m.ceilingArea, m.perimeter, m.grossWallArea, m.netWallArea, m.volume,
+      ],
+    );
+    const roomId = ins[0].id;
+
+    await client.query(MIGRATION_91_SQL);
+
+    const after = await client.query("SELECT footprint, origin FROM rooms WHERE id = $1", [roomId]);
+    expect(after.rows[0].footprint).toEqual(footprint); // unchanged
+    expect(after.rows[0].origin).toEqual({ x: 7, y: 9 }); // NOT reset to (0,0)
   });
 
   // The migration ships a documented `-- ROLLBACK` block; prove it isn't lying.

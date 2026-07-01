@@ -360,9 +360,16 @@ export interface Room extends RoomMeasurements {
   name: string;
   /**
    * The drawn footprint (#879) — ordered corners of a closed loop, the source of
-   * truth for the Room's shape and every measurement. A rectangle is 4 points.
+   * truth for the Room's shape and every measurement. Stored NORMALIZED with its
+   * min corner at (0,0) (ADR 0026); a rectangle is 4 points.
    */
   footprint: SketchPoint[];
+  /**
+   * Where the footprint's (0,0) corner sits on the Floor (ADR 0026). Moving a
+   * Room updates only this — the footprint, and its measurements, are
+   * position-invariant. Defaults to (0,0) for legacy rows.
+   */
+  origin: SketchPoint;
   /** Bounding-box width of the footprint; kept for legacy readers and roll-ups. */
   width: number;
   /** Bounding-box length of the footprint; kept for legacy readers and roll-ups. */

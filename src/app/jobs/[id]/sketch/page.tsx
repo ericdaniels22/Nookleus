@@ -5,7 +5,7 @@ import { AlertCircle } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getOrCreateJobSketch } from "@/lib/sketch/job-sketch";
-import SketchBuilder from "@/components/sketch-builder";
+import PlanEditor from "@/components/plan-editor";
 import type { Floor, Room } from "@/lib/types";
 
 // The Job-scoped Sketch builder route (#860). A builder route in the AppShell
@@ -98,9 +98,15 @@ export default async function SketchBuilderPage({
     : { data: [] as Room[] };
   const rooms: Room[] = (roomRows ?? []).map((r) => ({
     ...r,
-    // `footprint` is jsonb — PostgREST returns it already parsed, so it passes
-    // through as-is (unlike the numeric columns, which arrive as strings).
+    // `footprint` and `origin` are jsonb — PostgREST returns them already
+    // parsed, so they pass through as-is (unlike the numeric columns, which
+    // arrive as strings). `origin` is the Room's position on the Floor (ADR
+    // 0026); a legacy row missing it reads as (0,0).
     footprint: Array.isArray(r.footprint) ? r.footprint : [],
+    origin:
+      r.origin && typeof r.origin === "object"
+        ? r.origin
+        : { x: 0, y: 0 },
     width: n(r.width),
     length: n(r.length),
     ceiling_height_override:
@@ -121,7 +127,7 @@ export default async function SketchBuilderPage({
   }
 
   return (
-    <SketchBuilder
+    <PlanEditor
       jobId={jobId}
       sketchId={sketchId}
       floor={floor}

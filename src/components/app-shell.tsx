@@ -28,8 +28,8 @@ const INTERNAL_FULLSCREEN_PATTERNS: RegExp[] = [
 // editing modes — all served by EstimateBuilder — plus the in-Job Photo Report
 // builder (#548), which used to be full-screen and now keeps the nav so the
 // author is never trapped, the in-Job Showcase builder (#613), which has the
-// same full-page editor shape, and the in-Job Sketch builder (#860), the
-// measured-Room surface served by SketchBuilder.
+// same full-page editor shape, and the in-Job Sketch builder (#860),
+// the full-screen multi-room plan editor served by PlanEditor (#890).
 const BUILDER_ROUTE_PATTERNS: RegExp[] = [
   /^\/estimates\/[^/]+\/edit(\/|$)/,
   /^\/invoices\/[^/]+\/edit(\/|$)/,

@@ -64,6 +64,42 @@ export function polygonPerimeter(points: Point[]): number {
 }
 
 /**
+ * Split a drawn footprint into a normalized shape and its position (ADR 0026).
+ * The shape is translated so its min corner sits at (0, 0); the `origin` records
+ * where that corner used to be, so `origin` + normalized footprint reconstruct
+ * the original placement. Storing the two separately makes a Room's measurements
+ * position-invariant — moving a Room updates only `origin`, never the footprint.
+ */
+export function normalizeFootprint(points: Point[]): {
+  footprint: Point[];
+  origin: Point;
+} {
+  if (points.length === 0) {
+    return { footprint: [], origin: { x: 0, y: 0 } };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const { x, y } of points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+  }
+  return {
+    footprint: points.map(({ x, y }) => ({ x: x - minX, y: y - minY })),
+    origin: { x: minX, y: minY },
+  };
+}
+
+/**
+ * Place a normalized footprint into floor space — the inverse of
+ * normalizeFootprint. Rendering a Floor shifts each Room's stored footprint by
+ * its `origin` so every Room lands in shared floor coordinates (ADR 0026).
+ */
+export function translateFootprint(points: Point[], origin: Point): Point[] {
+  return points.map(({ x, y }) => ({ x: x + origin.x, y: y + origin.y }));
+}
+
+/**
  * The axis-aligned envelope a footprint lives inside. Still feeds the legacy
  * width/length columns, so an L-shape reports the full rectangle it spans.
  */
