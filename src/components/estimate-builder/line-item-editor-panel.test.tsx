@@ -1464,6 +1464,84 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       );
     });
 
+    it("offers the door/window count kinds and freezes a count on Pull (#866)", async () => {
+      // The picker offers the two count kinds alongside the six measurements, so a
+      // line item can pull a door/window quantity (#866 acceptance d). Selecting
+      // Door count previews the Room's door tally and Pull hands the parent the
+      // count kind — the server resolves the number, as with any kind.
+      const feed = {
+        rooms: [
+          {
+            id: "rm-1",
+            name: "Living Room",
+            floor_id: "fl-1",
+            floor_name: "Ground floor",
+            measurements: {
+              floor_area: 12,
+              ceiling_area: 13,
+              perimeter: 14,
+              wall_area_gross: 112,
+              wall_area_net: 100,
+              volume: 96,
+              door_count: 7,
+              window_count: 5,
+            },
+          },
+        ],
+        floors: [
+          {
+            id: "fl-1",
+            name: "Ground floor",
+            measurements: {
+              floor_area: 12,
+              ceiling_area: 13,
+              perimeter: 14,
+              wall_area_gross: 112,
+              wall_area_net: 100,
+              volume: 96,
+              door_count: 7,
+              window_count: 5,
+            },
+          },
+        ],
+        sketch: null,
+      };
+      const onLoadSketchSources = vi.fn().mockResolvedValue(feed);
+      const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchSources={onLoadSketchSources}
+          onPullFromSketch={onPullFromSketch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      const kindSelect = await screen.findByTestId("sketch-picker-kind");
+
+      // Nine pull kinds are offered — the six measurements, the two counts, and
+      // the object_count kind (#867).
+      expect(within(kindSelect).getAllByRole("option")).toHaveLength(9);
+      expect(kindSelect.textContent).toContain("Door count");
+      expect(kindSelect.textContent).toContain("Window count");
+
+      // Selecting Door count previews the Room's door tally (7).
+      fireEvent.change(kindSelect, { target: { value: "door_count" } });
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("7");
+
+      fireEvent.click(screen.getByTestId("sketch-picker-pull"));
+      await waitFor(() =>
+        expect(onPullFromSketch).toHaveBeenCalledWith({
+          scope: "room",
+          roomId: "rm-1",
+          kind: "door_count",
+        }),
+      );
+    });
+
     it("pulls a Floor's total: Floor scope reveals a Floor select and freezes its aggregate", async () => {
       // Switching scope to Floor swaps the Room select for a Floor select and
       // previews the Floor's aggregate; Pull sends the Floor scope + floorId

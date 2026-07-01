@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { SketchOpening } from "@/lib/types";
 import { boundingBox, normalizeFootprint, type Point } from "./footprint";
 import { measureFootprint } from "./measure-room";
 import type { RoomRow } from "./create-room";
@@ -35,6 +36,13 @@ export interface UpdateSketchRoomInput {
    * footprint at the new effective height (migration-build88: single writer).
    */
   ceilingHeightOverride?: number | null;
+  /**
+   * Present → replace the Room's doors and windows with this list (#866: a door
+   * or window added, moved, resized, or removed in the 2D editor). Their area is
+   * deducted from net wall area, so the six cached measurements are recomputed
+   * (migration-build88/92: single writer) even when nothing else changed.
+   */
+  openings?: SketchOpening[];
 }
 
 export async function updateSketchRoom(
@@ -50,15 +58,20 @@ export async function updateSketchRoom(
   // height and its current override; measure the effective shape at the effective
   // height; write the recomputed cache. A move (origin only) or rename skips all
   // of this, since measurements are position- and name-invariant (ADR 0026).
-  if (input.footprint !== undefined || input.ceilingHeightOverride !== undefined) {
+  if (
+    input.footprint !== undefined ||
+    input.ceilingHeightOverride !== undefined ||
+    input.openings !== undefined
+  ) {
     const { data: room, error: roomError } = await supabase
       .from("rooms")
-      .select("footprint, floor_id, ceiling_height_override")
+      .select("footprint, floor_id, ceiling_height_override, openings")
       .eq("id", input.roomId)
       .maybeSingle<{
         footprint: Point[];
         floor_id: string;
         ceiling_height_override: number | string | null;
+        openings: SketchOpening[] | null;
       }>();
     if (roomError) throw new Error(roomError.message);
     if (!room) throw new Error("Room not found");
@@ -96,10 +109,17 @@ export async function updateSketchRoom(
       effectiveOverride != null
         ? Number(effectiveOverride)
         : Number(floor.default_ceiling_height);
-    const m = measureFootprint({ footprint, ceilingHeight });
+    // Effective openings: an edited list wins; otherwise the Room keeps whatever
+    // it had, so a footprint- or ceiling-only edit doesn't silently reset net
+    // wall area to gross by dropping the Room's existing doors/windows (#866).
+    const openings = input.openings ?? room.openings ?? [];
+    const m = measureFootprint({ footprint, ceilingHeight, openings });
 
     if (input.ceilingHeightOverride !== undefined) {
       patch.ceiling_height_override = input.ceilingHeightOverride;
+    }
+    if (input.openings !== undefined) {
+      patch.openings = input.openings;
     }
     patch.floor_area = m.floorArea;
     patch.ceiling_area = m.ceilingArea;

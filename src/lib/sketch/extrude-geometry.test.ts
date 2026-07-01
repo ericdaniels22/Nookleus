@@ -107,6 +107,7 @@ function makeRoom(overrides: Partial<Room> = {}): Room {
     gross_wall_area: 0,
     net_wall_area: 0,
     volume: 0,
+    openings: [],
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,

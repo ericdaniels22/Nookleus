@@ -178,6 +178,156 @@ describe("POST /api/estimates/[id]/line-items/[item_id]/pull (#861)", () => {
     });
   });
 
+  it("freezes a Room's door_count into quantity + sketch_source (#866)", async () => {
+    // #866 count kind: a line item priced per door (trim set, detach-&-reset)
+    // pulls the Room's door_count. The Room has 2 doors + 1 window, so the frozen
+    // quantity is 2 and the total is 2 × 10.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        rooms: [
+          {
+            id: "rm-1",
+            floor_id: "fl-1",
+            name: "Living Room",
+            floor_area: "12",
+            ceiling_area: "13",
+            perimeter: "14",
+            gross_wall_area: "112",
+            net_wall_area: "100",
+            volume: "96",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+              { type: "door", width: 3, height: 7, wall_index: 1, offset: 1 },
+              { type: "window", width: 3, height: 5, wall_index: 2, offset: 1 },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(pullRequest({ roomId: "rm-1", kind: "door_count" }), routeCtx);
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 2,
+      total: 20,
+      sketch_source: {
+        scope: "room",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        room_id: "rm-1",
+        room_name: "Living Room",
+        kind: "door_count",
+        value: 2,
+      },
+    });
+  });
+
+  it("freezes a Floor's window_count aggregate into quantity + sketch_source (#866)", async () => {
+    // #866 count kind at Floor scope: the Floor's window_count is the sum of its
+    // Rooms' windows. Room A has 1 window, Room B has 2 → the Floor total is 3.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [{ id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" }],
+        rooms: [
+          {
+            id: "rm-1", floor_id: "fl-1", name: "Living Room",
+            floor_area: "12", ceiling_area: "13", perimeter: "14",
+            gross_wall_area: "112", net_wall_area: "100", volume: "96",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+              { type: "window", width: 3, height: 5, wall_index: 1, offset: 1 },
+            ],
+          },
+          {
+            id: "rm-2", floor_id: "fl-1", name: "Kitchen",
+            floor_area: "20", ceiling_area: "20", perimeter: "18",
+            gross_wall_area: "150", net_wall_area: "130", volume: "160",
+            openings: [
+              { type: "window", width: 3, height: 5, wall_index: 0, offset: 1 },
+              { type: "window", width: 3, height: 5, wall_index: 1, offset: 1 },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "floor", floorId: "fl-1", kind: "window_count" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 3,
+      total: 30,
+      sketch_source: {
+        scope: "floor",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        floor_name: "Ground Floor",
+        kind: "window_count",
+        value: 3,
+      },
+    });
+  });
+
+  it("freezes the whole-Sketch door_count aggregate into quantity + sketch_source (#866)", async () => {
+    // #866 count kind at Sketch scope: door_count sums every Floor's Rooms'
+    // doors. Floor 1 Room has 2 doors, Floor 2 Room has 1 → the Sketch total is 3.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [
+          { id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" },
+          { id: "fl-2", sketch_id: "sk-1", name: "Second Floor" },
+        ],
+        rooms: [
+          {
+            id: "rm-1", floor_id: "fl-1", name: "Living Room",
+            floor_area: "12", ceiling_area: "13", perimeter: "14",
+            gross_wall_area: "112", net_wall_area: "100", volume: "96",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+              { type: "door", width: 3, height: 7, wall_index: 1, offset: 1 },
+            ],
+          },
+          {
+            id: "rm-2", floor_id: "fl-2", name: "Bedroom",
+            floor_area: "20", ceiling_area: "20", perimeter: "18",
+            gross_wall_area: "150", net_wall_area: "130", volume: "160",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "sketch", kind: "door_count" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 3,
+      total: 30,
+      sketch_source: { scope: "sketch", sketch_id: "sk-1", kind: "door_count", value: 3 },
+    });
+  });
+
   it("refuses a Floor from another job's Sketch (404, no write)", async () => {
     // A Floor the org can see but that belongs to a DIFFERENT job's Sketch must
     // not be pullable — it resolves only through THIS estimate's job → Sketch.

@@ -23,7 +23,7 @@ import {
 } from "./equipment-pricing";
 import { SketchSourceBadge } from "./sketch-source-badge";
 import {
-  ROOM_MEASUREMENT_KINDS,
+  ALL_PULL_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
   sketchSourceKindLabel,
   type PullKind,
@@ -912,7 +912,7 @@ export function LineItemEditorPanel({
                           }
                           className={FIELD_CLASS}
                         >
-                          {ROOM_MEASUREMENT_KINDS.map((kind) => (
+                          {ALL_PULL_KINDS.map((kind) => (
                             <option key={kind} value={kind}>
                               {ROOM_MEASUREMENT_KIND_LABELS[kind]}
                             </option>

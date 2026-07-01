@@ -34,6 +34,7 @@ import {
   type Point,
 } from "../../src/lib/sketch/footprint";
 import { measureFootprint, measureRoom } from "../../src/lib/sketch/measure-room";
+import type { SketchOpening } from "../../src/lib/types";
 
 const SCHEMA_SQL = readFileSync(
   join(process.cwd(), "tests", "integration", "sketch-floor-room-schema.sql"),
@@ -54,6 +55,12 @@ const MIGRATION_89_SQL = readFileSync(
 // Loaded verbatim on top of build89 — the live up-migration, never a copy.
 const MIGRATION_91_SQL = readFileSync(
   join(process.cwd(), "supabase", "migration-build91-room-origin.sql"),
+  "utf8",
+);
+// #866 adds rooms.openings (doors/windows) so net wall area can deduct them.
+// Loaded verbatim on top of build91 — the live up-migration, never a copy.
+const MIGRATION_92_SQL = readFileSync(
+  join(process.cwd(), "supabase", "migration-build92-room-openings.sql"),
   "utf8",
 );
 
@@ -121,6 +128,7 @@ beforeAll(async () => {
   await client.query(MIGRATION_SQL);
   await client.query(MIGRATION_89_SQL);
   await client.query(MIGRATION_91_SQL);
+  await client.query(MIGRATION_92_SQL);
   // The tables now exist — grant the RLS test caller the privileges it needs to
   // evaluate (and be filtered by) the tenant_isolation policies.
   await client.query(
@@ -205,6 +213,49 @@ async function insertRoomFootprint(
       bbox.width,
       bbox.length,
       ceilingHeightOverride,
+      m.floorArea,
+      m.ceilingArea,
+      m.perimeter,
+      m.grossWallArea,
+      m.netWallArea,
+      m.volume,
+    ],
+  );
+  return rows[0].id;
+}
+
+/** Persist a Room from its footprint AND its openings, caching M1's opening-aware
+ *  measurements — net wall area is gross minus the openings (#866), the same
+ *  contract the app's createSketchRoom() write path follows. */
+async function insertRoomWithOpenings(
+  orgId: string,
+  floorId: string,
+  name: string,
+  footprint: Point[],
+  openings: SketchOpening[],
+  effectiveCeilingHeight: number,
+): Promise<string> {
+  const m = measureFootprint({
+    footprint,
+    ceilingHeight: effectiveCeilingHeight,
+    openings,
+  });
+  const bbox = boundingBox(footprint);
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO rooms (
+       organization_id, floor_id, name, footprint, openings, width, length,
+       ceiling_height_override,
+       floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume
+     ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [
+      orgId,
+      floorId,
+      name,
+      JSON.stringify(footprint),
+      JSON.stringify(openings),
+      bbox.width,
+      bbox.length,
+      null,
       m.floorArea,
       m.ceilingArea,
       m.perimeter,
@@ -518,6 +569,53 @@ describe("sketch/floor/room migration (#860)", () => {
 
     const { rows } = await client.query("SELECT origin FROM rooms WHERE id = $1", [roomId]);
     expect(rows[0].origin).toEqual({ x: 0, y: 0 });
+  });
+
+  // #866 (ADR 0024) — a Room's openings (doors/windows) persist as jsonb, and net
+  // wall area is the DEFAULT wall measurement: gross minus the openings' area. One
+  // door + one window on a 3×4×8 Room takes gross 112 down to net 76. The openings
+  // list round-trips, and the deduction is what the app cached (single writer).
+  it("round-trips a Room's openings and deducts them from net wall area", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    const footprint = rectangleFootprint(3, 4); // gross wall 112 at 8ft
+    const openings: SketchOpening[] = [
+      { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 }, // 21
+      { type: "window", width: 3, height: 5, wall_index: 1, offset: 1 }, // 15
+    ];
+    const roomId = await insertRoomWithOpenings(
+      orgId, floorId, "Room With Openings", footprint, openings, 8,
+    );
+
+    const { rows } = await client.query(
+      "SELECT openings, gross_wall_area, net_wall_area FROM rooms WHERE id = $1",
+      [roomId],
+    );
+    const expected = measureFootprint({ footprint, ceilingHeight: 8, openings });
+    // The openings list survives the trip as ordered jsonb objects.
+    expect(rows[0].openings).toEqual(openings);
+    // Gross is unchanged; net is gross minus the two openings.
+    expect(Number(rows[0].gross_wall_area)).toBe(expected.grossWallArea); // 112
+    expect(Number(rows[0].net_wall_area)).toBe(expected.netWallArea); // 76
+  });
+
+  // A Room inserted without openings defaults to an empty list — the column's NOT
+  // NULL DEFAULT, so pre-#866 write paths and legacy rows are never null, and net
+  // wall area equals gross for them.
+  it("defaults a Room's openings to an empty list when unset", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+    const roomId = await insertRoom(
+      orgId, floorId, "No Openings", { width: 3, length: 4, ceilingHeightOverride: null }, 8,
+    );
+
+    const { rows } = await client.query("SELECT openings FROM rooms WHERE id = $1", [roomId]);
+    expect(rows[0].openings).toEqual([]);
   });
 
   // #890 — the migration backfills pre-#890 Rooms whose footprint was drawn away

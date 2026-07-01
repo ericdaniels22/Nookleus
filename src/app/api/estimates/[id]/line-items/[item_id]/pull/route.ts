@@ -4,17 +4,17 @@ import { checkSnapshot, recalculateTotals } from "@/lib/estimates";
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, SketchOpening } from "@/lib/types";
 import type { RoomMeasurements } from "@/lib/sketch/measure-room";
 import {
-  ROOM_MEASUREMENT_KINDS,
+  ALL_PULL_KINDS,
   resolveRoomPull,
   resolveFloorPull,
   resolveSketchPull,
   resolveRoomObjectPull,
   resolveFloorObjectPull,
   resolveSketchObjectPull,
-  type RoomMeasurementKind,
+  type ScalarPullKind,
   type SketchSource,
 } from "@/lib/sketch/pull-resolver";
 import { aggregateFloor, type RoomContribution } from "@/lib/sketch/aggregate";
@@ -42,10 +42,10 @@ interface PullBody {
   updated_at_snapshot?: string;
 }
 
-function isKind(value: unknown): value is RoomMeasurementKind {
+function isKind(value: unknown): value is ScalarPullKind {
   return (
     typeof value === "string" &&
-    (ROOM_MEASUREMENT_KINDS as readonly string[]).includes(value)
+    (ALL_PULL_KINDS as readonly string[]).includes(value)
   );
 }
 
@@ -57,9 +57,10 @@ function isObjectCategory(value: unknown): value is ObjectCategory {
   );
 }
 
-/** The columns a measurement aggregation needs off a Room row. */
+// The columns a pull needs off a Room row: the six cached measurements plus the
+// openings the count kinds (door_count/window_count) are tallied from (#866).
 const MEASUREMENT_COLUMNS =
-  "floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume";
+  "floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume, openings";
 
 interface MeasurementRow {
   floor_area: number | string;
@@ -68,6 +69,19 @@ interface MeasurementRow {
   gross_wall_area: number | string;
   net_wall_area: number | string;
   volume: number | string;
+  openings: SketchOpening[] | null;
+}
+
+/** A Room's door/window tally from its openings, by kind (#866). */
+function openingCounts(openings: SketchOpening[] | null): {
+  doors: number;
+  windows: number;
+} {
+  const list = openings ?? [];
+  return {
+    doors: list.filter((o) => o.type === "door").length,
+    windows: list.filter((o) => o.type === "window").length,
+  };
 }
 
 // PostgREST returns numerics as strings — coerce back to the numbers M1/M2/M3
@@ -84,8 +98,11 @@ function toMeasurements(row: MeasurementRow): RoomMeasurements {
   };
 }
 
+// A Room's M2 contribution: its coerced measurements plus its door/window counts
+// (#866), so a Floor / Sketch roll-up carries real counts, not zeros.
 function toContribution(row: MeasurementRow): RoomContribution {
-  return { measurements: toMeasurements(row) };
+  const { doors, windows } = openingCounts(row.openings);
+  return { measurements: toMeasurements(row), doors, windows };
 }
 
 /**
@@ -134,16 +151,17 @@ export const POST = withRequestContext(
         { status: 400 },
       );
     }
-    // The kind is one of the six Room measurements, or `object_count` — a count
-    // of one object category (#867). An object_count pull additionally names a
-    // known `object_category` it is scoped by; a measurement pull names none.
+    // The kind is one of the scalar pull kinds — six measurements plus the
+    // door/window counts (#866) — or `object_count`, a count of one object
+    // category (#867). An object_count pull additionally names a known
+    // `object_category` it is scoped by; every other kind names none.
     const isObjectCount = body.kind === "object_count";
-    let kind: RoomMeasurementKind | null = null;
+    let kind: ScalarPullKind | null = null;
     if (!isObjectCount) {
       if (!isKind(body.kind)) {
         return NextResponse.json(
           {
-            error: `kind must be one of ${ROOM_MEASUREMENT_KINDS.join(", ")}, or object_count`,
+            error: `kind must be one of ${ALL_PULL_KINDS.join(", ")}, or object_count`,
           },
           { status: 400 },
         );
@@ -250,9 +268,12 @@ export const POST = withRequestContext(
           pulledAt,
         });
       } else {
+        // One Room's counts: its own door/window tally (rooms: 1 for completeness).
+        const { doors, windows } = openingCounts(room.openings);
         pull = resolveRoomPull({
           measurements: toMeasurements(room),
-          kind: kind as RoomMeasurementKind,
+          counts: { rooms: 1, doors, windows },
+          kind: kind as ScalarPullKind,
           sketchId: sketch.id,
           floorId: room.floor_id,
           roomId: room.id,
@@ -294,7 +315,8 @@ export const POST = withRequestContext(
         const aggregate = aggregateFloor((floorRooms ?? []).map(toContribution));
         pull = resolveFloorPull({
           measurements: aggregate.measurements,
-          kind: kind as RoomMeasurementKind,
+          counts: aggregate.counts,
+          kind: kind as ScalarPullKind,
           sketchId: sketch.id,
           floorId: floor.id,
           floorName: floor.name,
@@ -328,7 +350,8 @@ export const POST = withRequestContext(
         const aggregate = aggregateFloor((allRooms ?? []).map(toContribution));
         pull = resolveSketchPull({
           measurements: aggregate.measurements,
-          kind: kind as RoomMeasurementKind,
+          counts: aggregate.counts,
+          kind: kind as ScalarPullKind,
           sketchId: sketch.id,
           pulledAt,
         });

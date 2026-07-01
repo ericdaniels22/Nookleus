@@ -153,6 +153,51 @@ describe("measureFootprint", () => {
     expect(high.volume).toBe(120); // 12 · 10
   });
 
+  it("deducts door and window areas from net wall area (one door + one window)", () => {
+    // #866 — the money case: openings cut into the walls so net < gross. A 3 × 4
+    // Room at 8′ has gross wall 14 · 8 = 112. A 3 × 7 door (21 sq ft) and a 2 × 4
+    // window (8 sq ft) are placed on its walls, so net = 112 − 21 − 8 = 83. Only
+    // net wall area moves — floor/ceiling/perimeter/gross/volume are
+    // opening-invariant (ADR 0024: wall area is perimeter × height, less openings).
+    const m = measureFootprint({
+      footprint: rectangleFootprint(3, 4),
+      ceilingHeight: 8,
+      openings: [
+        { type: "door", width: 3, height: 7 },
+        { type: "window", width: 2, height: 4 },
+      ],
+    });
+
+    expect(m.grossWallArea).toBe(112); // perimeter · h, before openings
+    expect(m.netWallArea).toBe(83); // 112 − 21 − 8
+
+    // Everything else is untouched by openings.
+    expect(m.floorArea).toBe(12);
+    expect(m.ceilingArea).toBe(12);
+    expect(m.perimeter).toBe(14);
+    expect(m.volume).toBe(96);
+  });
+
+  it("rejects a negative opening dimension instead of inflating net wall area", () => {
+    // A negative width/height would be SUBTRACTED as a negative — pushing net
+    // above gross and sending a bogus, oversized wall quantity downstream into
+    // an Estimate. Reject it at the boundary, like the other dimension guards.
+    expect(() =>
+      measureFootprint({
+        footprint: rectangleFootprint(3, 4),
+        ceilingHeight: 8,
+        openings: [{ type: "window", width: -2, height: 4 }],
+      }),
+    ).toThrow();
+    expect(() =>
+      measureFootprint({
+        footprint: rectangleFootprint(3, 4),
+        ceilingHeight: 8,
+        openings: [{ type: "door", width: 3, height: -7 }],
+      }),
+    ).toThrow();
+  });
+
   it("returns zeros — never NaN — for a degenerate footprint of under three points", () => {
     // A half-drawn Room (no corners, one corner, a single wall) reads as all
     // zeros so the live readout shows 0 while the user is still tapping corners.

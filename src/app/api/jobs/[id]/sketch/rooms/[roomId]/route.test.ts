@@ -154,6 +154,48 @@ describe("PATCH /api/jobs/[id]/sketch/rooms/[roomId]", () => {
     );
   });
 
+  it("forwards a doors/windows openings array to the update step (#866)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    // The 2D editor sends the Room's full opening list on every add/edit/remove;
+    // the route forwards it verbatim to the write step, which recomputes net wall
+    // area and the door/window counts (covered in update-room.test.ts).
+    const openings = [
+      { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+      { type: "window", width: 3, height: 4, wall_index: 1, offset: 2 },
+    ];
+    const res = await PATCH(
+      patchBody({ openings }),
+      paramsFor("job-1", "room-1"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(updateSketchRoom).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ roomId: "room-1", openings }),
+    );
+  });
+
+  it("returns 400 for an opening with a non-finite dimension (#866)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await PATCH(
+      patchBody({
+        openings: [
+          { type: "door", width: "wide", height: 7, wall_index: 0, offset: 1 },
+        ],
+      }),
+      paramsFor("job-1", "room-1"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(updateSketchRoom).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for a footprint with fewer than three corners", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       authedClient() as never,
