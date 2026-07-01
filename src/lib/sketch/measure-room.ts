@@ -15,7 +15,8 @@
 // Wall thickness is a Floor-level default (CONTEXT.md "Floor") but does not enter
 // these area formulas: MagicPlan-style interior/exterior thickness affects how
 // adjoining rooms snap, not a single room's perimeter × height. Openings (doors,
-// windows) are not modeled yet, so net wall area equals gross for now.
+// windows) do count: their combined width × height area is deducted from gross
+// wall area to give net wall area (#866), which is the default wall measurement.
 
 import {
   polygonArea,
@@ -33,11 +34,33 @@ export interface RoomInput {
   ceilingHeight: number;
 }
 
+/**
+ * An opening (door or window) cut into a Room's walls. Only the fields M1 needs
+ * to size the hole live here — its `width × height` area is what net wall area
+ * deducts (#866; ADR 0024 — wall area is perimeter × height, less openings).
+ * Wall placement (which wall, offset along it) is carried on the persisted/wire
+ * type for the 2D editor; the pure area math is placement-invariant.
+ */
+export interface Opening {
+  /** What kind of opening this is — drives the door/window counts (#866 M2/M3). */
+  type: "door" | "window";
+  /** Opening width, in the Sketch's linear unit (feet). */
+  width: number;
+  /** Opening height, in the Sketch's linear unit (feet). */
+  height: number;
+}
+
 export interface FootprintInput {
   /** Ordered corner points of the Room's footprint (a closed loop). */
   footprint: Point[];
   /** Ceiling height — a Floor default, overridable per Room. */
   ceilingHeight: number;
+  /**
+   * Openings (doors, windows) cut into the walls. Their combined area is
+   * deducted from gross wall area to give net wall area (#866). Absent or empty
+   * → net equals gross.
+   */
+  openings?: Opening[];
 }
 
 export interface RoomMeasurements {
@@ -49,7 +72,7 @@ export interface RoomMeasurements {
   perimeter: number;
   /** Wall area before openings (perimeter × ceiling height). */
   grossWallArea: number;
-  /** Wall area after openings; equals gross until openings are modeled. */
+  /** Wall area after openings (gross − Σ opening areas); the default wall measurement (#866). */
   netWallArea: number;
   /** Enclosed volume (floor area × ceiling height). */
   volume: number;
@@ -65,6 +88,7 @@ export interface RoomMeasurements {
 export function measureFootprint({
   footprint,
   ceilingHeight,
+  openings,
 }: FootprintInput): RoomMeasurements {
   // A negative ceiling height is never a real Room; reject it at the calculator
   // boundary so a negative volume can't flow downstream into an Estimate. The
@@ -79,12 +103,25 @@ export function measureFootprint({
   const perimeter = polygonPerimeter(footprint);
   const grossWallArea = perimeter * ceilingHeight;
 
+  // Net wall area is gross less the area every opening cuts out (#866). No
+  // openings → the sum is 0 → net equals gross, as before. A negative dimension
+  // would subtract as a negative — inflating net above gross — so reject it at
+  // the boundary, matching the ceiling-height and rectangle-dimension guards.
+  const openingArea = (openings ?? []).reduce((sum, opening) => {
+    if (opening.width < 0 || opening.height < 0) {
+      throw new RangeError(
+        `measureFootprint: opening dimensions must be non-negative (got width=${opening.width}, height=${opening.height})`,
+      );
+    }
+    return sum + opening.width * opening.height;
+  }, 0);
+
   return {
     floorArea,
     ceilingArea: floorArea,
     perimeter,
     grossWallArea,
-    netWallArea: grossWallArea, // no openings yet → net == gross
+    netWallArea: grossWallArea - openingArea,
     volume: floorArea * ceilingHeight,
   };
 }

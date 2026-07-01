@@ -309,6 +309,25 @@ export interface SketchPoint {
   y: number;
 }
 
+/**
+ * An opening (door or window) placed on one of a Room's walls (#866). `width` and
+ * `height` size the hole M1 deducts from gross wall area; `type` drives the
+ * door/window counts (M2/M3). Placement is on a single wall — the footprint edge
+ * that starts at corner `wall_index` — a distance `offset` (feet) along it from
+ * that start corner. Persisted as jsonb on `rooms.openings` (migration-build90).
+ */
+export interface SketchOpening {
+  type: "door" | "window";
+  /** Opening width, in feet. */
+  width: number;
+  /** Opening height, in feet. */
+  height: number;
+  /** Which wall it sits on — the footprint edge starting at corner `wall_index`. */
+  wall_index: number;
+  /** Distance along that wall from its start corner to the opening's start (feet). */
+  offset: number;
+}
+
 /** The six M1-derived measurements a Room reports (areas + lengths + volume). */
 export interface RoomMeasurements {
   /** width × length. */
@@ -376,6 +395,13 @@ export interface Room extends RoomMeasurements {
   length: number;
   /** null → the Room inherits its Floor's default_ceiling_height. */
   ceiling_height_override: number | null;
+  /**
+   * Openings (doors, windows) placed on the Room's walls (#866). Their combined
+   * area is deducted from gross to give the cached net_wall_area; their kinds
+   * drive the Floor/Sketch door/window counts. Empty for a Room with no openings
+   * (migration-build90 defaults it to []).
+   */
+  openings: SketchOpening[];
   sort_order: number;
   created_at: string;
   updated_at: string;

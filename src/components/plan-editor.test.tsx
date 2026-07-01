@@ -125,6 +125,7 @@ function makeRoom(overrides: Partial<Room> = {}): Room {
     name: "Living Room",
     footprint: RECT_FOOTPRINT,
     origin: { x: 0, y: 0 },
+    openings: [],
     width: 3,
     length: 4,
     ceiling_height_override: null,
@@ -540,6 +541,226 @@ describe("PlanEditor — shell (#890)", () => {
     expect(screen.getByLabelText(/wall 1 length/i)).toBeDefined();
     expect(screen.getByLabelText(/wall 3 length/i)).toBeDefined();
     expect(screen.queryByRole("button", { name: /remove wall/i })).toBeNull();
+  });
+
+  it("adds a door: the inspector's 'Add door' PATCHes {openings} with a default door and shows the recomputed net wall area (#866)", async () => {
+    // Issue #866: the inspector adds openings on a Room's walls. "Add door" appends
+    // a default door (3×7) to the Room's opening list and PATCHes the whole list;
+    // the server deducts its area from gross wall area and recomputes net wall area
+    // (112 − 3×7 = 91) plus the door count, and we take the echoed row.
+    const withDoor = makeRoom({
+      id: "room-1",
+      name: "Kitchen",
+      openings: [{ type: "door", width: 3, height: 7, wall_index: 0, offset: 0 }],
+      gross_wall_area: 112,
+      net_wall_area: 91,
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: withDoor }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Kitchen",
+            openings: [],
+            gross_wall_area: 112,
+            net_wall_area: 112,
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add door/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      openings: [{ type: "door", width: 3, height: 7, wall_index: 0, offset: 0 }],
+    });
+
+    // The server-recomputed net wall area replaces the old value in the tile.
+    await waitFor(() =>
+      expect(screen.getByTestId("measure-netWallArea").textContent).toContain(
+        "91",
+      ),
+    );
+  });
+
+  it("adds a window: the inspector's 'Add window' PATCHes {openings} with a default window (#866)", async () => {
+    // A window defaults to 3×4. It appends to the Room's opening list the same way
+    // a door does; the server deducts 3×4 = 12 from gross wall area (112 → 100) and
+    // tallies it as a window.
+    const withWindow = makeRoom({
+      id: "room-1",
+      name: "Kitchen",
+      openings: [
+        { type: "window", width: 3, height: 4, wall_index: 0, offset: 0 },
+      ],
+      gross_wall_area: 112,
+      net_wall_area: 100,
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: withWindow }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen", openings: [] })]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add window/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      openings: [
+        { type: "window", width: 3, height: 4, wall_index: 0, offset: 0 },
+      ],
+    });
+  });
+
+  it("removes an opening: the inspector lists each door/window and its Remove PATCHes {openings} with it filtered out (#866)", async () => {
+    // A Room's openings are listed in the inspector; each has a Remove control that
+    // drops it and PATCHes the remaining list. Removing the only door restores the
+    // full gross wall area as net (112) and clears the door count.
+    const cleared = makeRoom({
+      id: "room-1",
+      name: "Kitchen",
+      openings: [],
+      gross_wall_area: 112,
+      net_wall_area: 112,
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: cleared }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Kitchen",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 0 },
+            ],
+            gross_wall_area: 112,
+            net_wall_area: 91,
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+
+    // The one door is listed; removing it PATCHes an empty opening list.
+    fireEvent.click(screen.getByRole("button", { name: /remove opening 1/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({ openings: [] });
+
+    // Net wall area returns to the full gross once the opening is gone.
+    await waitFor(() =>
+      expect(screen.getByTestId("measure-netWallArea").textContent).toContain(
+        "112",
+      ),
+    );
+  });
+
+  it("edits an opening: changing its size and placement and pressing Apply PATCHes {openings} with the edited opening (#866)", async () => {
+    // Each opening row exposes its width, height, wall and offset. Editing them and
+    // pressing Apply sends the whole list with just that opening changed; the server
+    // re-deducts its area (112 − 4×7 = 84) and keeps the door count.
+    const edited = makeRoom({
+      id: "room-1",
+      name: "Kitchen",
+      openings: [{ type: "door", width: 4, height: 7, wall_index: 1, offset: 2 }],
+      gross_wall_area: 112,
+      net_wall_area: 84,
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: edited }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Kitchen",
+            footprint: RECT_FOOTPRINT, // 4 walls
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 0 },
+            ],
+            gross_wall_area: 112,
+            net_wall_area: 91,
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+
+    // Widen the door to 4 ft, move it to wall 2, set its offset to 2 ft, then Apply.
+    fireEvent.change(screen.getByLabelText(/opening 1 width/i), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText(/opening 1 wall/i), {
+      target: { value: "1" }, // wall_index 1 = "Wall 2"
+    });
+    fireEvent.change(screen.getByLabelText(/opening 1 offset/i), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /apply opening 1/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      openings: [{ type: "door", width: 4, height: 7, wall_index: 1, offset: 2 }],
+    });
+
+    // The server-recomputed net wall area replaces the old value in the tile.
+    await waitFor(() =>
+      expect(screen.getByTestId("measure-netWallArea").textContent).toContain(
+        "84",
+      ),
+    );
   });
 
   it("deletes a Room: the inspector's Delete removes it via DELETE and closes the inspector", async () => {

@@ -3,12 +3,14 @@ import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { updateSketchRoom } from "@/lib/sketch/update-room";
 import { deleteSketchRoom } from "@/lib/sketch/delete-room";
 import { apiDbError } from "@/lib/api-errors";
+import type { SketchOpening } from "@/lib/types";
 
 interface UpdateRoomPayload {
   origin?: unknown;
   name?: unknown;
   footprint?: unknown;
   ceilingHeightOverride?: unknown;
+  openings?: unknown;
 }
 
 /** A point with finite x/y — the shape a Room's origin must take (ADR 0026). */
@@ -30,6 +32,26 @@ function isFootprint(value: unknown): value is { x: number; y: number }[] {
 /** A finite, non-negative number — the only kind a ceiling height can be. */
 function isDimension(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/** A door/window opening (#866): a known kind with non-negative, finite width,
+ * height, wall_index, and offset. The update step deducts width×height from gross
+ * wall area and tallies the kind, so a malformed opening would corrupt the cache. */
+function isOpening(value: unknown): value is SketchOpening {
+  if (typeof value !== "object" || value === null) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    (o.type === "door" || o.type === "window") &&
+    isDimension(o.width) &&
+    isDimension(o.height) &&
+    isDimension(o.wall_index) &&
+    isDimension(o.offset)
+  );
+}
+
+/** An array of well-formed openings (an empty list clears them). */
+function isOpenings(value: unknown): value is SketchOpening[] {
+  return Array.isArray(value) && value.every(isOpening);
 }
 
 // PATCH /api/jobs/[id]/sketch/rooms/[roomId] — mutate a placed Room from the
@@ -78,6 +100,7 @@ export const PATCH = withRequestContext(
       name?: string;
       footprint?: { x: number; y: number }[];
       ceilingHeightOverride?: number | null;
+      openings?: SketchOpening[];
     } = { roomId };
     if (body.origin !== undefined) {
       if (!isPoint(body.origin)) {
@@ -118,6 +141,26 @@ export const PATCH = withRequestContext(
         );
       }
       patch.ceilingHeightOverride = body.ceilingHeightOverride;
+    }
+    // The editor sends the Room's full opening list on every add/edit/remove; the
+    // update step recomputes net wall area + door/window counts from it (#866).
+    if (body.openings !== undefined) {
+      if (!isOpenings(body.openings)) {
+        return NextResponse.json(
+          {
+            error:
+              "openings must be an array of {type: door|window, width, height, wall_index, offset} with non-negative dimensions",
+          },
+          { status: 400 },
+        );
+      }
+      patch.openings = body.openings.map((o) => ({
+        type: o.type,
+        width: o.width,
+        height: o.height,
+        wall_index: o.wall_index,
+        offset: o.offset,
+      }));
     }
 
     try {

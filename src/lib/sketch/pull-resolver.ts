@@ -8,6 +8,7 @@
 // live in one testable spot, reused identically by the pull API route.
 
 import { round2 } from "../format";
+import type { SketchCounts } from "./aggregate";
 import type { RoomMeasurements } from "./measure-room";
 
 /**
@@ -29,19 +30,44 @@ export const ROOM_MEASUREMENT_KINDS = [
 export type RoomMeasurementKind = (typeof ROOM_MEASUREMENT_KINDS)[number];
 
 /**
- * Human-readable labels for the pull kinds — the vocabulary the picker dropdown
- * and the source badge both render, kept beside the wire names so the two never
- * drift. "Net wall area" is the default wall measurement (#861); "Gross wall
- * area" is offered alongside it.
+ * Human-readable labels for every pull kind — measurements and counts — the
+ * vocabulary the picker dropdown and the source badge both render, kept beside the
+ * wire names so the two never drift. "Net wall area" is the default wall
+ * measurement (#861); "Gross wall area" is offered alongside it. The door/window
+ * count labels (#866) round out the list. (Named for the original measurement-only
+ * set; now keyed by the full {@link PullKind} so counts label too.)
  */
-export const ROOM_MEASUREMENT_KIND_LABELS: Record<RoomMeasurementKind, string> = {
+export const ROOM_MEASUREMENT_KIND_LABELS: Record<PullKind, string> = {
   floor_area: "Floor area",
   ceiling_area: "Ceiling area",
   wall_area_net: "Net wall area",
   wall_area_gross: "Gross wall area",
   perimeter: "Perimeter",
   volume: "Volume",
+  door_count: "Door count",
+  window_count: "Window count",
 };
+
+/**
+ * The count kinds a Room / Floor / Sketch can be pulled for (#866). These freeze
+ * a door or window *tally* — a different value space from the six measurements —
+ * so a line item can carry a quantity of "3 doors" or "5 windows".
+ */
+export const ROOM_COUNT_KINDS = ["door_count", "window_count"] as const;
+
+export type RoomCountKind = (typeof ROOM_COUNT_KINDS)[number];
+
+/**
+ * Every kind a pull can name: the six measurements plus the two counts. This is
+ * what a `sketch_source` breadcrumb records and what the picker offers.
+ */
+export type PullKind = RoomMeasurementKind | RoomCountKind;
+
+/** The full ordered list of pullable kinds — measurements first, then counts. */
+export const ALL_PULL_KINDS = [
+  ...ROOM_MEASUREMENT_KINDS,
+  ...ROOM_COUNT_KINDS,
+] as const;
 
 /** The one place snake_case pull kinds meet M1's camelCase measurement fields. */
 const KIND_TO_FIELD: Record<RoomMeasurementKind, keyof RoomMeasurements> = {
@@ -52,6 +78,17 @@ const KIND_TO_FIELD: Record<RoomMeasurementKind, keyof RoomMeasurements> = {
   perimeter: "perimeter",
   volume: "volume",
 };
+
+/** Where each count kind reads from an M2 `SketchCounts` tally. */
+const COUNT_KIND_TO_FIELD: Record<RoomCountKind, keyof SketchCounts> = {
+  door_count: "doors",
+  window_count: "windows",
+};
+
+/** Narrow a pull kind to a count kind (vs. one of the six measurement kinds). */
+export function isCountKind(kind: PullKind): kind is RoomCountKind {
+  return (ROOM_COUNT_KINDS as readonly string[]).includes(kind);
+}
 
 /**
  * Resolve one Room measurement to the number a line item freezes into its
@@ -69,6 +106,23 @@ export function roomMeasurementValue(
 }
 
 /**
+ * Resolve any pull kind — measurement or count — to the single number a line item
+ * freezes (#866). A count kind reads the M2 door/window tally; a measurement kind
+ * reads M1's measurement. An unknown kind throws rather than yielding an undefined
+ * quantity that would later read as NaN in an Estimate total.
+ */
+export function pullValue(
+  measurements: RoomMeasurements,
+  counts: SketchCounts,
+  kind: PullKind,
+): number {
+  if (isCountKind(kind)) {
+    return counts[COUNT_KIND_TO_FIELD[kind]];
+  }
+  return roomMeasurementValue(measurements, kind);
+}
+
+/**
  * The fields every `sketch_source` breadcrumb carries, whatever its scope. It is
  * a *snapshot*, not a live link (ADR 0004): the `value` frozen here is what the
  * line item shows and bills, and editing or deleting the Sketch afterward never
@@ -77,11 +131,32 @@ export function roomMeasurementValue(
  */
 interface SketchSourceBase {
   sketch_id: string;
-  kind: RoomMeasurementKind;
+  kind: PullKind;
   /** The frozen pulled number — equals the line item's `quantity`. */
   value: number;
   /** ISO timestamp of the pull (injected — this module does no I/O). */
   pulled_at: string;
+}
+
+/**
+ * Resolve any pull kind for a resolver, guarding that a count kind was actually
+ * given the counts it needs. Measurement kinds ignore `counts`; a count kind with
+ * no counts is a programming error and throws rather than freezing a silent 0.
+ */
+function resolvePullValue(
+  measurements: RoomMeasurements,
+  counts: SketchCounts | undefined,
+  kind: PullKind,
+): number {
+  if (isCountKind(kind)) {
+    if (!counts) {
+      throw new RangeError(
+        `resolvePullValue: count kind "${kind}" requires counts to resolve`,
+      );
+    }
+    return pullValue(measurements, counts, kind);
+  }
+  return roomMeasurementValue(measurements, kind);
 }
 
 /** A quantity pulled from a single Room's measurement. */
@@ -136,9 +211,10 @@ export function sketchSourceLabel(source: SketchSource): string {
 
 /**
  * One Room as the "Pull from Sketch" picker sees it: identity, its Floor's name
- * for grouping, and its six measurements already keyed by pull kind so the
- * picker can preview `measurements[kind]` before freezing it. This is the shape
- * the `GET /api/estimates/[id]/sketch/rooms` feed returns and the editor picker
+ * for grouping, and its values keyed by every pull kind — the six measurements
+ * plus door_count / window_count (#866) — so the picker can preview
+ * `measurements[kind]` for any kind before freezing it. This is the shape the
+ * `GET /api/estimates/[id]/sketch/rooms` feed returns and the editor picker
  * consumes — kept beside the kinds so feed and UI can't drift.
  */
 export interface SketchRoomOption {
@@ -146,28 +222,29 @@ export interface SketchRoomOption {
   name: string;
   floor_id: string;
   floor_name: string;
-  measurements: Record<RoomMeasurementKind, number>;
+  measurements: Record<PullKind, number>;
 }
 
 /**
  * One Floor as the picker sees it for a Floor-scoped pull: its identity and its
- * aggregate totals (M2 `aggregateFloor(...)`) keyed by pull kind, so the picker
- * previews `measurements[kind]` before freezing the Floor total.
+ * aggregate totals (M2 `aggregateFloor(...)`) keyed by every pull kind, so the
+ * picker previews `measurements[kind]` — measurement or count — before freezing
+ * the Floor total.
  */
 export interface SketchFloorOption {
   id: string;
   name: string;
-  measurements: Record<RoomMeasurementKind, number>;
+  measurements: Record<PullKind, number>;
 }
 
 /**
  * The whole Sketch as the picker sees it for a Sketch-scoped pull: its identity
- * and its aggregate totals (M2 `aggregateSketch(...)`) keyed by pull kind. `null`
- * in the feed when the estimate's job has no Sketch (or an empty one) yet.
+ * and its aggregate totals (M2 `aggregateSketch(...)`) keyed by every pull kind.
+ * `null` in the feed when the estimate's job has no Sketch (or an empty one) yet.
  */
 export interface SketchTotalsOption {
   sketch_id: string;
-  measurements: Record<RoomMeasurementKind, number>;
+  measurements: Record<PullKind, number>;
 }
 
 /**
@@ -185,16 +262,19 @@ export interface SketchPickerFeed {
 /**
  * What the picker hands back on Pull, discriminated by scope — the shape the
  * pull route accepts. Room and Floor carry their id; the whole-Sketch pull needs
- * none. Every scope names a measurement kind.
+ * none. Every scope names a pull kind — one of the six measurements or a
+ * door/window count (#866).
  */
 export type SketchPullArgs =
-  | { scope: "room"; roomId: string; kind: RoomMeasurementKind }
-  | { scope: "floor"; floorId: string; kind: RoomMeasurementKind }
-  | { scope: "sketch"; kind: RoomMeasurementKind };
+  | { scope: "room"; roomId: string; kind: PullKind }
+  | { scope: "floor"; floorId: string; kind: PullKind }
+  | { scope: "sketch"; kind: PullKind };
 
 export interface ResolveRoomPullInput {
   measurements: RoomMeasurements;
-  kind: RoomMeasurementKind;
+  kind: PullKind;
+  /** The Room's door/window tally — required only for a count kind (#866). */
+  counts?: SketchCounts;
   sketchId: string;
   floorId: string;
   roomId: string;
@@ -216,7 +296,7 @@ export interface RoomPull {
  * so the two can never disagree and the pull is frozen the moment it is taken.
  */
 export function resolveRoomPull(input: ResolveRoomPullInput): RoomPull {
-  const value = roomMeasurementValue(input.measurements, input.kind);
+  const value = resolvePullValue(input.measurements, input.counts, input.kind);
   return {
     value,
     source: {
@@ -297,6 +377,11 @@ export interface ResolveRoomRepullInput {
    */
   measurements: RoomMeasurements | null;
   /**
+   * The source Room's *current* door/window tally — required only when the frozen
+   * `source.kind` is a count kind (#866). A measurement-kind re-pull ignores it.
+   */
+  counts?: SketchCounts;
+  /**
    * The line item's current `quantity` — the value the re-pull replaces, reported
    * as the diff's old side so the confirmation is truthful even when the quantity
    * was hand-edited away from `source.value` since the last pull.
@@ -310,10 +395,10 @@ export interface ResolveRoomRepullInput {
  * Re-pull the frozen source against the Room's current measurements. When the
  * Room is gone (`measurements === null`) the result is `source-missing` and no
  * refreshed source is produced — the caller must leave the line item alone.
- * Otherwise it reads the same `source.kind` off the live measurements as the new
- * value, reports the line's current quantity as the old value, and packages a
- * refreshed source (new `value` + `pulled_at`, everything else frozen) to persist
- * on confirm.
+ * Otherwise it reads the same `source.kind` off the live measurements — or the
+ * live door/window tally for a count kind (#866) — as the new value, reports the
+ * line's current quantity as the old value, and packages a refreshed source (new
+ * `value` + `pulled_at`, everything else frozen) to persist on confirm.
  */
 export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResolution {
   if (input.measurements === null) {
@@ -326,7 +411,9 @@ export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResoluti
   // measurement against the current quantity would report an unchanged Sketch as
   // "changed" on every re-pull; rounding to the quantity's own precision makes the
   // diff (and the refreshed `value`) reflect what actually gets billed.
-  const newValue = round2(roomMeasurementValue(input.measurements, input.source.kind));
+  const newValue = round2(
+    resolvePullValue(input.measurements, input.counts, input.source.kind),
+  );
   return {
     status: "ok",
     oldValue,
@@ -339,7 +426,9 @@ export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResoluti
 export interface ResolveFloorPullInput {
   /** The Floor's aggregate totals (M2 `aggregateFloor(...).measurements`). */
   measurements: RoomMeasurements;
-  kind: RoomMeasurementKind;
+  kind: PullKind;
+  /** The Floor's aggregate door/window counts — required only for a count kind. */
+  counts?: SketchCounts;
   sketchId: string;
   floorId: string;
   floorName: string;
@@ -361,7 +450,7 @@ export interface FloorPull {
  * `value` is copied into both the quantity and the Floor-scoped snapshot.
  */
 export function resolveFloorPull(input: ResolveFloorPullInput): FloorPull {
-  const value = roomMeasurementValue(input.measurements, input.kind);
+  const value = resolvePullValue(input.measurements, input.counts, input.kind);
   return {
     value,
     source: {
@@ -379,7 +468,9 @@ export function resolveFloorPull(input: ResolveFloorPullInput): FloorPull {
 export interface ResolveSketchPullInput {
   /** The whole-Sketch aggregate totals (M2 `aggregateSketch(...).measurements`). */
   measurements: RoomMeasurements;
-  kind: RoomMeasurementKind;
+  kind: PullKind;
+  /** The whole-Sketch aggregate door/window counts — required only for a count kind. */
+  counts?: SketchCounts;
   sketchId: string;
   /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
   pulledAt: string;
@@ -399,7 +490,7 @@ export interface WholeSketchPull {
  * spans every Floor and Room.
  */
 export function resolveSketchPull(input: ResolveSketchPullInput): WholeSketchPull {
-  const value = roomMeasurementValue(input.measurements, input.kind);
+  const value = resolvePullValue(input.measurements, input.counts, input.kind);
   return {
     value,
     source: {

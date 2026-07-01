@@ -4,8 +4,9 @@ import { checkSnapshot, recalculateTotals } from "@/lib/estimates";
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
-import type { EstimateLineItem, SketchSource } from "@/lib/types";
+import type { EstimateLineItem, SketchOpening, SketchSource } from "@/lib/types";
 import type { RoomMeasurements } from "@/lib/sketch/measure-room";
+import type { SketchCounts } from "@/lib/sketch/aggregate";
 import {
   resolveRoomRepull,
   type RoomSketchSource,
@@ -28,19 +29,33 @@ interface RepullBody {
   updated_at_snapshot?: string;
 }
 
+/** A Room's door/window tally from its openings, by kind (#866). */
+function openingCounts(openings: SketchOpening[] | null): {
+  doors: number;
+  windows: number;
+} {
+  const list = openings ?? [];
+  return {
+    doors: list.filter((o) => o.type === "door").length,
+    windows: list.filter((o) => o.type === "window").length,
+  };
+}
+
 /**
- * Read the *current* measurements of the Room a frozen `sketch_source` points at,
- * walking THIS estimate's job → Sketch → Floors → Room exactly as the pull route
- * does. Returns `null` when the Room (or its Floor/Sketch) no longer exists —
- * the re-pull's "deleted source" signal (#864 AC #4). Scoping through the current
- * job's Sketch means a Sketch that was deleted and recreated (new ids) reads as
- * missing too: the frozen `room_id` is no longer under this estimate's Sketch.
+ * Read the *current* measurements AND door/window counts of the Room a frozen
+ * `sketch_source` points at, walking THIS estimate's job → Sketch → Floors → Room
+ * exactly as the pull route does. The counts are needed to re-pull a count kind
+ * (#866); a measurement-kind re-pull ignores them. Returns `null` when the Room
+ * (or its Floor/Sketch) no longer exists — the re-pull's "deleted source" signal
+ * (#864 AC #4). Scoping through the current job's Sketch means a Sketch that was
+ * deleted and recreated (new ids) reads as missing too: the frozen `room_id` is no
+ * longer under this estimate's Sketch.
  */
-async function readSourceRoomMeasurements(
+async function readSourceRoom(
   supabase: SupabaseClient,
   jobId: string | null,
   source: RoomSketchSource,
-): Promise<RoomMeasurements | null> {
+): Promise<{ measurements: RoomMeasurements; counts: SketchCounts } | null> {
   if (!jobId) return null;
 
   const { data: sketch } = await supabase
@@ -60,7 +75,7 @@ async function readSourceRoomMeasurements(
   const { data: room } = await supabase
     .from("rooms")
     .select(
-      "id, floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume",
+      "id, floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume, openings",
     )
     .eq("id", source.room_id)
     .in("floor_id", floorIds)
@@ -72,18 +87,23 @@ async function readSourceRoomMeasurements(
       gross_wall_area: number | string;
       net_wall_area: number | string;
       volume: number | string;
+      openings: SketchOpening[] | null;
     }>();
   if (!room) return null;
 
   // PostgREST returns numerics as strings — coerce back to the numbers M1/M3
   // reason about. These are the live cached measurements, re-read now.
+  const { doors, windows } = openingCounts(room.openings);
   return {
-    floorArea: Number(room.floor_area),
-    ceilingArea: Number(room.ceiling_area),
-    perimeter: Number(room.perimeter),
-    grossWallArea: Number(room.gross_wall_area),
-    netWallArea: Number(room.net_wall_area),
-    volume: Number(room.volume),
+    measurements: {
+      floorArea: Number(room.floor_area),
+      ceilingArea: Number(room.ceiling_area),
+      perimeter: Number(room.perimeter),
+      grossWallArea: Number(room.gross_wall_area),
+      netWallArea: Number(room.net_wall_area),
+      volume: Number(room.volume),
+    },
+    counts: { rooms: 1, doors, windows },
   };
 }
 
@@ -175,15 +195,12 @@ export const POST = withRequestContext(
       if (!snap.ok) return snap.response;
     }
 
-    const measurements = await readSourceRoomMeasurements(
-      supabase,
-      estimate.job_id,
-      source,
-    );
+    const live = await readSourceRoom(supabase, estimate.job_id, source);
 
     const resolution = resolveRoomRepull({
       source,
-      measurements,
+      measurements: live?.measurements ?? null,
+      counts: live?.counts,
       currentQuantity: Number(existing.quantity),
       pulledAt: new Date().toISOString(),
     });

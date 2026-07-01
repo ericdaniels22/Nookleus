@@ -4,14 +4,14 @@ import { checkSnapshot, recalculateTotals } from "@/lib/estimates";
 import { apiDbError } from "@/lib/api-errors";
 import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, SketchOpening } from "@/lib/types";
 import type { RoomMeasurements } from "@/lib/sketch/measure-room";
 import {
-  ROOM_MEASUREMENT_KINDS,
+  ALL_PULL_KINDS,
   resolveRoomPull,
   resolveFloorPull,
   resolveSketchPull,
-  type RoomMeasurementKind,
+  type PullKind,
   type SketchSource,
 } from "@/lib/sketch/pull-resolver";
 import { aggregateFloor, type RoomContribution } from "@/lib/sketch/aggregate";
@@ -31,16 +31,17 @@ interface PullBody {
   updated_at_snapshot?: string;
 }
 
-function isKind(value: unknown): value is RoomMeasurementKind {
+function isKind(value: unknown): value is PullKind {
   return (
     typeof value === "string" &&
-    (ROOM_MEASUREMENT_KINDS as readonly string[]).includes(value)
+    (ALL_PULL_KINDS as readonly string[]).includes(value)
   );
 }
 
-/** The columns a measurement aggregation needs off a Room row. */
+// The columns a pull needs off a Room row: the six cached measurements plus the
+// openings the count kinds (door_count/window_count) are tallied from (#866).
 const MEASUREMENT_COLUMNS =
-  "floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume";
+  "floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume, openings";
 
 interface MeasurementRow {
   floor_area: number | string;
@@ -49,6 +50,19 @@ interface MeasurementRow {
   gross_wall_area: number | string;
   net_wall_area: number | string;
   volume: number | string;
+  openings: SketchOpening[] | null;
+}
+
+/** A Room's door/window tally from its openings, by kind (#866). */
+function openingCounts(openings: SketchOpening[] | null): {
+  doors: number;
+  windows: number;
+} {
+  const list = openings ?? [];
+  return {
+    doors: list.filter((o) => o.type === "door").length,
+    windows: list.filter((o) => o.type === "window").length,
+  };
 }
 
 // PostgREST returns numerics as strings — coerce back to the numbers M1/M2/M3
@@ -65,8 +79,11 @@ function toMeasurements(row: MeasurementRow): RoomMeasurements {
   };
 }
 
+// A Room's M2 contribution: its coerced measurements plus its door/window counts
+// (#866), so a Floor / Sketch roll-up carries real counts, not zeros.
 function toContribution(row: MeasurementRow): RoomContribution {
-  return { measurements: toMeasurements(row) };
+  const { doors, windows } = openingCounts(row.openings);
+  return { measurements: toMeasurements(row), doors, windows };
 }
 
 /**
@@ -117,7 +134,7 @@ export const POST = withRequestContext(
     }
     if (!isKind(body.kind)) {
       return NextResponse.json(
-        { error: `kind must be one of ${ROOM_MEASUREMENT_KINDS.join(", ")}` },
+        { error: `kind must be one of ${ALL_PULL_KINDS.join(", ")}` },
         { status: 400 },
       );
     }
@@ -185,8 +202,11 @@ export const POST = withRequestContext(
       if (!room) {
         return NextResponse.json({ error: "room not found" }, { status: 404 });
       }
+      // One Room's counts: its own door/window tally (rooms: 1 for completeness).
+      const { doors, windows } = openingCounts(room.openings);
       pull = resolveRoomPull({
         measurements: toMeasurements(room),
+        counts: { rooms: 1, doors, windows },
         kind,
         sketchId: sketch.id,
         floorId: room.floor_id,
@@ -210,6 +230,7 @@ export const POST = withRequestContext(
       const aggregate = aggregateFloor((floorRooms ?? []).map(toContribution));
       pull = resolveFloorPull({
         measurements: aggregate.measurements,
+        counts: aggregate.counts,
         kind,
         sketchId: sketch.id,
         floorId: floor.id,
@@ -228,6 +249,7 @@ export const POST = withRequestContext(
       const aggregate = aggregateFloor((allRooms ?? []).map(toContribution));
       pull = resolveSketchPull({
         measurements: aggregate.measurements,
+        counts: aggregate.counts,
         kind,
         sketchId: sketch.id,
         pulledAt,

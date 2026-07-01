@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { SketchOpening } from "@/lib/types";
 import { createSketchRoom } from "./create-room";
 import { boundingBox, rectangleFootprint, type Point } from "./footprint";
 import { measureFootprint } from "./measure-room";
@@ -194,6 +195,58 @@ describe("createSketchRoom", () => {
     });
 
     expect(inserts.rooms).toMatchObject({ origin: { x: 0, y: 0 } });
+  });
+
+  it("stores the Room's openings and deducts their area from net wall area (#866)", async () => {
+    // #866 — a Room's doors/windows are persisted alongside the geometry and the
+    // cache is the SINGLE writer: net wall area is gross minus the openings, so
+    // the stored net can never drift from the stored openings. A 3×4 Room at 8ft
+    // has gross wall 112; a 3×7 door (21) and a 3×5 window (15) net it to 76.
+    const { client, inserts } = fakeSupabase({
+      floor: { id: "floor-1", default_ceiling_height: "8" },
+    });
+    const footprint = rectangleFootprint(3, 4);
+    const openings: SketchOpening[] = [
+      { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+      { type: "window", width: 3, height: 5, wall_index: 1, offset: 1 },
+    ];
+
+    await createSketchRoom(client, {
+      organizationId: "org-1",
+      floorId: "floor-1",
+      name: "Room With Openings",
+      footprint,
+      ceilingHeightOverride: null,
+      openings,
+    });
+
+    const expected = measureFootprint({ footprint, ceilingHeight: 8, openings });
+    expect(inserts.rooms).toMatchObject({
+      openings,
+      gross_wall_area: expected.grossWallArea, // 112
+      net_wall_area: expected.netWallArea, // 76 = 112 − 21 − 15
+    });
+  });
+
+  it("stores no openings as an empty list when the Room has none (#866)", async () => {
+    const { client, inserts } = fakeSupabase({
+      floor: { id: "floor-1", default_ceiling_height: "8" },
+    });
+
+    await createSketchRoom(client, {
+      organizationId: "org-1",
+      floorId: "floor-1",
+      name: "No Openings",
+      footprint: rectangleFootprint(3, 4),
+      ceilingHeightOverride: null,
+    });
+
+    // Net equals gross when there are no openings, and the column is [] not null.
+    expect(inserts.rooms).toMatchObject({
+      openings: [],
+      gross_wall_area: 112,
+      net_wall_area: 112,
+    });
   });
 
   it("refuses to write when the Floor is not visible to the caller", async () => {

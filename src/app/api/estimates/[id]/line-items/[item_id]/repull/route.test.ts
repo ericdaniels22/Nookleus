@@ -119,6 +119,75 @@ describe("POST /api/estimates/[id]/line-items/[item_id]/repull (#864)", () => {
     expect(upd).toBeUndefined();
   });
 
+  it("re-pulls a count kind from the Room's live openings (#866)", async () => {
+    // A room-scope line item frozen to a door_count re-pulls against the Room's
+    // live openings, not its measurements (#866). Frozen at 2 doors; the Room now
+    // carries 3 door openings → preview reports new_value 3.
+    const countSource = {
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Living Room",
+      kind: "door_count",
+      value: 2,
+      pulled_at: "2026-06-01T00:00:00.000Z",
+    };
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        estimate_line_items: [
+          {
+            id: "item-1",
+            estimate_id: "est-1",
+            section_id: "sec-1",
+            quantity: 2,
+            unit_price: 10,
+            total: 20,
+            sketch_source: countSource,
+          },
+        ],
+        rooms: [
+          {
+            id: "rm-1",
+            floor_id: "fl-1",
+            name: "Living Room",
+            floor_area: "12",
+            ceiling_area: "13",
+            perimeter: "14",
+            gross_wall_area: "112",
+            net_wall_area: "125",
+            volume: "96",
+            openings: [
+              { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+              { type: "door", width: 3, height: 7, wall_index: 1, offset: 1 },
+              { type: "door", width: 3, height: 7, wall_index: 2, offset: 1 },
+              { type: "window", width: 3, height: 4, wall_index: 3, offset: 1 },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(repullRequest({}), routeCtx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      preview: { old_value: number; new_value: number; changed: boolean; kind: string };
+    };
+    expect(body.preview).toMatchObject({
+      old_value: 2,
+      new_value: 3,
+      changed: true,
+      kind: "door_count",
+    });
+    // A preview never writes — the frozen quantity is untouched until confirmed.
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd).toBeUndefined();
+  });
+
   it("previews the CURRENT quantity as old, even after a manual override", async () => {
     // The line was frozen at 100 but hand-edited to 250 since (a waste factor);
     // sketch_source.value still reads 100. The preview's old side must be the live
