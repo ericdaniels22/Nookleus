@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Maximize, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Maximize, Minus, Plus, Trash2, X } from "lucide-react";
 
 import type { Floor, Room } from "@/lib/types";
-import { type Point } from "@/lib/sketch/footprint";
+import { translateFootprint, type Point } from "@/lib/sketch/footprint";
+import { deleteWall, setWallLength } from "@/lib/sketch/footprint-edit";
 import PlanCanvas from "./plan-canvas";
 
 /** Trim trailing zeros so "12.000" reads as "12" but "12.5" survives. */
@@ -74,6 +75,22 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
     setRooms((prev) => [...prev, room]);
   }
 
+  // Reshaping a Room — a wall length typed, a wall deleted, or (on the canvas) a
+  // corner dragged — PATCHes the reworked footprint in PLACED floor coordinates.
+  // The server re-normalizes it (min corner → 0,0), lifts the shift into origin,
+  // and recomputes the cache (ADR 0026); we take the echoed row wholesale so the
+  // shape, its position and every measurement stay consistent.
+  async function editFootprint(roomId: string, placedFootprint: Point[]) {
+    const res = await fetch(`/api/jobs/${jobId}/sketch/rooms/${roomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ footprint: placedFootprint }),
+    });
+    if (!res.ok) return;
+    const { room } = (await res.json()) as { room: Room };
+    setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+  }
+
   // Renaming or overriding a Room's ceiling height Saves through the same PATCH.
   // A ceiling change re-derives the cached measurements server-side, so we take
   // the echoed row wholesale — name, override and the recomputed measurements.
@@ -134,6 +151,7 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
           onSelectRoom={setSelectedRoomId}
           onMoveRoom={moveRoom}
           onFootprintComplete={completeFootprint}
+          onEditFootprint={editFootprint}
           onZoomChange={(z) => setZoom(clampZoom(z))}
         />
 
@@ -143,6 +161,7 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
             room={selectedRoom}
             floor={floor}
             onSave={(edits) => saveRoom(selectedRoom.id, edits)}
+            onEditFootprint={(placed) => editFootprint(selectedRoom.id, placed)}
             onDelete={() => deleteRoom(selectedRoom.id)}
           />
         ) : null}
@@ -189,11 +208,14 @@ function RoomInspector({
   room,
   floor,
   onSave,
+  onEditFootprint,
   onDelete,
 }: {
   room: Room;
   floor: Floor;
   onSave: (edits: { name: string; ceilingHeightOverride: number | null }) => void;
+  /** Reshape the Room to this footprint, in PLACED floor coordinates. */
+  onEditFootprint: (placedFootprint: Point[]) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(room.name);
@@ -210,6 +232,30 @@ function RoomInspector({
       name: name.trim() || room.name,
       ceilingHeightOverride: parsed !== null && Number.isFinite(parsed) ? parsed : null,
     });
+  }
+
+  // The Room's walls — each the edge from corner i to the next, closing the loop
+  // (#862). The footprint is stored normalized, so a reshape lifts the reworked
+  // shape back to placed floor coords by its origin before sending (ADR 0026).
+  const footprint = room.footprint;
+  const walls = footprint.map((from, i) => {
+    const to = footprint[(i + 1) % footprint.length];
+    return { index: i, length: Math.hypot(to.x - from.x, to.y - from.y) };
+  });
+
+  function applyWallLength(wallIndex: number, targetLength: number) {
+    onEditFootprint(
+      translateFootprint(
+        setWallLength(footprint, wallIndex, targetLength),
+        room.origin,
+      ),
+    );
+  }
+
+  function removeWall(wallIndex: number) {
+    onEditFootprint(
+      translateFootprint(deleteWall(footprint, wallIndex), room.origin),
+    );
   }
 
   return (
@@ -263,6 +309,27 @@ function RoomInspector({
         <Measure id="volume" label="Volume" value={room.volume} unit="ft³" />
       </dl>
 
+      {/* Per-wall editing (#862): type an exact length (slides the far corner
+          along the wall's bearing) or remove a wall (collapses it to its
+          midpoint). A reshape re-measures server-side; the tiles above follow.
+          Removing is disabled once only a triangle remains — a Room needs three
+          walls. */}
+      <div className="flex flex-col gap-2">
+        <h3 className="text-xs font-medium text-muted-foreground">Walls</h3>
+        <ul className="flex flex-col gap-2">
+          {walls.map((w) => (
+            <WallRow
+              key={`${w.index}-${fmt(w.length)}`}
+              index={w.index}
+              length={w.length}
+              canRemove={walls.length > 3}
+              onSetLength={applyWallLength}
+              onRemove={removeWall}
+            />
+          ))}
+        </ul>
+      </div>
+
       <button
         type="button"
         onClick={onDelete}
@@ -272,6 +339,70 @@ function RoomInspector({
         Delete room
       </button>
     </aside>
+  );
+}
+
+// One wall in the inspector's Walls list: its label, an exact-length field, and
+// (when the Room has more than three walls) a Remove control. Keyed in the parent
+// by index + current length, so a reshape remounts the row and the field shows
+// the freshly recomputed length rather than a stale edit (ADR 0026 / #862).
+function WallRow({
+  index,
+  length,
+  canRemove,
+  onSetLength,
+  onRemove,
+}: {
+  index: number;
+  length: number;
+  canRemove: boolean;
+  onSetLength: (wallIndex: number, targetLength: number) => void;
+  onRemove: (wallIndex: number) => void;
+}) {
+  const [value, setValue] = useState(fmt(length));
+  const label = `Wall ${index + 1}`;
+
+  return (
+    <li className="flex items-center gap-2">
+      <form
+        className="flex flex-1 items-center gap-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) onSetLength(index, n);
+        }}
+      >
+        <span className="w-12 shrink-0 text-[11px] text-muted-foreground">
+          {label}
+        </span>
+        <input
+          type="number"
+          min={0}
+          step="any"
+          value={value}
+          aria-label={`${label} length (ft)`}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+        <button
+          type="submit"
+          aria-label={`Set length of wall ${index + 1}`}
+          className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+        >
+          Set
+        </button>
+      </form>
+      {canRemove ? (
+        <button
+          type="button"
+          aria-label={`Remove wall ${index + 1}`}
+          onClick={() => onRemove(index)}
+          className="shrink-0 rounded-lg border border-destructive/40 p-1.5 text-destructive hover:bg-destructive/10"
+        >
+          <X size={14} />
+        </button>
+      ) : null}
+    </li>
   );
 }
 

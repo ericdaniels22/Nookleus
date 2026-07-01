@@ -7,6 +7,7 @@ import { apiDbError } from "@/lib/api-errors";
 interface UpdateRoomPayload {
   origin?: unknown;
   name?: unknown;
+  footprint?: unknown;
   ceilingHeightOverride?: unknown;
 }
 
@@ -18,6 +19,12 @@ function isPoint(value: unknown): value is { x: number; y: number } {
     Number.isFinite((value as { x: unknown }).x) &&
     Number.isFinite((value as { y: unknown }).y)
   );
+}
+
+/** A closed footprint: at least three corners, each a finite point (#862). Fewer
+ * than three has no enclosed loop, so the update step would measure it as zero. */
+function isFootprint(value: unknown): value is { x: number; y: number }[] {
+  return Array.isArray(value) && value.length >= 3 && value.every(isPoint);
 }
 
 /** A finite, non-negative number — the only kind a ceiling height can be. */
@@ -69,6 +76,7 @@ export const PATCH = withRequestContext(
       roomId: string;
       origin?: { x: number; y: number };
       name?: string;
+      footprint?: { x: number; y: number }[];
       ceilingHeightOverride?: number | null;
     } = { roomId };
     if (body.origin !== undefined) {
@@ -79,6 +87,17 @@ export const PATCH = withRequestContext(
         );
       }
       patch.origin = { x: body.origin.x, y: body.origin.y };
+    }
+    // A reshaped footprint (#862) arrives in placed floor coordinates; the update
+    // step re-normalizes it and recomputes the cache.
+    if (body.footprint !== undefined) {
+      if (!isFootprint(body.footprint)) {
+        return NextResponse.json(
+          { error: "footprint must be an array of at least three finite points" },
+          { status: 400 },
+        );
+      }
+      patch.footprint = body.footprint.map(({ x, y }) => ({ x, y }));
     }
     if (body.name !== undefined) {
       if (typeof body.name !== "string" || !body.name.trim()) {
