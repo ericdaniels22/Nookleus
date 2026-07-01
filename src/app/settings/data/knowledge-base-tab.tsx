@@ -207,7 +207,7 @@ export function KnowledgeBaseTab() {
         </div>
         <button
           onClick={() => setShowUpload(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
         >
           <Plus size={16} />
           Upload Document
@@ -305,7 +305,7 @@ export function KnowledgeBaseTab() {
           <button
             onClick={handleSearch}
             disabled={searching || !searchQuery.trim()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all shrink-0"
           >
             {searching ? (
               <Loader2 size={14} className="animate-spin" />
@@ -458,7 +458,7 @@ export function KnowledgeBaseTab() {
             <button
               onClick={handleUpload}
               disabled={uploading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {uploading && <Loader2 size={14} className="animate-spin" />}
               Upload

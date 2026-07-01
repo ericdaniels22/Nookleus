@@ -163,7 +163,7 @@ export function DateField({ value, onChange, placeholder, id }: DateFieldProps) 
                     "flex size-8 items-center justify-center rounded-md text-sm transition-colors",
                     isFuture && "cursor-not-allowed text-muted-foreground/30",
                     !isFuture && !isSelected && "text-foreground hover:bg-accent",
-                    isSelected && "bg-[image:var(--gradient-primary)] font-semibold text-white",
+                    isSelected && "bg-primary font-semibold text-primary-foreground",
                     isToday && !isSelected && "font-semibold ring-1 ring-inset ring-[var(--brand-primary)]/40",
                   )}
                 >

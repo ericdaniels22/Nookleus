@@ -309,7 +309,7 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
               Cancel
             </button>
             <button type="submit" disabled={submitting}
-              className="px-5 h-11 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 disabled:opacity-60 inline-flex items-center gap-2">
+              className="px-5 h-11 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60 inline-flex items-center gap-2">
               {submitting && <Loader2 size={14} className="animate-spin" />}
               {existing ? "Save Changes" : "Log Expense"}
             </button>

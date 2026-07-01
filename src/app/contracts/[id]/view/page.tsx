@@ -109,7 +109,7 @@ export default async function ContractViewPage({
           <DownloadPdfButton
             pdfUrl={`/api/contracts/${contract.id}/pdf`}
             filename={filename}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
           >
             <Download size={14} /> Download
           </DownloadPdfButton>

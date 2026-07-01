@@ -376,7 +376,7 @@ export default function JarvisInput({
           onClick={handleSend}
           disabled={sendDisabled}
           aria-label="Send message"
-          className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md"
+          className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <ArrowUp size={16} />
         </button>

@@ -110,7 +110,7 @@ export function ExpenseCategoriesTab() {
           </p>
         </div>
         <button onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all">
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
           <Plus size={16} /> Add Category
         </button>
       </div>
@@ -141,7 +141,7 @@ export function ExpenseCategoriesTab() {
           </div>
           <div className="flex gap-2 pt-1">
             <button onClick={handleAdd}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110">
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90">
               <Check size={14} /> Add
             </button>
             <button onClick={() => setShowAdd(false)}

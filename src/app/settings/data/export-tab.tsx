@@ -183,7 +183,7 @@ export function ExportTab() {
         <button
           onClick={handleExportAll}
           disabled={!!exporting}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
         >
           {exporting && <Loader2 size={16} className="animate-spin" />}
           <Download size={16} />

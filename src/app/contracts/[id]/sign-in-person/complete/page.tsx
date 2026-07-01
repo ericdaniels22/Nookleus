@@ -79,7 +79,7 @@ export default async function SignInPersonCompletePage({
             <DownloadPdfButton
               pdfUrl={`/api/contracts/${contract.id}/pdf`}
               filename={filename}
-              className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+              className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
             >
               <Download size={14} /> Download PDF
             </DownloadPdfButton>

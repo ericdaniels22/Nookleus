@@ -256,7 +256,7 @@ export default function ContactsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-extrabold text-foreground">
-            <span className="gradient-text">Contacts</span>
+            <span>Contacts</span>
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalContacts} contact{totalContacts !== 1 ? "s" : ""} &middot;{" "}
@@ -266,7 +266,7 @@ export default function ContactsPage() {
         </div>
         <button
           onClick={openAddDialog}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
         >
           <Plus size={16} />
           Add Contact
@@ -296,7 +296,7 @@ export default function ContactsPage() {
           className={cn(
             "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
             roleFilter === "all"
-              ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+              ? "bg-accent-tint text-accent-text border-transparent"
               : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
           )}
         >
@@ -311,7 +311,7 @@ export default function ContactsPage() {
             className={cn(
               "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
               roleFilter === r.value
-                ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                ? "bg-accent-tint text-accent-text border-transparent"
                 : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
             )}
           >
@@ -345,7 +345,7 @@ export default function ContactsPage() {
           {filtered.map((contact) => (
             <div
               key={contact.id}
-              className="card-vibrant bg-card rounded-xl border border-border p-4 hover:border-primary/30 transition-all"
+              className="bg-card rounded-xl border border-border p-4 hover:border-primary/30 transition-all"
             >
               <div className="flex items-start justify-between gap-4">
                 {/* Left: name + details */}
@@ -544,7 +544,7 @@ export default function ContactsPage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
               {editingContact ? "Save Changes" : "Create Contact"}

@@ -726,7 +726,7 @@ export function AccountsTab() {
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 bg-[image:var(--gradient-primary)] text-white rounded-lg text-sm font-medium shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 flex items-center gap-2 transition-all"
+              className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2 transition-all"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
               Add Account
@@ -743,7 +743,7 @@ export function AccountsTab() {
       ) : (
         <button
           onClick={() => setShowForm(true)}
-          className="px-5 py-2.5 bg-[image:var(--gradient-primary)] text-white rounded-lg text-sm font-medium shadow-sm hover:brightness-110 hover:shadow-md flex items-center gap-2 transition-all"
+          className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 flex items-center gap-2 transition-all"
         >
           <Plus size={16} /> Add Email Account
         </button>

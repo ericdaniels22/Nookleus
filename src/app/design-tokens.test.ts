@@ -314,6 +314,56 @@ describe("iOS/desktop globals — §7.4 applies globally, not per-page", () => {
   });
 });
 
+describe("legacy custom properties — app-wide sweep (#909)", () => {
+  it("references no deleted legacy vars anywhere in src", () => {
+    const deleted =
+      /var\(--(?:gradient-|shadow-card|shadow-vibrant|shadow-glow|vibrant-)/;
+    const offenders: string[] = [];
+    for (const entry of readdirSync(resolve(process.cwd(), "src"), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+      const path = join(entry.parentPath, name);
+      const source = readFileSync(path, "utf8");
+      if (deleted.test(source)) {
+        offenders.push(path);
+      }
+    }
+    expect(
+      offenders,
+      "these vars were deleted from globals.css and now render as nothing",
+    ).toEqual([]);
+  });
+
+  it("references no deleted legacy utility classes anywhere in src", () => {
+    // (?<!-) keeps runtime setProperty("--gradient-…") strings out of scope —
+    // setting an unread var is dead code, not a broken render.
+    const deleted =
+      /(?<!-)\b(?:gradient-hero|gradient-surface|gradient-sidebar|gradient-text|gradient-primary|gradient-secondary|gradient-accent|gradient-border|card-vibrant)\b/;
+    const offenders: string[] = [];
+    for (const entry of readdirSync(resolve(process.cwd(), "src"), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.tsx?$/.test(name) || name.includes(".test.")) continue;
+      const path = join(entry.parentPath, name);
+      const source = readFileSync(path, "utf8");
+      if (deleted.test(source)) {
+        offenders.push(path);
+      }
+    }
+    expect(
+      offenders,
+      "these classes were deleted from globals.css and now render as nothing",
+    ).toEqual([]);
+  });
+});
+
 describe("theme system removal — dark-only, no runtime switching (ADR 0027)", () => {
   it("ships no next-themes imports anywhere in src", () => {
     const offenders: string[] = [];

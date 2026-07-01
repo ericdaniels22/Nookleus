@@ -76,7 +76,7 @@ export function VendorsTab() {
           </p>
         </div>
         <button onClick={() => { setEditing(null); setModalOpen(true); }}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all">
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
           <Plus size={16} /> Add Vendor
         </button>
       </div>
@@ -280,7 +280,7 @@ function VendorModal({
         <DialogFooter>
           <button onClick={() => onOpenChange(false)} className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent">Cancel</button>
           <button onClick={handleSave} disabled={saving}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white hover:brightness-110 disabled:opacity-60">
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
             {saving ? "Saving..." : "Save"}
           </button>
         </DialogFooter>

@@ -173,39 +173,19 @@ export default function JobsPage() {
     <div className="max-w-6xl animate-fade-slide-up">
       <div className="mb-6">
         <h1 className="text-3xl font-extrabold text-foreground">
-          <span className="gradient-text">Jobs</span>
+          <span>Jobs</span>
         </h1>
         <p className="text-muted-foreground mt-1">
           Track and manage all your jobs.
         </p>
       </div>
 
-      {/* Stat cards — gradient hero style */}
+      {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          label="Open jobs"
-          value={stats.open}
-          icon={Briefcase}
-          gradient="gradient-primary"
-        />
-        <StatCard
-          label="Emergencies"
-          value={stats.emergency}
-          icon={Flame}
-          gradient="gradient-accent"
-        />
-        <StatCard
-          label="Pending Invoice"
-          value={stats.pendingInvoice}
-          icon={FileText}
-          gradient="bg-gradient-to-br from-violet-500 to-purple-600"
-        />
-        <StatCard
-          label="This Month"
-          value={stats.thisMonth}
-          icon={CalendarDays}
-          gradient="gradient-secondary"
-        />
+        <StatCard label="Open jobs" value={stats.open} icon={Briefcase} />
+        <StatCard label="Emergencies" value={stats.emergency} icon={Flame} />
+        <StatCard label="Pending Invoice" value={stats.pendingInvoice} icon={FileText} />
+        <StatCard label="This Month" value={stats.thisMonth} icon={CalendarDays} />
       </div>
 
       {/* Filter pills + view toggle */}
@@ -221,7 +201,7 @@ export default function JobsPage() {
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
               filter === opt.value
-                ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                ? "bg-accent-tint text-accent-text border-transparent"
                 : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
             )}
           >
@@ -389,26 +369,20 @@ function StatCard({
   label,
   value,
   icon: Icon,
-  gradient,
 }: {
   label: string;
   value: number;
   icon: React.ComponentType<{ size?: number; className?: string }>;
-  gradient: string;
 }) {
   return (
-    <div
-      className={`rounded-xl p-5 text-white shadow-lg ${gradient}`}
-    >
+    <div className="rounded-lg p-5 bg-card border border-border">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium text-white/70 uppercase tracking-wider">
-            {label}
-          </p>
-          <p className="text-3xl font-extrabold mt-1">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="text-[22px] font-semibold tabular-nums mt-1 text-foreground">{value}</p>
         </div>
-        <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-          <Icon size={22} className="text-white" />
+        <div className="w-10 h-10 rounded-lg bg-accent-tint flex items-center justify-center">
+          <Icon size={22} className="text-accent-text" />
         </div>
       </div>
     </div>

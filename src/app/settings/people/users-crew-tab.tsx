@@ -204,7 +204,7 @@ export function UsersCrewTab() {
         </div>
         <button
           onClick={() => setShowInvite(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
         >
           <Plus size={16} />
           Add User
@@ -353,7 +353,7 @@ export function UsersCrewTab() {
             <button
               onClick={handleInvite}
               disabled={inviting}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {inviting && <Loader2 size={14} className="animate-spin" />}
               Add User
@@ -409,7 +409,7 @@ export function UsersCrewTab() {
               <button
                 onClick={savePermissions}
                 disabled={savingPerms}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
               >
                 {savingPerms && <Loader2 size={14} className="animate-spin" />}
                 Save Permissions

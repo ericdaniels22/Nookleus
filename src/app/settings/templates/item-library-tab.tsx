@@ -217,7 +217,7 @@ export function ItemLibraryTab() {
           <button
             type="button"
             onClick={() => setEditTarget("new")}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
           >
             <Plus size={16} />
             New Item

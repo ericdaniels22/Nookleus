@@ -43,7 +43,7 @@ export default function IconRail({
       {/* Compose button */}
       <button
         onClick={onCompose}
-        className="w-10 h-10 rounded-lg bg-[image:var(--gradient-primary)] text-white flex items-center justify-center shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+        className="w-10 h-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all"
         title="Compose"
       >
         <SquarePen size={18} />

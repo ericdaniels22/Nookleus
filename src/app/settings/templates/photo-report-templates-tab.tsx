@@ -137,7 +137,7 @@ export function PhotoReportTemplatesTab() {
           <button
             type="button"
             onClick={handleCreate}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
           >
             <Plus size={16} />
             New Template

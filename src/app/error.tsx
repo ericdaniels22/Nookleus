@@ -33,7 +33,7 @@ export default function Error({
         <button
           type="button"
           onClick={() => unstable_retry()}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white hover:brightness-110 transition-all"
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
         >
           Try again
         </button>

@@ -406,7 +406,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         <Button
           type="submit"
           disabled={submitting}
-          className="px-6 py-2.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+          className="px-6 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
         >
           {submitting ? (
             <>
@@ -568,7 +568,7 @@ function DynamicField({
                   isSelected
                     ? hasInlineColor
                       ? "shadow-sm"
-                      : opt.color || "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                      : opt.color || "bg-accent-tint text-accent-text border-transparent"
                     : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
                 )}
               >

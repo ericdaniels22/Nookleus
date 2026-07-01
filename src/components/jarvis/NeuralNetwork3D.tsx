@@ -88,8 +88,8 @@ export default function NeuralNetwork3D({
   };
 
   const sparklesFallback = (
-    <div className="w-16 h-16 rounded-2xl bg-[image:var(--gradient-primary)] flex items-center justify-center">
-      <Sparkles size={32} className="text-white" />
+    <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center">
+      <Sparkles size={32} className="text-primary-foreground" />
     </div>
   );
 

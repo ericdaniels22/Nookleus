@@ -63,7 +63,7 @@ export default function JarvisConversationList({
       <div className="p-3 border-b border-border/50">
         <button
           onClick={onNew}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[image:var(--gradient-primary)] text-white text-sm font-medium shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all"
         >
           <Plus size={16} />
           New Conversation

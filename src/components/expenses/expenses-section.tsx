@@ -61,7 +61,7 @@ export default function ExpensesSection({ jobId, onChanged }: Props) {
         </h3>
         {canLog && (
           <button onClick={() => { setSelected(null); setLogOpen(true); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110">
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90">
             <Plus size={14} /> Log Expense
           </button>
         )}

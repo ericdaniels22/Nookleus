@@ -36,7 +36,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
               converting an approved estimate, not authored from the Billing card. */}
           <button
             onClick={() => setPaymentModalOpen(true)}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-colors"
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             + Record Payment
           </button>

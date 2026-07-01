@@ -215,7 +215,7 @@ export default function ContractsSection({ jobId, customerEmail, customerName, o
           <button
             type="button"
             onClick={() => setSendOpen(true)}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-colors gap-1.5"
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors gap-1.5"
           >
             <Send size={14} />
             Send for Signature
