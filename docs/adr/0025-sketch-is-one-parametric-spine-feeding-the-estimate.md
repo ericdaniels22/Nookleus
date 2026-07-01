@@ -5,6 +5,10 @@
 planning (`/grill-with-docs`). No code yet; a PRD and issues follow. This ADR
 captures the *shape* so the build does not fragment into separate, disagreeing
 tools.
+**Amended by:** [ADR 0026](0026-sketch-2d-editor-is-a-full-screen-plan-canvas.md)
+— refines decision 2's iPad / Apple-Pencil-first framing of the 2D editor to
+**desktop-first, full-screen everywhere** (not desktop-only), and settles Room
+coordinate storage (normalized footprint + `origin`).
 
 ## Context
 
