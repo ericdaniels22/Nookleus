@@ -9,15 +9,24 @@ import type { RoomMeasurements } from "@/lib/sketch/measure-room";
 import {
   ROOM_MEASUREMENT_KINDS,
   resolveRoomPull,
+  resolveFloorPull,
+  resolveSketchPull,
   type RoomMeasurementKind,
+  type SketchSource,
 } from "@/lib/sketch/pull-resolver";
+import { aggregateFloor, type RoomContribution } from "@/lib/sketch/aggregate";
 
 interface RouteCtx {
   params: Promise<{ id: string; item_id: string }>;
 }
 
+/** What a pull is taken from: one Room, one Floor's total, or the whole Sketch. */
+type PullScope = "room" | "floor" | "sketch";
+
 interface PullBody {
+  scope?: unknown;
   roomId?: unknown;
+  floorId?: unknown;
   kind?: unknown;
   updated_at_snapshot?: string;
 }
@@ -27,6 +36,37 @@ function isKind(value: unknown): value is RoomMeasurementKind {
     typeof value === "string" &&
     (ROOM_MEASUREMENT_KINDS as readonly string[]).includes(value)
   );
+}
+
+/** The columns a measurement aggregation needs off a Room row. */
+const MEASUREMENT_COLUMNS =
+  "floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume";
+
+interface MeasurementRow {
+  floor_area: number | string;
+  ceiling_area: number | string;
+  perimeter: number | string;
+  gross_wall_area: number | string;
+  net_wall_area: number | string;
+  volume: number | string;
+}
+
+// PostgREST returns numerics as strings — coerce back to the numbers M1/M2/M3
+// reason about. These are the cached measurements written by createSketchRoom
+// (M1's single writer); no recompute happens at pull time.
+function toMeasurements(row: MeasurementRow): RoomMeasurements {
+  return {
+    floorArea: Number(row.floor_area),
+    ceilingArea: Number(row.ceiling_area),
+    perimeter: Number(row.perimeter),
+    grossWallArea: Number(row.gross_wall_area),
+    netWallArea: Number(row.net_wall_area),
+    volume: Number(row.volume),
+  };
+}
+
+function toContribution(row: MeasurementRow): RoomContribution {
+  return { measurements: toMeasurements(row) };
 }
 
 /**
@@ -65,8 +105,15 @@ export const POST = withRequestContext(
       return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
     }
 
-    if (typeof body.roomId !== "string" || !body.roomId.trim()) {
-      return NextResponse.json({ error: "roomId is required" }, { status: 400 });
+    // A pull is scoped to one Room (default), one Floor's total, or the whole
+    // Sketch (ADR 0026). The kind is required for every scope.
+    const scope: PullScope =
+      body.scope === undefined ? "room" : (body.scope as PullScope);
+    if (scope !== "room" && scope !== "floor" && scope !== "sketch") {
+      return NextResponse.json(
+        { error: "scope must be room, floor, or sketch" },
+        { status: 400 },
+      );
     }
     if (!isKind(body.kind)) {
       return NextResponse.json(
@@ -74,7 +121,6 @@ export const POST = withRequestContext(
         { status: 400 },
       );
     }
-    const roomId = body.roomId;
     const kind = body.kind;
 
     const snap = await checkSnapshot(supabase, estimateId, body.updated_at_snapshot);
@@ -91,10 +137,11 @@ export const POST = withRequestContext(
       return NextResponse.json({ error: "line item not found" }, { status: 404 });
     }
 
-    // Resolve job → Sketch → Floors → Room with explicit queries (the RLS-scoped
-    // client already bounds this to the caller's org; the job match bounds it to
-    // this estimate). A Sketch is 1:1 with a job; a Room must sit on one of that
-    // Sketch's floors, so a Room from another job can never be pulled here.
+    // Resolve job → Sketch → Floors with explicit queries (the RLS-scoped client
+    // already bounds this to the caller's org; the job match bounds it to this
+    // estimate). A Sketch is 1:1 with a job, and every scope's source must sit on
+    // one of that Sketch's Floors — so a Room or Floor from another job can never
+    // be pulled here.
     if (!estimate.job_id) {
       return NextResponse.json({ error: "estimate has no job" }, { status: 404 });
     }
@@ -109,56 +156,83 @@ export const POST = withRequestContext(
 
     const { data: floors } = await supabase
       .from("floors")
-      .select("id")
+      .select("id, name")
       .eq("sketch_id", sketch.id);
-    const floorIds = (floors ?? []).map((f: { id: string }) => f.id);
+    const floorList = (floors ?? []) as Array<{ id: string; name: string }>;
+    const floorIds = floorList.map((f) => f.id);
     if (floorIds.length === 0) {
-      return NextResponse.json({ error: "room not found" }, { status: 404 });
+      return NextResponse.json({ error: "sketch has no floors" }, { status: 404 });
     }
 
-    const { data: room } = await supabase
-      .from("rooms")
-      .select(
-        "id, name, floor_id, floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume",
-      )
-      .eq("id", roomId)
-      .in("floor_id", floorIds)
-      .maybeSingle<{
-        id: string;
-        name: string;
-        floor_id: string;
-        floor_area: number | string;
-        ceiling_area: number | string;
-        perimeter: number | string;
-        gross_wall_area: number | string;
-        net_wall_area: number | string;
-        volume: number | string;
-      }>();
-    if (!room) {
-      return NextResponse.json({ error: "room not found" }, { status: 404 });
+    const pulledAt = new Date().toISOString();
+
+    // Resolve the frozen value + breadcrumb for the requested scope. Every branch
+    // reads the same cached measurements and the same M3 resolver family, so a
+    // Floor total and the whole-Sketch total freeze exactly as a Room does.
+    let pull: { value: number; source: SketchSource };
+    if (scope === "room") {
+      if (typeof body.roomId !== "string" || !body.roomId.trim()) {
+        return NextResponse.json({ error: "roomId is required" }, { status: 400 });
+      }
+      const { data: room } = await supabase
+        .from("rooms")
+        .select(`id, name, floor_id, ${MEASUREMENT_COLUMNS}`)
+        .eq("id", body.roomId)
+        .in("floor_id", floorIds)
+        .maybeSingle<
+          MeasurementRow & { id: string; name: string; floor_id: string }
+        >();
+      if (!room) {
+        return NextResponse.json({ error: "room not found" }, { status: 404 });
+      }
+      pull = resolveRoomPull({
+        measurements: toMeasurements(room),
+        kind,
+        sketchId: sketch.id,
+        floorId: room.floor_id,
+        roomId: room.id,
+        roomName: room.name,
+        pulledAt,
+      });
+    } else if (scope === "floor") {
+      if (typeof body.floorId !== "string" || !body.floorId.trim()) {
+        return NextResponse.json({ error: "floorId is required" }, { status: 400 });
+      }
+      const floor = floorList.find((f) => f.id === body.floorId);
+      if (!floor) {
+        return NextResponse.json({ error: "floor not found" }, { status: 404 });
+      }
+      const { data: floorRooms } = await supabase
+        .from("rooms")
+        .select(MEASUREMENT_COLUMNS)
+        .eq("floor_id", floor.id)
+        .returns<MeasurementRow[]>();
+      const aggregate = aggregateFloor((floorRooms ?? []).map(toContribution));
+      pull = resolveFloorPull({
+        measurements: aggregate.measurements,
+        kind,
+        sketchId: sketch.id,
+        floorId: floor.id,
+        floorName: floor.name,
+        pulledAt,
+      });
+    } else {
+      // Whole-Sketch total: sum every Floor's Rooms. Summing all contributions in
+      // one pass equals summing per-Floor then across Floors (addition is
+      // associative), and only the measurements feed the freeze.
+      const { data: allRooms } = await supabase
+        .from("rooms")
+        .select(MEASUREMENT_COLUMNS)
+        .in("floor_id", floorIds)
+        .returns<MeasurementRow[]>();
+      const aggregate = aggregateFloor((allRooms ?? []).map(toContribution));
+      pull = resolveSketchPull({
+        measurements: aggregate.measurements,
+        kind,
+        sketchId: sketch.id,
+        pulledAt,
+      });
     }
-
-    // PostgREST returns numerics as strings — coerce back to the numbers M1/M3
-    // reason about. These are the cached measurements written by createSketchRoom
-    // (M1's single writer); no recompute happens at pull time.
-    const measurements: RoomMeasurements = {
-      floorArea: Number(room.floor_area),
-      ceilingArea: Number(room.ceiling_area),
-      perimeter: Number(room.perimeter),
-      grossWallArea: Number(room.gross_wall_area),
-      netWallArea: Number(room.net_wall_area),
-      volume: Number(room.volume),
-    };
-
-    const pull = resolveRoomPull({
-      measurements,
-      kind,
-      sketchId: sketch.id,
-      floorId: room.floor_id,
-      roomId: room.id,
-      roomName: room.name,
-      pulledAt: new Date().toISOString(),
-    });
 
     const { data, error } = await supabase
       .from("estimate_line_items")

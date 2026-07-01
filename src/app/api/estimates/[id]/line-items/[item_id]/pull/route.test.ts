@@ -100,6 +100,113 @@ describe("POST /api/estimates/[id]/line-items/[item_id]/pull (#861)", () => {
     expect(typeof source.pulled_at).toBe("string");
   });
 
+  it("freezes a Floor's aggregate measurement into quantity + sketch_source (scope: floor)", async () => {
+    // Two Rooms on Ground Floor; the Floor's floor_area total is 12 + 20 = 32 —
+    // the M2 roll-up, not any single Room's number.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [{ id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" }],
+        rooms: [
+          { id: "rm-1", floor_id: "fl-1", name: "Living Room", floor_area: "12", ceiling_area: "13", perimeter: "14", gross_wall_area: "112", net_wall_area: "100", volume: "96" },
+          { id: "rm-2", floor_id: "fl-1", name: "Kitchen", floor_area: "20", ceiling_area: "20", perimeter: "18", gross_wall_area: "150", net_wall_area: "130", volume: "160" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "floor", floorId: "fl-1", kind: "floor_area" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    // The summed floor area 32 becomes the frozen quantity; total = 32 × 10.
+    expect(upd?.payload).toMatchObject({
+      quantity: 32,
+      total: 320,
+      sketch_source: {
+        scope: "floor",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        floor_name: "Ground Floor",
+        kind: "floor_area",
+        value: 32,
+      },
+    });
+  });
+
+  it("freezes the whole-Sketch aggregate measurement into quantity + sketch_source (scope: sketch)", async () => {
+    // Two Floors, one Room each; the whole-Sketch volume total is 96 + 160 = 256
+    // — the sum across every Floor, not any single Room or Floor.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [
+          { id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" },
+          { id: "fl-2", sketch_id: "sk-1", name: "Second Floor" },
+        ],
+        rooms: [
+          { id: "rm-1", floor_id: "fl-1", name: "Living Room", floor_area: "12", ceiling_area: "13", perimeter: "14", gross_wall_area: "112", net_wall_area: "100", volume: "96" },
+          { id: "rm-2", floor_id: "fl-2", name: "Bedroom", floor_area: "20", ceiling_area: "20", perimeter: "18", gross_wall_area: "150", net_wall_area: "130", volume: "160" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "sketch", kind: "volume" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    // Summed volume 256 becomes the frozen quantity; total = 256 × 10. The
+    // breadcrumb carries only the Sketch identity — the total spans every Floor.
+    expect(upd?.payload).toMatchObject({
+      quantity: 256,
+      total: 2560,
+      sketch_source: {
+        scope: "sketch",
+        sketch_id: "sk-1",
+        kind: "volume",
+        value: 256,
+      },
+    });
+  });
+
+  it("refuses a Floor from another job's Sketch (404, no write)", async () => {
+    // A Floor the org can see but that belongs to a DIFFERENT job's Sketch must
+    // not be pullable — it resolves only through THIS estimate's job → Sketch.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        sketches: [
+          { id: "sk-1", job_id: "job-1" },
+          { id: "sk-2", job_id: "job-2" },
+        ],
+        floors: [
+          { id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" },
+          { id: "fl-2", sketch_id: "sk-2", name: "Other Ground" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "floor", floorId: "fl-2", kind: "floor_area" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(404);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd).toBeUndefined();
+  });
+
   it("refuses a Room from another job's Sketch (404, no write)", async () => {
     // A Room the caller's org can see but that belongs to a DIFFERENT job's
     // Sketch must not be pullable into this estimate — the freeze would bill a

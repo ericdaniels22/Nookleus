@@ -31,7 +31,7 @@ import type { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resolveRoomPull, resolveRoomRepull } from "../../src/lib/sketch/pull-resolver";
-import type { SketchSource } from "../../src/lib/sketch/pull-resolver";
+import type { RoomSketchSource } from "../../src/lib/sketch/pull-resolver";
 
 const SCHEMA_SQL = readFileSync(
   join(process.cwd(), "tests", "integration", "line-item-sketch-source-schema.sql"),
@@ -248,7 +248,9 @@ describe("line-item sketch_source migration (#861)", () => {
     await pullNetWallArea(itemId, roomId, 100, 10);
 
     // The Room grows to 125; the user re-pulls the same source against the live value.
-    const { rows: frozen } = await client.query<{ sketch_source: SketchSource }>(
+    const { rows: frozen } = await client.query<{
+      sketch_source: RoomSketchSource;
+    }>(
       "SELECT sketch_source FROM estimate_line_items WHERE id = $1",
       [itemId],
     );

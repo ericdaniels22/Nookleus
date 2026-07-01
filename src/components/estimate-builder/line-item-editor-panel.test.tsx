@@ -1278,7 +1278,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
         />,
       );
@@ -1311,7 +1311,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onClose={vi.fn()}
           mode="estimate"
           readOnly
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
         />,
       );
@@ -1350,17 +1350,46 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       },
     ];
 
+    // The Floor aggregate (M2) sums both Rooms; with one Floor the whole-Sketch
+    // total equals it. These are the Floor-scope and Sketch-scope options.
+    const FLOOR_OPTIONS = [
+      {
+        id: "fl-1",
+        name: "Ground floor",
+        measurements: {
+          floor_area: 62,
+          ceiling_area: 64,
+          perimeter: 44,
+          wall_area_gross: 322,
+          wall_area_net: 300,
+          volume: 496,
+        },
+      },
+    ];
+    const SKETCH_TOTALS = {
+      sketch_id: "sk-1",
+      measurements: {
+        floor_area: 62,
+        ceiling_area: 64,
+        perimeter: 44,
+        wall_area_gross: 322,
+        wall_area_net: 300,
+        volume: 496,
+      },
+    };
+    const FEED = { rooms: ROOM_OPTIONS, floors: FLOOR_OPTIONS, sketch: SKETCH_TOTALS };
+
     it("opens the picker and lists the estimate's Sketch Rooms", async () => {
-      // Opening the affordance lazily loads the Room feed and lists each Room to
-      // choose a source from (acceptance #1).
-      const onLoadSketchRooms = vi.fn().mockResolvedValue(ROOM_OPTIONS);
+      // Opening the affordance lazily loads the Sketch feed and, in the default
+      // Room scope, lists each Room to choose a source from (acceptance #1).
+      const onLoadSketchSources = vi.fn().mockResolvedValue(FEED);
       render(
         <LineItemEditorPanel
           item={makeItem()}
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={onLoadSketchRooms}
+          onLoadSketchSources={onLoadSketchSources}
           onPullFromSketch={vi.fn()}
         />,
       );
@@ -1368,7 +1397,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       fireEvent.click(screen.getByTestId("sketch-pull-button"));
 
       const roomSelect = await screen.findByTestId("sketch-picker-room");
-      expect(onLoadSketchRooms).toHaveBeenCalledTimes(1);
+      expect(onLoadSketchSources).toHaveBeenCalledTimes(1);
       expect(within(roomSelect).getAllByRole("option")).toHaveLength(2);
       expect(roomSelect.textContent).toContain("Living Room");
       expect(roomSelect.textContent).toContain("Kitchen");
@@ -1376,9 +1405,9 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
 
     it("previews the chosen measurement and freezes it into quantity on Pull", async () => {
       // The picker previews `measurements[kind]` for the selected Room, and Pull
-      // hands the parent exactly the roomId + kind the server resolves and freezes
-      // (server-authoritative — the panel doesn't compute the value itself).
-      const onLoadSketchRooms = vi.fn().mockResolvedValue(ROOM_OPTIONS);
+      // hands the parent exactly the scope + roomId + kind the server resolves and
+      // freezes (server-authoritative — the panel doesn't compute the value).
+      const onLoadSketchSources = vi.fn().mockResolvedValue(FEED);
       const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
       render(
         <LineItemEditorPanel
@@ -1386,7 +1415,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={onLoadSketchRooms}
+          onLoadSketchSources={onLoadSketchSources}
           onPullFromSketch={onPullFromSketch}
         />,
       );
@@ -1408,6 +1437,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
 
       await waitFor(() =>
         expect(onPullFromSketch).toHaveBeenCalledWith({
+          scope: "room",
           roomId: "rm-1",
           kind: "floor_area",
         }),
@@ -1418,17 +1448,101 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       );
     });
 
-    it("shows an empty state when the estimate's job has no Sketch Rooms", async () => {
-      // No Sketch (or an empty one) is a valid state, not an error: the picker
-      // says so instead of offering a dead Room select.
-      const onLoadSketchRooms = vi.fn().mockResolvedValue([]);
+    it("pulls a Floor's total: Floor scope reveals a Floor select and freezes its aggregate", async () => {
+      // Switching scope to Floor swaps the Room select for a Floor select and
+      // previews the Floor's aggregate; Pull sends the Floor scope + floorId
+      // (acceptance #5 — the pull supports Floor scope).
+      const onLoadSketchSources = vi.fn().mockResolvedValue(FEED);
+      const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
       render(
         <LineItemEditorPanel
           item={makeItem()}
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={onLoadSketchRooms}
+          onLoadSketchSources={onLoadSketchSources}
+          onPullFromSketch={onPullFromSketch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      await screen.findByTestId("sketch-picker-scope");
+
+      fireEvent.change(screen.getByTestId("sketch-picker-scope"), {
+        target: { value: "floor" },
+      });
+
+      // The Room select gives way to a Floor select; the preview shows the Floor's
+      // net-wall-area aggregate (300).
+      expect(screen.queryByTestId("sketch-picker-room")).toBeNull();
+      const floorSelect = screen.getByTestId("sketch-picker-floor");
+      expect(floorSelect.textContent).toContain("Ground floor");
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("300");
+
+      fireEvent.click(screen.getByTestId("sketch-picker-pull"));
+
+      await waitFor(() =>
+        expect(onPullFromSketch).toHaveBeenCalledWith({
+          scope: "floor",
+          floorId: "fl-1",
+          kind: "wall_area_net",
+        }),
+      );
+    });
+
+    it("pulls the whole-Sketch total: Sketch scope needs no source select and freezes the Sketch aggregate", async () => {
+      // Whole-Sketch scope has a single unambiguous source, so it offers no id
+      // select; Pull sends only the scope + kind (acceptance #5 — whole-Sketch
+      // scope).
+      const onLoadSketchSources = vi.fn().mockResolvedValue(FEED);
+      const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchSources={onLoadSketchSources}
+          onPullFromSketch={onPullFromSketch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      await screen.findByTestId("sketch-picker-scope");
+
+      fireEvent.change(screen.getByTestId("sketch-picker-scope"), {
+        target: { value: "sketch" },
+      });
+
+      // No Room or Floor select — the whole Sketch is the source. Preview shows
+      // the Sketch's net-wall-area total (300).
+      expect(screen.queryByTestId("sketch-picker-room")).toBeNull();
+      expect(screen.queryByTestId("sketch-picker-floor")).toBeNull();
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("300");
+
+      fireEvent.click(screen.getByTestId("sketch-picker-pull"));
+
+      await waitFor(() =>
+        expect(onPullFromSketch).toHaveBeenCalledWith({
+          scope: "sketch",
+          kind: "wall_area_net",
+        }),
+      );
+    });
+
+    it("shows an empty state when the estimate's job has no Sketch", async () => {
+      // No Sketch (or an empty one) is a valid state, not an error: the picker
+      // says so instead of offering a dead source select.
+      const onLoadSketchSources = vi
+        .fn()
+        .mockResolvedValue({ rooms: [], floors: [], sketch: null });
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchSources={onLoadSketchSources}
           onPullFromSketch={vi.fn()}
         />,
       );
@@ -1466,7 +1580,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
           onRepullPreview={vi.fn()}
           onRepullApply={vi.fn()}
@@ -1491,7 +1605,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
           onRepullPreview={onRepullPreview}
           onRepullApply={onRepullApply}
@@ -1526,7 +1640,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
           onRepullPreview={onRepullPreview}
           onRepullApply={onRepullApply}
@@ -1556,7 +1670,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={vi.fn()}
+          onLoadSketchSources={vi.fn()}
           onPullFromSketch={vi.fn()}
           onRepullPreview={onRepullPreview}
           onRepullApply={onRepullApply}
@@ -1573,29 +1687,34 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
     it("keeps the fresh-pull picker reachable via Change source", async () => {
       // Re-pointing a sourced line to a different Room/measurement is still
       // possible (#861 capability preserved): "Change source" opens the picker.
-      const onLoadSketchRooms = vi.fn().mockResolvedValue([
-        {
-          id: "rm-1",
-          name: "Living Room",
-          floor_id: "fl-1",
-          floor_name: "Ground floor",
-          measurements: {
-            floor_area: 12,
-            ceiling_area: 13,
-            perimeter: 14,
-            wall_area_gross: 112,
-            wall_area_net: 100,
-            volume: 96,
+      const measurements = {
+        floor_area: 12,
+        ceiling_area: 13,
+        perimeter: 14,
+        wall_area_gross: 112,
+        wall_area_net: 100,
+        volume: 96,
+      };
+      const onLoadSketchSources = vi.fn().mockResolvedValue({
+        rooms: [
+          {
+            id: "rm-1",
+            name: "Living Room",
+            floor_id: "fl-1",
+            floor_name: "Ground floor",
+            measurements,
           },
-        },
-      ]);
+        ],
+        floors: [{ id: "fl-1", name: "Ground floor", measurements }],
+        sketch: { sketch_id: "sk-1", measurements },
+      });
       render(
         <LineItemEditorPanel
           item={sourcedItem()}
           onChange={vi.fn()}
           onClose={vi.fn()}
           mode="estimate"
-          onLoadSketchRooms={onLoadSketchRooms}
+          onLoadSketchSources={onLoadSketchSources}
           onPullFromSketch={vi.fn()}
           onRepullPreview={vi.fn()}
           onRepullApply={vi.fn()}
@@ -1605,7 +1724,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       fireEvent.click(screen.getByTestId("sketch-change-source-button"));
 
       await screen.findByTestId("sketch-picker-room");
-      expect(onLoadSketchRooms).toHaveBeenCalledTimes(1);
+      expect(onLoadSketchSources).toHaveBeenCalledTimes(1);
     });
 
     it("discards an in-flight preview when the user switches lines mid-check", async () => {
@@ -1648,7 +1767,7 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
         onChange: vi.fn(),
         onClose: vi.fn(),
         mode: "estimate" as const,
-        onLoadSketchRooms: vi.fn(),
+        onLoadSketchSources: vi.fn(),
         onPullFromSketch: vi.fn(),
         onRepullPreview,
         onRepullApply,

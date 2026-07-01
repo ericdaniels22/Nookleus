@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Maximize, Minus, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Maximize, Minus, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import type { Floor, Room } from "@/lib/types";
 import { translateFootprint, type Point } from "@/lib/sketch/footprint";
 import { deleteWall, setWallLength } from "@/lib/sketch/footprint-edit";
+import { floorStatistics, sketchStatistics } from "@/lib/sketch/room-stats";
 import PlanCanvas from "./plan-canvas";
+import { StatisticsPanel } from "./statistics-panel";
 
 /** Trim trailing zeros so "12.000" reads as "12" but "12.5" survives. */
 function fmt(value: number): string {
@@ -26,16 +28,31 @@ function fmt(value: number): string {
 interface PlanEditorProps {
   jobId: string;
   sketchId: string;
-  /** The active Floor — supplies the ceiling height a Room inherits. */
-  floor: Floor;
-  /** Rooms already saved on this Floor, so the plan survives a reload. */
+  /** Every Floor of the Sketch; the first is the active one on first paint. */
+  floors: Floor[];
+  /**
+   * Every Room saved across all Floors (each carries its `floor_id`), so the
+   * plan survives a reload and the whole-Sketch Statistics can be totalled.
+   */
   initialRooms: Room[];
 }
 
-export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorProps) {
+export default function PlanEditor({
+  jobId,
+  floors: initialFloors,
+  initialRooms,
+}: PlanEditorProps) {
+  const [floors, setFloors] = useState<Floor[]>(initialFloors);
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [mode, setMode] = useState<"idle" | "adding">("idle");
+  // Which Floor is on the canvas. Rooms are filtered to it; switching Floors
+  // just changes this id (the Rooms of other Floors stay in state for stats).
+  const [activeFloorId, setActiveFloorId] = useState<string>(floors[0]?.id ?? "");
+  // The active Floor's name is editable inline; `renamingFloor` toggles the field
+  // and `floorNameDraft` holds the in-progress name until Save.
+  const [renamingFloor, setRenamingFloor] = useState(false);
+  const [floorNameDraft, setFloorNameDraft] = useState("");
   // Zoom as a percentage (100 = 1:1), stepped 25% at a time within a sane range.
   // "Fit" returns to 1:1; true fit-to-content recentring is canvas glue (#890).
   const [zoom, setZoom] = useState(100);
@@ -44,7 +61,72 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
   const zoomOut = () => setZoom((z) => clampZoom(z - 25));
   const zoomFit = () => setZoom(100);
 
-  const selectedRoom = rooms.find((r) => r.id === selectedRoomId) ?? null;
+  // The Floor the canvas is showing, and the Rooms placed on it. Other Floors'
+  // Rooms stay in `rooms` so the whole-Sketch Statistics can total them.
+  const activeFloor = floors.find((f) => f.id === activeFloorId) ?? floors[0];
+  const activeRooms = rooms.filter((r) => r.floor_id === activeFloor?.id);
+
+  const selectedRoom = activeRooms.find((r) => r.id === selectedRoomId) ?? null;
+
+  // The Statistics roll-up (M2): the active Floor's totals and the whole-Sketch
+  // totals (every Floor's Rooms summed). Pure — the numbers come straight off the
+  // Rooms' cached measurements (room-stats.ts).
+  const floorAggregate = floorStatistics(activeRooms);
+  const sketchAggregate = sketchStatistics(
+    floors.map((f) => rooms.filter((r) => r.floor_id === f.id)),
+  );
+
+  // Switching Floors just changes which Floor the canvas draws. The prior
+  // selection (a Room on the old Floor) and any half-drawn footprint are dropped
+  // so the inspector never dangles on an off-Floor Room.
+  function selectFloor(floorId: string) {
+    setActiveFloorId(floorId);
+    setSelectedRoomId(null);
+    setMode("idle");
+  }
+
+  // Adding a Floor grows the Sketch (a second storey, a detached structure). The
+  // server names the Sketch it belongs to, so we send only a starting name — the
+  // Nth Floor — which the user can rename. The new Floor becomes active with an
+  // empty canvas.
+  async function addFloor() {
+    const res = await fetch(`/api/jobs/${jobId}/sketch/floors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `Floor ${floors.length + 1}` }),
+    });
+    if (!res.ok) return;
+    const { floor } = (await res.json()) as { floor: Floor };
+    setFloors((prev) => [...prev, floor]);
+    selectFloor(floor.id);
+  }
+
+  // Renaming the active Floor writes only its name (the level defaults and its
+  // Rooms are untouched). We take the echoed row so the tab relabels at once.
+  function startRenamingFloor() {
+    setFloorNameDraft(activeFloor?.name ?? "");
+    setRenamingFloor(true);
+  }
+
+  async function saveFloorName() {
+    const name = floorNameDraft.trim();
+    if (!activeFloor || !name) {
+      setRenamingFloor(false);
+      return;
+    }
+    const res = await fetch(
+      `/api/jobs/${jobId}/sketch/floors/${activeFloor.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      },
+    );
+    setRenamingFloor(false);
+    if (!res.ok) return;
+    const { floor } = (await res.json()) as { floor: Floor };
+    setFloors((prev) => prev.map((f) => (f.id === floor.id ? floor : f)));
+  }
 
   // Moving a Room writes only its origin (ADR 0026) — the footprint and its
   // cached measurements are position-invariant, so the PATCH carries nothing
@@ -68,7 +150,7 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
     const res = await fetch(`/api/jobs/${jobId}/sketch/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ floorId: floor.id, footprint }),
+      body: JSON.stringify({ floorId: activeFloor.id, footprint }),
     });
     if (!res.ok) return;
     const { room } = (await res.json()) as { room: Room };
@@ -130,7 +212,70 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
           <ArrowLeft size={16} />
           Back
         </Link>
-        <span className="text-sm font-medium text-foreground">{floor.name}</span>
+        <nav aria-label="Floors" className="flex items-center gap-1">
+          {floors.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => selectFloor(f.id)}
+              aria-current={f.id === activeFloor?.id ? "true" : undefined}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                f.id === activeFloor?.id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              {f.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="Add floor"
+            onClick={addFloor}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          >
+            <Plus size={14} />
+            Floor
+          </button>
+        </nav>
+
+        {renamingFloor ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveFloorName();
+            }}
+            className="flex items-center gap-2"
+          >
+            <label htmlFor="floor-name" className="sr-only">
+              Floor name
+            </label>
+            <input
+              id="floor-name"
+              type="text"
+              autoFocus
+              value={floorNameDraft}
+              onChange={(e) => setFloorNameDraft(e.target.value)}
+              className="w-40 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <button
+              type="submit"
+              aria-label="Save floor"
+              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Save
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            aria-label="Rename floor"
+            onClick={startRenamingFloor}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          >
+            <Pencil size={14} />
+          </button>
+        )}
 
         <button
           type="button"
@@ -144,7 +289,7 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
 
       <div className="relative flex-1">
         <PlanCanvas
-          rooms={rooms}
+          rooms={activeRooms}
           selectedRoomId={selectedRoomId}
           mode={mode}
           zoom={zoom}
@@ -159,12 +304,23 @@ export default function PlanEditor({ jobId, floor, initialRooms }: PlanEditorPro
           <RoomInspector
             key={selectedRoom.id}
             room={selectedRoom}
-            floor={floor}
+            floor={activeFloor}
             onSave={(edits) => saveRoom(selectedRoom.id, edits)}
             onEditFootprint={(placed) => editFootprint(selectedRoom.id, placed)}
             onDelete={() => deleteRoom(selectedRoom.id)}
           />
-        ) : null}
+        ) : (
+          <aside
+            aria-label="Statistics"
+            className="absolute right-0 top-0 h-full w-72 overflow-y-auto border-l border-border bg-card p-4"
+          >
+            <StatisticsPanel
+              floor={floorAggregate}
+              sketch={sketchAggregate}
+              floorName={activeFloor?.name}
+            />
+          </aside>
+        )}
 
         <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur">
           <button

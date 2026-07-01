@@ -52,8 +52,8 @@ import { useLineItemSelection } from "./use-line-item-selection";
 import type { BuilderLineItem } from "./line-item-row";
 import type {
   RepullPreview,
-  RoomMeasurementKind,
-  SketchRoomOption,
+  SketchPickerFeed,
+  SketchPullArgs,
 } from "@/lib/sketch/pull-resolver";
 import TemplateMetaBar from "./template-meta-bar";
 import ConvertConfirmModal from "@/components/conversion/convert-confirm-modal";
@@ -1474,33 +1474,36 @@ export function EstimateBuilder({
     // Task 28 auto-save will pick this up.
   }
 
-  // #861 — "Pull from Sketch" (estimate-only). The picker feed and the freeze
-  // are both server-authoritative: loadSketchRooms GETs the Rooms of this
-  // estimate's Sketch; pullFromSketch POSTs the chosen Room + kind to the item's
-  // pull route, which resolves the measurement and writes the frozen `quantity`
-  // + `sketch_source`, returning the updated row.
-  async function loadSketchRooms(): Promise<SketchRoomOption[]> {
-    if (state.entity.kind !== "estimate") return [];
+  // #861, #865 — "Pull from Sketch" (estimate-only). The picker feed and the
+  // freeze are both server-authoritative: loadSketchSources GETs the Rooms, each
+  // Floor's totals, and the whole-Sketch total of this estimate's Sketch;
+  // pullFromSketch POSTs the chosen scope (+ id) + kind to the item's pull route,
+  // which resolves the measurement and writes the frozen `quantity` +
+  // `sketch_source`, returning the updated row.
+  async function loadSketchSources(): Promise<SketchPickerFeed> {
+    const empty: SketchPickerFeed = { rooms: [], floors: [], sketch: null };
+    if (state.entity.kind !== "estimate") return empty;
     const entityId = state.entity.data.id;
     try {
       const res = await fetch(`/api/estimates/${entityId}/sketch/rooms`);
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         toast.error(body.error || "Failed to load Sketch rooms");
-        return [];
+        return empty;
       }
-      const data = (await res.json()) as { rooms: SketchRoomOption[] };
-      return data.rooms;
+      const data = (await res.json()) as Partial<SketchPickerFeed>;
+      return {
+        rooms: data.rooms ?? [],
+        floors: data.floors ?? [],
+        sketch: data.sketch ?? null,
+      };
     } catch {
       toast.error("Network error — could not load Sketch rooms");
-      return [];
+      return empty;
     }
   }
 
-  async function pullFromSketch(
-    itemId: string,
-    args: { roomId: string; kind: RoomMeasurementKind },
-  ) {
+  async function pullFromSketch(itemId: string, args: SketchPullArgs) {
     if (state.entity.kind !== "estimate") return;
     const entityId = state.entity.data.id;
     try {
@@ -1509,7 +1512,7 @@ export function EstimateBuilder({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomId: args.roomId, kind: args.kind }),
+          body: JSON.stringify(args),
         },
       );
       if (!res.ok) {
@@ -2620,7 +2623,7 @@ export function EstimateBuilder({
               onClose={lineSelection.clear}
               onDuplicate={() => onLineItemDuplicate(selectedItem.id)}
               onDelete={() => onLineItemDelete(selectedItem.id)}
-              onLoadSketchRooms={loadSketchRooms}
+              onLoadSketchSources={loadSketchSources}
               onPullFromSketch={(args) => pullFromSketch(selectedItem.id, args)}
               onRepullPreview={() => repullPreview(selectedItem.id)}
               onRepullApply={(expectedNewValue) =>

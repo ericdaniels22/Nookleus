@@ -8,8 +8,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type Point } from "./footprint";
-import { mergeCollinear, shouldClosePolygon, snapWall } from "./footprint-draw";
+import { rectangleFootprint, type Point } from "./footprint";
+import {
+  mergeCollinear,
+  shouldClosePolygon,
+  snapToSharedWalls,
+  snapWall,
+} from "./footprint-draw";
 
 describe("snapWall", () => {
   it("snaps a mostly-horizontal drag to a level wall and rounds it to clean feet", () => {
@@ -167,5 +172,77 @@ describe("mergeCollinear", () => {
     expect(mergeCollinear(triangle)).toEqual(triangle);
     // Pure: the returned corners are a fresh array, not the caller's input.
     expect(mergeCollinear(triangle)).not.toBe(triangle);
+  });
+});
+
+describe("snapToSharedWalls", () => {
+  it("snaps a dragged Room's near-touching wall flush against a neighbour's", () => {
+    // Room A is a 10×10 at the floor origin, so its right wall sits at x=10.
+    // Room B (6×8) is dragged so its left wall lands at x=10.25 — a quarter foot
+    // shy of A's right wall, inside the 0.5 ft threshold. Snapping nudges B's
+    // origin left so the two walls coincide exactly: an adjoining shared wall.
+    const roomA = { footprint: rectangleFootprint(10, 10), origin: { x: 0, y: 0 } };
+    const roomB = { footprint: rectangleFootprint(6, 8), origin: { x: 10.25, y: 0 } };
+
+    expect(snapToSharedWalls(roomB, [roomA], 0.5)).toEqual({ x: 10, y: 0 });
+  });
+
+  it("leaves the origin untouched when no wall is within the threshold", () => {
+    // B's nearest wall to A is a foot and a half away — well outside the 0.5 ft
+    // threshold — so nothing snaps and the dragged position stands as-is.
+    const roomA = { footprint: rectangleFootprint(10, 10), origin: { x: 0, y: 0 } };
+    const roomB = { footprint: rectangleFootprint(6, 8), origin: { x: 11.5, y: 3 } };
+
+    expect(snapToSharedWalls(roomB, [roomA], 0.5)).toEqual({ x: 11.5, y: 3 });
+  });
+
+  it("snaps flush on both axes at once when dragged toward a corner", () => {
+    // B is dragged near A's top-right corner: its left wall is a quarter foot
+    // past A's right wall (x 10.25→10) and its top wall a quarter foot below A's
+    // top (y 10.25→10). Both axes snap independently, landing B's corner exactly
+    // on A's — the two Rooms meet at a shared corner.
+    const roomA = { footprint: rectangleFootprint(10, 10), origin: { x: 0, y: 0 } };
+    const roomB = { footprint: rectangleFootprint(6, 6), origin: { x: 10.25, y: 10.25 } };
+
+    expect(snapToSharedWalls(roomB, [roomA], 0.5)).toEqual({ x: 10, y: 10 });
+  });
+
+  it("aligns parallel walls that line up, even when the Rooms don't touch", () => {
+    // B sits well above A with no shared edge, but its left wall (x=0.25) is a
+    // hair off A's left wall (x=0). Snapping aligns them to the same line so the
+    // two Rooms stack flush — alignment, not just adjacency. The y is untouched:
+    // no horizontal wall of A is anywhere near B's.
+    const roomA = { footprint: rectangleFootprint(10, 10), origin: { x: 0, y: 0 } };
+    const roomB = { footprint: rectangleFootprint(6, 6), origin: { x: 0.25, y: 40 } };
+
+    expect(snapToSharedWalls(roomB, [roomA], 0.5)).toEqual({ x: 0, y: 40 });
+  });
+
+  it("snaps to the nearer of two candidate walls in range", () => {
+    // B's left wall at x=9.8 is within 0.5 of both A's right wall (x=10, 0.2 off)
+    // and A's inner wall (x=9.4, 0.4 off — an L-shaped A). The nearer one wins:
+    // it snaps to x=10, not x=9.4.
+    const lShapedA = {
+      // A 10-wide footprint with a notch, giving vertical walls at x=0, 9.4, 10.
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 4 },
+        { x: 9.4, y: 4 },
+        { x: 9.4, y: 10 },
+        { x: 0, y: 10 },
+      ],
+      origin: { x: 0, y: 0 },
+    };
+    const roomB = { footprint: rectangleFootprint(6, 6), origin: { x: 9.8, y: 0 } };
+
+    expect(snapToSharedWalls(roomB, [lShapedA], 0.5).x).toBe(10);
+  });
+
+  it("returns the origin unchanged when there are no other Rooms to snap to", () => {
+    // The first Room placed on a Floor has nothing to share a wall with.
+    const roomB = { footprint: rectangleFootprint(6, 8), origin: { x: 3.25, y: 7.5 } };
+
+    expect(snapToSharedWalls(roomB, [], 0.5)).toEqual({ x: 3.25, y: 7.5 });
   });
 });

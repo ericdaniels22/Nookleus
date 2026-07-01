@@ -1261,7 +1261,7 @@ describe("EstimateBuilder × delete focus management (#745)", () => {
 
 // Issue #861 — "Pull from Sketch" wired end-to-end through the real builder. The
 // panel exposes the picker affordance; the builder supplies the two callbacks
-// that talk to the server: onLoadSketchRooms (GET the Room feed) and
+// that talk to the server: onLoadSketchSources (GET the picker feed) and
 // onPullFromSketch (POST the server-authoritative freeze). These prove the
 // selection made in the picker flows to the pull endpoint and the frozen
 // result — quantity + source badge — lands back on the selected line.
@@ -1298,6 +1298,36 @@ describe("EstimateBuilder × Pull from Sketch (#861)", () => {
       },
     },
   ];
+
+  // The rest of the picker feed the GET returns alongside the Rooms (#865): the
+  // single Floor's aggregate (M2 sums both Rooms) and the whole-Sketch total,
+  // both keyed by pull kind — so the picker can offer Floor and Sketch scope.
+  const FLOORS = [
+    {
+      id: "fl-1",
+      name: "Ground floor",
+      measurements: {
+        floor_area: 32,
+        ceiling_area: 32,
+        wall_area_net: 160,
+        wall_area_gross: 182,
+        perimeter: 72,
+        volume: 146,
+      },
+    },
+  ];
+  const SKETCH_TOTALS = {
+    sketch_id: "sk-1",
+    measurements: {
+      floor_area: 32,
+      ceiling_area: 32,
+      wall_area_net: 160,
+      wall_area_gross: 182,
+      perimeter: 72,
+      volume: 146,
+    },
+  };
+  const FEED = { rooms: ROOMS, floors: FLOORS, sketch: SKETCH_TOTALS };
 
   // The server-authoritative POST response: line item A ("Tear-off"), its
   // quantity frozen to Living Room's net wall area (100) and its sketch_source
@@ -1345,7 +1375,7 @@ describe("EstimateBuilder × Pull from Sketch (#861)", () => {
     const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
       const u = String(url);
       if (u.includes("/sketch/rooms")) {
-        return { ok: true, json: async () => ({ rooms: ROOMS }) };
+        return { ok: true, json: async () => FEED };
       }
       if (u.includes("/pull")) {
         pullUrl = u;
@@ -1378,7 +1408,11 @@ describe("EstimateBuilder × Pull from Sketch (#861)", () => {
     // The POST carries the picker's chosen Room + kind to the item's pull route.
     await waitFor(() => expect(pullUrl).toContain("/pull"));
     expect(pullUrl).toContain("/api/estimates/est-1/line-items/A/pull");
-    expect(pullBody).toEqual({ roomId: "rm-1", kind: "wall_area_net" });
+    expect(pullBody).toEqual({
+      scope: "room",
+      roomId: "rm-1",
+      kind: "wall_area_net",
+    });
 
     // The frozen result lands on the line: the source badge names the Room and
     // measurement…
@@ -1409,7 +1443,7 @@ describe("EstimateBuilder × Pull from Sketch (#861)", () => {
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes("/sketch/rooms")) {
-        return { ok: true, json: async () => ({ rooms: ROOMS }) };
+        return { ok: true, json: async () => FEED };
       }
       if (u.includes("/pull")) {
         return { ok: false, json: async () => ({ error: "no sketch here" }) };

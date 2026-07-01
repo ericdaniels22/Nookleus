@@ -15,6 +15,17 @@
 import { type Point } from "./footprint";
 
 /**
+ * A Room as the assembler sees it for snapping: its normalized `footprint` and
+ * the `origin` that places it on the Floor (ADR 0026). The floor-space corners
+ * are `footprint` shifted by `origin` — the same reconstruction `translateFootprint`
+ * does — so a wall's floor coordinate is a vertex value plus the origin.
+ */
+export interface PlacedFootprint {
+  footprint: Point[];
+  origin: Point;
+}
+
+/**
  * Snap a freshly-tapped corner so the wall from `prev` is axis-aligned (a right
  * angle off the previous wall) and a whole number of feet long. The dominant
  * drag axis wins — a mostly-horizontal drag becomes a level wall, a
@@ -102,4 +113,65 @@ export function mergeCollinear(
     }
   }
   return result;
+}
+
+/**
+ * The floor-space coordinates of a placed footprint's walls along one axis. A
+ * vertical wall is a line of constant x, a horizontal wall a line of constant y,
+ * and `snapWall` keeps every wall axis-aligned — so each vertex value shifted by
+ * the origin marks a wall line. Duplicates (a rectangle's two corners on the same
+ * side) are harmless; they just name the same line twice.
+ */
+function wallCoords(placed: PlacedFootprint, axis: "x" | "y"): number[] {
+  const base = placed.origin[axis];
+  return placed.footprint.map((p) => p[axis] + base);
+}
+
+/**
+ * The nudge along one axis that brings one of `movingLines` onto the nearest
+ * `neighbourLines` value within `threshold`, or 0 if none is close. Nearest wins;
+ * an exact tie keeps the first candidate found. Kept per-axis so x and y snap
+ * independently — a Room nearing a corner can snap flush on both at once.
+ */
+function axisSnap(
+  movingLines: number[],
+  neighbourLines: number[],
+  threshold: number,
+): number {
+  let best = 0;
+  let bestDist = Infinity;
+  for (const m of movingLines) {
+    for (const n of neighbourLines) {
+      const delta = n - m;
+      const dist = Math.abs(delta);
+      if (dist <= threshold && dist < bestDist) {
+        bestDist = dist;
+        best = delta;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Shared-wall snapping — M4's assembly rule (#865). When a Room is dragged so one
+ * of its walls comes within `threshold` feet of a neighbouring Room's parallel
+ * wall, its `origin` is nudged so the two walls coincide exactly: the adjoining
+ * Rooms share the wall (PRD — adjoining Rooms snap along shared walls). Each axis
+ * snaps to its own nearest neighbour wall, so a Room dragged toward a corner can
+ * snap flush on both x and y at once, and two Rooms whose sides line up stack flush
+ * even without touching. With no neighbour wall in range — or no neighbours — the
+ * origin is returned unchanged. Only the `origin` moves; the footprint (and every
+ * measurement) is position-invariant.
+ */
+export function snapToSharedWalls(
+  moving: PlacedFootprint,
+  others: PlacedFootprint[],
+  threshold: number,
+): Point {
+  const neighbourXs = others.flatMap((o) => wallCoords(o, "x"));
+  const neighbourYs = others.flatMap((o) => wallCoords(o, "y"));
+  const dx = axisSnap(wallCoords(moving, "x"), neighbourXs, threshold);
+  const dy = axisSnap(wallCoords(moving, "y"), neighbourYs, threshold);
+  return { x: moving.origin.x + dx, y: moving.origin.y + dy };
 }
