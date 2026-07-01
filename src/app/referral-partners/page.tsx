@@ -176,7 +176,7 @@ export default function ReferralPartnersPage() {
           onClick={() => setView("active")}
           className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
             view === "active"
-              ? "bg-primary text-primary-foreground"
+              ? "bg-accent-tint text-accent-text"
               : "bg-card border border-border text-foreground hover:bg-muted/40"
           }`}
         >
@@ -190,7 +190,7 @@ export default function ReferralPartnersPage() {
           onClick={() => setView("trash")}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
             view === "trash"
-              ? "bg-primary text-primary-foreground"
+              ? "bg-accent-tint text-accent-text"
               : "bg-card border border-border text-foreground hover:bg-muted/40"
           }`}
         >

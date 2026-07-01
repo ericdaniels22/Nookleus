@@ -652,7 +652,7 @@ export function LineItemEditorPanel({
                   className={cn(
                     "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
                     !isEquipment
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent-tint text-accent-text"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -667,7 +667,7 @@ export function LineItemEditorPanel({
                   className={cn(
                     "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
                     isEquipment
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent-tint text-accent-text"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >

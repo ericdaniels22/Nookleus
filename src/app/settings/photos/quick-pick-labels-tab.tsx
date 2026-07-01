@@ -202,7 +202,7 @@ export function QuickPickLabelsTab() {
             <button
               onClick={handleAdd}
               disabled={saving}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground transition-all disabled:opacity-50"
             >
               <Check size={14} /> Add
             </button>

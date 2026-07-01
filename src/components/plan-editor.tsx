@@ -385,7 +385,7 @@ export default function PlanEditor({
             <button
               type="submit"
               aria-label="Save floor"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              className="rounded-lg border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground px-3 py-1.5 text-sm font-medium"
             >
               Save
             </button>
@@ -427,7 +427,7 @@ export default function PlanEditor({
                 aria-pressed={viewDim === dim}
                 className={`rounded-md px-3 py-1 text-sm font-medium ${
                   viewDim === dim
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-accent-tint text-accent-text"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -721,7 +721,7 @@ function RoomInspector({
       <button
         type="button"
         onClick={save}
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        className="inline-flex items-center justify-center gap-2 rounded-lg border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground px-3 py-2 text-sm font-medium"
       >
         Save
       </button>

@@ -253,7 +253,7 @@ export function Inspector({
                 />
                 <button
                   onClick={addOption}
-                  className="px-3 py-1 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                  className="px-3 py-1 rounded text-xs font-medium border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground transition-all"
                 >
                   Add
                 </button>
