@@ -2,7 +2,11 @@ export interface ContractEmailFrameInput {
   // The signing-request email (#691) and the reminder (#692) both render in
   // this frame and carry the action button; the union widens further as the
   // remaining PRD email kinds (confirmation, internal) adopt the shared frame.
-  kind: "signing_request" | "reminder";
+  kind:
+    | "signing_request"
+    | "reminder"
+    | "signed_confirmation"
+    | "internal_notification";
   companyName: string;
   logoUrl: string | null;
   logoVisible: boolean;
@@ -13,9 +17,16 @@ export interface ContractEmailFrameInput {
   // Already run through sanitizeEmailHtmlForSend by the caller — the frame is
   // assembled AROUND it, never through the sanitizer (see ADR 0017 §3).
   message: string;
-  actionUrl: string;
+  // Null for the post-sign confirmation (#693), which is a done-state receipt
+  // with no call to action — a null url draws no button at all.
+  actionUrl: string | null;
   documentTitle: string;
 }
+
+// The internal staff notification's action button carries an app-fixed label
+// (ADR 0017 §4): a single contractor-set label drives the customer-facing
+// signing button, but the internal "View contract" button is not configurable.
+const INTERNAL_BUTTON_LABEL = "View contract";
 
 // Escapes text destined for HTML text nodes or double-quoted attributes. The
 // message is already sanitized HTML and is embedded verbatim; everything the
@@ -53,20 +64,29 @@ export function renderContractEmailFrame(input: ContractEmailFrameInput): string
     : `<div style="margin:24px 0 0;font-size:18px;font-weight:700;color:#6b7280;` +
       `font-family:Arial,Helvetica,sans-serif;">Nookleus</div>`;
 
-  // A glyph sits above the headline: the document icon for the initial send,
-  // a reminder bell for the nudge (#692). The remaining kinds (confirmation,
-  // internal) swap it further in later slices.
-  const glyph = input.kind === "reminder" ? "🔔" : "📄";
+  // A glyph sits above the headline, chosen by kind: the document icon for the
+  // initial send, a reminder bell for the nudge (#692), and a signed-check for
+  // the post-sign confirmation receipt (#693).
+  const glyph =
+    input.kind === "reminder"
+      ? "🔔"
+      : input.kind === "signed_confirmation"
+        ? "✅"
+        : "📄";
   const documentIcon =
     `<div style="font-size:40px;line-height:1;margin-bottom:12px;">${glyph}</div>`;
 
-  // The reminder reads as a nudge ("…is waiting for your signature"); the
-  // initial send announces the document. Same card chrome and button either way
-  // (ADR 0017 §4) — only the headline copy differs by kind.
+  // Each kind gets its own headline copy over the same card chrome (ADR 0017
+  // §4): the reminder nudges, the confirmation confirms a done deal, and the
+  // initial send announces the document.
   const headlineText =
     input.kind === "reminder"
       ? `Reminder: ${company} is waiting for your signature`
-      : `${company} sent you a document to review and sign`;
+      : input.kind === "signed_confirmation"
+        ? `${company}: your document is signed`
+        : input.kind === "internal_notification"
+          ? `${company}: a document was signed`
+          : `${company} sent you a document to review and sign`;
   const headline =
     `<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#1a1a1a;` +
     `font-family:Arial,Helvetica,sans-serif;">` +
@@ -77,12 +97,25 @@ export function renderContractEmailFrame(input: ContractEmailFrameInput): string
     `font-family:Arial,Helvetica,sans-serif;">From ${escapeHtml(input.senderName)} ` +
     `(${escapeHtml(input.senderEmail)})</p>`;
 
-  const actionButton =
-    `<a href="${escapeHtml(input.actionUrl)}" ` +
-    `style="display:inline-block;background-color:${escapeHtml(input.buttonColor)};` +
-    `color:${buttonTextColor};text-decoration:none;font-weight:600;` +
-    `padding:14px 28px;border-radius:6px;font-size:16px;">` +
-    `${escapeHtml(input.buttonLabel)}</a>`;
+  // The internal staff notification's button label is app-fixed ("View
+  // contract"), never the contractor's customer-facing signing label (ADR 0017
+  // §4 / #693); every other kind uses the contractor's configured label.
+  const buttonLabel =
+    input.kind === "internal_notification"
+      ? INTERNAL_BUTTON_LABEL
+      : input.buttonLabel;
+
+  // The action button is drawn only when there's somewhere to go. The post-sign
+  // confirmation (#693) passes a null actionUrl — a done-state receipt carries
+  // no button, so the whole centered block is omitted.
+  const actionButton = input.actionUrl
+    ? `<div style="text-align:center;margin-top:24px;">` +
+      `<a href="${escapeHtml(input.actionUrl)}" ` +
+      `style="display:inline-block;background-color:${escapeHtml(input.buttonColor)};` +
+      `color:${buttonTextColor};text-decoration:none;font-weight:600;` +
+      `padding:14px 28px;border-radius:6px;font-size:16px;">` +
+      `${escapeHtml(buttonLabel)}</a></div>`
+    : "";
 
   const cardBody =
     brandHeader +
@@ -91,7 +124,7 @@ export function renderContractEmailFrame(input: ContractEmailFrameInput): string
     senderLine +
     `<div style="font-size:15px;color:#1a1a1a;font-family:Arial,Helvetica,sans-serif;">` +
     `${input.message}</div>` +
-    `<div style="text-align:center;margin-top:24px;">${actionButton}</div>` +
+    actionButton +
     footer;
 
   // Bulletproof, table-based, inline-styled shell so the card holds together

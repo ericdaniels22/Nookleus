@@ -3,6 +3,7 @@ import { advanceJobOnContractSigned } from "@/lib/job-status-transitions";
 import { writeContractEvent } from "./audit";
 import { resolveMergeValues } from "./resolve-merge-values";
 import { resolveEmailTemplate } from "./email-merge-fields";
+import { renderBrandedContractEmail } from "./branded-email";
 import { sendContractEmail, resolveInternalRecipient } from "./email";
 import { stampPdf } from "./stamp-pdf";
 import type {
@@ -270,13 +271,24 @@ async function dispatchNotifications(
       continue;
     }
     try {
-      const { subject, html } = await resolveEmailTemplate(
+      const { subject, html: message } = await resolveEmailTemplate(
         supabase,
         settings.signed_confirmation_subject_template,
         settings.signed_confirmation_body_template,
         contract.job_id,
         { signing_link: "", document_title: contract.title },
       );
+      // Post-sign confirmation wears the branded card as a done-state receipt:
+      // a null action url draws no button, and the signed PDF stays attached
+      // (#693, ADR 0017 §4). The frame is assembled AROUND the sanitized
+      // message inside renderBrandedContractEmail.
+      const html = await renderBrandedContractEmail(supabase, settings, {
+        kind: "signed_confirmation",
+        organizationId: contract.organization_id,
+        message,
+        actionUrl: null,
+        documentTitle: contract.title,
+      });
       const result = await sendContractEmail(supabase, settings, {
         to: s.email,
         subject,
@@ -324,7 +336,8 @@ async function dispatchNotifications(
         result: { status: "skipped", reason: "no_internal_recipient" },
       });
     } else {
-      const { subject, html } = await resolveEmailTemplate(
+      const platformUrl = `${appUrl()}/jobs/${contract.job_id}`;
+      const { subject, html: message } = await resolveEmailTemplate(
         supabase,
         settings.signed_confirmation_internal_subject_template,
         settings.signed_confirmation_internal_body_template,
@@ -332,9 +345,20 @@ async function dispatchNotifications(
         {
           signing_link: "",
           document_title: contract.title,
-          contract_platform_url: `${appUrl()}/jobs/${contract.job_id}`,
+          contract_platform_url: platformUrl,
         },
       );
+      // Internal staff notification wears the branded card with the app-fixed
+      // "View contract" button pointing at the internal platform view; the app
+      // injects that url into the button rather than the body (#693, ADR 0017
+      // §4).
+      const html = await renderBrandedContractEmail(supabase, settings, {
+        kind: "internal_notification",
+        organizationId: contract.organization_id,
+        message,
+        actionUrl: platformUrl,
+        documentTitle: contract.title,
+      });
       const result = await sendContractEmail(supabase, settings, {
         to: internalTo,
         subject,
