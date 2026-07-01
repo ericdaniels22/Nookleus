@@ -1,5 +1,20 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { QUICK_PICK_LABEL_MAX_LENGTH } from "@/lib/types";
+
+// Validate one label's text: trim, require non-empty, cap the length. Returns
+// the cleaned text or a reason. Shared by POST and both PUT branches so the
+// single-edit and bulk-reorder paths enforce identical rules (#857).
+function parseLabel(raw: unknown): { label: string } | { error: string } {
+  const label = typeof raw === "string" ? raw.trim() : "";
+  if (!label) return { error: "label is required" };
+  if (label.length > QUICK_PICK_LABEL_MAX_LENGTH) {
+    return {
+      error: `label must be ${QUICK_PICK_LABEL_MAX_LENGTH} characters or fewer`,
+    };
+  }
+  return { label };
+}
 
 // Quick-pick labels (#819) — reusable phrases an org saves so a user can later
 // tap one to apply as a Label on an Annotation. GET serves NULL-org shared
@@ -31,11 +46,11 @@ export const GET = withRequestContext(
 // POST /api/settings/quick-pick-labels — create a new (always org-owned) label.
 export const POST = withRequestContext({ permission: "access_settings" }, async (request, ctx) => {
   const body = await request.json();
-  const label = typeof body.label === "string" ? body.label.trim() : "";
-
-  if (!label) {
-    return NextResponse.json({ error: "label is required" }, { status: 400 });
+  const parsed = parseLabel(body.label);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const label = parsed.label;
 
   const orgId = ctx.orgId;
 
@@ -55,7 +70,17 @@ export const POST = withRequestContext({ permission: "access_settings" }, async 
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // 23505 = unique_violation on the (organization_id, label) key (#857) —
+    // report the duplicate plainly instead of leaking the Postgres message.
+    if (error.code === "23505") {
+      return NextResponse.json(
+        { error: "A quick-pick label with that text already exists" },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json(data, { status: 201 });
 });
 
@@ -67,9 +92,20 @@ export const PUT = withRequestContext({ permission: "access_settings" }, async (
   const body = await request.json();
   const orgId = ctx.orgId;
 
-  // Bulk reorder: one update per row, each scoped to the active org.
+  // Bulk reorder: one update per row, each scoped to the active org. Validate
+  // every item up front (same rule as the single edit) so one blank label
+  // rejects the whole batch and writes nothing (#857).
   if (Array.isArray(body)) {
+    const cleaned: { id: unknown; label: string; sort_order: unknown }[] = [];
     for (const item of body) {
+      const parsed = parseLabel(item.label);
+      if ("error" in parsed) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      cleaned.push({ id: item.id, label: parsed.label, sort_order: item.sort_order });
+    }
+
+    for (const item of cleaned) {
       const { error } = await ctx.supabase
         .from("quick_pick_labels")
         .update({ label: item.label, sort_order: item.sort_order })
@@ -83,10 +119,11 @@ export const PUT = withRequestContext({ permission: "access_settings" }, async (
 
   // Single inline edit: save the new (trimmed) label text and its position.
   const id = body.id;
-  const label = typeof body.label === "string" ? body.label.trim() : "";
-  if (!label) {
-    return NextResponse.json({ error: "label is required" }, { status: 400 });
+  const parsed = parseLabel(body.label);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const label = parsed.label;
 
   const { error } = await ctx.supabase
     .from("quick_pick_labels")

@@ -1,4 +1,6 @@
-// Reorder behavior for the Settings → Photos → Quick-pick labels tab (#856).
+// Reorder behavior for the Settings → Photos → Quick-pick labels tab (#856),
+// plus the #804-review hardening (#857): default rows expose no Edit, the icon
+// buttons carry accessible names, and the inputs mirror the server label cap.
 //
 // The list shows the shared NULL-org defaults (locked, pinned on top) above the
 // org's own rows. Only the org rows are movable, and a reorder must:
@@ -17,6 +19,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { QuickPickLabelsTab } from "./quick-pick-labels-tab";
 import { toast } from "sonner";
+import { QUICK_PICK_LABEL_MAX_LENGTH } from "@/lib/types";
 
 type Row = {
   id: string;
@@ -105,5 +108,53 @@ describe("QuickPickLabelsTab — reorder across the default/org boundary", () =>
     expect(
       screen.queryByRole("button", { name: /Move Source of loss/ }),
     ).toBeNull();
+  });
+});
+
+describe("QuickPickLabelsTab — accessible names (#857)", () => {
+  it("gives the reorder, edit, and delete icon buttons accessible names", async () => {
+    render(<QuickPickLabelsTab />);
+    await screen.findByText("Mine A");
+
+    expect(screen.getByRole("button", { name: "Move Mine A up" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Move Mine A down" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Edit Mine A" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Delete Mine A" })).toBeDefined();
+  });
+});
+
+// The route 403s mutations to NULL-org default rows, so an inline edit of one
+// silently no-ops while still toasting success. Removing the Edit control from
+// default rows (a Lock already marks them read-only) keeps the UI honest (#857).
+describe("QuickPickLabelsTab — default rows are read-only (#857)", () => {
+  it("renders no Edit control for shared default (NULL-org) rows", async () => {
+    render(<QuickPickLabelsTab />);
+    await screen.findByText("Source of loss");
+
+    expect(screen.queryByRole("button", { name: "Edit Source of loss" })).toBeNull();
+    // org-owned rows keep their Edit control
+    expect(screen.getByRole("button", { name: "Edit Mine A" })).toBeDefined();
+  });
+});
+
+// The inputs cap input length to the same value the route enforces, so a user
+// can't even type past the server's limit (#857).
+describe("QuickPickLabelsTab — input length mirrors the server cap (#857)", () => {
+  it("caps the add-label input at the server max length", async () => {
+    render(<QuickPickLabelsTab />);
+    await screen.findByText("Mine A");
+    fireEvent.click(screen.getByRole("button", { name: /add label/i }));
+
+    const input = screen.getByPlaceholderText(/source of loss/i);
+    expect(input.getAttribute("maxlength")).toBe(String(QUICK_PICK_LABEL_MAX_LENGTH));
+  });
+
+  it("caps the inline-edit input at the server max length", async () => {
+    render(<QuickPickLabelsTab />);
+    await screen.findByText("Mine A");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Mine A" }));
+
+    const input = screen.getByDisplayValue("Mine A");
+    expect(input.getAttribute("maxlength")).toBe(String(QUICK_PICK_LABEL_MAX_LENGTH));
   });
 });

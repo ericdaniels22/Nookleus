@@ -461,6 +461,10 @@ export interface DamageType {
   updated_at: string;
 }
 
+// The server-enforced max length of a Quick-pick label's text (#857), mirrored
+// as the `maxLength` on the Settings inputs so the UI and API agree.
+export const QUICK_PICK_LABEL_MAX_LENGTH = 80;
+
 // A Quick-pick label (#819) — a reusable phrase an org saves so a user can
 // later tap one to apply as a Label on an Annotation. `organization_id` is
 // null for the shared defaults visible to every org.

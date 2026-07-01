@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase-api", () => ({ createServiceClient: vi.fn() }));
 vi.mock("@/lib/supabase/get-active-org", () => ({ getActiveOrganizationId: vi.fn() }));
 
 import { GET, POST, PUT, DELETE } from "./route";
+import { QUICK_PICK_LABEL_MAX_LENGTH } from "@/lib/types";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
 import {
@@ -136,6 +137,49 @@ describe("POST /api/settings/quick-pick-labels — persistence", () => {
     expect(res.status).toBe(400);
     expect(client.__mutations.some((m) => m.op === "insert")).toBe(false);
   });
+
+  // #857 — cap label length server-side so the route can't store text longer
+  // than the UI's mirrored maxLength.
+  it("rejects a label longer than the max with 400 and writes nothing", async () => {
+    const client = authed(holds());
+    const tooLong = "x".repeat(QUICK_PICK_LABEL_MAX_LENGTH + 1);
+    const res = await POST(postReq({ label: tooLong }), noParams);
+    expect(res.status).toBe(400);
+    expect(client.__mutations.some((m) => m.op === "insert")).toBe(false);
+  });
+
+  it("accepts a label exactly at the max length", async () => {
+    const client = authed(holds());
+    const atMax = "x".repeat(QUICK_PICK_LABEL_MAX_LENGTH);
+    const res = await POST(postReq({ label: atMax }), noParams);
+    expect(res.status).toBe(201);
+    expect(client.__mutations.some((m) => m.op === "insert")).toBe(true);
+  });
+
+  // #857 — the new unique (organization_id, label) key turns a duplicate add
+  // into a 23505 unique_violation. Surface it as a friendly 409, not a raw 500
+  // with Postgres internals in the toast.
+  it("maps a duplicate-label unique violation to a friendly 409", async () => {
+    authed({
+      user: { id: "u" },
+      tables: memberTables({
+        userId: "u",
+        role: "crew_member",
+        grants: ["access_settings"],
+      }),
+      errorsByTable: {
+        quick_pick_labels: {
+          code: "23505",
+          message:
+            'duplicate key value violates unique constraint "quick_pick_labels_org_label_key"',
+        },
+      },
+    });
+    const res = await POST(postReq({ label: "Source of loss" }), noParams);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/already exists/i);
+  });
 });
 
 // PUT edits one label (single object) or bulk-reorders the org's rows (array),
@@ -181,6 +225,17 @@ describe("PUT /api/settings/quick-pick-labels — single inline edit", () => {
     expect(res.status).toBe(400);
     expect(client.__mutations.some((m) => m.op === "update")).toBe(false);
   });
+
+  // #857 — the same length cap applies to an inline edit.
+  it("rejects an over-long edit with 400 and writes nothing", async () => {
+    const client = authed(
+      holdsWith([{ id: "ql-1", organization_id: "org-1", label: "Old", sort_order: 1 }]),
+    );
+    const tooLong = "x".repeat(QUICK_PICK_LABEL_MAX_LENGTH + 1);
+    const res = await PUT(putReq({ id: "ql-1", label: tooLong, sort_order: 1 }), noParams);
+    expect(res.status).toBe(400);
+    expect(client.__mutations.some((m) => m.op === "update")).toBe(false);
+  });
 });
 
 describe("PUT /api/settings/quick-pick-labels — bulk reorder (array)", () => {
@@ -204,6 +259,47 @@ describe("PUT /api/settings/quick-pick-labels — bulk reorder (array)", () => {
     );
     expect(updates).toHaveLength(2);
     expect(updates.map((u) => (u.payload as { sort_order: number }).sort_order)).toEqual([1, 2]);
+  });
+
+  // #857 — the bulk branch must enforce the same trim/empty rule the single-edit
+  // branch does, and reject the WHOLE batch (writing nothing) if any item is
+  // blank, so a reorder can never blank out a label.
+  it("rejects the batch with 400 and writes nothing when any item is blank", async () => {
+    const client = authed(
+      holdsWith([
+        { id: "ql-1", organization_id: "org-1", label: "A", sort_order: 1 },
+        { id: "ql-2", organization_id: "org-1", label: "B", sort_order: 2 },
+      ]),
+    );
+    const res = await PUT(
+      putReq([
+        { id: "ql-1", label: "A", sort_order: 1 },
+        { id: "ql-2", label: "   ", sort_order: 2 },
+      ]),
+      noParams,
+    );
+    expect(res.status).toBe(400);
+    expect(client.__mutations.some((m) => m.op === "update")).toBe(false);
+  });
+
+  // #857 — the length cap also applies to each item in a bulk reorder.
+  it("rejects the batch with 400 and writes nothing when any item is over-long", async () => {
+    const client = authed(
+      holdsWith([
+        { id: "ql-1", organization_id: "org-1", label: "A", sort_order: 1 },
+        { id: "ql-2", organization_id: "org-1", label: "B", sort_order: 2 },
+      ]),
+    );
+    const tooLong = "x".repeat(QUICK_PICK_LABEL_MAX_LENGTH + 1);
+    const res = await PUT(
+      putReq([
+        { id: "ql-1", label: "A", sort_order: 1 },
+        { id: "ql-2", label: tooLong, sort_order: 2 },
+      ]),
+      noParams,
+    );
+    expect(res.status).toBe(400);
+    expect(client.__mutations.some((m) => m.op === "update")).toBe(false);
   });
 });
 
