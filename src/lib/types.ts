@@ -2,6 +2,9 @@ import type {
   CoverBlockVisibility,
   StoredReportSettingsJson,
 } from "./photo-report-settings";
+import type { SketchSource } from "./sketch/pull-resolver";
+
+export type { SketchSource } from "./sketch/pull-resolver";
 
 export interface Contact {
   id: string;
@@ -903,6 +906,12 @@ export interface EstimateLineItem {
   pieces: number | null;
   /** Equipment mode only: number of days. NULL in standard mode. */
   days: number | null;
+  /**
+   * Where this row's `quantity` was pulled from, when it came from a Sketch
+   * Room (#861). NULL for a hand-typed quantity. A frozen snapshot, not a live
+   * link (ADR 0004/0025) — the `value` inside equals `quantity` at pull time.
+   */
+  sketch_source: SketchSource | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

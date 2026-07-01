@@ -76,6 +76,7 @@ vi.mock("./add-item-dialog", () => ({
             pricing_mode: "standard",
             pieces: null,
             days: null,
+            sketch_source: null,
             sort_order: 99,
             created_at: "2026-01-01T00:00:00Z",
             updated_at: "2026-01-01T00:00:00Z",
@@ -185,6 +186,7 @@ function makeEstimateEntity(): BuilderEntity {
             pricing_mode: "standard",
             pieces: null,
             days: null,
+            sketch_source: null,
             sort_order: 0,
             created_at: "2026-01-01T00:00:00Z",
             updated_at: "2026-01-01T00:00:00Z",
@@ -218,6 +220,7 @@ function makeEstimateEntity(): BuilderEntity {
                 pricing_mode: "standard",
                 pieces: null,
                 days: null,
+                sketch_source: null,
                 sort_order: 0,
                 created_at: "2026-01-01T00:00:00Z",
                 updated_at: "2026-01-01T00:00:00Z",
@@ -1253,5 +1256,193 @@ describe("EstimateBuilder × delete focus management (#745)", () => {
     ).not.toBeNull();
     expect(panel.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+// Issue #861 — "Pull from Sketch" wired end-to-end through the real builder. The
+// panel exposes the picker affordance; the builder supplies the two callbacks
+// that talk to the server: onLoadSketchRooms (GET the Room feed) and
+// onPullFromSketch (POST the server-authoritative freeze). These prove the
+// selection made in the picker flows to the pull endpoint and the frozen
+// result — quantity + source badge — lands back on the selected line.
+describe("EstimateBuilder × Pull from Sketch (#861)", () => {
+  // Two Rooms the picker feed returns, each with all six pull kinds keyed by
+  // wire name. Living Room's net wall area is 100 — the frozen value under test.
+  const ROOMS = [
+    {
+      id: "rm-1",
+      name: "Living Room",
+      floor_id: "fl-1",
+      floor_name: "Ground floor",
+      measurements: {
+        floor_area: 12,
+        ceiling_area: 12,
+        wall_area_net: 100,
+        wall_area_gross: 112,
+        perimeter: 44,
+        volume: 96,
+      },
+    },
+    {
+      id: "rm-2",
+      name: "Kitchen",
+      floor_id: "fl-1",
+      floor_name: "Ground floor",
+      measurements: {
+        floor_area: 20,
+        ceiling_area: 20,
+        wall_area_net: 60,
+        wall_area_gross: 70,
+        perimeter: 28,
+        volume: 50,
+      },
+    },
+  ];
+
+  // The server-authoritative POST response: line item A ("Tear-off"), its
+  // quantity frozen to Living Room's net wall area (100) and its sketch_source
+  // breadcrumb stamped. total = 100 × $100 unit price.
+  const PULL_RESPONSE = {
+    line_item: {
+      id: "A",
+      organization_id: "org-1",
+      estimate_id: "est-1",
+      section_id: "S1",
+      library_item_id: null,
+      name: "Tear-off",
+      description: "Remove existing shingles",
+      note: null,
+      code: "RF-100",
+      quantity: 100,
+      unit: "sq",
+      unit_price: 100,
+      total: 10000,
+      pricing_mode: "standard",
+      pieces: null,
+      days: null,
+      sketch_source: {
+        scope: "room",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        room_id: "rm-1",
+        room_name: "Living Room",
+        kind: "wall_area_net",
+        value: 100,
+        pulled_at: "2026-06-30T12:00:00.000Z",
+      },
+      sort_order: 0,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-06-30T12:00:00.000Z",
+    },
+    updated_at: "2026-06-30T12:00:00.000Z",
+  };
+
+  it("pulls a Room measurement into the selected line and shows the source badge", async () => {
+    // Capture the pull request as it happens — proves the picker's chosen Room +
+    // kind reach the item's pull route (no tuple-casting of vi mock.calls).
+    let pullUrl = "";
+    let pullBody: unknown = null;
+    const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
+      const u = String(url);
+      if (u.includes("/sketch/rooms")) {
+        return { ok: true, json: async () => ({ rooms: ROOMS }) };
+      }
+      if (u.includes("/pull")) {
+        pullUrl = u;
+        pullBody = init?.body ? JSON.parse(init.body) : null;
+        return { ok: true, json: async () => PULL_RESPONSE };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+
+    // The hand-typed line carries no Sketch badge yet.
+    expect(within(panel).queryByTestId("sketch-source-badge")).toBeNull();
+
+    // Open the picker — the builder GETs the Room feed and lists both Rooms.
+    fireEvent.click(within(panel).getByTestId("sketch-pull-button"));
+    await waitFor(() =>
+      expect(within(panel).getByTestId("sketch-picker-room")).toBeDefined(),
+    );
+    const roomSelect = within(panel).getByTestId("sketch-picker-room");
+    expect(within(roomSelect).getAllByRole("option").length).toBe(2);
+
+    // Freeze the pull with the defaults (Living Room · Net wall area).
+    fireEvent.click(within(panel).getByTestId("sketch-picker-pull"));
+
+    // The POST carries the picker's chosen Room + kind to the item's pull route.
+    await waitFor(() => expect(pullUrl).toContain("/pull"));
+    expect(pullUrl).toContain("/api/estimates/est-1/line-items/A/pull");
+    expect(pullBody).toEqual({ roomId: "rm-1", kind: "wall_area_net" });
+
+    // The frozen result lands on the line: the source badge names the Room and
+    // measurement…
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("builder-editor-panel")).getByTestId(
+          "sketch-source-badge",
+        ),
+      ).toBeDefined(),
+    );
+    const badge = within(screen.getByTestId("builder-editor-panel")).getByTestId(
+      "sketch-source-badge",
+    );
+    expect(badge.textContent).toContain("Living Room");
+    expect(badge.textContent).toContain("Net wall area");
+
+    // …and the totals recompute from the frozen quantity: A (100 × $100 =
+    // $10,000) + X (10 × $5 = $50) = $10,050.00.
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$10,050.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$150.00")).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows an error toast and leaves the line untouched when the pull fails", async () => {
+    vi.mocked(toast.error).mockClear();
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/sketch/rooms")) {
+        return { ok: true, json: async () => ({ rooms: ROOMS }) };
+      }
+      if (u.includes("/pull")) {
+        return { ok: false, json: async () => ({ error: "no sketch here" }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EstimateBuilder entity={makeEstimateEntity()} />);
+
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+
+    fireEvent.click(within(panel).getByTestId("sketch-pull-button"));
+    await waitFor(() =>
+      expect(within(panel).getByTestId("sketch-picker-room")).toBeDefined(),
+    );
+    fireEvent.click(within(panel).getByTestId("sketch-picker-pull"));
+
+    // The server-reported error surfaces…
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("no sketch here"),
+    );
+    // …and nothing froze: no badge, and the totals stay at the seeded $150.00.
+    expect(
+      within(screen.getByTestId("builder-editor-panel")).queryByTestId(
+        "sketch-source-badge",
+      ),
+    ).toBeNull();
+    const totals = screen.getByTestId("builder-totals-bar");
+    expect(within(totals).getAllByText("$150.00").length).toBeGreaterThan(0);
+    expect(within(totals).queryByText("$10,050.00")).toBeNull();
+
+    vi.unstubAllGlobals();
   });
 });

@@ -9,7 +9,7 @@
 // scrim sits behind the sheet. (Built up test-first — fields/behaviors per cycle.)
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Trash2, X } from "lucide-react";
+import { Copy, Ruler, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import ConfirmDialog from "@/components/contracts/confirm-dialog";
@@ -21,6 +21,13 @@ import {
   toEquipmentMode,
   toStandardMode,
 } from "./equipment-pricing";
+import { SketchSourceBadge } from "./sketch-source-badge";
+import {
+  ROOM_MEASUREMENT_KINDS,
+  ROOM_MEASUREMENT_KIND_LABELS,
+  type RoomMeasurementKind,
+  type SketchRoomOption,
+} from "@/lib/sketch/pull-resolver";
 import type { BuilderLineItem } from "./line-item-row";
 import type { BuilderMode } from "@/lib/types";
 
@@ -88,6 +95,23 @@ export interface LineItemEditorPanelProps {
   /** Voided / read-only entity — fields render disabled. */
   readOnly?: boolean;
   mode?: BuilderMode;
+  /**
+   * Load the "Pull from Sketch" picker feed (#861) — the Rooms of this estimate's
+   * job's Sketch, each with its measurements keyed by pull kind. Optional: when
+   * omitted (template/invoice, or an estimate with no Sketch wiring) the pull
+   * affordance is not shown. Called lazily when the user opens the picker.
+   */
+  onLoadSketchRooms?: () => Promise<SketchRoomOption[]>;
+  /**
+   * Freeze a Room measurement into this line's quantity (#861). Server-authoritative
+   * (the route resolves and persists the frozen value + source); the parent then
+   * threads the returned quantity/total/sketch_source back into this item. Optional
+   * — its presence (with an editable estimate) is what gates the affordance.
+   */
+  onPullFromSketch?: (args: {
+    roomId: string;
+    kind: RoomMeasurementKind;
+  }) => Promise<void>;
 }
 
 export function LineItemEditorPanel({
@@ -98,6 +122,8 @@ export function LineItemEditorPanel({
   onDuplicate,
   readOnly = false,
   mode,
+  onLoadSketchRooms,
+  onPullFromSketch,
 }: LineItemEditorPanelProps) {
   // Equipment pricing lives on both Estimate (#682) and Invoice (#684) rows, so
   // the shared editor enables it in either builder — but not Template. The `in`
@@ -108,6 +134,17 @@ export function LineItemEditorPanel({
       ? item
       : null;
   const isEquipment = equipmentItem?.pricing_mode === "pieces_days";
+
+  // The frozen Sketch-source breadcrumb (#861) lives only on Estimate rows and
+  // only when the quantity was pulled from a Room. The `in` check narrows away
+  // the Invoice row type (which carries no sketch_source); a null value means the
+  // line was hand-typed and simply shows no badge.
+  const sketchSource =
+    mode === "estimate" && "sketch_source" in item ? item.sketch_source : null;
+
+  // The pull affordance shows only on an editable Estimate whose builder wired
+  // the callbacks (#861). Templates/invoices and voided estimates never opt in.
+  const canPull = mode === "estimate" && !readOnly && !!onPullFromSketch;
 
   // Each field holds its own draft, seeded from the item, and commits on blur
   // through `onChange` — mirroring the inline row so auto-save behaves the same.
@@ -179,6 +216,47 @@ export function LineItemEditorPanel({
   // #631: the delete button opens a confirmation rather than deleting on the
   // first tap, so an accidental touch can't silently remove work.
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // "Pull from Sketch" picker state (#861). The Room feed is loaded lazily when
+  // the picker opens (via onLoadSketchRooms); `rooms === null` means "not loaded
+  // yet". Net wall area is the default measurement kind for a pull.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [rooms, setRooms] = useState<SketchRoomOption[] | null>(null);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [selectedRoomId, setSelectedRoomId] = useState("");
+  const [selectedKind, setSelectedKind] = useState<RoomMeasurementKind>("wall_area_net");
+  const [pulling, setPulling] = useState(false);
+
+  async function openPicker() {
+    setPickerOpen(true);
+    if (rooms === null && onLoadSketchRooms) {
+      setRoomsLoading(true);
+      try {
+        const loaded = await onLoadSketchRooms();
+        setRooms(loaded);
+        // Preselect the first Room so the preview has something to show.
+        if (loaded.length > 0) setSelectedRoomId(loaded[0].id);
+      } finally {
+        setRoomsLoading(false);
+      }
+    }
+  }
+
+  // The value the picker previews: the selected Room's cached measurement for
+  // the chosen kind — the same number the server resolves and freezes on Pull.
+  const selectedRoom = rooms?.find((room) => room.id === selectedRoomId) ?? null;
+  const pickerPreview = selectedRoom ? selectedRoom.measurements[selectedKind] : null;
+
+  async function confirmPull() {
+    if (!onPullFromSketch || !selectedRoomId) return;
+    setPulling(true);
+    try {
+      await onPullFromSketch({ roomId: selectedRoomId, kind: selectedKind });
+      setPickerOpen(false);
+    } finally {
+      setPulling(false);
+    }
+  }
 
   // Opening the panel (and swapping to another line) drops the cursor into the
   // name field so the user can type immediately — required for the add-line flow
@@ -547,6 +625,120 @@ export function LineItemEditorPanel({
               </div>
             </label>
           </div>
+
+          {/* Sketch-source badge (#861) — shown when this line's quantity was
+              pulled and frozen from a Room, naming the source so the reader knows
+              where the billed number came from (acceptance #3). */}
+          {sketchSource && (
+            <div>
+              <SketchSourceBadge source={sketchSource} />
+            </div>
+          )}
+
+          {/* "Pull from Sketch" affordance (#861) — opens the Room picker that
+              freezes a measurement into this line's quantity. Gated on an
+              editable estimate whose builder wired the pull callbacks. */}
+          {canPull && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                data-testid="sketch-pull-button"
+                onClick={openPicker}
+                className="flex min-h-[36px] w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <Ruler size={16} />
+                {sketchSource ? "Re-pull from Sketch" : "Pull from Sketch"}
+              </button>
+
+              {pickerOpen && (
+                <div
+                  data-testid="sketch-picker"
+                  className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
+                >
+                  {roomsLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading Sketch rooms…</p>
+                  ) : rooms && rooms.length === 0 ? (
+                    // No Sketch, or an empty one — a valid state, not an error.
+                    <p
+                      data-testid="sketch-picker-empty"
+                      className="text-xs text-muted-foreground"
+                    >
+                      No Sketch rooms yet. Draw a Room in the Sketch to pull a
+                      measurement from it.
+                    </p>
+                  ) : rooms ? (
+                    <>
+                      <label className="block">
+                        <span className={LABEL_CLASS}>Room</span>
+                        <select
+                          data-testid="sketch-picker-room"
+                          value={selectedRoomId}
+                          onChange={(e) => setSelectedRoomId(e.target.value)}
+                          className={FIELD_CLASS}
+                        >
+                          {rooms.map((room) => (
+                            <option key={room.id} value={room.id}>
+                              {room.floor_name} · {room.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block">
+                        <span className={LABEL_CLASS}>Measurement</span>
+                        <select
+                          data-testid="sketch-picker-kind"
+                          value={selectedKind}
+                          onChange={(e) =>
+                            setSelectedKind(e.target.value as RoomMeasurementKind)
+                          }
+                          className={FIELD_CLASS}
+                        >
+                          {ROOM_MEASUREMENT_KINDS.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {ROOM_MEASUREMENT_KIND_LABELS[kind]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {/* Preview of the value the server will freeze — sourced
+                          from the same cached measurement the pull resolver reads,
+                          so what's shown is what lands in `quantity`. */}
+                      <div className="flex items-center justify-between pt-1">
+                        <span className={LABEL_CLASS}>Preview</span>
+                        <span
+                          data-testid="sketch-picker-preview"
+                          className="text-sm font-semibold tabular-nums text-foreground"
+                        >
+                          {pickerPreview != null ? pickerPreview : "—"}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setPickerOpen(false)}
+                          className="flex min-h-[36px] flex-1 items-center justify-center rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="sketch-picker-pull"
+                          disabled={!selectedRoomId || pulling}
+                          onClick={confirmPull}
+                          className="flex min-h-[36px] flex-1 items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-60"
+                        >
+                          {pulling ? "Pulling…" : "Pull"}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Derived note under the row (#682) — mirrors the italic sub-line the
               customer PDF renders from the persisted `note`. */}

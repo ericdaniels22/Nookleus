@@ -5,11 +5,12 @@
 // separately in line-item-editor-panel.integration.test.tsx.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 
 import { LineItemEditorPanel } from "./line-item-editor-panel";
 import type { EstimateLineItem, InvoiceLineItem } from "@/lib/types";
+import type { SketchSource } from "@/lib/sketch/pull-resolver";
 
 function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
   return {
@@ -29,6 +30,7 @@ function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
     pricing_mode: "standard",
     pieces: null,
     days: null,
+    sketch_source: null,
     sort_order: 0,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -1217,5 +1219,225 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
     expect(screen.queryByTestId("editor-bill-as")).toBeNull();
     // The standard Quantity field still renders as before.
     expect(screen.getByTestId("editor-field-quantity")).toBeDefined();
+  });
+
+  // ── Sketch source (#861) ───────────────────────────────────────────────────
+  // The panel is where a line item's quantity is pulled — and frozen — from a
+  // Sketch Room, and where the resulting source breadcrumb is surfaced.
+  describe("Sketch source (#861)", () => {
+    const SOURCE: SketchSource = {
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Living Room",
+      kind: "wall_area_net",
+      value: 100,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    };
+
+    it("shows the source badge when the line was pulled from a Sketch Room", () => {
+      // A line carrying a frozen sketch_source reads as Sketch-sourced: the badge
+      // names the Room and the measurement kind so the reader knows where the
+      // billed quantity came from (acceptance #3).
+      render(
+        <LineItemEditorPanel
+          item={makeItem({ sketch_source: SOURCE, quantity: 100, total: 10000 })}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+        />,
+      );
+
+      const badge = screen.getByTestId("sketch-source-badge");
+      expect(badge.textContent).toContain("Living Room");
+      expect(badge.textContent).toContain("Net wall area");
+    });
+
+    it("shows no source badge for a hand-typed line item", () => {
+      // The badge is metadata a non-Sketch row simply doesn't carry (acceptance
+      // #2): a null sketch_source renders nothing.
+      render(
+        <LineItemEditorPanel
+          item={makeItem({ sketch_source: null })}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+        />,
+      );
+
+      expect(screen.queryByTestId("sketch-source-badge")).toBeNull();
+    });
+
+    it("offers a Pull from Sketch affordance when the estimate can pull", () => {
+      // When the builder wires the pull callbacks (estimate mode, editable), the
+      // panel exposes the affordance that opens the Room picker (acceptance #1).
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId("sketch-pull-button")).toBeDefined();
+    });
+
+    it("hides the Pull from Sketch affordance when no pull callback is wired", () => {
+      // Template/invoice builders (and any caller that doesn't opt in) never see
+      // the affordance — it's gated on the callback being supplied.
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+        />,
+      );
+
+      expect(screen.queryByTestId("sketch-pull-button")).toBeNull();
+    });
+
+    it("hides the Pull from Sketch affordance on a read-only estimate", () => {
+      // A voided / read-only estimate can't take a fresh pull — the affordance is
+      // suppressed even though the callbacks are present.
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          readOnly
+          onLoadSketchRooms={vi.fn()}
+          onPullFromSketch={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByTestId("sketch-pull-button")).toBeNull();
+    });
+
+    const ROOM_OPTIONS = [
+      {
+        id: "rm-1",
+        name: "Living Room",
+        floor_id: "fl-1",
+        floor_name: "Ground floor",
+        measurements: {
+          floor_area: 12,
+          ceiling_area: 13,
+          perimeter: 14,
+          wall_area_gross: 112,
+          wall_area_net: 100,
+          volume: 96,
+        },
+      },
+      {
+        id: "rm-2",
+        name: "Kitchen",
+        floor_id: "fl-1",
+        floor_name: "Ground floor",
+        measurements: {
+          floor_area: 50,
+          ceiling_area: 51,
+          perimeter: 30,
+          wall_area_gross: 210,
+          wall_area_net: 200,
+          volume: 400,
+        },
+      },
+    ];
+
+    it("opens the picker and lists the estimate's Sketch Rooms", async () => {
+      // Opening the affordance lazily loads the Room feed and lists each Room to
+      // choose a source from (acceptance #1).
+      const onLoadSketchRooms = vi.fn().mockResolvedValue(ROOM_OPTIONS);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={onLoadSketchRooms}
+          onPullFromSketch={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+
+      const roomSelect = await screen.findByTestId("sketch-picker-room");
+      expect(onLoadSketchRooms).toHaveBeenCalledTimes(1);
+      expect(within(roomSelect).getAllByRole("option")).toHaveLength(2);
+      expect(roomSelect.textContent).toContain("Living Room");
+      expect(roomSelect.textContent).toContain("Kitchen");
+    });
+
+    it("previews the chosen measurement and freezes it into quantity on Pull", async () => {
+      // The picker previews `measurements[kind]` for the selected Room, and Pull
+      // hands the parent exactly the roomId + kind the server resolves and freezes
+      // (server-authoritative — the panel doesn't compute the value itself).
+      const onLoadSketchRooms = vi.fn().mockResolvedValue(ROOM_OPTIONS);
+      const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={onLoadSketchRooms}
+          onPullFromSketch={onPullFromSketch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      await screen.findByTestId("sketch-picker-room");
+
+      // Net wall area is the default kind; the first Room is preselected, so the
+      // preview shows its net wall area (100).
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("100");
+
+      // Switch the measurement kind — the preview retargets to floor area (12).
+      fireEvent.change(screen.getByTestId("sketch-picker-kind"), {
+        target: { value: "floor_area" },
+      });
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("12");
+
+      fireEvent.click(screen.getByTestId("sketch-picker-pull"));
+
+      await waitFor(() =>
+        expect(onPullFromSketch).toHaveBeenCalledWith({
+          roomId: "rm-1",
+          kind: "floor_area",
+        }),
+      );
+      // The picker closes once the pull resolves.
+      await waitFor(() =>
+        expect(screen.queryByTestId("sketch-picker-room")).toBeNull(),
+      );
+    });
+
+    it("shows an empty state when the estimate's job has no Sketch Rooms", async () => {
+      // No Sketch (or an empty one) is a valid state, not an error: the picker
+      // says so instead of offering a dead Room select.
+      const onLoadSketchRooms = vi.fn().mockResolvedValue([]);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchRooms={onLoadSketchRooms}
+          onPullFromSketch={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+
+      const empty = await screen.findByTestId("sketch-picker-empty");
+      expect(empty.textContent?.length).toBeGreaterThan(0);
+      expect(screen.queryByTestId("sketch-picker-room")).toBeNull();
+    });
   });
 });

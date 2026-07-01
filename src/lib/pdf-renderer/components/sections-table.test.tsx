@@ -55,6 +55,7 @@ function lineItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
     pricing_mode: "standard",
     pieces: null,
     days: null,
+    sketch_source: null,
     sort_order: 0,
     created_at: "",
     updated_at: "",
