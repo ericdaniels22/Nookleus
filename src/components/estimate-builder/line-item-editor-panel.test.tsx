@@ -11,6 +11,10 @@ import React from "react";
 import { LineItemEditorPanel } from "./line-item-editor-panel";
 import type { EstimateLineItem, InvoiceLineItem } from "@/lib/types";
 import type { SketchSource } from "@/lib/sketch/pull-resolver";
+import {
+  objectInventory,
+  type ObjectCategory,
+} from "@/lib/sketch/object-inventory";
 
 function makeItem(overrides: Partial<EstimateLineItem> = {}): EstimateLineItem {
   return {
@@ -1379,6 +1383,18 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
     };
     const FEED = { rooms: ROOM_OPTIONS, floors: FLOOR_OPTIONS, sketch: SKETCH_TOTALS };
 
+    // A feed carrying object inventories (#867) so the object_count path can be
+    // exercised: the Living Room holds 2 cabinets + 1 sink, and with one Room the
+    // Floor and whole-Sketch inventories equal it.
+    const inv = (cats: ObjectCategory[]) =>
+      objectInventory(cats.map((category) => ({ category })));
+    const OBJ_INVENTORY = inv(["cabinets", "cabinets", "sink"]);
+    const OBJ_FEED = {
+      rooms: [{ ...ROOM_OPTIONS[0], objects: OBJ_INVENTORY }],
+      floors: [{ ...FLOOR_OPTIONS[0], objects: OBJ_INVENTORY }],
+      sketch: { ...SKETCH_TOTALS, objects: OBJ_INVENTORY },
+    };
+
     it("opens the picker and lists the estimate's Sketch Rooms", async () => {
       // Opening the affordance lazily loads the Sketch feed and, in the default
       // Room scope, lists each Room to choose a source from (acceptance #1).
@@ -1506,8 +1522,9 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       fireEvent.click(screen.getByTestId("sketch-pull-button"));
       const kindSelect = await screen.findByTestId("sketch-picker-kind");
 
-      // All eight pull kinds are offered — the six measurements plus the two counts.
-      expect(within(kindSelect).getAllByRole("option")).toHaveLength(8);
+      // Nine pull kinds are offered — the six measurements, the two counts, and
+      // the object_count kind (#867).
+      expect(within(kindSelect).getAllByRole("option")).toHaveLength(9);
       expect(kindSelect.textContent).toContain("Door count");
       expect(kindSelect.textContent).toContain("Window count");
 
@@ -1629,6 +1646,87 @@ describe("LineItemEditorPanel — equipment pricing (#682)", () => {
       const empty = await screen.findByTestId("sketch-picker-empty");
       expect(empty.textContent?.length).toBeGreaterThan(0);
       expect(screen.queryByTestId("sketch-picker-room")).toBeNull();
+    });
+
+    it("pulls an object_count for a chosen category (#867)", async () => {
+      // Choosing the object_count kind reveals a category select; Pull sends the
+      // widened kind plus the object_category the count is scoped by (#867 —
+      // "widen kind, add object_category"), riding the same Room scope.
+      const onLoadSketchSources = vi.fn().mockResolvedValue(OBJ_FEED);
+      const onPullFromSketch = vi.fn().mockResolvedValue(undefined);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchSources={onLoadSketchSources}
+          onPullFromSketch={onPullFromSketch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      await screen.findByTestId("sketch-picker-kind");
+
+      // No category select until object_count is the chosen kind.
+      expect(screen.queryByTestId("sketch-picker-object-category")).toBeNull();
+
+      fireEvent.change(screen.getByTestId("sketch-picker-kind"), {
+        target: { value: "object_count" },
+      });
+
+      // The category select appears, listing the known object categories.
+      const categorySelect = screen.getByTestId("sketch-picker-object-category");
+      expect(categorySelect.textContent).toContain("Cabinets");
+      expect(categorySelect.textContent).toContain("Sink");
+
+      fireEvent.change(categorySelect, { target: { value: "cabinets" } });
+
+      fireEvent.click(screen.getByTestId("sketch-picker-pull"));
+
+      await waitFor(() =>
+        expect(onPullFromSketch).toHaveBeenCalledWith({
+          scope: "room",
+          roomId: "rm-1",
+          kind: "object_count",
+          object_category: "cabinets",
+        }),
+      );
+    });
+
+    it("previews the chosen category's count for an object_count pull (#867)", async () => {
+      // The preview reads the selected source's inventory for the chosen category
+      // — the same number the resolver freezes. Living Room holds 2 cabinets.
+      const onLoadSketchSources = vi.fn().mockResolvedValue(OBJ_FEED);
+      render(
+        <LineItemEditorPanel
+          item={makeItem()}
+          onChange={vi.fn()}
+          onClose={vi.fn()}
+          mode="estimate"
+          onLoadSketchSources={onLoadSketchSources}
+          onPullFromSketch={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("sketch-pull-button"));
+      await screen.findByTestId("sketch-picker-kind");
+
+      fireEvent.change(screen.getByTestId("sketch-picker-kind"), {
+        target: { value: "object_count" },
+      });
+      fireEvent.change(screen.getByTestId("sketch-picker-object-category"), {
+        target: { value: "cabinets" },
+      });
+
+      // Two cabinets in the Living Room.
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("2");
+
+      // Retarget to Sink — one placed.
+      fireEvent.change(screen.getByTestId("sketch-picker-object-category"), {
+        target: { value: "sink" },
+      });
+      expect(screen.getByTestId("sketch-picker-preview").textContent).toContain("1");
     });
   });
 

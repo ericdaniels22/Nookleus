@@ -12,17 +12,22 @@ import { describe, expect, it } from "vitest";
 
 import type { SketchCounts } from "./aggregate";
 import type { RoomMeasurements } from "./measure-room";
+import { objectInventory, type ObjectInventory } from "./object-inventory";
 import {
   ALL_PULL_KINDS,
   ROOM_COUNT_KINDS,
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
   pullValue,
+  resolveFloorObjectPull,
   resolveFloorPull,
+  resolveRoomObjectPull,
   resolveRoomPull,
   resolveRoomRepull,
+  resolveSketchObjectPull,
   resolveSketchPull,
   roomMeasurementValue,
+  sketchSourceKindLabel,
   sketchSourceLabel,
   type SketchSource,
 } from "./pull-resolver";
@@ -451,5 +456,178 @@ describe("sketchSourceLabel", () => {
     expect(sketchSourceLabel(room.source)).toBe("Living Room");
     expect(sketchSourceLabel(floor.source)).toBe("Ground Floor");
     expect(sketchSourceLabel(sketch.source)).toBe("Whole Sketch");
+  });
+});
+
+describe("resolveRoomObjectPull (#867)", () => {
+  const IDS = {
+    sketchId: "sk-1",
+    floorId: "fl-1",
+    roomId: "rm-1",
+    roomName: "Kitchen",
+  } as const;
+
+  // A kitchen inventory: 3 base-cabinet runs, 1 fridge — distinct counts so a
+  // pull that ignored its category could not accidentally land on the right one.
+  const INVENTORY: ObjectInventory = objectInventory([
+    { category: "cabinets" },
+    { category: "cabinets" },
+    { category: "cabinets" },
+    { category: "refrigerator" },
+  ]);
+
+  it("freezes the chosen category's count, honoring object_category", () => {
+    // The object_count pull is scoped BY category (#867 AC): pulling "cabinets"
+    // freezes 3 and records object_category "cabinets"; pulling "refrigerator" off
+    // the SAME Room freezes 1. The kind is the widened "object_count", and the
+    // count is copied into both the line item's quantity and the source snapshot.
+    const cabinets = resolveRoomObjectPull({
+      ...IDS,
+      inventory: INVENTORY,
+      category: "cabinets",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(cabinets.value).toBe(3);
+    expect(cabinets.source).toEqual({
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Kitchen",
+      kind: "object_count",
+      object_category: "cabinets",
+      value: 3,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    });
+
+    const fridge = resolveRoomObjectPull({
+      ...IDS,
+      inventory: INVENTORY,
+      category: "refrigerator",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(fridge.value).toBe(1);
+    expect(fridge.source.object_category).toBe("refrigerator");
+  });
+
+  it("freezes the count — adding objects to the Room afterward does not move it", () => {
+    // Same snapshot contract as a measurement pull (ADR 0004): once pulled, the
+    // frozen count is fixed. Re-counting the Room after the pull — as a re-scan
+    // would — must leave the frozen value untouched.
+    const live: ObjectInventory = { ...INVENTORY };
+    const pull = resolveRoomObjectPull({
+      ...IDS,
+      inventory: live,
+      category: "refrigerator",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    live.refrigerator = 99; // two more fridges detected after the pull
+
+    expect(pull.value).toBe(1);
+    expect(pull.source.value).toBe(1);
+  });
+});
+
+describe("resolveFloorObjectPull (#867)", () => {
+  it("freezes a Floor's category count into a Floor-scoped object_count source", () => {
+    // A Floor object_count reads the Floor's ROLLED-UP inventory (M1
+    // sumInventories over its Rooms) for one category and records a Floor-scoped
+    // breadcrumb — no room_id/room_name, a floor_name instead, kind object_count,
+    // and the object_category counted. Here the Floor holds 4 toilets across its
+    // baths; pulling "toilet" freezes 4.
+    const floorInventory: ObjectInventory = objectInventory([
+      { category: "toilet" },
+      { category: "toilet" },
+      { category: "toilet" },
+      { category: "toilet" },
+      { category: "sink" },
+    ]);
+
+    const pull = resolveFloorObjectPull({
+      inventory: floorInventory,
+      category: "toilet",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      floorName: "Ground Floor",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(4);
+    expect(pull.source).toEqual({
+      scope: "floor",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      floor_name: "Ground Floor",
+      kind: "object_count",
+      object_category: "toilet",
+      value: 4,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    });
+  });
+});
+
+describe("resolveSketchObjectPull (#867)", () => {
+  it("freezes a whole-Sketch category count into a Sketch-scoped object_count source", () => {
+    // A whole-Sketch object_count reads the Sketch's rolled-up inventory (M1
+    // sumInventories over every Floor) for one category and records the coarsest
+    // breadcrumb — just sketch_id, kind object_count, the object_category, and the
+    // frozen count. Here the whole plan has 12 cabinets runs; pulling "cabinets"
+    // freezes 12.
+    const sketchInventory: ObjectInventory = objectInventory(
+      Array.from({ length: 12 }, () => ({ category: "cabinets" as const })),
+    );
+
+    const pull = resolveSketchObjectPull({
+      inventory: sketchInventory,
+      category: "cabinets",
+      sketchId: "sk-1",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(12);
+    expect(pull.source).toEqual({
+      scope: "sketch",
+      sketch_id: "sk-1",
+      kind: "object_count",
+      object_category: "cabinets",
+      value: 12,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    });
+  });
+});
+
+describe("sketchSourceKindLabel", () => {
+  it("labels a measurement source by its kind and an object_count source by its category", () => {
+    // The badge shows one "what was pulled" label per source. A measurement pull
+    // reads its kind's label ("Floor area"); an object_count pull reads the
+    // counted category's label ("Cabinets") — a count is scoped by category, so
+    // the widened kind alone ("object_count") would tell the reader nothing.
+    const measurement = resolveRoomPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Living Room",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+    const objectCount = resolveRoomObjectPull({
+      inventory: objectInventory([
+        { category: "cabinets" },
+        { category: "cabinets" },
+      ]),
+      category: "cabinets",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Kitchen",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(sketchSourceKindLabel(measurement.source)).toBe("Floor area");
+    expect(sketchSourceKindLabel(objectCount.source)).toBe("Cabinets");
   });
 });

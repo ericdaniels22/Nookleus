@@ -10,6 +10,12 @@
 import { round2 } from "../format";
 import type { SketchCounts } from "./aggregate";
 import type { RoomMeasurements } from "./measure-room";
+import {
+  objectCountValue,
+  OBJECT_CATEGORY_LABELS,
+  type ObjectCategory,
+  type ObjectInventory,
+} from "./object-inventory";
 
 /**
  * The measurements a Room can be pulled for, as stable snake_case identifiers.
@@ -46,6 +52,7 @@ export const ROOM_MEASUREMENT_KIND_LABELS: Record<PullKind, string> = {
   volume: "Volume",
   door_count: "Door count",
   window_count: "Window count",
+  object_count: "Object count",
 };
 
 /**
@@ -58,12 +65,28 @@ export const ROOM_COUNT_KINDS = ["door_count", "window_count"] as const;
 export type RoomCountKind = (typeof ROOM_COUNT_KINDS)[number];
 
 /**
- * Every kind a pull can name: the six measurements plus the two counts. This is
- * what a `sketch_source` breadcrumb records and what the picker offers.
+ * The pull kinds whose value is a single scalar that lives in a scope's
+ * `measurements` record: the six measurements plus the two door/window counts
+ * (#866). `object_count` is deliberately excluded — it is per-category and reads
+ * from a scope's `objects` inventory, not `measurements` (#867).
  */
-export type PullKind = RoomMeasurementKind | RoomCountKind;
+export type ScalarPullKind = RoomMeasurementKind | RoomCountKind;
 
-/** The full ordered list of pullable kinds — measurements first, then counts. */
+/**
+ * Every kind a pull can name: the six measurements, the two door/window counts,
+ * and `object_count` — a count of one object category (#867). Widening the kind
+ * (rather than adding a new scope) lets object counts ride the SAME
+ * room/floor/sketch scope union; an object_count pull additionally carries an
+ * `object_category` (see {@link SketchPullArgs}). This is what a `sketch_source`
+ * breadcrumb records and what the picker offers.
+ */
+export type PullKind = ScalarPullKind | "object_count";
+
+/**
+ * The full ordered list of *scalar* pullable kinds — measurements first, then
+ * door/window counts. `object_count` is offered separately in the picker (it
+ * needs a category), so it is not in this list.
+ */
 export const ALL_PULL_KINDS = [
   ...ROOM_MEASUREMENT_KINDS,
   ...ROOM_COUNT_KINDS,
@@ -114,7 +137,7 @@ export function roomMeasurementValue(
 export function pullValue(
   measurements: RoomMeasurements,
   counts: SketchCounts,
-  kind: PullKind,
+  kind: ScalarPullKind,
 ): number {
   if (isCountKind(kind)) {
     return counts[COUNT_KIND_TO_FIELD[kind]];
@@ -132,6 +155,12 @@ export function pullValue(
 interface SketchSourceBase {
   sketch_id: string;
   kind: PullKind;
+  /**
+   * The object category counted — set ONLY when `kind` is `object_count` (#867),
+   * since that pull is scoped by category. A measurement or door/window count
+   * never carries one. The badge reads it to name what was counted.
+   */
+  object_category?: ObjectCategory;
   /** The frozen pulled number — equals the line item's `quantity`. */
   value: number;
   /** ISO timestamp of the pull (injected — this module does no I/O). */
@@ -146,7 +175,7 @@ interface SketchSourceBase {
 function resolvePullValue(
   measurements: RoomMeasurements,
   counts: SketchCounts | undefined,
-  kind: PullKind,
+  kind: ScalarPullKind,
 ): number {
   if (isCountKind(kind)) {
     if (!counts) {
@@ -210,6 +239,23 @@ export function sketchSourceLabel(source: SketchSource): string {
 }
 
 /**
+ * The "what was pulled" label a source badge shows, per kind: a measurement or
+ * door/window count pull reads its kind's human label ("Floor area", "Door
+ * count"); an object_count pull reads the counted category's label ("Cabinets"),
+ * since a count is scoped by category and the widened kind alone ("object_count")
+ * would name nothing (#867). Kept beside {@link sketchSourceLabel} so the badge
+ * composes "<scope name> · <this>" in one place and can't miss a kind.
+ */
+export function sketchSourceKindLabel(source: SketchSource): string {
+  if (source.kind === "object_count") {
+    return source.object_category
+      ? OBJECT_CATEGORY_LABELS[source.object_category]
+      : "Objects";
+  }
+  return ROOM_MEASUREMENT_KIND_LABELS[source.kind];
+}
+
+/**
  * One Room as the "Pull from Sketch" picker sees it: identity, its Floor's name
  * for grouping, and its values keyed by every pull kind — the six measurements
  * plus door_count / window_count (#866) — so the picker can preview
@@ -222,7 +268,13 @@ export interface SketchRoomOption {
   name: string;
   floor_id: string;
   floor_name: string;
-  measurements: Record<PullKind, number>;
+  measurements: Record<ScalarPullKind, number>;
+  /**
+   * The Room's count-only object inventory (M1 `objectInventory(...)`), every
+   * known category present (0 when absent), so the picker can preview
+   * `objects[category]` before an object_count pull freezes it (#867).
+   */
+  objects: ObjectInventory;
 }
 
 /**
@@ -234,7 +286,9 @@ export interface SketchRoomOption {
 export interface SketchFloorOption {
   id: string;
   name: string;
-  measurements: Record<PullKind, number>;
+  measurements: Record<ScalarPullKind, number>;
+  /** The Floor's object inventory — its Rooms' summed (M1 `sumInventories`). */
+  objects: ObjectInventory;
 }
 
 /**
@@ -244,7 +298,9 @@ export interface SketchFloorOption {
  */
 export interface SketchTotalsOption {
   sketch_id: string;
-  measurements: Record<PullKind, number>;
+  measurements: Record<ScalarPullKind, number>;
+  /** The whole-Sketch object inventory — every Floor's summed (M1 `sumInventories`). */
+  objects: ObjectInventory;
 }
 
 /**
@@ -262,17 +318,33 @@ export interface SketchPickerFeed {
 /**
  * What the picker hands back on Pull, discriminated by scope — the shape the
  * pull route accepts. Room and Floor carry their id; the whole-Sketch pull needs
- * none. Every scope names a pull kind — one of the six measurements or a
- * door/window count (#866).
+ * none. Every scope names a pull kind — one of the six measurements, a
+ * door/window count (#866), or `object_count`, in which case it additionally
+ * carries the `object_category` the count is scoped by (#867). Mirrors the
+ * route's validation: `object_count` requires an `object_category`; every other
+ * kind never carries one.
  */
 export type SketchPullArgs =
-  | { scope: "room"; roomId: string; kind: PullKind }
-  | { scope: "floor"; floorId: string; kind: PullKind }
-  | { scope: "sketch"; kind: PullKind };
+  | { scope: "room"; roomId: string; kind: ScalarPullKind }
+  | { scope: "floor"; floorId: string; kind: ScalarPullKind }
+  | { scope: "sketch"; kind: ScalarPullKind }
+  | {
+      scope: "room";
+      roomId: string;
+      kind: "object_count";
+      object_category: ObjectCategory;
+    }
+  | {
+      scope: "floor";
+      floorId: string;
+      kind: "object_count";
+      object_category: ObjectCategory;
+    }
+  | { scope: "sketch"; kind: "object_count"; object_category: ObjectCategory };
 
 export interface ResolveRoomPullInput {
   measurements: RoomMeasurements;
-  kind: PullKind;
+  kind: ScalarPullKind;
   /** The Room's door/window tally — required only for a count kind (#866). */
   counts?: SketchCounts;
   sketchId: string;
@@ -306,6 +378,122 @@ export function resolveRoomPull(input: ResolveRoomPullInput): RoomPull {
       room_id: input.roomId,
       room_name: input.roomName,
       kind: input.kind,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+// ── Object-count pulls (#867, S7) ────────────────────────────────────────────
+// The count half of M3: instead of a Room's *size*, an object_count pull freezes
+// the *count* of one object category (M1 object-inventory) into a line item's
+// quantity — a detach-&-reset line priced per appliance reads its category's
+// count. Same freeze contract as a measurement pull (the resolved count is copied
+// into both `quantity` and the snapshot), same room/floor/sketch scopes; the
+// source additionally records the `object_category` counted, and its kind is the
+// widened `object_count`.
+
+export interface ResolveRoomObjectPullInput {
+  /** The Room's object inventory (M1 `objectInventory(...)`). */
+  inventory: ObjectInventory;
+  /** Which category to count — the pull is scoped by it. */
+  category: ObjectCategory;
+  sketchId: string;
+  floorId: string;
+  roomId: string;
+  roomName: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a Room-scoped object_count pull: freeze the chosen category's count.
+ * The count is read once and copied into both `value` (the line item's quantity)
+ * and the snapshot, so a later re-count of the Room never moves the frozen number.
+ * The breadcrumb records `object_category` so the badge and any re-pick know which
+ * category was counted.
+ */
+export function resolveRoomObjectPull(
+  input: ResolveRoomObjectPullInput,
+): RoomPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "room",
+      sketch_id: input.sketchId,
+      floor_id: input.floorId,
+      room_id: input.roomId,
+      room_name: input.roomName,
+      kind: "object_count",
+      object_category: input.category,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+export interface ResolveFloorObjectPullInput {
+  /** The Floor's rolled-up inventory (M1 `sumInventories` over its Rooms). */
+  inventory: ObjectInventory;
+  category: ObjectCategory;
+  sketchId: string;
+  floorId: string;
+  floorName: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a Floor-scoped object_count pull. The Floor's rolled-up inventory shares
+ * the same `ObjectInventory` shape as a Room's, so the count reads identically;
+ * the breadcrumb is Floor-scoped (a floor_name, no room ids) and records the
+ * `object_category` counted.
+ */
+export function resolveFloorObjectPull(
+  input: ResolveFloorObjectPullInput,
+): FloorPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "floor",
+      sketch_id: input.sketchId,
+      floor_id: input.floorId,
+      floor_name: input.floorName,
+      kind: "object_count",
+      object_category: input.category,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+export interface ResolveSketchObjectPullInput {
+  /** The whole-Sketch rolled-up inventory (M1 `sumInventories` over every Floor). */
+  inventory: ObjectInventory;
+  category: ObjectCategory;
+  sketchId: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a whole-Sketch object_count pull. Same count + freeze as the Room and
+ * Floor object resolvers, but the breadcrumb carries only the Sketch identity and
+ * the `object_category`, since the count spans every Floor and Room.
+ */
+export function resolveSketchObjectPull(
+  input: ResolveSketchObjectPullInput,
+): WholeSketchPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "sketch",
+      sketch_id: input.sketchId,
+      kind: "object_count",
+      object_category: input.category,
       value,
       pulled_at: input.pulledAt,
     },
@@ -404,6 +592,16 @@ export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResoluti
   if (input.measurements === null) {
     return { status: "source-missing" };
   }
+  if (input.source.kind === "object_count") {
+    // Re-pull refreshes a MEASUREMENT/count source against the live Sketch; an
+    // object_count source has no measurement to re-read (object re-pull is not
+    // part of #864's flow, and the route never offers it). Reject rather than
+    // silently mis-resolve. Excluding the literal also narrows `kind` below to a
+    // ScalarPullKind, so resolvePullValue's lookup stays total.
+    throw new RangeError(
+      "resolveRoomRepull: object_count sources are not re-pullable",
+    );
+  }
   const oldValue = input.currentQuantity;
   // Normalise the live measurement to the billed 2-decimal precision. A line
   // item's `quantity` is numeric(10,2) while Room measurements are numeric(14,3),
@@ -426,7 +624,7 @@ export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResoluti
 export interface ResolveFloorPullInput {
   /** The Floor's aggregate totals (M2 `aggregateFloor(...).measurements`). */
   measurements: RoomMeasurements;
-  kind: PullKind;
+  kind: ScalarPullKind;
   /** The Floor's aggregate door/window counts — required only for a count kind. */
   counts?: SketchCounts;
   sketchId: string;
@@ -468,7 +666,7 @@ export function resolveFloorPull(input: ResolveFloorPullInput): FloorPull {
 export interface ResolveSketchPullInput {
   /** The whole-Sketch aggregate totals (M2 `aggregateSketch(...).measurements`). */
   measurements: RoomMeasurements;
-  kind: PullKind;
+  kind: ScalarPullKind;
   /** The whole-Sketch aggregate door/window counts — required only for a count kind. */
   counts?: SketchCounts;
   sketchId: string;

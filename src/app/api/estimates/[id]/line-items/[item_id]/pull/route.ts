@@ -11,10 +11,19 @@ import {
   resolveRoomPull,
   resolveFloorPull,
   resolveSketchPull,
-  type PullKind,
+  resolveRoomObjectPull,
+  resolveFloorObjectPull,
+  resolveSketchObjectPull,
+  type ScalarPullKind,
   type SketchSource,
 } from "@/lib/sketch/pull-resolver";
 import { aggregateFloor, type RoomContribution } from "@/lib/sketch/aggregate";
+import {
+  OBJECT_CATEGORIES,
+  objectInventory,
+  type ObjectCategory,
+  type ObjectInventory,
+} from "@/lib/sketch/object-inventory";
 
 interface RouteCtx {
   params: Promise<{ id: string; item_id: string }>;
@@ -28,13 +37,23 @@ interface PullBody {
   roomId?: unknown;
   floorId?: unknown;
   kind?: unknown;
+  /** Present only for an object_count pull (#867): which category to count. */
+  object_category?: unknown;
   updated_at_snapshot?: string;
 }
 
-function isKind(value: unknown): value is PullKind {
+function isKind(value: unknown): value is ScalarPullKind {
   return (
     typeof value === "string" &&
     (ALL_PULL_KINDS as readonly string[]).includes(value)
+  );
+}
+
+/** One of the known object categories — the vocabulary an object_count is scoped by. */
+function isObjectCategory(value: unknown): value is ObjectCategory {
+  return (
+    typeof value === "string" &&
+    (OBJECT_CATEGORIES as readonly string[]).includes(value)
   );
 }
 
@@ -132,13 +151,49 @@ export const POST = withRequestContext(
         { status: 400 },
       );
     }
-    if (!isKind(body.kind)) {
-      return NextResponse.json(
-        { error: `kind must be one of ${ALL_PULL_KINDS.join(", ")}` },
-        { status: 400 },
-      );
+    // The kind is one of the scalar pull kinds — six measurements plus the
+    // door/window counts (#866) — or `object_count`, a count of one object
+    // category (#867). An object_count pull additionally names a known
+    // `object_category` it is scoped by; every other kind names none.
+    const isObjectCount = body.kind === "object_count";
+    let kind: ScalarPullKind | null = null;
+    if (!isObjectCount) {
+      if (!isKind(body.kind)) {
+        return NextResponse.json(
+          {
+            error: `kind must be one of ${ALL_PULL_KINDS.join(", ")}, or object_count`,
+          },
+          { status: 400 },
+        );
+      }
+      kind = body.kind;
     }
-    const kind = body.kind;
+    let objectCategory: ObjectCategory | null = null;
+    if (isObjectCount) {
+      if (!isObjectCategory(body.object_category)) {
+        return NextResponse.json(
+          {
+            error: `object_category must be one of ${OBJECT_CATEGORIES.join(", ")}`,
+          },
+          { status: 400 },
+        );
+      }
+      objectCategory = body.object_category;
+    }
+
+    // Read the object inventory of a set of Rooms (M1 `objectInventory`) — the
+    // count half of a pull. Every scope funnels through here: a Room passes its
+    // own id, a Floor its Rooms' ids, the whole Sketch every Room's id. An empty
+    // set is a valid zero inventory.
+    async function readInventory(roomIds: string[]): Promise<ObjectInventory> {
+      if (roomIds.length === 0) return objectInventory([]);
+      const { data } = await supabase
+        .from("room_objects")
+        .select("category")
+        .in("room_id", roomIds)
+        .returns<{ category: ObjectCategory }[]>();
+      return objectInventory(data ?? []);
+    }
 
     const snap = await checkSnapshot(supabase, estimateId, body.updated_at_snapshot);
     if (!snap.ok) return snap.response;
@@ -202,18 +257,30 @@ export const POST = withRequestContext(
       if (!room) {
         return NextResponse.json({ error: "room not found" }, { status: 404 });
       }
-      // One Room's counts: its own door/window tally (rooms: 1 for completeness).
-      const { doors, windows } = openingCounts(room.openings);
-      pull = resolveRoomPull({
-        measurements: toMeasurements(room),
-        counts: { rooms: 1, doors, windows },
-        kind,
-        sketchId: sketch.id,
-        floorId: room.floor_id,
-        roomId: room.id,
-        roomName: room.name,
-        pulledAt,
-      });
+      if (objectCategory) {
+        pull = resolveRoomObjectPull({
+          inventory: await readInventory([room.id]),
+          category: objectCategory,
+          sketchId: sketch.id,
+          floorId: room.floor_id,
+          roomId: room.id,
+          roomName: room.name,
+          pulledAt,
+        });
+      } else {
+        // One Room's counts: its own door/window tally (rooms: 1 for completeness).
+        const { doors, windows } = openingCounts(room.openings);
+        pull = resolveRoomPull({
+          measurements: toMeasurements(room),
+          counts: { rooms: 1, doors, windows },
+          kind: kind as ScalarPullKind,
+          sketchId: sketch.id,
+          floorId: room.floor_id,
+          roomId: room.id,
+          roomName: room.name,
+          pulledAt,
+        });
+      }
     } else if (scope === "floor") {
       if (typeof body.floorId !== "string" || !body.floorId.trim()) {
         return NextResponse.json({ error: "floorId is required" }, { status: 400 });
@@ -222,38 +289,73 @@ export const POST = withRequestContext(
       if (!floor) {
         return NextResponse.json({ error: "floor not found" }, { status: 404 });
       }
-      const { data: floorRooms } = await supabase
-        .from("rooms")
-        .select(MEASUREMENT_COLUMNS)
-        .eq("floor_id", floor.id)
-        .returns<MeasurementRow[]>();
-      const aggregate = aggregateFloor((floorRooms ?? []).map(toContribution));
-      pull = resolveFloorPull({
-        measurements: aggregate.measurements,
-        counts: aggregate.counts,
-        kind,
-        sketchId: sketch.id,
-        floorId: floor.id,
-        floorName: floor.name,
-        pulledAt,
-      });
+      if (objectCategory) {
+        // Count objects across every Room on this Floor: read the Floor's Room
+        // ids, then their objects. `objectInventory` over the flat list equals
+        // summing per-Room inventories (#867).
+        const { data: floorRoomIds } = await supabase
+          .from("rooms")
+          .select("id")
+          .eq("floor_id", floor.id)
+          .returns<{ id: string }[]>();
+        pull = resolveFloorObjectPull({
+          inventory: await readInventory((floorRoomIds ?? []).map((r) => r.id)),
+          category: objectCategory,
+          sketchId: sketch.id,
+          floorId: floor.id,
+          floorName: floor.name,
+          pulledAt,
+        });
+      } else {
+        const { data: floorRooms } = await supabase
+          .from("rooms")
+          .select(MEASUREMENT_COLUMNS)
+          .eq("floor_id", floor.id)
+          .returns<MeasurementRow[]>();
+        const aggregate = aggregateFloor((floorRooms ?? []).map(toContribution));
+        pull = resolveFloorPull({
+          measurements: aggregate.measurements,
+          counts: aggregate.counts,
+          kind: kind as ScalarPullKind,
+          sketchId: sketch.id,
+          floorId: floor.id,
+          floorName: floor.name,
+          pulledAt,
+        });
+      }
     } else {
-      // Whole-Sketch total: sum every Floor's Rooms. Summing all contributions in
-      // one pass equals summing per-Floor then across Floors (addition is
-      // associative), and only the measurements feed the freeze.
-      const { data: allRooms } = await supabase
-        .from("rooms")
-        .select(MEASUREMENT_COLUMNS)
-        .in("floor_id", floorIds)
-        .returns<MeasurementRow[]>();
-      const aggregate = aggregateFloor((allRooms ?? []).map(toContribution));
-      pull = resolveSketchPull({
-        measurements: aggregate.measurements,
-        counts: aggregate.counts,
-        kind,
-        sketchId: sketch.id,
-        pulledAt,
-      });
+      if (objectCategory) {
+        // Whole-Sketch count: every Room across every Floor. Read all Room ids,
+        // then their objects; `objectInventory` over the flat list is the total.
+        const { data: allRoomIds } = await supabase
+          .from("rooms")
+          .select("id")
+          .in("floor_id", floorIds)
+          .returns<{ id: string }[]>();
+        pull = resolveSketchObjectPull({
+          inventory: await readInventory((allRoomIds ?? []).map((r) => r.id)),
+          category: objectCategory,
+          sketchId: sketch.id,
+          pulledAt,
+        });
+      } else {
+        // Whole-Sketch total: sum every Floor's Rooms. Summing all contributions
+        // in one pass equals summing per-Floor then across Floors (addition is
+        // associative), and only the measurements feed the freeze.
+        const { data: allRooms } = await supabase
+          .from("rooms")
+          .select(MEASUREMENT_COLUMNS)
+          .in("floor_id", floorIds)
+          .returns<MeasurementRow[]>();
+        const aggregate = aggregateFloor((allRooms ?? []).map(toContribution));
+        pull = resolveSketchPull({
+          measurements: aggregate.measurements,
+          counts: aggregate.counts,
+          kind: kind as ScalarPullKind,
+          sketchId: sketch.id,
+          pulledAt,
+        });
+      }
     }
 
     const { data, error } = await supabase

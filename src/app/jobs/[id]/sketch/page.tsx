@@ -6,7 +6,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requirePagePermission } from "@/lib/request-context/require-page-permission";
 import { getOrCreateJobSketch } from "@/lib/sketch/job-sketch";
 import PlanEditor from "@/components/plan-editor";
-import type { Floor, Room } from "@/lib/types";
+import type { Floor, Room, SketchObject } from "@/lib/types";
 
 // The Job-scoped Sketch builder route (#860). A builder route in the AppShell
 // `BUILDER_ROUTE_PATTERNS` sense — the nav renders as the slim collapsed rail
@@ -124,6 +124,34 @@ export default async function SketchBuilderPage({
     sort_order: Number(r.sort_order),
   }));
 
+  // Every known-category object placed in those Rooms (#867), keyed on the Room
+  // ids so the builder can draw each Floor's glyphs and total the inventory. The
+  // ordering keeps a Room's objects stable across reloads.
+  const roomIds = rooms.map((r) => r.id);
+  const { data: objectRows } = roomIds.length
+    ? await supabase
+        .from("room_objects")
+        .select("*")
+        .in("room_id", roomIds)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .returns<SketchObject[]>()
+    : { data: [] as SketchObject[] };
+  const objects: SketchObject[] = (objectRows ?? []).map((o) => ({
+    id: o.id,
+    room_id: o.room_id,
+    category: o.category,
+    // `position` is jsonb — already parsed by PostgREST; a legacy row missing it
+    // reads as (0,0). `rotation`/`sort_order` are numeric, so they arrive as
+    // strings and are coerced here (the object boundary, like the Room columns).
+    position:
+      o.position && typeof o.position === "object"
+        ? o.position
+        : { x: 0, y: 0 },
+    rotation: n(o.rotation),
+    sort_order: Number(o.sort_order),
+  }));
+
   // A freshly-created Sketch always has a Floor (getOrCreateJobSketch seeds one);
   // this guards only the impossible empty case so the builder always has one.
   if (!floor) {
@@ -136,6 +164,7 @@ export default async function SketchBuilderPage({
       sketchId={sketchId}
       floors={floors}
       initialRooms={rooms}
+      initialObjects={objects}
     />
   );
 }

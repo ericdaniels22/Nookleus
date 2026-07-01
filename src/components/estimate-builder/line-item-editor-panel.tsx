@@ -25,11 +25,17 @@ import { SketchSourceBadge } from "./sketch-source-badge";
 import {
   ALL_PULL_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
+  sketchSourceKindLabel,
   type PullKind,
   type RepullPreview,
   type SketchPickerFeed,
   type SketchPullArgs,
 } from "@/lib/sketch/pull-resolver";
+import {
+  OBJECT_CATEGORIES,
+  OBJECT_CATEGORY_LABELS,
+  type ObjectCategory,
+} from "@/lib/sketch/object-inventory";
 import type { BuilderLineItem } from "./line-item-row";
 import type { BuilderMode } from "@/lib/types";
 
@@ -264,7 +270,11 @@ export function LineItemEditorPanel({
   const [scope, setScope] = useState<SketchPullArgs["scope"]>("room");
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [selectedFloorId, setSelectedFloorId] = useState("");
+  // The kind widens to include `object_count` (#867). When it's the object_count
+  // kind, `selectedCategory` names which category the count is scoped by.
   const [selectedKind, setSelectedKind] = useState<PullKind>("wall_area_net");
+  const [selectedCategory, setSelectedCategory] =
+    useState<ObjectCategory>(OBJECT_CATEGORIES[0]);
   const [pulling, setPulling] = useState(false);
 
   async function openPicker() {
@@ -289,13 +299,22 @@ export function LineItemEditorPanel({
   // Which source depends on the scope (Room, Floor total, or whole-Sketch total).
   const selectedRoom = feed?.rooms.find((room) => room.id === selectedRoomId) ?? null;
   const selectedFloor = feed?.floors.find((floor) => floor.id === selectedFloorId) ?? null;
-  const previewSource =
+  // The chosen source (Room, Floor total, or whole-Sketch total) — each carries
+  // both its cached measurements and its object inventory, so the preview reads
+  // whichever the chosen kind needs: a measurement, or an object_count for the
+  // chosen category (#867).
+  const selectedSource =
     scope === "room"
-      ? (selectedRoom?.measurements ?? null)
+      ? selectedRoom
       : scope === "floor"
-        ? (selectedFloor?.measurements ?? null)
-        : (feed?.sketch?.measurements ?? null);
-  const pickerPreview = previewSource ? previewSource[selectedKind] : null;
+        ? selectedFloor
+        : (feed?.sketch ?? null);
+  const pickerPreview =
+    selectedSource == null
+      ? null
+      : selectedKind === "object_count"
+        ? selectedSource.objects[selectedCategory]
+        : selectedSource.measurements[selectedKind];
 
   // The Pull button is enabled once its scope has a concrete source: a Room for
   // Room scope, a Floor for Floor scope, and always for whole-Sketch scope.
@@ -304,12 +323,19 @@ export function LineItemEditorPanel({
 
   async function confirmPull() {
     if (!onPullFromSketch || !pullReady) return;
+    // An object_count pull rides the same scope union but carries the chosen
+    // `object_category` so the resolver counts only that category (#867). Every
+    // other kind is a measurement and needs no category.
+    const kindArgs =
+      selectedKind === "object_count"
+        ? { kind: selectedKind, object_category: selectedCategory }
+        : { kind: selectedKind };
     const args: SketchPullArgs =
       scope === "room"
-        ? { scope: "room", roomId: selectedRoomId, kind: selectedKind }
+        ? { scope: "room", roomId: selectedRoomId, ...kindArgs }
         : scope === "floor"
-          ? { scope: "floor", floorId: selectedFloorId, kind: selectedKind }
-          : { scope: "sketch", kind: selectedKind };
+          ? { scope: "floor", floorId: selectedFloorId, ...kindArgs }
+          : { scope: "sketch", ...kindArgs };
     setPulling(true);
     try {
       await onPullFromSketch(args);
@@ -891,8 +917,34 @@ export function LineItemEditorPanel({
                               {ROOM_MEASUREMENT_KIND_LABELS[kind]}
                             </option>
                           ))}
+                          {/* Count of a chosen object category — count-only, never
+                              billed as area/length (#867). */}
+                          <option value="object_count">Object count</option>
                         </select>
                       </label>
+
+                      {/* The object_count kind is scoped by a category; the picker
+                          reveals a category chooser and the preview above switches
+                          to that category's inventory count (#867). */}
+                      {selectedKind === "object_count" && (
+                        <label className="block">
+                          <span className={LABEL_CLASS}>Object category</span>
+                          <select
+                            data-testid="sketch-picker-object-category"
+                            value={selectedCategory}
+                            onChange={(e) =>
+                              setSelectedCategory(e.target.value as ObjectCategory)
+                            }
+                            className={FIELD_CLASS}
+                          >
+                            {OBJECT_CATEGORIES.map((category) => (
+                              <option key={category} value={category}>
+                                {OBJECT_CATEGORY_LABELS[category]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
 
                       {/* Preview of the value the server will freeze — sourced
                           from the same cached measurement the pull resolver reads,
@@ -1019,7 +1071,7 @@ export function LineItemEditorPanel({
             body={
               <span data-testid="repull-old-vs-new">
                 {repullSource.room_name} ·{" "}
-                {ROOM_MEASUREMENT_KIND_LABELS[repullSource.kind]}
+                {sketchSourceKindLabel(repullSource)}
                 {repullPreview && (
                   <>
                     {" — "}

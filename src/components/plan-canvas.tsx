@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-import type { Room } from "@/lib/types";
+import type { Room, SketchObject } from "@/lib/types";
 import { type Point, translateFootprint } from "@/lib/sketch/footprint";
 import {
   mergeCollinear,
@@ -10,6 +10,10 @@ import {
   shouldClosePolygon,
 } from "@/lib/sketch/footprint-draw";
 import { deleteVertex, moveVertex } from "@/lib/sketch/footprint-edit";
+import {
+  OBJECT_CATEGORY_LABELS,
+  type ObjectCategory,
+} from "@/lib/sketch/object-inventory";
 
 // Issue #890 / #862 — the MagicPlan-style multi-room plan canvas (ADR 0026). This
 // is the editor's Fabric glue: it renders every placed Room on a light dotted grid
@@ -86,6 +90,20 @@ export interface PlanCanvasProps {
   onFootprintComplete: (footprint: Point[]) => void;
   /** Wheel zoom reports the new percentage so the shell's control stays in sync. */
   onZoomChange?: (zoom: number) => void;
+  /** Known-category objects placed in the active Floor's Rooms (#867), drawn as
+   * labelled glyphs at their room-local position offset by the Room's origin. */
+  objects?: SketchObject[];
+  /** The armed object category (#867): while set, a tap inside a Room places one
+   * there instead of selecting the Room. Null → placement is off. */
+  objectDraft?: ObjectCategory | null;
+  /** The selected placed object (#867), highlighted and echoed to the object
+   * inspector. Null → no object is selected. */
+  selectedObjectId?: string | null;
+  /** A tap that placed an armed object — the target Room and the drop point in
+   * that Room's normalized (origin-relative) space. */
+  onPlaceObject?: (roomId: string, position: Point) => void;
+  /** Click a placed object glyph to select it (opens the object inspector). */
+  onSelectObject?: (objectId: string | null) => void;
 }
 
 /** One decimal, trailing zero trimmed: 12 → "12", 12.5 → "12.5". */
@@ -113,10 +131,15 @@ export default function PlanCanvas({
   selectedRoomId,
   mode,
   zoom,
+  objects = [],
+  objectDraft = null,
+  selectedObjectId = null,
   onSelectRoom,
   onMoveRoom,
   onEditFootprint,
   onFootprintComplete,
+  onPlaceObject,
+  onSelectObject,
   onZoomChange,
 }: PlanCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -130,6 +153,10 @@ export default function PlanCanvas({
   // and replace them without disturbing the grid or the draft overlay.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roomGroupsRef = useRef<Map<string, any>>(new Map());
+  // Placed-object glyphs by id (#867), rebuilt whenever the objects prop changes,
+  // kept apart from the Room groups so a rooms rebuild leaves them alone.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const objectGlyphsRef = useRef<Map<string, any>>(new Map());
   // The in-progress footprint (feet) while "adding", plus its Fabric overlay.
   const draftRef = useRef<Point[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -179,6 +206,16 @@ export default function PlanCanvas({
   onCompleteRef.current = onFootprintComplete;
   const onZoomChangeRef = useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+  const objectDraftRef = useRef(objectDraft);
+  objectDraftRef.current = objectDraft;
+  const selectedObjectRef = useRef(selectedObjectId);
+  selectedObjectRef.current = selectedObjectId;
+  const onPlaceObjectRef = useRef(onPlaceObject);
+  onPlaceObjectRef.current = onPlaceObject;
+  const onSelectObjectRef = useRef(onSelectObject);
+  onSelectObjectRef.current = onSelectObject;
 
   const ftToPx = (p: Point) => ({ x: p.x * PX_PER_FT, y: p.y * PX_PER_FT });
 
@@ -280,6 +317,67 @@ export default function PlanCanvas({
     syncingRef.current = false;
     // The selected Room's corner handles ride on top of the fresh groups.
     redrawVertexHandles();
+  }
+
+  // Draw the placed objects (#867) as labelled glyphs — a small rounded chip with
+  // the category name — at each object's room-local position offset by its Room's
+  // origin, so a glyph rides with the Room it belongs to. Glyphs are inert (never
+  // evented) so a tap falls through to the Room beneath for selection or placement.
+  function redrawObjects() {
+    const canvas = canvasRef.current;
+    const fabric = fabricRef.current;
+    if (!canvas || !fabric) return;
+    for (const glyph of objectGlyphsRef.current.values()) canvas.remove(glyph);
+    objectGlyphsRef.current.clear();
+
+    // A tap selects an object, so glyphs are evented in idle mode — except while
+    // a category is armed, when a tap must fall through to place a new object.
+    const evented =
+      objectDraftRef.current == null && modeRef.current === "idle";
+    for (const object of objectsRef.current) {
+      const room = roomsRef.current.find((r) => r.id === object.room_id);
+      if (!room) continue;
+      const placed = ftToPx({
+        x: object.position.x + room.origin.x,
+        y: object.position.y + room.origin.y,
+      });
+      const selected = object.id === selectedObjectRef.current;
+      const chip = new fabric.Rect({
+        width: 18,
+        height: 18,
+        rx: 4,
+        ry: 4,
+        fill: selected ? "#4f46e5" : "#e0e7ff",
+        stroke: "#4f46e5",
+        strokeWidth: selected ? 2.5 : 1.5,
+        originX: "center",
+        originY: "center",
+      });
+      const label = new fabric.Text(OBJECT_CATEGORY_LABELS[object.category], {
+        top: 14,
+        fontSize: 11,
+        fontFamily: "sans-serif",
+        fill: LABEL_FILL,
+        originX: "center",
+        originY: "center",
+      });
+      const glyph = new fabric.Group([chip, label], {
+        left: placed.x,
+        top: placed.y,
+        originX: "center",
+        originY: "center",
+        angle: Number(object.rotation) || 0,
+        // Selection is a click, not a Fabric drag, so the glyph is evented but
+        // never selectable (no move/resize handles). Its id rides on the group
+        // so a mouse:down can resolve which object was tapped.
+        selectable: false,
+        evented,
+      });
+      glyph.objectId = object.id;
+      objectGlyphsRef.current.set(object.id, glyph);
+      canvas.add(glyph);
+    }
+    canvas.requestRenderAll();
   }
 
   // Recolor walls to reflect the current selection without a full rebuild.
@@ -442,6 +540,9 @@ export default function PlanCanvas({
     syncingRef.current = false;
 
     if (modeRef.current !== "idle") return;
+    // While a category is armed (#867), corner handles would swallow placement
+    // taps, so the selected Room shows none until the object is dropped.
+    if (objectDraftRef.current != null) return;
     const id = selectedRef.current;
     if (!id) return;
     const room = roomsRef.current.find((r) => r.id === id);
@@ -595,6 +696,7 @@ export default function PlanCanvas({
       canvas.zoomToPoint(new fabric.Point(canvas.getWidth() / 2, canvas.getHeight() / 2), zoom / 100);
 
       redrawRooms();
+      redrawObjects();
 
       // Selection → tell the shell which Room (if any) is active. Guarded so a
       // rebuild's teardown doesn't masquerade as a user deselect.
@@ -670,6 +772,36 @@ export default function PlanCanvas({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       canvas.on("mouse:down", (opt: any) => {
+        // Placing an armed object (#867): a tap inside a Room drops one there.
+        // While armed, Rooms are evented-but-not-selectable, so the tapped Room is
+        // opt.target yet the tap doesn't change the selection. The drop point is
+        // reported in that Room's normalized (origin-relative) space.
+        if (objectDraftRef.current && opt.target?.roomId) {
+          const room = roomsRef.current.find((r) => r.id === opt.target.roomId);
+          if (room) {
+            const sp = canvas.getScenePoint(opt.e);
+            onPlaceObjectRef.current?.(room.id, {
+              x: sp.x / PX_PER_FT - room.origin.x,
+              y: sp.y / PX_PER_FT - room.origin.y,
+            });
+          }
+          return;
+        }
+
+        // Selecting a placed object (#867): a tap on a glyph opens its inspector.
+        // The glyph isn't Fabric-selectable, so we discard any active object and
+        // report the selection ourselves.
+        if (
+          !objectDraftRef.current &&
+          modeRef.current === "idle" &&
+          opt.target?.objectId
+        ) {
+          canvas.discardActiveObject();
+          onSelectObjectRef.current?.(opt.target.objectId);
+          canvas.requestRenderAll();
+          return;
+        }
+
         // Drawing a new Room: press anchors the stroke. The first press drops the
         // starting corner; the pen is now "down" so a drag rubber-bands the next
         // wall and the lift (mouse:up) commits it — a plain tap is just a lift
@@ -784,6 +916,7 @@ export default function PlanCanvas({
     // Capture the ref-held collections for the cleanup (they persist for the
     // component's life, but the linter wants a stable local).
     const roomGroups = roomGroupsRef.current;
+    const objectGlyphs = objectGlyphsRef.current;
     return () => {
       disposed = true;
       resizeObserverRef.current?.disconnect();
@@ -793,6 +926,7 @@ export default function PlanCanvas({
         canvasRef.current = null;
       }
       roomGroups.clear();
+      objectGlyphs.clear();
       draftOverlayRef.current = [];
       rubberBandRef.current = [];
       vertexHandlesRef.current = [];
@@ -802,11 +936,49 @@ export default function PlanCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-render the Room groups whenever the plan changes.
+  // Re-render the Room groups whenever the plan changes. Objects ride on the
+  // Rooms' origins, so a rooms rebuild redraws the glyphs too.
   useEffect(() => {
     redrawRooms();
+    redrawObjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rooms]);
+
+  // Re-render the object glyphs whenever the placed objects change (#867).
+  useEffect(() => {
+    redrawObjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objects]);
+
+  // While a category is armed (#867), Rooms become tap targets that don't select,
+  // so a tap places an object instead of opening the inspector; disarming restores
+  // normal idle selection. Guarded to idle mode — arming is a no-op while drawing.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const placing = objectDraft != null && mode === "idle";
+    if (placing) canvas.discardActiveObject();
+    for (const group of roomGroupsRef.current.values()) {
+      group.selectable = !placing && mode === "idle";
+      group.evented = mode === "idle";
+    }
+    // Glyphs must fall through placement taps, so they stop being tap targets
+    // while a category is armed and become selectable again once it's disarmed.
+    for (const glyph of objectGlyphsRef.current.values()) {
+      glyph.evented = !placing && mode === "idle";
+    }
+    // Corner handles would steal placement taps, so hide them while placing.
+    redrawVertexHandles();
+    canvas.requestRenderAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objectDraft]);
+
+  // Reflect an object-selection change as a glyph highlight (#867) — a rebuild
+  // recolours the selected chip; cheap since glyphs are few.
+  useEffect(() => {
+    redrawObjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedObjectId]);
 
   // Reflect a selection change as a wall-colour highlight (no full rebuild), and
   // move the corner drag handles onto the newly-selected Room (#862).
@@ -835,8 +1007,11 @@ export default function PlanCanvas({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const idle = mode === "idle";
+    // A tap selects a Room only when idle AND no object category is armed (#867);
+    // while armed, Rooms stay evented so a tap places instead of selects.
+    const placing = idle && objectDraft != null;
     for (const group of roomGroupsRef.current.values()) {
-      group.selectable = idle;
+      group.selectable = idle && !placing;
       group.evented = idle;
     }
     if (idle) {

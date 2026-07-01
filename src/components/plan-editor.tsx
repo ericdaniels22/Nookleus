@@ -5,10 +5,16 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft, Maximize, Minus, Pencil, Plus, Trash2, X } from "lucide-react";
 
-import type { Floor, Room, SketchOpening } from "@/lib/types";
+import type { Floor, Room, SketchObject, SketchOpening } from "@/lib/types";
 import { translateFootprint, type Point } from "@/lib/sketch/footprint";
 import { deleteWall, setWallLength } from "@/lib/sketch/footprint-edit";
 import { floorStatistics, sketchStatistics } from "@/lib/sketch/room-stats";
+import {
+  objectInventory,
+  OBJECT_CATEGORIES,
+  OBJECT_CATEGORY_LABELS,
+  type ObjectCategory,
+} from "@/lib/sketch/object-inventory";
 import PlanCanvas from "./plan-canvas";
 import { StatisticsPanel } from "./statistics-panel";
 
@@ -48,17 +54,35 @@ interface PlanEditorProps {
    * plan survives a reload and the whole-Sketch Statistics can be totalled.
    */
   initialRooms: Room[];
+  /**
+   * Every known-category object placed across all Rooms (#867). Optional — a
+   * Sketch with no objects yet omits it. Each carries its `room_id`, so the
+   * canvas can draw only the active Floor's and the inventory can be totalled.
+   */
+  initialObjects?: SketchObject[];
 }
 
 export default function PlanEditor({
   jobId,
   floors: initialFloors,
   initialRooms,
+  initialObjects = [],
 }: PlanEditorProps) {
   const [floors, setFloors] = useState<Floor[]>(initialFloors);
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
+  const [objects, setObjects] = useState<SketchObject[]>(initialObjects);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  // Which placed object is selected (#867) — opens the object inspector (edit
+  // category / delete). A Room and an object are never selected at once: picking
+  // one clears the other, so exactly one right-hand panel shows.
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [mode, setMode] = useState<"idle" | "adding">("idle");
+  // Placing a known-category object mirrors "adding" a Room (#867): the palette
+  // arms a category (`objectDraft`), the canvas reports where it was dropped, and
+  // the shell POSTs the armed category to that Room. `objectPaletteOpen` toggles
+  // the category menu; null draft means nothing is armed.
+  const [objectDraft, setObjectDraft] = useState<ObjectCategory | null>(null);
+  const [objectPaletteOpen, setObjectPaletteOpen] = useState(false);
   // Which dimension the plan is shown in. 2D is the authoring surface; 3D is the
   // read-only extruded dollhouse (#870). Switching to 3D drops any selection and
   // the add-a-Room arm so returning to 2D is clean.
@@ -82,8 +106,24 @@ export default function PlanEditor({
   // Rooms stay in `rooms` so the whole-Sketch Statistics can total them.
   const activeFloor = floors.find((f) => f.id === activeFloorId) ?? floors[0];
   const activeRooms = rooms.filter((r) => r.floor_id === activeFloor?.id);
+  // The objects that live in the active Floor's Rooms — what the canvas draws.
+  const activeRoomIds = new Set(activeRooms.map((r) => r.id));
+  const activeObjects = objects.filter((o) => activeRoomIds.has(o.room_id));
 
   const selectedRoom = activeRooms.find((r) => r.id === selectedRoomId) ?? null;
+  const selectedObject =
+    activeObjects.find((o) => o.id === selectedObjectId) ?? null;
+
+  // Selecting a Room or an object is exclusive — each clears the other so only
+  // one right-hand panel is open at a time.
+  function selectRoom(roomId: string | null) {
+    setSelectedObjectId(null);
+    setSelectedRoomId(roomId);
+  }
+  function selectObject(objectId: string | null) {
+    setSelectedRoomId(null);
+    setSelectedObjectId(objectId);
+  }
 
   // The Statistics roll-up (M2): the active Floor's totals and the whole-Sketch
   // totals (every Floor's Rooms summed). Pure — the numbers come straight off the
@@ -233,6 +273,58 @@ export default function PlanEditor({
     setSelectedRoomId((current) => (current === roomId ? null : current));
   }
 
+  // Dropping an armed object into a Room (#867). The palette arms a category; the
+  // canvas reports the drop position. We POST the category and position to that
+  // Room's objects collection, append the echoed row, and disarm — one drop, one
+  // object (re-arm from the palette to place another).
+  async function placeObject(roomId: string, position: Point) {
+    const category = objectDraft;
+    if (!category) return;
+    setObjectDraft(null);
+    const res = await fetch(`/api/jobs/${jobId}/sketch/rooms/${roomId}/objects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category, position }),
+    });
+    if (!res.ok) return;
+    const { object } = (await res.json()) as { object: SketchObject };
+    setObjects((prev) => [...prev, object]);
+  }
+
+  // Removing a placed object (#867). We DELETE it from its Room's collection,
+  // then drop it from state and clear the selection so the object inspector
+  // closes. Nothing re-derives — objects are count-only.
+  async function deleteObject(objectId: string, roomId: string) {
+    const res = await fetch(
+      `/api/jobs/${jobId}/sketch/rooms/${roomId}/objects/${objectId}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) return;
+    setObjects((prev) => prev.filter((o) => o.id !== objectId));
+    setSelectedObjectId(null);
+  }
+
+  // Re-categorizing a placed object (#867) — the only edit the inspector offers
+  // (objects are count-only; position/rotation are a canvas drag). We PATCH just
+  // the category and replace the row with the echoed one.
+  async function changeObjectCategory(
+    objectId: string,
+    roomId: string,
+    category: ObjectCategory,
+  ) {
+    const res = await fetch(
+      `/api/jobs/${jobId}/sketch/rooms/${roomId}/objects/${objectId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category }),
+      },
+    );
+    if (!res.ok) return;
+    const { object } = (await res.json()) as { object: SketchObject };
+    setObjects((prev) => prev.map((o) => (o.id === object.id ? object : o)));
+  }
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-2">
@@ -322,9 +414,13 @@ export default function PlanEditor({
                 onClick={() => {
                   setViewDim(dim);
                   // Entering the read-only dollhouse drops any 2D selection and
-                  // disarms add-a-Room, so returning to 2D is a clean slate.
+                  // disarms add-a-Room / any armed object, so returning to 2D is a
+                  // clean slate.
                   if (dim === "3d") {
                     setSelectedRoomId(null);
+                    setSelectedObjectId(null);
+                    setObjectDraft(null);
+                    setObjectPaletteOpen(false);
                     setMode("idle");
                   }
                 }}
@@ -341,14 +437,58 @@ export default function PlanEditor({
           </div>
 
           {viewDim === "2d" ? (
-            <button
-              type="button"
-              onClick={() => setMode("adding")}
-              className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              <Plus size={16} />
-              Add room
-            </button>
+            <>
+              {/* Object palette (#867): arm a known category, then the next canvas
+                  drop places it. Toggling the menu never enters room-draw mode;
+                  arming a category cancels any half-drawn Room. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setObjectPaletteOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={objectPaletteOpen}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/60"
+                >
+                  <Plus size={16} />
+                  Add object
+                </button>
+                {objectPaletteOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="Object categories"
+                    className="absolute right-0 z-10 mt-1 w-48 rounded-lg border border-border bg-card py-1 shadow-lg"
+                  >
+                    {OBJECT_CATEGORIES.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setObjectDraft(category);
+                          setObjectPaletteOpen(false);
+                          setMode("idle");
+                        }}
+                        className="block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted/60"
+                      >
+                        {OBJECT_CATEGORY_LABELS[category]}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setObjectDraft(null);
+                  setMode("adding");
+                }}
+                className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus size={16} />
+                Add room
+              </button>
+            </>
           ) : null}
         </div>
       </header>
@@ -365,18 +505,39 @@ export default function PlanEditor({
               selectedRoomId={selectedRoomId}
               mode={mode}
               zoom={zoom}
-              onSelectRoom={setSelectedRoomId}
+              objects={activeObjects}
+              objectDraft={objectDraft}
+              selectedObjectId={selectedObjectId}
+              onSelectRoom={selectRoom}
               onMoveRoom={moveRoom}
               onFootprintComplete={completeFootprint}
               onEditFootprint={editFootprint}
+              onPlaceObject={placeObject}
+              onSelectObject={selectObject}
               onZoomChange={(z) => setZoom(clampZoom(z))}
             />
 
-            {selectedRoom ? (
+            {selectedObject ? (
+              <ObjectInspector
+                key={selectedObject.id}
+                object={selectedObject}
+                onChangeCategory={(category) =>
+                  changeObjectCategory(
+                    selectedObject.id,
+                    selectedObject.room_id,
+                    category,
+                  )
+                }
+                onDelete={() =>
+                  deleteObject(selectedObject.id, selectedObject.room_id)
+                }
+              />
+            ) : selectedRoom ? (
               <RoomInspector
                 key={selectedRoom.id}
                 room={selectedRoom}
                 floor={activeFloor}
+                objects={objects.filter((o) => o.room_id === selectedRoom.id)}
                 onSave={(edits) => saveRoom(selectedRoom.id, edits)}
                 onEditFootprint={(placed) =>
                   editFootprint(selectedRoom.id, placed)
@@ -442,6 +603,7 @@ export default function PlanEditor({
 function RoomInspector({
   room,
   floor,
+  objects,
   onSave,
   onEditFootprint,
   onSaveOpenings,
@@ -449,6 +611,8 @@ function RoomInspector({
 }: {
   room: Room;
   floor: Floor;
+  /** The known-category objects placed in this Room (#867). */
+  objects: SketchObject[];
   onSave: (edits: { name: string; ceilingHeightOverride: number | null }) => void;
   /** Reshape the Room to this footprint, in PLACED floor coordinates. */
   onEditFootprint: (placedFootprint: Point[]) => void;
@@ -480,6 +644,13 @@ function RoomInspector({
     const to = footprint[(i + 1) % footprint.length];
     return { index: i, length: Math.hypot(to.x - from.x, to.y - from.y) };
   });
+
+  // The Room's object inventory (#867): a count per known category. Objects are
+  // a COUNT source only (never billed for footage or area), so this readout is
+  // plain counts — the same numbers an `object_count` line-item pull freezes.
+  // Only categories the Room actually holds are listed; the rest are omitted.
+  const inventory = objectInventory(objects);
+  const presentCategories = OBJECT_CATEGORIES.filter((c) => inventory[c] > 0);
 
   function applyWallLength(wallIndex: number, targetLength: number) {
     onEditFootprint(
@@ -585,6 +756,33 @@ function RoomInspector({
         </ul>
       </div>
 
+      {/* The Room's object inventory (#867) — a count per known category it
+          holds. Count-only; a line item pulls an object_count for a category
+          from exactly these numbers. Categories with none are omitted. */}
+      <div className="flex flex-col gap-2">
+        <h3 className="text-xs font-medium text-muted-foreground">Objects</h3>
+        <dl data-testid="room-object-inventory" className="flex flex-col gap-1">
+          {presentCategories.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">None yet.</p>
+          ) : (
+            presentCategories.map((category) => (
+              <div
+                key={category}
+                data-testid={`room-object-${category}`}
+                className="flex items-center justify-between rounded-lg border border-border bg-background px-2 py-1"
+              >
+                <dt className="text-[11px] text-muted-foreground">
+                  {OBJECT_CATEGORY_LABELS[category]}
+                </dt>
+                <dd className="text-sm font-semibold tabular-nums text-foreground">
+                  {inventory[category]}
+                </dd>
+              </div>
+            ))
+          )}
+        </dl>
+      </div>
+
       {/* Openings (#866): doors and windows on the Room's walls. Adding one
           appends a default (door 3×7, window 3×4); the server deducts its area
           from gross wall area (net = gross − Σ openings) and tallies the kind, so
@@ -630,6 +828,59 @@ function RoomInspector({
       >
         <Trash2 size={16} />
         Delete room
+      </button>
+    </aside>
+  );
+}
+
+// The right inspector for a selected placed object (#867). Objects are
+// count-only, so there are no measurements here — just what the object IS (its
+// category) and a Delete action. Keyed by object id in the parent so it resets
+// when the selection changes.
+function ObjectInspector({
+  object,
+  onChangeCategory,
+  onDelete,
+}: {
+  object: SketchObject;
+  onChangeCategory: (category: ObjectCategory) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <aside
+      aria-label="Object inspector"
+      className="absolute right-0 top-0 flex h-full w-72 flex-col gap-4 overflow-y-auto border-l border-border bg-card p-4"
+    >
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="object-category"
+          className="text-xs text-muted-foreground"
+        >
+          Category
+        </label>
+        {/* Driven straight off the object row — after a PATCH echoes back, the
+            updated category flows in as a prop and the field re-reads it. */}
+        <select
+          id="object-category"
+          value={object.category}
+          onChange={(e) => onChangeCategory(e.target.value as ObjectCategory)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        >
+          {OBJECT_CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {OBJECT_CATEGORY_LABELS[category]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        type="button"
+        onClick={onDelete}
+        className="mt-auto inline-flex items-center justify-center gap-2 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+      >
+        <Trash2 size={16} />
+        Delete object
       </button>
     </aside>
   );

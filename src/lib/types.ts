@@ -3,6 +3,7 @@ import type {
   StoredReportSettingsJson,
 } from "./photo-report-settings";
 import type { SketchSource } from "./sketch/pull-resolver";
+import type { ObjectCategory } from "./sketch/object-inventory";
 
 export type { SketchSource } from "./sketch/pull-resolver";
 
@@ -405,6 +406,21 @@ export interface Room extends RoomMeasurements {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * A known-category object placed inside a Room (#867) — a cabinet run, a fixture,
+ * an appliance. Its measurement is count-only: a line item pulls how many objects
+ * of a category a Room/Floor/Sketch holds, never linear footage or area. `position`
+ * and `rotation` place its glyph on the canvas but do not bill.
+ */
+export interface SketchObject {
+  id: string;
+  room_id: string;
+  category: ObjectCategory;
+  position: SketchPoint;
+  rotation: number;
+  sort_order: number;
 }
 
 export interface EmailAddress {
