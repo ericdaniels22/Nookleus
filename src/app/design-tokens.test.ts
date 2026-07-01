@@ -313,3 +313,26 @@ describe("iOS/desktop globals — §7.4 applies globally, not per-page", () => {
     expect(offenders, "files still using 100vh/h-screen (use dvh — §7.4)").toEqual([]);
   });
 });
+
+describe("theme system removal — dark-only, no runtime switching (ADR 0027)", () => {
+  it("ships no next-themes imports anywhere in src", () => {
+    const offenders: string[] = [];
+    for (const entry of readdirSync(resolve(process.cwd(), "src"), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.tsx?$/.test(name) || name.includes(".test.")) continue;
+      const path = join(entry.parentPath, name);
+      const source = readFileSync(path, "utf8");
+      if (source.includes("next-themes")) {
+        offenders.push(path);
+      }
+    }
+    expect(
+      offenders,
+      "files still importing next-themes (dark-only — ADR 0027)",
+    ).toEqual([]);
+  });
+});

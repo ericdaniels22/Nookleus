@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { ThemeProvider } from "next-themes";
 import BrandColorsProvider from "@/components/brand-colors-provider";
 import { ConfigProvider } from "@/lib/config-context";
 import { AuthProvider } from "@/lib/auth-context";
@@ -53,23 +52,21 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full bg-background" suppressHydrationWarning>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <UploadQueueProvider>
-              <ConfigProvider>
-                <NavOrderProvider>
-                  <SidebarCollapseProvider>
-                    <BrandColorsProvider />
-                    <DeepLinkListener />
-                    <PushRegistration />
-                    <AppShell>{children}</AppShell>
-                    <Toaster />
-                  </SidebarCollapseProvider>
-                </NavOrderProvider>
-              </ConfigProvider>
-            </UploadQueueProvider>
-          </AuthProvider>
-        </ThemeProvider>
+        <AuthProvider>
+          <UploadQueueProvider>
+            <ConfigProvider>
+              <NavOrderProvider>
+                <SidebarCollapseProvider>
+                  <BrandColorsProvider />
+                  <DeepLinkListener />
+                  <PushRegistration />
+                  <AppShell>{children}</AppShell>
+                  <Toaster />
+                </SidebarCollapseProvider>
+              </NavOrderProvider>
+            </ConfigProvider>
+          </UploadQueueProvider>
+        </AuthProvider>
       </body>
     </html>
   );

@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
-import { Sun, Moon, Monitor, Loader2, RotateCcw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 const DEFAULTS = {
@@ -12,23 +10,13 @@ const DEFAULTS = {
   brand_accent: "#C41E2A",
 };
 
-const themeOptions = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-];
-
 export function AppearanceSection() {
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [primary, setPrimary] = useState(DEFAULTS.brand_primary);
   const [secondary, setSecondary] = useState(DEFAULTS.brand_secondary);
   const [accent, setAccent] = useState(DEFAULTS.brand_accent);
-
-  useEffect(() => setMounted(true), []);
 
   // Load saved brand colors
   useEffect(() => {
@@ -86,7 +74,7 @@ export function AppearanceSection() {
     toast.success("Colors reset to defaults");
   }
 
-  if (!mounted || loading) {
+  if (loading) {
     return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
   }
 
@@ -98,37 +86,6 @@ export function AppearanceSection() {
         <p className="text-sm text-muted-foreground mt-0.5">
           Customize the look and feel of your platform.
         </p>
-      </div>
-
-      {/* Theme Toggle */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <label className="block text-sm font-medium text-foreground mb-1">
-          Theme
-        </label>
-        <p className="text-xs text-muted-foreground mb-4">
-          Choose how the platform looks. System will follow your device settings.
-        </p>
-        <div className="flex gap-3">
-          {themeOptions.map((opt) => {
-            const isActive = theme === opt.value;
-            const Icon = opt.icon;
-            return (
-              <button
-                key={opt.value}
-                onClick={() => setTheme(opt.value)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all flex-1 justify-center",
-                  isActive
-                    ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
-                    : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
-                )}
-              >
-                <Icon size={18} />
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Brand Colors */}
@@ -250,7 +207,7 @@ export function AppearanceSection() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-50 transition-all"
         >
           {saving && <Loader2 size={16} className="animate-spin" />}
           {saving ? "Saving..." : "Save Changes"}
