@@ -20,6 +20,13 @@ handoffs, and the `/handoff` + `/orient` skills — was retired 2026-06-05;
 see [ADR 0010](docs/adr/0010-retire-knowledge-vault-continuity-loop.md). The
 curated vault under `docs/vault/` remains as frozen reference.)_
 
+## Design system
+
+All UI work follows **`docs/design-system.md`** — read it before touching
+frontend code. When existing code conflicts with that document, the document
+wins (migrate the code). Its non-negotiable guardrails (§9) apply to every
+styling diff.
+
 ## Agent skills
 
 ### Issue tracker

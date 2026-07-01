@@ -157,6 +157,20 @@ Jobs page floats emergencies to the top, and the new-intake notification speaks 
 tier — an 🚨 emergency leads the title, and each tier carries its own sound.
 _Avoid_: priority, severity, importance (fine in UI copy)
 
+**Damage type**:
+The category of loss a Job is for — one of eight canonical values (water,
+fire, mold, storm, biohazard, contents, rebuild, other), stored on the Job
+and chosen at **Intake**. Backed by the `damage_types` config table: each
+Organization can relabel the display name and pick its own badge colors in
+the settings builder, so badge colors are per-Organization data, not fixed
+design values (the app softens any stored color into the tint-badge
+treatment so it stays legible on the dark theme). Shown as a badge on job
+rows, cards, and the job detail header, alongside — and distinct from —
+**Urgency** (how fast to respond) and **Job status** (lifecycle stage).
+_Avoid_: loss type (insurance-speak that appeared in early design drafts —
+the field, table, and UI all say damage type), category, job type; deriving
+it from the job number (it is a stored field, never parsed from a prefix)
+
 **Job status**:
 The lifecycle stage a Job sits in — one of five, in pipeline order: **Lead**
 (a new job just logged; the sale not yet won), **Active** (a contract is
@@ -470,6 +484,26 @@ default preset; absent a layout, the default applies. See
 [ADR 0012](docs/adr/0012-pdf-layout-is-a-per-document-snapshot.md).
 _Avoid_: format, theme, bare "layout" outside the billing-PDF context, View
 (that's the screen a layout is edited on, not the layout itself)
+
+**Product accent**:
+The emerald that is the app UI's own voice — the one solid primary action
+per view, live/positive status, the active nav item. In-app only: it never
+appears on a Customer-facing surface, where the Organization's identity
+leads instead. Distinct from the fixed document brand triad (green / navy /
+red) that customer artifacts render with — see Customer-facing surface and
+[ADR 0027](docs/adr/0027-design-system-v2-dark-only-on-shadcn-token-slots.md).
+_Avoid_: brand color, theme color, highlight color
+
+**Customer-facing surface**:
+Any artifact a customer, adjuster, or other outside party sees — billing
+and report and contract PDFs, the public signing/viewing pages, outgoing
+email frames. Always rendered on a light palette regardless of the app's
+dark theme, using the document brand triad rather than the Product accent,
+and leading with the Organization's identity (its logo, its chosen button
+color) per [ADR 0017](docs/adr/0017-contract-emails-render-in-app-owned-branded-frame.md).
+The team-facing app UI is not one of these, even when it previews one.
+_Avoid_: external page, public UI (the public pages are one kind, not the
+whole set); "branded" unqualified (both palettes are branding)
 
 **Target**:
 A row on the Referral Partners call list whose Lifecycle status is still
