@@ -55,7 +55,7 @@
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-xl: calc(var(--radius) * 1.2);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
@@ -114,7 +114,8 @@
   --chart-4: oklch(0.709 0.1592 293.54); /* violet #A78BFA */
   --chart-5: oklch(0.7106 0.1661 22.22); /* rose #F87171 */
 
-  --radius: 0.75rem;
+  /* §4: md 8px (inputs/buttons), lg 10px (cards), xl 12px (dialogs) */
+  --radius: 0.625rem;
 
   /* Sidebar slots — active nav = accent tint + accent text (§2.0 mapping) */
   --sidebar-foreground: var(--text-secondary);

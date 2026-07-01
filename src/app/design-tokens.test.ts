@@ -257,3 +257,26 @@ describe("contrast audit — §2.3 small text vs --card meets WCAG AA", () => {
     },
   );
 });
+
+describe("radius scale — §4 derives from --radius, not per-component hardcoding", () => {
+  const REM = 16;
+
+  function radiusStepPx(step: string): number {
+    const themeBlock = extractBlock(css, "@theme inline");
+    const decl = parseDeclarations(themeBlock).get(`--radius-${step}`);
+    if (!decl) throw new Error(`--radius-${step} not registered`);
+    const base = parseFloat(resolveToken("--radius")) * REM;
+    if (decl === "var(--radius)") return base;
+    const m = decl.match(/^calc\(var\(--radius\)\s*\*\s*([\d.]+)\)$/);
+    if (!m) throw new Error(`--radius-${step} is not derived from --radius: "${decl}"`);
+    return base * parseFloat(m[1]);
+  }
+
+  it.each([
+    ["md", 8], // inputs and buttons
+    ["lg", 10], // cards and widgets
+    ["xl", 12], // dialogs
+  ])("--radius-%s computes to %dpx", (step, px) => {
+    expect(radiusStepPx(step)).toBeCloseTo(px, 1);
+  });
+});
