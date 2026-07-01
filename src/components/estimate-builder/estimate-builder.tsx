@@ -50,6 +50,10 @@ import { BuilderLayout } from "./builder-layout";
 import { LineItemEditorPanel } from "./line-item-editor-panel";
 import { useLineItemSelection } from "./use-line-item-selection";
 import type { BuilderLineItem } from "./line-item-row";
+import type {
+  RoomMeasurementKind,
+  SketchRoomOption,
+} from "@/lib/sketch/pull-resolver";
 import TemplateMetaBar from "./template-meta-bar";
 import ConvertConfirmModal from "@/components/conversion/convert-confirm-modal";
 
@@ -1469,6 +1473,70 @@ export function EstimateBuilder({
     // Task 28 auto-save will pick this up.
   }
 
+  // #861 — "Pull from Sketch" (estimate-only). The picker feed and the freeze
+  // are both server-authoritative: loadSketchRooms GETs the Rooms of this
+  // estimate's Sketch; pullFromSketch POSTs the chosen Room + kind to the item's
+  // pull route, which resolves the measurement and writes the frozen `quantity`
+  // + `sketch_source`, returning the updated row.
+  async function loadSketchRooms(): Promise<SketchRoomOption[]> {
+    if (state.entity.kind !== "estimate") return [];
+    const entityId = state.entity.data.id;
+    try {
+      const res = await fetch(`/api/estimates/${entityId}/sketch/rooms`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error || "Failed to load Sketch rooms");
+        return [];
+      }
+      const data = (await res.json()) as { rooms: SketchRoomOption[] };
+      return data.rooms;
+    } catch {
+      toast.error("Network error — could not load Sketch rooms");
+      return [];
+    }
+  }
+
+  async function pullFromSketch(
+    itemId: string,
+    args: { roomId: string; kind: RoomMeasurementKind },
+  ) {
+    if (state.entity.kind !== "estimate") return;
+    const entityId = state.entity.data.id;
+    try {
+      const res = await fetch(
+        `/api/estimates/${entityId}/line-items/${itemId}/pull`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId: args.roomId, kind: args.kind }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error || "Failed to pull from Sketch");
+        return;
+      }
+      const data = (await res.json()) as {
+        line_item: EstimateLineItem;
+        updated_at?: string | null;
+      };
+      // Adopt the POST's fresh updated_at BEFORE the local edit fires the
+      // auto-save quantity re-PUT, so that PUT's snapshot isn't stale (else
+      // 409 → stale-conflict latch). sketch_source is deliberately excluded from
+      // the auto-save allowlist (LINE_ITEM_FIELDS), so that re-PUT is idempotent
+      // and can never overwrite the server-frozen source back to null.
+      adoptUpdatedAt(data.updated_at ?? null);
+      onLineItemChange(itemId, {
+        quantity: data.line_item.quantity,
+        total: data.line_item.total,
+        sketch_source: data.line_item.sketch_source,
+      });
+      toast.success("Pulled from Sketch");
+    } catch {
+      toast.error("Network error — could not pull from Sketch");
+    }
+  }
+
   function onAddLineItem(
     sectionId: string,
     initialTab: "library" | "custom" = "library",
@@ -2483,6 +2551,8 @@ export function EstimateBuilder({
               onClose={lineSelection.clear}
               onDuplicate={() => onLineItemDuplicate(selectedItem.id)}
               onDelete={() => onLineItemDelete(selectedItem.id)}
+              onLoadSketchRooms={loadSketchRooms}
+              onPullFromSketch={(args) => pullFromSketch(selectedItem.id, args)}
               readOnly={isVoided}
               mode={mode}
             />

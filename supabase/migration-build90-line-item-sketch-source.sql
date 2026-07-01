@@ -1,0 +1,44 @@
+-- ============================================
+-- Build 90 Migration: #861 — Line-item Sketch source (frozen pull)
+--
+-- Records where an Estimate line item's `quantity` was pulled from, when it was
+-- pulled from a Sketch Room (S2 "money slice", CONTEXT.md "Room"; ADR 0025 — a
+-- line item pulls its quantity from a Room measurement as a re-pullable
+-- snapshot). The pulled number itself lands in the existing `quantity` column
+-- (the freeze); this migration only adds the breadcrumb that says which Room and
+-- which measurement it came from, so the UI can badge the source and a later
+-- re-pull can pre-select it.
+--
+-- One new column on estimate_line_items, additive and safe:
+--   sketch_source jsonb, NULLABLE. NULL for every existing row and for every
+--   line item whose quantity was typed by hand — only a Sketch-pulled row has a
+--   value. A NULLABLE column with no default is a metadata-only change (no table
+--   rewrite, no backfill), and non-Sketch items are untouched (acceptance #2).
+--
+-- The jsonb payload is the SketchSource snapshot written by the pull resolver
+-- (src/lib/sketch/pull-resolver.ts):
+--   { scope: 'room', sketch_id, floor_id, room_id, room_name,
+--     kind, value, pulled_at }
+-- It is a SNAPSHOT, not a live link (ADR 0004): `value` is the frozen quantity,
+-- and the ids/room_name are soft breadcrumbs — editing or deleting the Sketch
+-- afterward never changes the line item (acceptance #4). We deliberately do NOT
+-- add a foreign key to rooms: a Room may be deleted after the pull without
+-- disturbing the frozen line item, exactly as a template snapshot outlives its
+-- source (ADR 0004).
+--
+-- Scope: ESTIMATE line items only, Room scope only. Org-scoping and RLS are
+-- unchanged — the column rides on estimate_line_items, whose existing policies
+-- already scope by organization_id.
+--
+-- All statements are idempotent. Run in the Supabase SQL Editor.
+-- ============================================
+
+ALTER TABLE estimate_line_items
+  ADD COLUMN IF NOT EXISTS sketch_source jsonb;
+
+-- ============================================
+-- ROLLBACK ------------------------------------------------------------------
+-- ALTER TABLE estimate_line_items DROP COLUMN IF EXISTS sketch_source;
+-- ============================================
+-- End of build90 migration.
+-- ============================================
