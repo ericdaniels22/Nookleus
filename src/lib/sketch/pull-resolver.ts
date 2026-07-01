@@ -7,6 +7,7 @@
 // re-pullable snapshot). No persistence, no I/O — the mapping and the freeze
 // live in one testable spot, reused identically by the pull API route.
 
+import { round2 } from "../format";
 import type { RoomMeasurements } from "./measure-room";
 
 /**
@@ -142,5 +143,103 @@ export function resolveRoomPull(input: ResolveRoomPullInput): RoomPull {
       value,
       pulled_at: input.pulledAt,
     },
+  };
+}
+
+// ── Re-pull (#864, S3) ───────────────────────────────────────────────────────
+// The re-pull half of the snapshot contract (ADR 0025): a frozen Sketch-sourced
+// line item can be refreshed from the live Sketch, but only on an explicit user
+// action and only after they've seen old-vs-new. This pure step computes that
+// diff (and packages the refreshed source) from the existing frozen `source` and
+// the Room's *current* measurements — the route does the I/O of reading them.
+
+export interface RepullOk {
+  status: "ok";
+  /**
+   * The line item's *current* quantity — the "old" side of the diff, i.e. the
+   * value the re-pull is about to replace. This is deliberately the live quantity
+   * and NOT `source.value` (the last-pulled number): a quantity hand-edited since
+   * the pull would otherwise be silently discarded behind a stale-looking diff.
+   */
+  oldValue: number;
+  /** The value re-read from the live Room for the same kind — the "new" side. */
+  newValue: number;
+  /** Whether the quantity would actually change (`newValue !== oldValue`). */
+  changed: boolean;
+  /**
+   * The source to persist on confirm: the frozen breadcrumb with only `value`
+   * and `pulled_at` refreshed. Room identity/kind stay frozen — a re-pull
+   * refreshes the same source, it doesn't re-point it.
+   */
+  source: SketchSource;
+}
+
+/**
+ * The source Room (or its Floor/Sketch) no longer exists, so there is nothing
+ * to re-pull from. Carries no `source`, so a caller can never accidentally write
+ * a mutated breadcrumb down this path — the frozen quantity is left untouched
+ * (#864 AC #4).
+ */
+export interface RepullSourceMissing {
+  status: "source-missing";
+}
+
+export type RepullResolution = RepullOk | RepullSourceMissing;
+
+/**
+ * The old-vs-new preview the client shows before a re-pull is confirmed — the
+ * wire shape of {@link RepullOk} minus the source, in the route's snake_case.
+ */
+export interface RepullPreview {
+  old_value: number;
+  new_value: number;
+  changed: boolean;
+}
+
+export interface ResolveRoomRepullInput {
+  /** The line item's existing frozen `sketch_source` breadcrumb. */
+  source: SketchSource;
+  /**
+   * The source Room's *current* measurements, or `null` when the Room (or its
+   * Floor/Sketch) no longer exists — the re-pull's "deleted source" signal.
+   */
+  measurements: RoomMeasurements | null;
+  /**
+   * The line item's current `quantity` — the value the re-pull replaces, reported
+   * as the diff's old side so the confirmation is truthful even when the quantity
+   * was hand-edited away from `source.value` since the last pull.
+   */
+  currentQuantity: number;
+  /** ISO timestamp of this re-pull (injected — this module does no I/O). */
+  pulledAt: string;
+}
+
+/**
+ * Re-pull the frozen source against the Room's current measurements. When the
+ * Room is gone (`measurements === null`) the result is `source-missing` and no
+ * refreshed source is produced — the caller must leave the line item alone.
+ * Otherwise it reads the same `source.kind` off the live measurements as the new
+ * value, reports the line's current quantity as the old value, and packages a
+ * refreshed source (new `value` + `pulled_at`, everything else frozen) to persist
+ * on confirm.
+ */
+export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResolution {
+  if (input.measurements === null) {
+    return { status: "source-missing" };
+  }
+  const oldValue = input.currentQuantity;
+  // Normalise the live measurement to the billed 2-decimal precision. A line
+  // item's `quantity` is numeric(10,2) while Room measurements are numeric(14,3),
+  // so a raw measurement like 250.567 was stored as 250.57. Comparing the raw
+  // measurement against the current quantity would report an unchanged Sketch as
+  // "changed" on every re-pull; rounding to the quantity's own precision makes the
+  // diff (and the refreshed `value`) reflect what actually gets billed.
+  const newValue = round2(roomMeasurementValue(input.measurements, input.source.kind));
+  return {
+    status: "ok",
+    oldValue,
+    newValue,
+    changed: newValue !== oldValue,
+    source: { ...input.source, value: newValue, pulled_at: input.pulledAt },
   };
 }

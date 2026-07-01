@@ -26,6 +26,7 @@ import {
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
   type RoomMeasurementKind,
+  type RepullPreview,
   type SketchRoomOption,
 } from "@/lib/sketch/pull-resolver";
 import type { BuilderLineItem } from "./line-item-row";
@@ -112,6 +113,23 @@ export interface LineItemEditorPanelProps {
     roomId: string;
     kind: RoomMeasurementKind;
   }) => Promise<void>;
+  /**
+   * Preview a re-pull (#864): re-read this line's frozen source Room from the live
+   * Sketch and return `{ old_value, new_value, changed }` so the panel can show
+   * old-vs-new before applying. Resolves `null` when the preview failed (the
+   * source Room was deleted, or a network error) — the parent surfaces the reason
+   * and the panel simply doesn't open the confirm. Optional; its presence
+   * (alongside a frozen `sketch_source`) gates the Re-pull affordance.
+   */
+  onRepullPreview?: () => Promise<RepullPreview | null>;
+  /**
+   * Apply the confirmed re-pull (#864): recompute + persist the refreshed quantity
+   * / source / total, threading the result back into this item. Server-authoritative,
+   * like the pull. Receives the `new_value` the user just confirmed so the server
+   * can refuse (and the parent surface) a value that drifted since the preview.
+   * Optional — paired with {@link onRepullPreview}.
+   */
+  onRepullApply?: (expectedNewValue: number) => Promise<void>;
 }
 
 export function LineItemEditorPanel({
@@ -124,6 +142,8 @@ export function LineItemEditorPanel({
   mode,
   onLoadSketchRooms,
   onPullFromSketch,
+  onRepullPreview,
+  onRepullApply,
 }: LineItemEditorPanelProps) {
   // Equipment pricing lives on both Estimate (#682) and Invoice (#684) rows, so
   // the shared editor enables it in either builder — but not Template. The `in`
@@ -145,6 +165,14 @@ export function LineItemEditorPanel({
   // The pull affordance shows only on an editable Estimate whose builder wired
   // the callbacks (#861). Templates/invoices and voided estimates never opt in.
   const canPull = mode === "estimate" && !readOnly && !!onPullFromSketch;
+
+  // Re-pull (#864) is offered only on a line that already carries a frozen
+  // sketch_source and whose builder wired the re-pull callbacks. When it's
+  // available it becomes the primary Sketch action (the fresh-pull picker moves
+  // behind a "Change source" secondary), since a sourced line usually wants to
+  // refresh its existing source, not re-point it.
+  const canRepull =
+    canPull && !!sketchSource && !!onRepullPreview && !!onRepullApply;
 
   // Each field holds its own draft, seeded from the item, and commits on blur
   // through `onChange` — mirroring the inline row so auto-save behaves the same.
@@ -255,6 +283,73 @@ export function LineItemEditorPanel({
       setPickerOpen(false);
     } finally {
       setPulling(false);
+    }
+  }
+
+  // Re-pull flow (#864). Clicking Re-pull runs a dry-run preview; only if it
+  // succeeds do we open a confirm showing old-vs-new. A null preview means the
+  // source was deleted (or a network error) — the parent has already surfaced the
+  // reason, so we open nothing and the frozen quantity is left untouched.
+  const [repullOpen, setRepullOpen] = useState(false);
+  const [repullPreview, setRepullPreview] = useState<RepullPreview | null>(null);
+  const [repullChecking, setRepullChecking] = useState(false);
+  const [repullApplying, setRepullApplying] = useState(false);
+  // The line a re-pull preview is in flight for. The panel is reused (not
+  // remounted) when the selected line changes, so a preview that resolves after
+  // the user switched lines must be discarded — otherwise it would open the
+  // confirm on the new line with the old line's numbers. Cleared on id-change.
+  const repullRequestItemId = useRef<string | null>(null);
+
+  // Reset the whole re-pull flow when the selected line changes (same in-render
+  // pattern as the field drafts above, co-located here so all re-pull state is
+  // reset in one place): abandon any in-flight preview, close a stale confirm,
+  // and un-stick the button. Without this, switching lines mid-flow leaks one
+  // line's re-pull onto another.
+  const [prevRepullItemId, setPrevRepullItemId] = useState(item.id);
+  if (item.id !== prevRepullItemId) {
+    setPrevRepullItemId(item.id);
+    repullRequestItemId.current = null;
+    setRepullOpen(false);
+    setRepullPreview(null);
+    setRepullChecking(false);
+    setRepullApplying(false);
+  }
+
+  async function startRepull() {
+    if (!onRepullPreview) return;
+    const requestedFor = item.id;
+    repullRequestItemId.current = requestedFor;
+    setRepullChecking(true);
+    try {
+      const preview = await onRepullPreview();
+      // Bail if the user switched lines while the preview was in flight.
+      if (repullRequestItemId.current !== requestedFor) return;
+      if (preview) {
+        setRepullPreview(preview);
+        setRepullOpen(true);
+      }
+    } finally {
+      if (repullRequestItemId.current === requestedFor) {
+        setRepullChecking(false);
+      }
+    }
+  }
+
+  function cancelRepull() {
+    setRepullOpen(false);
+    setRepullPreview(null);
+  }
+
+  async function confirmRepull() {
+    if (!onRepullApply || !repullPreview) return;
+    setRepullApplying(true);
+    try {
+      // Echo the confirmed new value so the server can refuse a drifted one.
+      await onRepullApply(repullPreview.new_value);
+      setRepullOpen(false);
+      setRepullPreview(null);
+    } finally {
+      setRepullApplying(false);
     }
   }
 
@@ -640,15 +735,41 @@ export function LineItemEditorPanel({
               editable estimate whose builder wired the pull callbacks. */}
           {canPull && (
             <div className="space-y-2">
-              <button
-                type="button"
-                data-testid="sketch-pull-button"
-                onClick={openPicker}
-                className="flex min-h-[36px] w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                <Ruler size={16} />
-                {sketchSource ? "Re-pull from Sketch" : "Pull from Sketch"}
-              </button>
+              {canRepull ? (
+                // Sourced line: Re-pull the same source is the primary action
+                // (#864); re-pointing to a different Room/measurement moves behind
+                // a secondary "Change source" that opens the #861 picker.
+                <>
+                  <button
+                    type="button"
+                    data-testid="sketch-repull-button"
+                    disabled={repullChecking}
+                    onClick={startRepull}
+                    className="flex min-h-[36px] w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-60"
+                  >
+                    <Ruler size={16} />
+                    {repullChecking ? "Checking Sketch…" : "Re-pull from Sketch"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="sketch-change-source-button"
+                    onClick={openPicker}
+                    className="w-full text-center text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                  >
+                    Change source
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="sketch-pull-button"
+                  onClick={openPicker}
+                  className="flex min-h-[36px] w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <Ruler size={16} />
+                  Pull from Sketch
+                </button>
+              )}
 
               {pickerOpen && (
                 <div
@@ -812,6 +933,40 @@ export function LineItemEditorPanel({
             onDelete?.();
           }}
         />
+
+        {/* ── Re-pull confirmation (#864) ─────────────────────────────────
+            Shows old-vs-new before the frozen quantity changes — nothing moves
+            silently (AC #2). Reuses the blessed confirm modal (focus/inert/Escape
+            handling matters when layered over the touch editor) with a primary
+            tone, since updating a quantity isn't a destructive action. */}
+        {sketchSource && (
+          <ConfirmDialog
+            open={repullOpen}
+            ariaLabel="Re-pull from Sketch"
+            tone="primary"
+            title="Re-pull from Sketch?"
+            body={
+              <span data-testid="repull-old-vs-new">
+                {sketchSource.room_name} ·{" "}
+                {ROOM_MEASUREMENT_KIND_LABELS[sketchSource.kind]}
+                {repullPreview && (
+                  <>
+                    {" — "}
+                    <span className="tabular-nums">{repullPreview.old_value}</span>
+                    {" → "}
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {repullPreview.new_value}
+                    </span>
+                    {!repullPreview.changed && " (unchanged)"}
+                  </>
+                )}
+              </span>
+            }
+            confirmLabel={repullApplying ? "Updating…" : "Update quantity"}
+            onCancel={cancelRepull}
+            onConfirm={confirmRepull}
+          />
+        )}
       </div>
     </>
   );

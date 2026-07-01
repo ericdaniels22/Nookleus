@@ -1446,3 +1446,185 @@ describe("EstimateBuilder × Pull from Sketch (#861)", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// Issue #864 — "Re-pull from Sketch" wired end-to-end through the real builder. A
+// line already frozen to a Room refreshes from the live Sketch: the builder previews
+// old-vs-new (POST repull {apply:false}), and only on confirm applies it (POST repull
+// {apply:true}), threading the refreshed quantity + source back onto the line. A
+// deleted source fails cleanly and leaves the frozen quantity untouched.
+describe("EstimateBuilder × Re-pull from Sketch (#864)", () => {
+  // Line A "Tear-off" seeded already frozen to Living Room's net wall area (100),
+  // so its live totals start at A (100 × $100) + X (10 × $5) = $10,050.00.
+  function makeSourcedEntity(): BuilderEntity {
+    const entity = makeEstimateEntity();
+    const est = entity.data as EstimateWithContents;
+    const itemA = est.sections[0].items[0];
+    itemA.quantity = 100;
+    itemA.total = 10000;
+    itemA.sketch_source = {
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Living Room",
+      kind: "wall_area_net",
+      value: 100,
+      pulled_at: "2026-06-01T00:00:00.000Z",
+    };
+    // Keep the seeded estimate totals consistent with A frozen at 100: the
+    // totals bar reads the stored total until a line change recomputes it.
+    // A (100 × $100) + X (10 × $5) = $10,050.
+    est.subtotal = 10050;
+    est.adjusted_subtotal = 10050;
+    est.total = 10050;
+    return entity;
+  }
+
+  // The server-authoritative apply response: quantity refreshed to 125, source
+  // re-stamped, total = 125 × $100.
+  const APPLY_RESPONSE = {
+    line_item: {
+      id: "A",
+      organization_id: "org-1",
+      estimate_id: "est-1",
+      section_id: "S1",
+      library_item_id: null,
+      name: "Tear-off",
+      description: "Remove existing shingles",
+      note: null,
+      code: "RF-100",
+      quantity: 125,
+      unit: "sq",
+      unit_price: 100,
+      total: 12500,
+      pricing_mode: "standard",
+      pieces: null,
+      days: null,
+      sketch_source: {
+        scope: "room",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        room_id: "rm-1",
+        room_name: "Living Room",
+        kind: "wall_area_net",
+        value: 125,
+        pulled_at: "2026-06-30T12:00:00.000Z",
+      },
+      sort_order: 0,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-06-30T12:00:00.000Z",
+    },
+    updated_at: "2026-06-30T12:00:00.000Z",
+  };
+
+  it("previews old-vs-new, then applies on confirm — refreshing quantity + totals", async () => {
+    let applyUrl = "";
+    let applyBody: unknown = null;
+    const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
+      const u = String(url);
+      if (u.includes("/repull")) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        if (body.apply === true) {
+          applyUrl = u;
+          applyBody = body;
+          return { ok: true, json: async () => APPLY_RESPONSE };
+        }
+        // Dry-run preview: old 100 → new 125.
+        return {
+          ok: true,
+          json: async () => ({
+            preview: {
+              old_value: 100,
+              new_value: 125,
+              changed: true,
+              room_name: "Living Room",
+              kind: "wall_area_net",
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EstimateBuilder entity={makeSourcedEntity()} />);
+
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+
+    // The line already reads as Sketch-sourced.
+    expect(within(panel).getByTestId("sketch-source-badge")).toBeDefined();
+
+    // Re-pull runs the preview and shows old-vs-new — nothing has changed yet.
+    fireEvent.click(within(panel).getByTestId("sketch-repull-button"));
+    const diff = await screen.findByTestId("repull-old-vs-new");
+    expect(diff.textContent).toContain("100");
+    expect(diff.textContent).toContain("125");
+    // Still frozen at 100 pending confirm.
+    expect(
+      within(screen.getByTestId("builder-totals-bar")).getAllByText("$10,050.00")
+        .length,
+    ).toBeGreaterThan(0);
+
+    // Confirm applies: POST repull { apply: true } to A's route.
+    fireEvent.click(screen.getByRole("button", { name: /update quantity/i }));
+    await waitFor(() =>
+      expect(applyUrl).toContain("/api/estimates/est-1/line-items/A/repull"),
+    );
+    // The confirmed new value is echoed so the server can refuse a drifted one.
+    expect(applyBody).toMatchObject({ apply: true, expected_new_value: 125 });
+
+    // The refreshed quantity threads back: totals recompute to A (125 × $100 =
+    // $12,500) + X ($50) = $12,550.00.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("builder-totals-bar")).getAllByText(
+          "$12,550.00",
+        ).length,
+      ).toBeGreaterThan(0),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces a clean error and leaves the line untouched when the source was deleted", async () => {
+    vi.mocked(toast.error).mockClear();
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/repull")) {
+        return {
+          ok: false,
+          json: async () => ({
+            error:
+              "The Sketch Room this line item was pulled from no longer exists. Its quantity was left unchanged.",
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EstimateBuilder entity={makeSourcedEntity()} />);
+
+    selectRowByName("Tear-off");
+    const panel = screen.getByTestId("builder-editor-panel");
+
+    fireEvent.click(within(panel).getByTestId("sketch-repull-button"));
+
+    // The server's clean message surfaces…
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringMatching(/no longer exists/i),
+      ),
+    );
+    // …no confirm opened, and the frozen quantity is untouched: totals stay at
+    // the seeded $10,050.00.
+    expect(screen.queryByTestId("repull-old-vs-new")).toBeNull();
+    expect(
+      within(screen.getByTestId("builder-totals-bar")).getAllByText("$10,050.00")
+        .length,
+    ).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
+  });
+});

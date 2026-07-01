@@ -51,6 +51,7 @@ import { LineItemEditorPanel } from "./line-item-editor-panel";
 import { useLineItemSelection } from "./use-line-item-selection";
 import type { BuilderLineItem } from "./line-item-row";
 import type {
+  RepullPreview,
   RoomMeasurementKind,
   SketchRoomOption,
 } from "@/lib/sketch/pull-resolver";
@@ -1537,6 +1538,74 @@ export function EstimateBuilder({
     }
   }
 
+  // #864 — "Re-pull from Sketch" (estimate-only). The re-pull half of the snapshot
+  // contract: refresh a frozen line item from the live Sketch, but only after the
+  // user has seen old-vs-new. Both phases hit the item's server-authoritative
+  // repull route — a dry-run preview (apply:false) then, on confirm, the write
+  // (apply:true). The source Room + kind aren't sent: the route reads them from
+  // the line item's own frozen sketch_source, so a re-pull always refreshes the
+  // same source it was pulled from.
+  async function repullPreview(itemId: string): Promise<RepullPreview | null> {
+    if (state.entity.kind !== "estimate") return null;
+    const entityId = state.entity.data.id;
+    try {
+      const res = await fetch(
+        `/api/estimates/${entityId}/line-items/${itemId}/repull`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apply: false }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error || "Failed to check the Sketch source");
+        return null;
+      }
+      const data = (await res.json()) as { preview: RepullPreview };
+      return data.preview;
+    } catch {
+      toast.error("Network error — could not check the Sketch source");
+      return null;
+    }
+  }
+
+  async function repullApply(itemId: string, expectedNewValue: number) {
+    if (state.entity.kind !== "estimate") return;
+    const entityId = state.entity.data.id;
+    try {
+      const res = await fetch(
+        `/api/estimates/${entityId}/line-items/${itemId}/repull`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apply: true, expected_new_value: expectedNewValue }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error || "Failed to re-pull from Sketch");
+        return;
+      }
+      const data = (await res.json()) as {
+        line_item: EstimateLineItem;
+        updated_at?: string | null;
+      };
+      // Mirror the pull path: adopt the POST's fresh updated_at before the local
+      // edit fires the auto-save re-PUT (else 409 stale-latch); sketch_source is
+      // excluded from the auto-save allowlist so the re-PUT can't clobber it.
+      adoptUpdatedAt(data.updated_at ?? null);
+      onLineItemChange(itemId, {
+        quantity: data.line_item.quantity,
+        total: data.line_item.total,
+        sketch_source: data.line_item.sketch_source,
+      });
+      toast.success("Re-pulled from Sketch");
+    } catch {
+      toast.error("Network error — could not re-pull from Sketch");
+    }
+  }
+
   function onAddLineItem(
     sectionId: string,
     initialTab: "library" | "custom" = "library",
@@ -2553,6 +2622,10 @@ export function EstimateBuilder({
               onDelete={() => onLineItemDelete(selectedItem.id)}
               onLoadSketchRooms={loadSketchRooms}
               onPullFromSketch={(args) => pullFromSketch(selectedItem.id, args)}
+              onRepullPreview={() => repullPreview(selectedItem.id)}
+              onRepullApply={(expectedNewValue) =>
+                repullApply(selectedItem.id, expectedNewValue)
+              }
               readOnly={isVoided}
               mode={mode}
             />

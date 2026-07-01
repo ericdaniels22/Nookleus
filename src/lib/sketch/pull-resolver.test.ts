@@ -15,7 +15,9 @@ import {
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
   resolveRoomPull,
+  resolveRoomRepull,
   roomMeasurementValue,
+  type SketchSource,
 } from "./pull-resolver";
 
 // A Room whose six measurements are all distinct, so a wrong kind→field mapping
@@ -116,5 +118,105 @@ describe("resolveRoomPull", () => {
 
     expect(pull.value).toBe(12);
     expect(pull.source.value).toBe(12);
+  });
+});
+
+describe("resolveRoomRepull (#864)", () => {
+  // A line item frozen at net wall area 100 the last time it was pulled.
+  const FROZEN_SOURCE: SketchSource = {
+    scope: "room",
+    sketch_id: "sk-1",
+    floor_id: "fl-1",
+    room_id: "rm-1",
+    room_name: "Living Room",
+    kind: "wall_area_net",
+    value: 100,
+    pulled_at: "2026-06-01T00:00:00.000Z",
+  };
+
+  it("recomputes the new value from the live Room, reporting the current quantity as old", () => {
+    // The source was frozen at net wall area 100; the Room has since grown to 125.
+    // Re-pull reads the live measurement as the new value and reports the line's
+    // current quantity beside it, so the caller can show old-vs-new before applying
+    // (#864 AC #2). The refreshed source carries the new value + a new timestamp,
+    // while the Room identity/kind stay frozen.
+    const result = resolveRoomRepull({
+      source: FROZEN_SOURCE,
+      measurements: { ...MEASUREMENTS, netWallArea: 125 },
+      currentQuantity: 100,
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.oldValue).toBe(100);
+    expect(result.newValue).toBe(125);
+    expect(result.changed).toBe(true);
+    expect(result.source.value).toBe(125);
+    expect(result.source.pulled_at).toBe("2026-06-30T12:00:00.000Z");
+    expect(result.source.room_id).toBe("rm-1");
+    expect(result.source.kind).toBe("wall_area_net");
+  });
+
+  it("reports the line's CURRENT quantity as old, not the last-pulled value", () => {
+    // After the pull froze 100, the estimator hand-edited the quantity to 250 (a
+    // waste factor). The re-pull diff must show what actually changes — 250 → the
+    // live 105 — not the stale last-pulled 100 → 105, so the confirmation never
+    // hides that the manual 250 is about to be discarded (#864 AC #2).
+    const result = resolveRoomRepull({
+      source: FROZEN_SOURCE, // still records value: 100 from the last pull
+      measurements: { ...MEASUREMENTS, netWallArea: 105 },
+      currentQuantity: 250,
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.oldValue).toBe(250);
+    expect(result.newValue).toBe(105);
+    expect(result.changed).toBe(true);
+    expect(result.source.value).toBe(105);
+  });
+
+  it("ignores a sub-cent measurement difference — quantity is billed at 2 decimals", () => {
+    // The Room's measurement is 250.567 (measurements are numeric(14,3)), but the
+    // quantity column is numeric(10,2), so the pulled quantity was stored as
+    // 250.57. Re-pulling an UNCHANGED Sketch must not report a spurious change:
+    // both sides are compared at the billed 2-decimal precision, so 250.57 stays
+    // 250.57 and changed is false (else every 3-decimal measurement would look
+    // "changed" forever). The refreshed source records the 2-decimal value too.
+    const result = resolveRoomRepull({
+      source: FROZEN_SOURCE,
+      measurements: { ...MEASUREMENTS, netWallArea: 250.567 },
+      currentQuantity: 250.57,
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.oldValue).toBe(250.57);
+    expect(result.newValue).toBe(250.57);
+    expect(result.changed).toBe(false);
+    expect(result.source.value).toBe(250.57);
+  });
+
+  it("reports a deleted source without producing a mutated source", () => {
+    // The source Room (or its Floor/Sketch) is gone — modelled as null live
+    // measurements. Re-pull must surface this as `source-missing` and carry NO
+    // refreshed source, so the caller can never write a value down this path and
+    // the frozen quantity is left intact (#864 AC #4). The frozen source passed
+    // in is left untouched — the resolver reads it, it doesn't mutate it.
+    const result = resolveRoomRepull({
+      source: FROZEN_SOURCE,
+      measurements: null,
+      currentQuantity: 100,
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.status).toBe("source-missing");
+    expect(result).not.toHaveProperty("source");
+    // The input breadcrumb is unchanged — its frozen value did not move.
+    expect(FROZEN_SOURCE.value).toBe(100);
+    expect(FROZEN_SOURCE.pulled_at).toBe("2026-06-01T00:00:00.000Z");
   });
 });
