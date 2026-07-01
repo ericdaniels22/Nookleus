@@ -9,6 +9,11 @@
 
 import { round2 } from "../format";
 import type { RoomMeasurements } from "./measure-room";
+import {
+  objectCountValue,
+  type ObjectCategory,
+  type ObjectInventory,
+} from "./object-inventory";
 
 /**
  * The measurements a Room can be pulled for, as stable snake_case identifiers.
@@ -27,6 +32,16 @@ export const ROOM_MEASUREMENT_KINDS = [
 ] as const;
 
 export type RoomMeasurementKind = (typeof ROOM_MEASUREMENT_KINDS)[number];
+
+/**
+ * What a line item's `quantity` can be pulled from, as stable wire names: one of
+ * the six Room measurements, or `object_count` — a count of one object category
+ * (#867). Widening the kind (rather than adding a new scope) lets object counts
+ * ride the SAME room/floor/sketch scope union: an object_count pull also names a
+ * Room, Floor, or the whole Sketch, and additionally carries an `object_category`
+ * (below). `object_count` is a count, never billed for footage/area.
+ */
+export type PullKind = RoomMeasurementKind | "object_count";
 
 /**
  * Human-readable labels for the pull kinds — the vocabulary the picker dropdown
@@ -77,11 +92,19 @@ export function roomMeasurementValue(
  */
 interface SketchSourceBase {
   sketch_id: string;
-  kind: RoomMeasurementKind;
+  kind: PullKind;
   /** The frozen pulled number — equals the line item's `quantity`. */
   value: number;
   /** ISO timestamp of the pull (injected — this module does no I/O). */
   pulled_at: string;
+  /**
+   * The object category this pull counted — present ONLY when `kind` is
+   * `object_count` (#867). An object_count pull is scoped by category, so the
+   * breadcrumb must record WHICH category's count was frozen (so the badge reads
+   * "3 Cabinets", and a re-pick knows what to re-count); a measurement pull omits
+   * it entirely.
+   */
+  object_category?: ObjectCategory;
 }
 
 /** A quantity pulled from a single Room's measurement. */
@@ -232,6 +255,122 @@ export function resolveRoomPull(input: ResolveRoomPullInput): RoomPull {
   };
 }
 
+// ── Object-count pulls (#867, S7) ────────────────────────────────────────────
+// The count half of M3: instead of a Room's *size*, an object_count pull freezes
+// the *count* of one object category (M1 object-inventory) into a line item's
+// quantity — a detach-&-reset line priced per appliance reads its category's
+// count. Same freeze contract as a measurement pull (the resolved count is copied
+// into both `quantity` and the snapshot), same room/floor/sketch scopes; the
+// source additionally records the `object_category` counted, and its kind is the
+// widened `object_count`.
+
+export interface ResolveRoomObjectPullInput {
+  /** The Room's object inventory (M1 `objectInventory(...)`). */
+  inventory: ObjectInventory;
+  /** Which category to count — the pull is scoped by it. */
+  category: ObjectCategory;
+  sketchId: string;
+  floorId: string;
+  roomId: string;
+  roomName: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a Room-scoped object_count pull: freeze the chosen category's count.
+ * The count is read once and copied into both `value` (the line item's quantity)
+ * and the snapshot, so a later re-count of the Room never moves the frozen number.
+ * The breadcrumb records `object_category` so the badge and any re-pick know which
+ * category was counted.
+ */
+export function resolveRoomObjectPull(
+  input: ResolveRoomObjectPullInput,
+): RoomPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "room",
+      sketch_id: input.sketchId,
+      floor_id: input.floorId,
+      room_id: input.roomId,
+      room_name: input.roomName,
+      kind: "object_count",
+      object_category: input.category,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+export interface ResolveFloorObjectPullInput {
+  /** The Floor's rolled-up inventory (M1 `sumInventories` over its Rooms). */
+  inventory: ObjectInventory;
+  category: ObjectCategory;
+  sketchId: string;
+  floorId: string;
+  floorName: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a Floor-scoped object_count pull. The Floor's rolled-up inventory shares
+ * the same `ObjectInventory` shape as a Room's, so the count reads identically;
+ * the breadcrumb is Floor-scoped (a floor_name, no room ids) and records the
+ * `object_category` counted.
+ */
+export function resolveFloorObjectPull(
+  input: ResolveFloorObjectPullInput,
+): FloorPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "floor",
+      sketch_id: input.sketchId,
+      floor_id: input.floorId,
+      floor_name: input.floorName,
+      kind: "object_count",
+      object_category: input.category,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+export interface ResolveSketchObjectPullInput {
+  /** The whole-Sketch rolled-up inventory (M1 `sumInventories` over every Floor). */
+  inventory: ObjectInventory;
+  category: ObjectCategory;
+  sketchId: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+/**
+ * Resolve a whole-Sketch object_count pull. Same count + freeze as the Room and
+ * Floor object resolvers, but the breadcrumb carries only the Sketch identity and
+ * the `object_category`, since the count spans every Floor and Room.
+ */
+export function resolveSketchObjectPull(
+  input: ResolveSketchObjectPullInput,
+): WholeSketchPull {
+  const value = objectCountValue(input.inventory, input.category);
+  return {
+    value,
+    source: {
+      scope: "sketch",
+      sketch_id: input.sketchId,
+      kind: "object_count",
+      object_category: input.category,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
 // ── Re-pull (#864, S3) ───────────────────────────────────────────────────────
 // The re-pull half of the snapshot contract (ADR 0025): a frozen Sketch-sourced
 // line item can be refreshed from the live Sketch, but only on an explicit user
@@ -318,6 +457,16 @@ export interface ResolveRoomRepullInput {
 export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResolution {
   if (input.measurements === null) {
     return { status: "source-missing" };
+  }
+  if (input.source.kind === "object_count") {
+    // Re-pull refreshes a MEASUREMENT source against live measurements; an
+    // object_count source has no measurement to re-read (object re-pull is not
+    // part of #864's flow, and the route never offers it). Reject rather than
+    // silently mis-resolve. Excluding the literal also narrows `kind` below to a
+    // RoomMeasurementKind, so roomMeasurementValue's lookup stays total.
+    throw new RangeError(
+      "resolveRoomRepull: object_count sources are not re-pullable",
+    );
   }
   const oldValue = input.currentQuantity;
   // Normalise the live measurement to the billed 2-decimal precision. A line
