@@ -12,9 +12,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   boundingBox,
+  normalizeFootprint,
   polygonArea,
   polygonPerimeter,
   rectangleFootprint,
+  translateFootprint,
   type Point,
 } from "./footprint";
 
@@ -84,6 +86,61 @@ describe("polygonPerimeter", () => {
     expect(polygonPerimeter([])).toBe(0);
     expect(polygonPerimeter([{ x: 0, y: 0 }])).toBe(0);
     expect(polygonPerimeter([{ x: 0, y: 0 }, { x: 3, y: 0 }])).toBe(0);
+  });
+});
+
+describe("normalizeFootprint", () => {
+  it("moves a footprint's min corner to the origin, reporting where it used to be", () => {
+    // ADR 0026: a Room stores its footprint normalized (min corner at 0,0) and
+    // its position as a separate `origin`. A footprint drawn at (10, 20)..(13, 24)
+    // normalizes to (0,0)..(3,4) with origin (10, 20) — the two together
+    // reconstruct the original placement.
+    const drawn: Point[] = [
+      { x: 10, y: 20 },
+      { x: 13, y: 20 },
+      { x: 13, y: 24 },
+      { x: 10, y: 24 },
+    ];
+    expect(normalizeFootprint(drawn)).toEqual({
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 4 },
+        { x: 0, y: 4 },
+      ],
+      origin: { x: 10, y: 20 },
+    });
+  });
+});
+
+describe("translateFootprint", () => {
+  it("places a normalized footprint into floor space at its origin", () => {
+    // The inverse of normalizeFootprint: to render every Room on one Floor, each
+    // Room's normalized footprint is shifted by its `origin` so the rooms sit
+    // side by side in shared floor coordinates.
+    const normalized: Point[] = [
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 3, y: 4 },
+      { x: 0, y: 4 },
+    ];
+    expect(translateFootprint(normalized, { x: 10, y: 20 })).toEqual([
+      { x: 10, y: 20 },
+      { x: 13, y: 20 },
+      { x: 13, y: 24 },
+      { x: 10, y: 24 },
+    ]);
+  });
+
+  it("round-trips with normalizeFootprint", () => {
+    const drawn: Point[] = [
+      { x: 5, y: 7 },
+      { x: 9, y: 7 },
+      { x: 9, y: 11 },
+      { x: 5, y: 11 },
+    ];
+    const { footprint, origin } = normalizeFootprint(drawn);
+    expect(translateFootprint(footprint, origin)).toEqual(drawn);
   });
 });
 

@@ -140,6 +140,62 @@ describe("createSketchRoom", () => {
     });
   });
 
+  it("normalizes an off-origin drawn footprint, storing the shape at (0,0) and its origin", async () => {
+    // ADR 0026: a Room is drawn in floor coordinates, but its footprint is stored
+    // NORMALIZED (min corner at 0,0) with the drawn position lifted into `origin`.
+    // The measurements are position-invariant, so they match either way.
+    const { client, inserts } = fakeSupabase({
+      floor: { id: "floor-1", default_ceiling_height: "8" },
+    });
+    // A 3×4 rectangle drawn at (10, 20) — its min corner is not the origin.
+    const drawn: Point[] = [
+      { x: 10, y: 20 },
+      { x: 13, y: 20 },
+      { x: 13, y: 24 },
+      { x: 10, y: 24 },
+    ];
+
+    await createSketchRoom(client, {
+      organizationId: "org-1",
+      floorId: "floor-1",
+      name: "Placed Room",
+      footprint: drawn,
+      ceilingHeightOverride: null,
+    });
+
+    const expected = measureFootprint({ footprint: drawn, ceilingHeight: 8 });
+    expect(inserts.rooms).toMatchObject({
+      // Stored normalized, not where it was drawn.
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 4 },
+        { x: 0, y: 4 },
+      ],
+      origin: { x: 10, y: 20 },
+      width: 3,
+      length: 4,
+      floor_area: expected.floorArea, // 12 — unchanged by the move
+      perimeter: expected.perimeter, // 14
+    });
+  });
+
+  it("stores a (0,0) origin for a footprint already drawn at the origin", async () => {
+    const { client, inserts } = fakeSupabase({
+      floor: { id: "floor-1", default_ceiling_height: "8" },
+    });
+
+    await createSketchRoom(client, {
+      organizationId: "org-1",
+      floorId: "floor-1",
+      name: "At Origin",
+      footprint: rectangleFootprint(3, 4),
+      ceilingHeightOverride: null,
+    });
+
+    expect(inserts.rooms).toMatchObject({ origin: { x: 0, y: 0 } });
+  });
+
   it("refuses to write when the Floor is not visible to the caller", async () => {
     const { client } = fakeSupabase({ floor: null });
 

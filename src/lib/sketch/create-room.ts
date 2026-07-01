@@ -12,25 +12,31 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { boundingBox, type Point } from "./footprint";
+import { boundingBox, normalizeFootprint, type Point } from "./footprint";
 import { measureFootprint } from "./measure-room";
 
 export interface CreateSketchRoomInput {
   organizationId: string;
   floorId: string;
   name: string;
-  /** The drawn footprint — ordered corners of a closed loop (#879). */
+  /**
+   * The drawn footprint — ordered corners of a closed loop, in floor
+   * coordinates (#879). It is stored normalized (min corner at 0,0) with its
+   * drawn position lifted into `origin` (ADR 0026), so a Room's shape and its
+   * cached measurements are independent of where it sits on the Floor.
+   */
   footprint: Point[];
   /** null → inherit the Floor's default ceiling height; a value overrides it. */
   ceilingHeightOverride: number | null;
 }
 
-/** The persisted Room row: footprint + dimensions + cached measurements. */
+/** The persisted Room row: footprint + origin + dimensions + cached measurements. */
 export interface RoomRow {
   id: string;
   floor_id: string;
   name: string;
   footprint: Point[];
+  origin: Point;
   width: number | string;
   length: number | string;
   ceiling_height_override: number | string | null;
@@ -58,10 +64,13 @@ export async function createSketchRoom(
 
   const ceilingHeight =
     input.ceilingHeightOverride ?? Number(floor.default_ceiling_height);
-  const m = measureFootprint({ footprint: input.footprint, ceilingHeight });
-  // The bounding box backfills the legacy width/length columns; the footprint
-  // jsonb is the real source of shape.
-  const bbox = boundingBox(input.footprint);
+  // Split the drawn footprint into a normalized shape (min corner at 0,0) and
+  // its position (ADR 0026). Measurements are taken from the normalized shape —
+  // they're position-invariant, so the origin never enters them — and the
+  // bounding box backfills the legacy width/length columns.
+  const { footprint, origin } = normalizeFootprint(input.footprint);
+  const m = measureFootprint({ footprint, ceilingHeight });
+  const bbox = boundingBox(footprint);
 
   const { data: room, error } = await supabase
     .from("rooms")
@@ -69,7 +78,8 @@ export async function createSketchRoom(
       organization_id: input.organizationId,
       floor_id: input.floorId,
       name: input.name,
-      footprint: input.footprint,
+      footprint,
+      origin,
       width: bbox.width,
       length: bbox.length,
       ceiling_height_override: input.ceilingHeightOverride,
