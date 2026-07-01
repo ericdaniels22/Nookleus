@@ -82,8 +82,8 @@
   /* §2.3 text */
   --foreground: oklch(0.9387 0.006 170.44); /* #E7ECEA */
   --text-secondary: oklch(0.8059 0.0114 167.72); /* #B9C2BE */
-  --muted-foreground: oklch(0.608 0.0175 160.32); /* #7A867F */
-  --text-faint: oklch(0.5125 0.0166 168.72); /* #5E6A65 */
+  --muted-foreground: oklch(0.6599 0.0145 159.72); /* #8B958F (§2.3 audit) */
+  --text-faint: oklch(0.605 0.0167 164.4); /* #79857F (§2.3 audit) */
   --card-foreground: var(--foreground);
   --popover-foreground: var(--foreground);
 

@@ -122,14 +122,19 @@ guess a mapping.
 |---|---|---|
 | `--foreground` | `#E7ECEA` | Headings, names, values |
 | `--text-secondary` | `#B9C2BE` | Nav items, labels, body copy |
-| `--muted-foreground` | `#7A867F` | Metadata, timestamps, captions, placeholders |
-| `--text-faint` | `#5E6A65` | Section eyebrows, disabled |
+| `--muted-foreground` | `#8B958F` | Metadata, timestamps, captions, placeholders |
+| `--text-faint` | `#79857F` | Section eyebrows, disabled |
 
-> **Contrast audit (step 1, before any component work):** verify
-> `--muted-foreground` and `--text-faint` against `--card` at their smallest
-> specified sizes (12px / 11px). `#5E6A65` likely fails WCAG AA for
-> non-disabled text — if so, **adjust the value, not the usage**, and update
-> the reference hex here.
+> **Contrast audit (step 1, 2026-07-01, #909):** verified against `--card`
+> at the smallest specified sizes (12px / 11px), WCAG AA 4.5:1. As
+> predicted, the draft `--text-faint` `#5E6A65` failed (3.22:1); draft
+> `--muted-foreground` `#7A867F` passed with little headroom (4.79:1). Both
+> values were shifted — `--muted-foreground` → `#8B958F` (5.87:1),
+> `--text-faint` → `#79857F` (4.73:1) — keeping the hue and the visible
+> hierarchy step between them. The audit lives on as an executable
+> regression test in `src/app/design-tokens.test.ts`. Caveat: `--text-faint`
+> on `--popover` measures 4.28:1 — keep faint text off overlay surfaces or
+> step it up to `--muted-foreground` there.
 
 ### 2.4 Accent (emerald — the Product accent)
 

@@ -120,8 +120,10 @@ describe("design tokens — §2.0 mapping table resolves to documented reference
     // §2.3 text
     ["--foreground", "#E7ECEA"],
     ["--text-secondary", "#B9C2BE"],
-    ["--muted-foreground", "#7A867F"],
-    ["--text-faint", "#5E6A65"],
+    // Both shifted from the original draft values (#7A867F / #5E6A65) by
+    // the §2.3 contrast audit; the doc's reference hexes were updated.
+    ["--muted-foreground", "#8B958F"],
+    ["--text-faint", "#79857F"],
     // §2.4 accent
     ["--primary", "#10B981"],
     ["--primary-foreground", "#052E22"],
@@ -223,4 +225,35 @@ describe("dark-only migration — legacy palette is deleted (ADR 0027, §2.0)", 
     expect(css).toMatch(/@custom-variant dark \(&\);/);
     expect(css).not.toContain(".dark *");
   });
+});
+
+describe("contrast audit — §2.3 small text vs --card meets WCAG AA", () => {
+  function srgbChannelToLinear(v: number): number {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+
+  function relativeLuminance({ r, g, b }: Rgba): number {
+    return (
+      0.2126 * srgbChannelToLinear(r) +
+      0.7152 * srgbChannelToLinear(g) +
+      0.0722 * srgbChannelToLinear(b)
+    );
+  }
+
+  function contrastRatio(fgToken: string, bgToken: string): number {
+    const fg = relativeLuminance(oklchToRgba(resolveToken(fgToken)));
+    const bg = relativeLuminance(oklchToRgba(resolveToken(bgToken)));
+    const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  // Smallest specified sizes are 12px (--muted-foreground metadata) and
+  // 11px (--text-faint eyebrows) — both normal text, so AA requires 4.5:1.
+  it.each([["--muted-foreground"], ["--text-faint"]])(
+    "%s on --card is at least 4.5:1",
+    (token) => {
+      expect(contrastRatio(token, "--card")).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });
