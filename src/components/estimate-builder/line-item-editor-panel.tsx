@@ -23,9 +23,9 @@ import {
 } from "./equipment-pricing";
 import { SketchSourceBadge } from "./sketch-source-badge";
 import {
-  ROOM_MEASUREMENT_KINDS,
+  ALL_PULL_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
-  type RoomMeasurementKind,
+  type PullKind,
   type RepullPreview,
   type SketchPickerFeed,
   type SketchPullArgs,
@@ -264,7 +264,7 @@ export function LineItemEditorPanel({
   const [scope, setScope] = useState<SketchPullArgs["scope"]>("room");
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [selectedFloorId, setSelectedFloorId] = useState("");
-  const [selectedKind, setSelectedKind] = useState<RoomMeasurementKind>("wall_area_net");
+  const [selectedKind, setSelectedKind] = useState<PullKind>("wall_area_net");
   const [pulling, setPulling] = useState(false);
 
   async function openPicker() {
@@ -882,11 +882,11 @@ export function LineItemEditorPanel({
                           data-testid="sketch-picker-kind"
                           value={selectedKind}
                           onChange={(e) =>
-                            setSelectedKind(e.target.value as RoomMeasurementKind)
+                            setSelectedKind(e.target.value as PullKind)
                           }
                           className={FIELD_CLASS}
                         >
-                          {ROOM_MEASUREMENT_KINDS.map((kind) => (
+                          {ALL_PULL_KINDS.map((kind) => (
                             <option key={kind} value={kind}>
                               {ROOM_MEASUREMENT_KIND_LABELS[kind]}
                             </option>

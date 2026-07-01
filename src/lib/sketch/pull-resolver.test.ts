@@ -10,10 +10,14 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { SketchCounts } from "./aggregate";
 import type { RoomMeasurements } from "./measure-room";
 import {
+  ALL_PULL_KINDS,
+  ROOM_COUNT_KINDS,
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
+  pullValue,
   resolveFloorPull,
   resolveRoomPull,
   resolveRoomRepull,
@@ -33,6 +37,10 @@ const MEASUREMENTS: RoomMeasurements = {
   netWallArea: 100,
   volume: 96,
 };
+
+// Distinct door/window tallies so a swapped count field surfaces as a wrong
+// number (rooms is inert here — no count kind reads it).
+const COUNTS: SketchCounts = { rooms: 4, doors: 3, windows: 5 };
 
 describe("roomMeasurementValue", () => {
   it("reads floor_area from the floor area field", () => {
@@ -61,6 +69,28 @@ describe("roomMeasurementValue", () => {
   });
 });
 
+describe("pullValue (#866 count kinds)", () => {
+  it("reads door_count and window_count from the counts, not the measurements", () => {
+    // Count kinds live in a different value space than the six measurements — a
+    // pull for door_count freezes the door tally, window_count the window tally.
+    expect(pullValue(MEASUREMENTS, COUNTS, "door_count")).toBe(3);
+    expect(pullValue(MEASUREMENTS, COUNTS, "window_count")).toBe(5);
+  });
+
+  it("still reads the six measurement kinds from the measurements", () => {
+    // The dispatcher must not disturb the existing measurement path.
+    expect(pullValue(MEASUREMENTS, COUNTS, "floor_area")).toBe(12);
+    expect(pullValue(MEASUREMENTS, COUNTS, "wall_area_net")).toBe(100);
+    expect(pullValue(MEASUREMENTS, COUNTS, "volume")).toBe(96);
+  });
+
+  it("rejects an unknown kind instead of returning undefined", () => {
+    expect(() =>
+      pullValue(MEASUREMENTS, COUNTS, "square_footage" as never),
+    ).toThrow();
+  });
+});
+
 describe("ROOM_MEASUREMENT_KIND_LABELS", () => {
   it("gives every kind a human-readable label for the picker and badge", () => {
     // The badge and the picker both render these; every wire kind must have one,
@@ -71,6 +101,19 @@ describe("ROOM_MEASUREMENT_KIND_LABELS", () => {
     expect(ROOM_MEASUREMENT_KIND_LABELS.wall_area_net).toBe("Net wall area");
     expect(ROOM_MEASUREMENT_KIND_LABELS.wall_area_gross).toBe("Gross wall area");
     expect(ROOM_MEASUREMENT_KIND_LABELS.floor_area).toBe("Floor area");
+  });
+
+  it("labels the count kinds too, so the picker can offer door/window counts (#866)", () => {
+    // Every pullable kind — measurements AND counts — must have a label the
+    // picker dropdown and the source badge can render, or a count-scoped line
+    // item would show a blank source.
+    for (const kind of ALL_PULL_KINDS) {
+      expect(ROOM_MEASUREMENT_KIND_LABELS[kind]).toBeTruthy();
+    }
+    expect(ROOM_MEASUREMENT_KIND_LABELS.door_count).toBe("Door count");
+    expect(ROOM_MEASUREMENT_KIND_LABELS.window_count).toBe("Window count");
+    // The full list threads the two count kinds on after the six measurements.
+    expect(ALL_PULL_KINDS).toHaveLength(ROOM_MEASUREMENT_KINDS.length + ROOM_COUNT_KINDS.length);
   });
 });
 
@@ -222,6 +265,39 @@ describe("resolveRoomRepull (#864)", () => {
     expect(FROZEN_SOURCE.value).toBe(100);
     expect(FROZEN_SOURCE.pulled_at).toBe("2026-06-01T00:00:00.000Z");
   });
+
+  it("re-pulls a count kind from the live door/window tally (#866)", async () => {
+    // A room-scope line item can be pulled for a door_count (#866), and such a
+    // line shows the Re-pull button — so re-pull must resolve count kinds too, not
+    // just the six measurements. Frozen at 2 doors; the Room now has 3. Re-pull
+    // reads the live count as the new value from the supplied counts.
+    const countSource: SketchSource = {
+      scope: "room",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      room_id: "rm-1",
+      room_name: "Living Room",
+      kind: "door_count",
+      value: 2,
+      pulled_at: "2026-06-01T00:00:00.000Z",
+    };
+
+    const result = resolveRoomRepull({
+      source: countSource,
+      measurements: MEASUREMENTS,
+      counts: { ...COUNTS, doors: 3 },
+      currentQuantity: 2,
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.oldValue).toBe(2);
+    expect(result.newValue).toBe(3);
+    expect(result.changed).toBe(true);
+    expect(result.source.value).toBe(3);
+    expect(result.source.kind).toBe("door_count");
+  });
 });
 
 describe("resolveFloorPull", () => {
@@ -273,6 +349,73 @@ describe("resolveSketchPull", () => {
       value: 96,
       pulled_at: "2026-06-30T12:00:00.000Z",
     });
+  });
+});
+
+describe("count-kind pulls (#866)", () => {
+  it("freezes a Room-scoped door_count from the Room's counts, not its measurements", () => {
+    // A door_count pull reads the door tally (3), records a door_count-kinded
+    // Room breadcrumb, and freezes it exactly like a measurement pull.
+    const pull = resolveRoomPull({
+      measurements: MEASUREMENTS,
+      counts: COUNTS,
+      kind: "door_count",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Living Room",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(3);
+    expect(pull.source.kind).toBe("door_count");
+    expect(pull.source.value).toBe(3);
+    expect(pull.source.scope).toBe("room");
+  });
+
+  it("freezes a Floor-scoped window_count from the Floor's aggregate counts", () => {
+    const pull = resolveFloorPull({
+      measurements: MEASUREMENTS,
+      counts: COUNTS,
+      kind: "window_count",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      floorName: "Ground Floor",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(5);
+    expect(pull.source.kind).toBe("window_count");
+    expect(pull.source.value).toBe(5);
+  });
+
+  it("freezes a whole-Sketch door_count from the Sketch's aggregate counts", () => {
+    const pull = resolveSketchPull({
+      measurements: MEASUREMENTS,
+      counts: COUNTS,
+      kind: "door_count",
+      sketchId: "sk-1",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(3);
+    expect(pull.source.kind).toBe("door_count");
+  });
+
+  it("throws when a count kind is pulled without the counts it needs", () => {
+    // A count kind with no counts supplied is a programming error — surface it
+    // rather than silently freezing 0 as the quantity.
+    expect(() =>
+      resolveRoomPull({
+        measurements: MEASUREMENTS,
+        kind: "door_count",
+        sketchId: "sk-1",
+        floorId: "fl-1",
+        roomId: "rm-1",
+        roomName: "Living Room",
+        pulledAt: "2026-06-30T12:00:00.000Z",
+      }),
+    ).toThrow();
   });
 });
 

@@ -18,10 +18,11 @@ import {
 
 /**
  * One saved Room as an M2 contribution: its cached snake_case measurements mapped
- * to M1's camelCase shape. Doors and windows are omitted — openings aren't
- * modeled yet, so the aggregator's default of 0 stands (S5 acceptance criteria).
+ * to M1's camelCase shape, plus its door/window counts tallied from the Room's
+ * openings by kind (#866). A Room with no openings contributes 0 of each.
  */
 export function roomContribution(room: Room): RoomContribution {
+  const openings = room.openings ?? [];
   return {
     measurements: {
       floorArea: room.floor_area,
@@ -31,6 +32,8 @@ export function roomContribution(room: Room): RoomContribution {
       netWallArea: room.net_wall_area,
       volume: room.volume,
     },
+    doors: openings.filter((o) => o.type === "door").length,
+    windows: openings.filter((o) => o.type === "window").length,
   };
 }
 

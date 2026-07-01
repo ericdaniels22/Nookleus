@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft, Maximize, Minus, Pencil, Plus, Trash2, X } from "lucide-react";
 
-import type { Floor, Room } from "@/lib/types";
+import type { Floor, Room, SketchOpening } from "@/lib/types";
 import { translateFootprint, type Point } from "@/lib/sketch/footprint";
 import { deleteWall, setWallLength } from "@/lib/sketch/footprint-edit";
 import { floorStatistics, sketchStatistics } from "@/lib/sketch/room-stats";
@@ -207,6 +207,21 @@ export default function PlanEditor({
     setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
   }
 
+  // Adding, editing, or removing a door/window (#866) PATCHes the Room's whole
+  // opening list. The server deducts each opening's area from gross wall area to
+  // recompute net wall area and re-tallies the door/window counts (the app is the
+  // single writer of the cache), so we take the echoed row wholesale.
+  async function saveOpenings(roomId: string, openings: SketchOpening[]) {
+    const res = await fetch(`/api/jobs/${jobId}/sketch/rooms/${roomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openings }),
+    });
+    if (!res.ok) return;
+    const { room } = (await res.json()) as { room: Room };
+    setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+  }
+
   // Deleting a Room removes it from the Floor and closes the inspector. We drop
   // it from local state only once the server confirms the delete.
   async function deleteRoom(roomId: string) {
@@ -366,6 +381,9 @@ export default function PlanEditor({
                 onEditFootprint={(placed) =>
                   editFootprint(selectedRoom.id, placed)
                 }
+                onSaveOpenings={(openings) =>
+                  saveOpenings(selectedRoom.id, openings)
+                }
                 onDelete={() => deleteRoom(selectedRoom.id)}
               />
             ) : (
@@ -426,6 +444,7 @@ function RoomInspector({
   floor,
   onSave,
   onEditFootprint,
+  onSaveOpenings,
   onDelete,
 }: {
   room: Room;
@@ -433,6 +452,8 @@ function RoomInspector({
   onSave: (edits: { name: string; ceilingHeightOverride: number | null }) => void;
   /** Reshape the Room to this footprint, in PLACED floor coordinates. */
   onEditFootprint: (placedFootprint: Point[]) => void;
+  /** Persist the Room's whole opening list (add / edit / remove a door or window). */
+  onSaveOpenings: (openings: SketchOpening[]) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(room.name);
@@ -473,6 +494,23 @@ function RoomInspector({
     onEditFootprint(
       translateFootprint(deleteWall(footprint, wallIndex), room.origin),
     );
+  }
+
+  // The Room's doors/windows (#866). Each edit sends the whole list; the server
+  // recomputes net wall area and the counts. A new door defaults to 3×7, a window
+  // to 3×4, both seated at the start of wall 1 — the user then adjusts.
+  const openings = room.openings ?? [];
+  function addOpening(type: SketchOpening["type"]) {
+    const size = type === "door" ? { width: 3, height: 7 } : { width: 3, height: 4 };
+    onSaveOpenings([...openings, { type, ...size, wall_index: 0, offset: 0 }]);
+  }
+
+  function removeOpening(openingIndex: number) {
+    onSaveOpenings(openings.filter((_, i) => i !== openingIndex));
+  }
+
+  function editOpening(openingIndex: number, next: SketchOpening) {
+    onSaveOpenings(openings.map((o, i) => (i === openingIndex ? next : o)));
   }
 
   return (
@@ -547,6 +585,44 @@ function RoomInspector({
         </ul>
       </div>
 
+      {/* Openings (#866): doors and windows on the Room's walls. Adding one
+          appends a default (door 3×7, window 3×4); the server deducts its area
+          from gross wall area (net = gross − Σ openings) and tallies the kind, so
+          the Net wall tile above and the Statistics counts follow. */}
+      <div className="flex flex-col gap-2">
+        <h3 className="text-xs font-medium text-muted-foreground">Openings</h3>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => addOpening("door")}
+            className="flex-1 rounded-lg border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            Add door
+          </button>
+          <button
+            type="button"
+            onClick={() => addOpening("window")}
+            className="flex-1 rounded-lg border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            Add window
+          </button>
+        </div>
+        {openings.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {openings.map((o, i) => (
+              <OpeningRow
+                key={`${i}-${o.type}-${o.wall_index}-${o.offset}-${o.width}-${o.height}`}
+                index={i}
+                opening={o}
+                wallCount={walls.length}
+                onApply={editOpening}
+                onRemove={removeOpening}
+              />
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
       <button
         type="button"
         onClick={onDelete}
@@ -619,6 +695,123 @@ function WallRow({
           <X size={14} />
         </button>
       ) : null}
+    </li>
+  );
+}
+
+// One opening in the inspector's Openings list: its kind + number, editable width,
+// height, wall and offset fields, an Apply control, and a Remove control. Keyed in
+// the parent by index + its fields, so a save remounts the row with the freshly
+// echoed values rather than a stale edit (mirrors WallRow). Applying sends the
+// opening's whole shape (kind + size + placement); the server re-deducts its area
+// from gross wall area and re-tallies the counts (#866).
+function OpeningRow({
+  index,
+  opening,
+  wallCount,
+  onApply,
+  onRemove,
+}: {
+  index: number;
+  opening: SketchOpening;
+  wallCount: number;
+  onApply: (openingIndex: number, next: SketchOpening) => void;
+  onRemove: (openingIndex: number) => void;
+}) {
+  const [width, setWidth] = useState(fmt(opening.width));
+  const [height, setHeight] = useState(fmt(opening.height));
+  const [wallIndex, setWallIndex] = useState(String(opening.wall_index));
+  const [offset, setOffset] = useState(fmt(opening.offset));
+  const label = `${opening.type === "door" ? "Door" : "Window"} ${index + 1}`;
+
+  return (
+    <li className="flex flex-col gap-1 rounded-lg border border-border p-2">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-[11px] capitalize text-muted-foreground">
+          {label}
+        </span>
+        <button
+          type="button"
+          aria-label={`Remove opening ${index + 1}`}
+          onClick={() => onRemove(index)}
+          className="shrink-0 rounded-lg border border-destructive/40 p-1.5 text-destructive hover:bg-destructive/10"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <form
+        className="flex flex-col gap-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const w = Number(width);
+          const h = Number(height);
+          const wi = Number(wallIndex);
+          const off = Number(offset);
+          if (
+            [w, h, wi, off].every((n) => Number.isFinite(n) && n >= 0)
+          ) {
+            onApply(index, {
+              type: opening.type,
+              width: w,
+              height: h,
+              wall_index: wi,
+              offset: off,
+            });
+          }
+        }}
+      >
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={width}
+            aria-label={`Opening ${index + 1} width (ft)`}
+            onChange={(e) => setWidth(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <span className="shrink-0 text-[11px] text-muted-foreground">×</span>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={height}
+            aria-label={`Opening ${index + 1} height (ft)`}
+            onChange={(e) => setHeight(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          <select
+            value={wallIndex}
+            aria-label={`Opening ${index + 1} wall`}
+            onChange={(e) => setWallIndex(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            {Array.from({ length: wallCount }, (_, w) => (
+              <option key={w} value={String(w)}>
+                Wall {w + 1}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={offset}
+            aria-label={`Opening ${index + 1} offset (ft)`}
+            onChange={(e) => setOffset(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+        <button
+          type="submit"
+          aria-label={`Apply opening ${index + 1}`}
+          className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+        >
+          Apply
+        </button>
+      </form>
     </li>
   );
 }

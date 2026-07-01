@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { apiDbError } from "@/lib/api-errors";
+import type { SketchOpening } from "@/lib/types";
 import type { RoomMeasurements } from "@/lib/sketch/measure-room";
 import {
-  ROOM_MEASUREMENT_KINDS,
-  roomMeasurementValue,
-  type RoomMeasurementKind,
+  ALL_PULL_KINDS,
+  pullValue,
+  type PullKind,
 } from "@/lib/sketch/pull-resolver";
 import {
   aggregateFloor,
   aggregateSketch,
   type RoomContribution,
   type SketchAggregate,
+  type SketchCounts,
 } from "@/lib/sketch/aggregate";
 
 interface RouteCtx {
@@ -28,6 +30,7 @@ interface RoomRow {
   gross_wall_area: number | string;
   net_wall_area: number | string;
   volume: number | string;
+  openings: SketchOpening[] | null;
 }
 
 // PostgREST returns numerics as strings — coerce back to the numbers M1/M2 speak.
@@ -42,12 +45,29 @@ function toMeasurements(room: RoomRow): RoomMeasurements {
   };
 }
 
-// Project a measurement set onto the six pull kinds via the same M3 mapping the
-// freeze uses, so a preview equals what the pull would land in `quantity`.
-function byKind(m: RoomMeasurements): Record<RoomMeasurementKind, number> {
-  const out = {} as Record<RoomMeasurementKind, number>;
-  for (const kind of ROOM_MEASUREMENT_KINDS) {
-    out[kind] = roomMeasurementValue(m, kind);
+// A Room's door/window tally from its openings, by kind (#866) — the same tally
+// the pull route freezes, so a preview equals what a count pull would land.
+function openingCounts(openings: SketchOpening[] | null): {
+  doors: number;
+  windows: number;
+} {
+  const list = openings ?? [];
+  return {
+    doors: list.filter((o) => o.type === "door").length,
+    windows: list.filter((o) => o.type === "window").length,
+  };
+}
+
+// Project a source's measurements + counts onto every pull kind via the same M3
+// resolver the freeze uses, so a preview equals what the pull would land in
+// `quantity` — the six measurements plus door_count / window_count (#866).
+function byKind(
+  m: RoomMeasurements,
+  counts: SketchCounts,
+): Record<PullKind, number> {
+  const out = {} as Record<PullKind, number>;
+  for (const kind of ALL_PULL_KINDS) {
+    out[kind] = pullValue(m, counts, kind);
   }
   return out;
 }
@@ -105,7 +125,7 @@ export const GET = withRequestContext(
     const { data: rooms, error: roomsError } = await supabase
       .from("rooms")
       .select(
-        "id, name, floor_id, floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume",
+        "id, name, floor_id, floor_area, ceiling_area, perimeter, gross_wall_area, net_wall_area, volume, openings",
       )
       .in("floor_id", floorIds);
     if (roomsError) {
@@ -118,15 +138,17 @@ export const GET = withRequestContext(
     const contributionsByFloor = new Map<string, RoomContribution[]>();
     const roomsPayload = (rooms ?? []).map((room: RoomRow) => {
       const measurements = toMeasurements(room);
+      const { doors, windows } = openingCounts(room.openings);
       const contributions = contributionsByFloor.get(room.floor_id) ?? [];
-      contributions.push({ measurements });
+      contributions.push({ measurements, doors, windows });
       contributionsByFloor.set(room.floor_id, contributions);
       return {
         id: room.id,
         name: room.name,
         floor_id: room.floor_id,
         floor_name: floorNameById.get(room.floor_id) ?? "",
-        measurements: byKind(measurements),
+        // A single Room's own door/window tally (rooms: 1 for completeness).
+        measurements: byKind(measurements, { rooms: 1, doors, windows }),
       };
     });
 
@@ -138,11 +160,12 @@ export const GET = withRequestContext(
     const floorsPayload = floorIds.map((id, i) => ({
       id,
       name: floorNameById.get(id) ?? "",
-      measurements: byKind(floorAggregates[i].measurements),
+      measurements: byKind(floorAggregates[i].measurements, floorAggregates[i].counts),
     }));
+    const sketchTotal = aggregateSketch(floorAggregates);
     const sketchPayload = {
       sketch_id: sketch.id,
-      measurements: byKind(aggregateSketch(floorAggregates).measurements),
+      measurements: byKind(sketchTotal.measurements, sketchTotal.counts),
     };
 
     return NextResponse.json({

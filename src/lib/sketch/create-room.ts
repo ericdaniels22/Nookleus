@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { SketchOpening } from "@/lib/types";
 import { boundingBox, normalizeFootprint, type Point } from "./footprint";
 import { measureFootprint } from "./measure-room";
 
@@ -28,6 +29,12 @@ export interface CreateSketchRoomInput {
   footprint: Point[];
   /** null → inherit the Floor's default ceiling height; a value overrides it. */
   ceilingHeightOverride: number | null;
+  /**
+   * The Room's doors and windows (#866), placed on its walls. Their area is
+   * deducted from net wall area, and they're stored so the cache stays the single
+   * writer of net wall area (migration-build88/92). Omitted → the Room has none.
+   */
+  openings?: SketchOpening[];
 }
 
 /** The persisted Room row: footprint + origin + dimensions + cached measurements. */
@@ -40,6 +47,7 @@ export interface RoomRow {
   width: number | string;
   length: number | string;
   ceiling_height_override: number | string | null;
+  openings: SketchOpening[];
   floor_area: number | string;
   ceiling_area: number | string;
   perimeter: number | string;
@@ -69,7 +77,10 @@ export async function createSketchRoom(
   // they're position-invariant, so the origin never enters them — and the
   // bounding box backfills the legacy width/length columns.
   const { footprint, origin } = normalizeFootprint(input.footprint);
-  const m = measureFootprint({ footprint, ceilingHeight });
+  // Openings are position-invariant like the footprint (they carry their own
+  // wall placement), so they measure and store the same regardless of origin.
+  const openings = input.openings ?? [];
+  const m = measureFootprint({ footprint, ceilingHeight, openings });
   const bbox = boundingBox(footprint);
 
   const { data: room, error } = await supabase
@@ -83,6 +94,7 @@ export async function createSketchRoom(
       width: bbox.width,
       length: bbox.length,
       ceiling_height_override: input.ceilingHeightOverride,
+      openings,
       floor_area: m.floorArea,
       ceiling_area: m.ceilingArea,
       perimeter: m.perimeter,

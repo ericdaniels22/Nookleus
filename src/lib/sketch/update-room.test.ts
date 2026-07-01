@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { SketchOpening } from "@/lib/types";
 import { updateSketchRoom } from "./update-room";
 import { rectangleFootprint } from "./footprint";
 import { measureFootprint } from "./measure-room";
@@ -170,6 +171,69 @@ describe("updateSketchRoom", () => {
       perimeter: expected.perimeter,
       gross_wall_area: expected.grossWallArea,
       net_wall_area: expected.netWallArea,
+      volume: expected.volume,
+    });
+  });
+
+  it("edits a Room's openings — storing them and deducting their area from net wall area (#866)", async () => {
+    // #866: adding/removing doors and windows re-derives the cache (the app is the
+    // single writer of net wall area). An openings-only edit measures the STORED
+    // footprint at the STORED effective height, deducts the NEW openings, and
+    // stores them — it does not touch the footprint, origin, or ceiling override.
+    const footprint = rectangleFootprint(3, 4);
+    const openings: SketchOpening[] = [
+      { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+      { type: "window", width: 3, height: 5, wall_index: 1, offset: 1 },
+    ];
+    const { client, updates } = fakeSupabase({
+      room: { id: "room-1", footprint, floor_id: "floor-1", openings: [] },
+      floor: { default_ceiling_height: "8" },
+    });
+
+    await updateSketchRoom(client, { roomId: "room-1", openings });
+
+    const expected = measureFootprint({ footprint, ceilingHeight: 8, openings });
+    expect(updates.rooms).toEqual({
+      openings,
+      floor_area: expected.floorArea,
+      ceiling_area: expected.ceilingArea,
+      perimeter: expected.perimeter,
+      gross_wall_area: expected.grossWallArea, // 112
+      net_wall_area: expected.netWallArea, // 76 = 112 − 21 − 15
+      volume: expected.volume,
+    });
+  });
+
+  it("preserves a Room's stored openings deduction when only the ceiling height changes (#866)", async () => {
+    // The single-writer invariant across edits: a ceiling-only change re-measures,
+    // but the Room's EXISTING openings must still be deducted — net wall area must
+    // not silently reset to gross. Room already has a 3×7 door (21) stored; raising
+    // the ceiling to 10 lifts gross to 140, and net is 140 − 21 = 119.
+    const footprint = rectangleFootprint(3, 4);
+    const stored: SketchOpening[] = [
+      { type: "door", width: 3, height: 7, wall_index: 0, offset: 1 },
+    ];
+    const { client, updates } = fakeSupabase({
+      room: { id: "room-1", footprint, floor_id: "floor-1", openings: stored },
+      floor: { default_ceiling_height: "8" },
+    });
+
+    await updateSketchRoom(client, { roomId: "room-1", ceilingHeightOverride: 10 });
+
+    const expected = measureFootprint({
+      footprint,
+      ceilingHeight: 10,
+      openings: stored,
+    });
+    // No `openings` key — a ceiling-only edit doesn't rewrite the openings list,
+    // but the recomputed net must still reflect the stored door.
+    expect(updates.rooms).toEqual({
+      ceiling_height_override: 10,
+      floor_area: expected.floorArea,
+      ceiling_area: expected.ceilingArea,
+      perimeter: expected.perimeter,
+      gross_wall_area: expected.grossWallArea, // 140
+      net_wall_area: expected.netWallArea, // 119 = 140 − 21
       volume: expected.volume,
     });
   });
