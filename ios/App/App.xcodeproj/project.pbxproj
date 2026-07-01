@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0BFFB0D25249CD6C9A310B6E /* RoomCaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4325726C3D30C5989E883ED /* RoomCaptureController.swift */; };
 		0F7E5D1D7C9E759F783E1AC0 /* EmailsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1EF968205ABDE2CDA1181B /* EmailsWidget.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		33ECFD9D8B5C4EADFD7566CB /* NookleusWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8377AF6A3FD9AD2AC1323845 /* NookleusWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -17,12 +18,13 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		65B290383AA5B1FC3FA1328F /* RoomPlanCapturePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8996A9E4C96D8A18022DA891 /* RoomPlanCapturePlugin.swift */; };
+		6D976BF0B90F48E49EC41ED0 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B6AF5C4B1594225923DA01C /* MainViewController.swift */; };
+		A6116D307648E2DA2E074510 /* EmailWidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 097481F43003B2C7999C9BDF /* EmailWidgetBridgePlugin.swift */; };
+		BD862128CF73B88DCBA28576 /* QuickActionsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226D62D47842E4E0D66FD88B /* QuickActionsWidget.swift */; };
 		CAF1000000000000000000B0 /* emergency.caf in Resources */ = {isa = PBXBuildFile; fileRef = CAF1000000000000000000F0 /* emergency.caf */; };
 		CAF2000000000000000000B0 /* urgent.caf in Resources */ = {isa = PBXBuildFile; fileRef = CAF2000000000000000000F0 /* urgent.caf */; };
 		CAF3000000000000000000B0 /* scheduled.caf in Resources */ = {isa = PBXBuildFile; fileRef = CAF3000000000000000000F0 /* scheduled.caf */; };
-		A6116D307648E2DA2E074510 /* EmailWidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 097481F43003B2C7999C9BDF /* EmailWidgetBridgePlugin.swift */; };
-		6D976BF0B90F48E49EC41ED0 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B6AF5C4B1594225923DA01C /* MainViewController.swift */; };
-		BD862128CF73B88DCBA28576 /* QuickActionsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226D62D47842E4E0D66FD88B /* QuickActionsWidget.swift */; };
 		CC0E01018404C6330CB5EF2E /* NookleusWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4079C7114FD7E44CF0086934 /* NookleusWidgetsBundle.swift */; };
 /* End PBXBuildFile section */
 
@@ -52,9 +54,9 @@
 
 /* Begin PBXFileReference section */
 		097481F43003B2C7999C9BDF /* EmailWidgetBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmailWidgetBridgePlugin.swift; sourceTree = "<group>"; };
-		2B6AF5C4B1594225923DA01C /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		226D62D47842E4E0D66FD88B /* QuickActionsWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuickActionsWidget.swift; sourceTree = "<group>"; };
 		247A9A25BA193B3102812C1A /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		2B6AF5C4B1594225923DA01C /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		4079C7114FD7E44CF0086934 /* NookleusWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NookleusWidgetsBundle.swift; sourceTree = "<group>"; };
 		4C1EF968205ABDE2CDA1181B /* EmailsWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmailsWidget.swift; sourceTree = "<group>"; };
@@ -66,12 +68,14 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		8377AF6A3FD9AD2AC1323845 /* NookleusWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NookleusWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8996A9E4C96D8A18022DA891 /* RoomPlanCapturePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomPlanCapturePlugin.swift; sourceTree = "<group>"; };
+		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A46E4B974C344C093C565572 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CAF1000000000000000000F0 /* emergency.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = emergency.caf; sourceTree = "<group>"; };
 		CAF2000000000000000000F0 /* urgent.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = urgent.caf; sourceTree = "<group>"; };
 		CAF3000000000000000000F0 /* scheduled.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = scheduled.caf; sourceTree = "<group>"; };
-		8377AF6A3FD9AD2AC1323845 /* NookleusWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NookleusWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
-		A46E4B974C344C093C565572 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E4325726C3D30C5989E883ED /* RoomCaptureController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomCaptureController.swift; sourceTree = "<group>"; };
 		E7079DA9F9E1E95600C6698C /* NookleusWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = NookleusWidgets.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -130,6 +134,8 @@
 				247A9A25BA193B3102812C1A /* App.entitlements */,
 				097481F43003B2C7999C9BDF /* EmailWidgetBridgePlugin.swift */,
 				2B6AF5C4B1594225923DA01C /* MainViewController.swift */,
+				8996A9E4C96D8A18022DA891 /* RoomPlanCapturePlugin.swift */,
+				E4325726C3D30C5989E883ED /* RoomCaptureController.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -276,6 +282,8 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A6116D307648E2DA2E074510 /* EmailWidgetBridgePlugin.swift in Sources */,
 				6D976BF0B90F48E49EC41ED0 /* MainViewController.swift in Sources */,
+				65B290383AA5B1FC3FA1328F /* RoomPlanCapturePlugin.swift in Sources */,
+				0BFFB0D25249CD6C9A310B6E /* RoomCaptureController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
