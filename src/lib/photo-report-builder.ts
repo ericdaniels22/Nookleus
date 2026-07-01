@@ -93,6 +93,13 @@ export interface PhotoReportBuilderState {
    * the five `cover_config` block flags.
    */
   cover: ResolvedCoverConfig;
+  /**
+   * Whether this report includes the Job's Sketch as dimensioned plan pages
+   * (#868). Opt-in — unlike the detail toggles it defaults off, and it is a
+   * top-level flag, not one of `details`. Persisted alongside them in the
+   * report's `report_settings` snapshot.
+   */
+  includeSketchPlan: boolean;
   /** True once an edit has happened that has not yet been persisted. */
   dirty: boolean;
   /**
@@ -151,6 +158,7 @@ export type PhotoReportBuilderAction =
   | { type: "removePhotoFromReport"; photoId: string }
   | { type: "setPhotosPerPage"; photosPerPage: ReportPhotosPerPage }
   | { type: "toggleReportField"; field: keyof ReportDetailToggles }
+  | { type: "toggleIncludeSketchPlan" }
   | { type: "setCoverPhoto"; photoId: string | null }
   | { type: "toggleCoverField"; field: keyof CoverBlockVisibility }
   | { type: "markSaved"; revision: number };
@@ -169,7 +177,7 @@ export function initBuilderState(
   // a one-way copy — later edits to the org default never propagate to existing
   // reports, only to ones created after the change — so the builder never needs
   // the org default as a live fallback.
-  const { photosPerPage, details } = resolveReportSettings(
+  const { photosPerPage, details, includeSketchPlan } = resolveReportSettings(
     { report_settings: report.report_settings ?? null },
     null,
   );
@@ -180,6 +188,7 @@ export function initBuilderState(
     photosPerPage,
     details,
     cover: report.cover ?? DEFAULT_COVER,
+    includeSketchPlan,
     dirty: false,
     revision: 0,
   };
@@ -404,6 +413,15 @@ export function photoReportBuilderReducer(
           ...state.details,
           [action.field]: !state.details[action.field],
         },
+        dirty: true,
+        revision: state.revision + 1,
+      };
+    case "toggleIncludeSketchPlan":
+      // Flip the opt-in Sketch-plan page on/off (#868). It always changes value,
+      // so — like the cover toggles — every dispatch dirties the report.
+      return {
+        ...state,
+        includeSketchPlan: !state.includeSketchPlan,
         dirty: true,
         revision: state.revision + 1,
       };

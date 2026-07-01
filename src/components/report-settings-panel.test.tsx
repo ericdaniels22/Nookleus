@@ -28,6 +28,7 @@ function renderPanel(
     <ReportSettingsPanel
       photosPerPage={2}
       details={ALL_ON}
+      includeSketchPlan={false}
       dispatch={dispatch}
       onClose={onClose}
       {...overrides}
@@ -78,6 +79,20 @@ describe("ReportSettingsPanel", () => {
       type: "toggleReportField",
       field: "dateCaptured",
     });
+  });
+
+  it("reflects the Include-Sketch-Plan toggle from its prop (#868)", () => {
+    renderPanel({ includeSketchPlan: true });
+    const toggle = screen.getByRole("checkbox", {
+      name: /sketch plan/i,
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("dispatches toggleIncludeSketchPlan when the Sketch-plan toggle is clicked (#868)", () => {
+    const { dispatch } = renderPanel({ includeSketchPlan: false });
+    fireEvent.click(screen.getByRole("checkbox", { name: /sketch plan/i }));
+    expect(dispatch).toHaveBeenCalledWith({ type: "toggleIncludeSketchPlan" });
   });
 
   it("does not render a configurable Photo Page Header (dropped in #550)", () => {

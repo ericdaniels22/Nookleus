@@ -1379,4 +1379,26 @@ describe("PhotoReportBuilder Report Settings (#550)", () => {
       }),
     );
   });
+
+  it("auto-saves includeSketchPlan when the Sketch-plan toggle is flipped in the panel (#868)", async () => {
+    renderBuilder();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /report settings/i }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("checkbox", { name: /sketch plan/i }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    // The Sketch-plan page is opt-in (defaults off), so flipping it on persists
+    // includeSketchPlan: true in the report's settings snapshot.
+    expect(h.updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        report_settings: expect.objectContaining({ includeSketchPlan: true }),
+      }),
+    );
+  });
 });

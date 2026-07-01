@@ -35,6 +35,8 @@ const DETAIL_FIELDS: { field: keyof ReportDetailToggles; label: string }[] = [
 interface ReportSettingsPanelProps {
   photosPerPage: ReportPhotosPerPage;
   details: ReportDetailToggles;
+  /** Whether the report includes the Job's Sketch as plan pages (#868). */
+  includeSketchPlan: boolean;
   dispatch: React.Dispatch<PhotoReportBuilderAction>;
   onClose: () => void;
 }
@@ -42,6 +44,7 @@ interface ReportSettingsPanelProps {
 export default function ReportSettingsPanel({
   photosPerPage,
   details,
+  includeSketchPlan,
   dispatch,
   onClose,
 }: ReportSettingsPanelProps) {
@@ -133,6 +136,24 @@ export default function ReportSettingsPanel({
                 />
               </label>
             ))}
+          </div>
+
+          {/* The Sketch plan is its own group, not a photo detail: opting in adds
+              a dimensioned plan page per Floor (#868), it does not change how
+              photos are shown. Off by default (see resolveReportSettings). */}
+          <div className="space-y-1">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              Sketch
+            </span>
+            <label className="flex cursor-pointer items-center justify-between rounded-lg px-1 py-2 text-sm text-foreground hover:bg-muted/50">
+              <span>Include Sketch plan</span>
+              <input
+                type="checkbox"
+                checked={includeSketchPlan}
+                onChange={() => dispatch({ type: "toggleIncludeSketchPlan" })}
+                className="h-4 w-4 accent-primary"
+              />
+            </label>
           </div>
         </div>
       </aside>

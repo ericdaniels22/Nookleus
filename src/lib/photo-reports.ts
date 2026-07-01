@@ -188,7 +188,11 @@ async function seedReportSettings(
     null,
     companySettingsToReportDefault(settings),
   );
-  return { photosPerPage: resolved.photosPerPage, ...resolved.details };
+  return {
+    photosPerPage: resolved.photosPerPage,
+    ...resolved.details,
+    includeSketchPlan: resolved.includeSketchPlan,
+  };
 }
 
 /**

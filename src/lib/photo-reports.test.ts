@@ -433,6 +433,7 @@ describe("createPhotoReportDraft", () => {
       location: true,
       dateCaptured: true,
       photoTags: true,
+      includeSketchPlan: false, // opt-in (#868), unset in the Org default → off
     });
   });
 
@@ -457,7 +458,30 @@ describe("createPhotoReportDraft", () => {
       location: true,
       dateCaptured: true,
       photoTags: true,
+      includeSketchPlan: false, // opt-in (#868) — off with nothing configured
     });
+  });
+
+  it("snapshots the Organization's opted-in Sketch-plan default into the new report (#868)", async () => {
+    // The Sketch-plan page is opt-in, but an Organization can turn it on as its
+    // Report-layout default; a new report then freezes that on at creation.
+    const supabase = fakeSupabase([], {
+      companySettings: [
+        { key: "report_include_sketch_plan", value: "true" },
+      ],
+    });
+
+    await createPhotoReportDraft(supabase, {
+      organizationId: "org-1",
+      jobId: "job-1",
+      preparerName: "Eric Daniels",
+      photoIds: ["p1"],
+    });
+
+    expect(
+      (supabase.inserted?.report_settings as { includeSketchPlan?: boolean })
+        .includeSketchPlan,
+    ).toBe(true);
   });
 
   it("seeds the report's cover photo from the Job's cover photo (#549)", async () => {
