@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Loader2, Save, Send, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import EmailTemplateField from "@/components/contracts/email-template-field";
+import ContractEmailPreview from "@/components/contracts/contract-email-preview";
 import PaymentEmailTemplateField from "@/components/settings/payment-email-template-field";
 import type {
   ContractEmailProvider,
@@ -382,6 +383,8 @@ const contractConfig: KindConfig<ContractEmailSettings> = {
           onSubjectChange={(v) => patch("reminder_subject_template", v)}
           onBodyChange={(v) => patch("reminder_body_template", v)}
         />
+
+        <ContractEmailPreview settings={settings} />
       </>
     );
   },

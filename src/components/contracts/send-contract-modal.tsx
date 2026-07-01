@@ -9,7 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import TiptapEditor from "@/components/tiptap-editor";
 import PreviewContractModal from "./preview-contract-modal";
-import { Loader2, Send, FileText, Plus, Trash2, AlertTriangle } from "lucide-react";
+import PreviewEmailModal from "./preview-email-modal";
+import { Loader2, Send, FileText, Mail, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import type { ContractTemplateListItem, ContractEmailSettings } from "@/lib/contracts/types";
 
@@ -45,6 +46,7 @@ export default function SendContractModal({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [emailPreviewOpen, setEmailPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [unresolvedAutoCheckboxes, setUnresolvedAutoCheckboxes] = useState<
     { inputKey: string; mergeFieldName: string }[]
@@ -126,6 +128,18 @@ export default function SendContractModal({
     if (!templateId) return;
     setPreviewOpen(true);
   }
+
+  function doPreviewEmail() {
+    setEmailPreviewOpen(true);
+  }
+
+  const selectedTemplateName =
+    templates?.find((t) => t.id === templateId)?.name ?? null;
+  // The document title the recipient sees, matching how the send route builds it
+  // (template name — primary signer), so the preview reads like the real email.
+  const previewDocumentTitle = selectedTemplateName
+    ? `${selectedTemplateName}${signers[0]?.name ? ` — ${signers[0].name}` : ""}`
+    : null;
 
   async function doSend() {
     if (!templateId) {
@@ -327,15 +341,25 @@ export default function SendContractModal({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
-          <button
-            type="button"
-            onClick={doPreview}
-            disabled={!templateId}
-            className="order-2 sm:order-1 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-60"
-          >
-            <FileText size={14} />
-            Preview Contract
-          </button>
+          <div className="order-2 sm:order-1 flex gap-2">
+            <button
+              type="button"
+              onClick={doPreview}
+              disabled={!templateId}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-60"
+            >
+              <FileText size={14} />
+              Preview Contract
+            </button>
+            <button
+              type="button"
+              onClick={doPreviewEmail}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-60"
+            >
+              <Mail size={14} />
+              Preview email
+            </button>
+          </div>
           <div className="order-1 sm:order-2 flex gap-2 ml-auto">
             <button
               type="button"
@@ -361,6 +385,19 @@ export default function SendContractModal({
           onOpenChange={setPreviewOpen}
           templateId={templateId || null}
           title={templates?.find((t) => t.id === templateId)?.name ?? null}
+        />
+
+        <PreviewEmailModal
+          open={emailPreviewOpen}
+          onOpenChange={setEmailPreviewOpen}
+          jobId={jobId}
+          kind="signing_request"
+          draftSettings={{
+            signing_request_subject_template: emailSubject,
+            signing_request_body_template: emailBody,
+          }}
+          documentTitle={previewDocumentTitle}
+          title="Email Preview"
         />
       </DialogContent>
     </Dialog>
