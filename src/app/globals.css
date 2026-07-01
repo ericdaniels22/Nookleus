@@ -39,6 +39,16 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* Design system v2 tokens (docs/design-system.md §2.0, ADR 0027) */
+  --color-border-subtle: var(--border-subtle);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-faint: var(--text-faint);
+  --color-accent-text: var(--accent-text);
+  --color-accent-tint: var(--accent-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -58,48 +68,68 @@
 }
 
 :root {
+  /* Customer-surface brand triad (§2.8) — customer-facing documents only */
   --brand-primary: #0F6E56;
   --brand-secondary: #1B2B4B;
   --brand-accent: #C41E2A;
 
-  /* Vibrant light palette — warm off-white with blue tint */
-  --background: oklch(0.985 0.005 250);
-  --foreground: oklch(0.155 0.02 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.155 0.02 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.155 0.02 260);
-  --primary: oklch(0.45 0.18 165);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.35 0.08 260);
-  --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.965 0.008 250);
-  --muted-foreground: oklch(0.55 0.02 260);
-  --accent: oklch(0.955 0.015 250);
-  --accent-foreground: oklch(0.20 0.02 260);
-  --destructive: oklch(0.55 0.24 25);
-  --border: oklch(0.91 0.01 250);
-  --input: oklch(0.91 0.01 250);
-  --ring: oklch(0.45 0.18 165);
+  /* §2.1 surfaces (dark scale) — hex references per docs/design-system.md */
+  --background: oklch(0.1636 0.0067 178.64); /* #0B0F0E page canvas */
+  --sidebar: oklch(0.181 0.008 181.92); /* #0E1312 sidebar / app chrome */
+  --card: oklch(0.1976 0.01 173.03); /* #111715 cards, widgets, panels */
+  --muted: oklch(0.2108 0.0098 173.15); /* #141A18 raised / hover surfaces */
+  --popover: oklch(0.2396 0.0117 167.56); /* #1A211E overlays */
 
-  /* Vibrant chart colors */
-  --chart-1: oklch(0.55 0.20 165);
-  --chart-2: oklch(0.55 0.18 260);
-  --chart-3: oklch(0.60 0.22 25);
-  --chart-4: oklch(0.55 0.20 300);
-  --chart-5: oklch(0.65 0.18 85);
+  /* §2.2 borders */
+  --border: oklch(1 0 0 / 0.07);
+  --border-subtle: oklch(1 0 0 / 0.05);
+  --input: oklch(1 0 0 / 0.14);
+
+  /* §2.3 text */
+  --foreground: oklch(0.9387 0.006 170.44); /* #E7ECEA */
+  --text-secondary: oklch(0.8059 0.0114 167.72); /* #B9C2BE */
+  --muted-foreground: oklch(0.608 0.0175 160.32); /* #7A867F */
+  --text-faint: oklch(0.5125 0.0166 168.72); /* #5E6A65 */
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+
+  /* §2.4 accent — emerald, the Product accent */
+  --primary: oklch(0.6959 0.1491 162.48); /* #10B981 */
+  --primary-foreground: oklch(0.2698 0.0497 168.78); /* #052E22 */
+  --accent-text: oklch(0.8549 0.1251 181.07); /* #5EEAD4 */
+  --accent-tint: oklch(0.6959 0.1491 162.48 / 0.14);
+  --ring: var(--primary);
+
+  /* §2.5 semantic */
+  --warning: oklch(0.7686 0.1647 70.08); /* #F59E0B */
+  --warning-tint: oklch(0.8369 0.1644 84.43 / 0.14); /* #FBBF24 @ 14% */
+  --destructive: oklch(0.5771 0.2152 27.33); /* #DC2626 */
+
+  /* shadcn slots with no doc mapping — derived dark values.
+   * --accent is the hover/focus wash on menu items; alpha-white so it
+   * reads on any surface step (popovers are lighter than cards). */
+  --secondary: var(--muted);
+  --secondary-foreground: var(--text-secondary);
+  --accent: oklch(1 0 0 / 0.06);
+  --accent-foreground: var(--foreground);
+
+  /* §2.7 charts */
+  --chart-1: var(--primary); /* emerald #10B981 */
+  --chart-2: oklch(0.7535 0.139 232.66); /* sky #38BDF8 */
+  --chart-3: oklch(0.8369 0.1644 84.43); /* amber #FBBF24 */
+  --chart-4: oklch(0.709 0.1592 293.54); /* violet #A78BFA */
+  --chart-5: oklch(0.7106 0.1661 22.22); /* rose #F87171 */
 
   --radius: 0.75rem;
 
-  /* Sidebar — deep navy */
-  --sidebar: oklch(0.22 0.04 260);
-  --sidebar-foreground: oklch(0.95 0 0);
-  --sidebar-primary: oklch(0.55 0.20 165);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.28 0.05 260);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.55 0.20 165);
+  /* Sidebar slots — active nav = accent tint + accent text (§2.0 mapping) */
+  --sidebar-foreground: var(--text-secondary);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent-tint);
+  --sidebar-accent-foreground: var(--accent-text);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 
   /* Vibrant accent palette */
   --vibrant-teal: oklch(0.55 0.20 165);
