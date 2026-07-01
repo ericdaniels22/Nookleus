@@ -350,6 +350,71 @@ const contractConfig: KindConfig<ContractEmailSettings> = {
           </div>
         </div>
 
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Branded card</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Controls the action button and logo on the branded contract emails
+              your customers receive. The layout, headline, and footer are drawn
+              by Nookleus.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TextInput
+              label="Button label"
+              value={settings.button_label ?? ""}
+              onChange={(v) => patch("button_label", v)}
+              placeholder="Review & Sign"
+            />
+            <div>
+              <label
+                htmlFor="contract-button-color-hex"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Button color
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  aria-label="Button color swatch"
+                  value={
+                    /^#[0-9a-fA-F]{6}$/.test(settings.button_color ?? "")
+                      ? settings.button_color
+                      : "#1f2937"
+                  }
+                  onChange={(e) => patch("button_color", e.target.value)}
+                  className="h-9 w-12 shrink-0 rounded-lg border border-border bg-background/60 cursor-pointer"
+                />
+                <input
+                  id="contract-button-color-hex"
+                  type="text"
+                  aria-label="Button color hex"
+                  value={settings.button_color ?? ""}
+                  onChange={(e) => patch("button_color", e.target.value)}
+                  placeholder="#1f2937"
+                  className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 focus:border-[var(--brand-primary)]"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                A 6-digit hex color. The button text auto-adjusts to stay legible.
+              </p>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-3 rounded-lg border border-border bg-background/40 px-3 py-2.5 cursor-pointer hover:bg-background/60 transition-colors">
+            <input
+              type="checkbox"
+              className="accent-[var(--brand-primary)]"
+              checked={settings.logo_visible ?? true}
+              onChange={(e) => patch("logo_visible", e.target.checked)}
+            />
+            <span className="text-sm text-foreground">
+              Show my company logo on contract emails
+            </span>
+          </label>
+        </div>
+
         <EmailTemplateField
           label="Signing request"
           description="First email to the signer with the magic link."

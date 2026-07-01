@@ -94,6 +94,11 @@ function contractSettings(overrides: Record<string, unknown> = {}) {
     reminder_body_template: "Sign please",
     reminder_day_offsets: [1, 3],
     default_link_expiry_days: 14,
+    button_label: "Review & Sign",
+    button_color: "#1f2937",
+    logo_visible: true,
+    signing_request_body_template_archived: null,
+    reminder_body_template_archived: null,
     updated_at: "2026-05-01T00:00:00Z",
     ...overrides,
   };
@@ -261,6 +266,52 @@ describe("OutgoingEmailEditor — contract kind", () => {
       expect((save!.body as Record<string, unknown>).send_from_email).toBe(
         "deals@acme.test",
       );
+    });
+  });
+
+  // #694 — the branded-card knobs (button label / color / logo toggle) are
+  // thin presentational inputs wired to the same save() round trip. We don't
+  // unit-test their markup (per the PRD), only that editing each knob carries
+  // its value through the existing PATCH — the wiring, not the presentation.
+  it("includes button_label / button_color / logo_visible in the PATCH payload when the knobs are edited", async () => {
+    const calls = stubFetch({
+      "/api/settings/contract-email": contractSettings({
+        button_label: "Review & Sign",
+        button_color: "#1f2937",
+        logo_visible: true,
+      }),
+      "/api/email/accounts": [],
+    });
+
+    render(<OutgoingEmailEditor kind="contract" />);
+
+    const label = (await screen.findByDisplayValue(
+      "Review & Sign",
+    )) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "Open Document" } });
+
+    const colorHex = screen.getByLabelText(
+      /button color hex/i,
+    ) as HTMLInputElement;
+    fireEvent.change(colorHex, { target: { value: "#dc2626" } });
+
+    const logoToggle = screen.getByRole("checkbox", {
+      name: /logo/i,
+    }) as HTMLInputElement;
+    fireEvent.click(logoToggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    await waitFor(() => {
+      const save = calls.find(
+        (c) =>
+          c.url === "/api/settings/contract-email" && c.method === "PATCH",
+      );
+      expect(save).toBeDefined();
+      const body = save!.body as Record<string, unknown>;
+      expect(body.button_label).toBe("Open Document");
+      expect(body.button_color).toBe("#dc2626");
+      expect(body.logo_visible).toBe(false);
     });
   });
 });
