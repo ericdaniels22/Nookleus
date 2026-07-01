@@ -248,6 +248,197 @@ describe("POST /api/estimates/[id]/line-items/[item_id]/pull (#861)", () => {
     expect(upd).toBeUndefined();
   });
 
+  // ── object_count pulls (#867, S7) ─────────────────────────────────────────
+  // The count half of M3: a line item can pull the COUNT of one object category
+  // instead of a measurement. These pin that the pull honors `object_category`
+  // (a different category freezes a different number), rides the same
+  // room/floor/sketch scopes, and records the category in the breadcrumb.
+
+  it("freezes a Room's object_count honoring the chosen object_category (cabinets)", async () => {
+    // rm-1 holds 3 cabinets and 1 refrigerator. Counting cabinets must freeze 3.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        room_objects: [
+          { id: "o1", room_id: "rm-1", category: "cabinets" },
+          { id: "o2", room_id: "rm-1", category: "cabinets" },
+          { id: "o3", room_id: "rm-1", category: "cabinets" },
+          { id: "o4", room_id: "rm-1", category: "refrigerator" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ roomId: "rm-1", kind: "object_count", object_category: "cabinets" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    // 3 cabinets becomes the frozen quantity; total = 3 × 10.
+    expect(upd?.payload).toMatchObject({
+      quantity: 3,
+      total: 30,
+      sketch_source: {
+        scope: "room",
+        sketch_id: "sk-1",
+        floor_id: "fl-1",
+        room_id: "rm-1",
+        room_name: "Living Room",
+        kind: "object_count",
+        object_category: "cabinets",
+        value: 3,
+      },
+    });
+  });
+
+  it("freezes a different count for a different object_category on the same Room (refrigerator)", async () => {
+    // Same Room, same objects — but counting refrigerators freezes 1, not 3.
+    // Proves the pull is scoped by object_category, not just 'how many objects'.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        room_objects: [
+          { id: "o1", room_id: "rm-1", category: "cabinets" },
+          { id: "o2", room_id: "rm-1", category: "cabinets" },
+          { id: "o3", room_id: "rm-1", category: "cabinets" },
+          { id: "o4", room_id: "rm-1", category: "refrigerator" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ roomId: "rm-1", kind: "object_count", object_category: "refrigerator" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 1,
+      total: 10,
+      sketch_source: { kind: "object_count", object_category: "refrigerator", value: 1 },
+    });
+  });
+
+  it("freezes a Floor's object_count summed across its Rooms (scope: floor)", async () => {
+    // Two Rooms on the Floor: rm-1 has 2 toilets, rm-2 has 2 toilets → 4.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [{ id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" }],
+        rooms: [
+          { id: "rm-1", floor_id: "fl-1", name: "Bath A", floor_area: "12", ceiling_area: "13", perimeter: "14", gross_wall_area: "112", net_wall_area: "100", volume: "96" },
+          { id: "rm-2", floor_id: "fl-1", name: "Bath B", floor_area: "20", ceiling_area: "20", perimeter: "18", gross_wall_area: "150", net_wall_area: "130", volume: "160" },
+        ],
+        room_objects: [
+          { id: "o1", room_id: "rm-1", category: "toilet" },
+          { id: "o2", room_id: "rm-1", category: "toilet" },
+          { id: "o3", room_id: "rm-2", category: "toilet" },
+          { id: "o4", room_id: "rm-2", category: "toilet" },
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "floor", floorId: "fl-1", kind: "object_count", object_category: "toilet" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 4,
+      total: 40,
+      sketch_source: {
+        scope: "floor",
+        floor_id: "fl-1",
+        floor_name: "Ground Floor",
+        kind: "object_count",
+        object_category: "toilet",
+        value: 4,
+      },
+    });
+  });
+
+  it("freezes the whole-Sketch object_count summed across every Floor (scope: sketch)", async () => {
+    // Two Floors, one Room each: 7 cabinets + 5 cabinets = 12 across the Sketch.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [
+          { id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" },
+          { id: "fl-2", sketch_id: "sk-1", name: "Second Floor" },
+        ],
+        rooms: [
+          { id: "rm-1", floor_id: "fl-1", name: "Kitchen A", floor_area: "12", ceiling_area: "13", perimeter: "14", gross_wall_area: "112", net_wall_area: "100", volume: "96" },
+          { id: "rm-2", floor_id: "fl-2", name: "Kitchen B", floor_area: "20", ceiling_area: "20", perimeter: "18", gross_wall_area: "150", net_wall_area: "130", volume: "160" },
+        ],
+        room_objects: [
+          ...Array.from({ length: 7 }, (_, i) => ({ id: `a${i}`, room_id: "rm-1", category: "cabinets" })),
+          ...Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, room_id: "rm-2", category: "cabinets" })),
+        ],
+      }),
+    });
+
+    const res = await POST(
+      pullRequest({ scope: "sketch", kind: "object_count", object_category: "cabinets" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(200);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd?.payload).toMatchObject({
+      quantity: 12,
+      total: 120,
+      sketch_source: {
+        scope: "sketch",
+        sketch_id: "sk-1",
+        kind: "object_count",
+        object_category: "cabinets",
+        value: 12,
+      },
+    });
+  });
+
+  it("rejects an object_count pull with no object_category (400, no write)", async () => {
+    const client = useUser({ user: { id: "user-1" }, tables: seed() });
+
+    const res = await POST(
+      pullRequest({ roomId: "rm-1", kind: "object_count" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(400);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd).toBeUndefined();
+  });
+
+  it("rejects an object_count pull with an unknown object_category (400, no write)", async () => {
+    const client = useUser({ user: { id: "user-1" }, tables: seed() });
+
+    const res = await POST(
+      pullRequest({ roomId: "rm-1", kind: "object_count", object_category: "spaceship" }),
+      routeCtx,
+    );
+
+    expect(res.status).toBe(400);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd).toBeUndefined();
+  });
+
   it("rejects an unknown measurement kind (400, no write)", async () => {
     // A kind that isn't one of the six Room measurements must be refused at the
     // door — never resolved to an `undefined` field that would freeze a NaN into
