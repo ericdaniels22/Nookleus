@@ -32,7 +32,7 @@ const platformClasses: Record<MarketingDraft["platform"], string> = {
     "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0",
   facebook: "bg-blue-600 text-white border-0",
   linkedin: "bg-blue-800 text-white border-0",
-  gbp: "bg-emerald-600 text-white border-0",
+  gbp: "bg-primary text-primary-foreground border-0",
 };
 
 interface DraftDetailSheetProps {

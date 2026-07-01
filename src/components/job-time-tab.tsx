@@ -91,15 +91,15 @@ export default function JobTimeTab({
     <div className="max-w-2xl">
       <div className="mb-6">
         {onThisJob ? (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
-            <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+          <div className="flex items-center gap-3 rounded-lg border border-transparent bg-accent-tint px-4 py-3 text-accent-text">
+            <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
             <p className="text-sm font-medium">You&apos;re on the clock for this Job.</p>
           </div>
         ) : (
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-base font-bold text-white shadow-sm hover:bg-emerald-700"
+            className="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-base font-bold text-primary-foreground hover:bg-primary/90"
           >
             <Clock size={18} />
             Clock in to this Job
