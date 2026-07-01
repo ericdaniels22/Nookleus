@@ -341,4 +341,45 @@ describe("POST /api/estimates/[id]/line-items/[item_id]/repull (#864)", () => {
     );
     expect(upd).toBeUndefined();
   });
+
+  it("refuses to re-pull a Floor- or Sketch-scoped line item (400, no write)", async () => {
+    // Re-pull is Room-scoped only (#864 predates the Floor/Sketch pull scopes of
+    // #865): a Floor total has no single Room to re-read. Rather than guess, the
+    // route refuses so the client routes the estimator through "Change source" to
+    // re-pick the aggregate. The frozen quantity is left intact.
+    const client = useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        estimate_line_items: [
+          {
+            id: "item-1",
+            estimate_id: "est-1",
+            section_id: "sec-1",
+            quantity: 320,
+            unit_price: 10,
+            total: 3200,
+            sketch_source: {
+              scope: "floor",
+              sketch_id: "sk-1",
+              floor_id: "fl-1",
+              floor_name: "Ground floor",
+              kind: "wall_area_net",
+              value: 320,
+              pulled_at: "2026-06-01T00:00:00.000Z",
+            },
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(repullRequest({ apply: true }), routeCtx);
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/room-scoped/i);
+    const upd = client.__mutations.find(
+      (m) => m.table === "estimate_line_items" && m.op === "update",
+    );
+    expect(upd).toBeUndefined();
+  });
 });

@@ -69,8 +69,8 @@ export default async function SketchBuilderPage({
     jobId,
   });
 
-  // The Sketch's Floors (the first is the active one for this tracer slice) and
-  // every Room saved on them, oldest first so the list is stable across reloads.
+  // The Sketch's Floors (the first is active on first paint; the builder switches
+  // between them) ordered so the switcher is stable across reloads.
   const { data: floorRows } = await supabase
     .from("floors")
     .select("*")
@@ -87,11 +87,15 @@ export default async function SketchBuilderPage({
   }));
   const floor = floors[0];
 
-  const { data: roomRows } = floor
+  // Every Room across every Floor (each row carries its `floor_id`) so the plan
+  // survives a reload and the whole-Sketch Statistics can total all Floors. The
+  // builder filters to the active Floor for the canvas.
+  const floorIds = floors.map((f) => f.id);
+  const { data: roomRows } = floorIds.length
     ? await supabase
         .from("rooms")
         .select("*")
-        .eq("floor_id", floor.id)
+        .in("floor_id", floorIds)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true })
         .returns<Room[]>()
@@ -130,7 +134,7 @@ export default async function SketchBuilderPage({
     <PlanEditor
       jobId={jobId}
       sketchId={sketchId}
-      floor={floor}
+      floors={floors}
       initialRooms={rooms}
     />
   );

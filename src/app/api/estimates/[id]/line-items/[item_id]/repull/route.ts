@@ -6,7 +6,10 @@ import { assertNotTrashed } from "@/lib/api/assert-not-trashed";
 import { round2 } from "@/lib/format";
 import type { EstimateLineItem, SketchSource } from "@/lib/types";
 import type { RoomMeasurements } from "@/lib/sketch/measure-room";
-import { resolveRoomRepull } from "@/lib/sketch/pull-resolver";
+import {
+  resolveRoomRepull,
+  type RoomSketchSource,
+} from "@/lib/sketch/pull-resolver";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface RouteCtx {
@@ -36,7 +39,7 @@ interface RepullBody {
 async function readSourceRoomMeasurements(
   supabase: SupabaseClient,
   jobId: string | null,
-  source: SketchSource,
+  source: RoomSketchSource,
 ): Promise<RoomMeasurements | null> {
   if (!jobId) return null;
 
@@ -148,6 +151,18 @@ export const POST = withRequestContext(
     if (!source) {
       return NextResponse.json(
         { error: "line item has no Sketch source to re-pull" },
+        { status: 400 },
+      );
+    }
+    // Re-pull is Room-scoped only (#864 predates the Floor/Sketch pull scopes).
+    // A Floor- or Sketch-sourced line has no single Room to re-read; the client
+    // re-picks it through the pull picker instead. Reject rather than guess.
+    if (source.scope !== "room") {
+      return NextResponse.json(
+        {
+          error:
+            "Re-pull is only supported for Room-scoped line items. Use “Change source” to re-pick a Floor or whole-Sketch total.",
+        },
         { status: 400 },
       );
     }

@@ -138,7 +138,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor({ name: "Ground Floor" })}
+        floors={[makeFloor({ name: "Ground Floor" })]}
         initialRooms={[
           makeRoom({ id: "room-1", name: "Kitchen" }),
           makeRoom({ id: "room-2", name: "Bedroom" }),
@@ -146,8 +146,8 @@ describe("PlanEditor — shell (#890)", () => {
       />,
     );
 
-    // The top bar names the active Floor and links back to the Job.
-    expect(screen.getByText(/ground floor/i)).toBeDefined();
+    // The top bar names the active Floor (its switcher tab) and links back.
+    expect(screen.getByRole("button", { name: /ground floor/i })).toBeDefined();
     const back = screen.getByRole("link", { name: /back/i });
     expect(back.getAttribute("href")).toBe("/jobs/job-1");
 
@@ -162,7 +162,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[
           makeRoom({
             id: "room-1",
@@ -214,7 +214,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
       />,
     );
@@ -264,7 +264,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
       />,
     );
@@ -300,7 +300,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[
           makeRoom({
             id: "room-1",
@@ -361,7 +361,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[
           makeRoom({
             id: "room-1",
@@ -424,7 +424,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
       />,
     );
@@ -461,7 +461,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[
           makeRoom({
             id: "room-1",
@@ -501,7 +501,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[
           makeRoom({
             id: "room-1",
@@ -536,7 +536,7 @@ describe("PlanEditor — shell (#890)", () => {
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
       />,
     );
@@ -556,12 +556,146 @@ describe("PlanEditor — shell (#890)", () => {
     ).toBeNull();
   });
 
+  it("switches the active Floor: a tab per Floor, and picking one puts that Floor's Rooms on the canvas", () => {
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[
+          makeFloor({ id: "floor-1", name: "Ground Floor" }),
+          makeFloor({ id: "floor-2", name: "Second Floor" }),
+        ]}
+        initialRooms={[
+          makeRoom({ id: "room-1", name: "Kitchen", floor_id: "floor-1" }),
+          makeRoom({ id: "room-2", name: "Bedroom", floor_id: "floor-2" }),
+        ]}
+      />,
+    );
+
+    // Opens on the first Floor: only its Rooms reach the canvas.
+    expect(screen.getByRole("button", { name: /select kitchen/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /select bedroom/i })).toBeNull();
+
+    // A tab per Floor lets you switch; picking "Second Floor" swaps the canvas
+    // to that Floor's Rooms.
+    fireEvent.click(screen.getByRole("button", { name: /second floor/i }));
+
+    expect(screen.getByRole("button", { name: /select bedroom/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /select kitchen/i })).toBeNull();
+  });
+
+  it("adds a Floor: 'Add floor' POSTs a new Floor and switches the canvas to it", async () => {
+    const created = makeFloor({ id: "floor-2", name: "Floor 2" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ floor: created }), { status: 201 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor({ id: "floor-1", name: "Ground Floor" })]}
+        initialRooms={[
+          makeRoom({ id: "room-1", name: "Kitchen", floor_id: "floor-1" }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add floor/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/floors");
+    expect(init?.method).toBe("POST");
+    // A starting name is sent (the user can rename it) — we don't pin the scheme.
+    const sent = JSON.parse(String(init?.body));
+    expect(typeof sent.name).toBe("string");
+    expect(sent.name.length).toBeGreaterThan(0);
+
+    // The new Floor joins the switcher and becomes active — its empty canvas
+    // replaces the Ground Floor's Rooms.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^floor 2$/i })).toBeDefined(),
+    );
+    expect(screen.queryByRole("button", { name: /select kitchen/i })).toBeNull();
+  });
+
+  it("renames the active Floor: editing its name PATCHes the Floor and relabels its tab", async () => {
+    const renamed = makeFloor({ id: "floor-1", name: "Main House" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ floor: renamed }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor({ id: "floor-1", name: "Ground Floor" })]}
+        initialRooms={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rename floor/i }));
+    fireEvent.change(screen.getByLabelText(/floor name/i), {
+      target: { value: "Main House" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save floor/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/floors/floor-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent.name).toBe("Main House");
+
+    // The tab now reads the new name and the edit field closes.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^main house$/i })).toBeDefined(),
+    );
+    expect(screen.queryByLabelText(/floor name/i)).toBeNull();
+  });
+
+  it("shows Statistics: the active Floor's totals beside the whole-Sketch totals", () => {
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[
+          makeFloor({ id: "floor-1", name: "Ground Floor" }),
+          makeFloor({ id: "floor-2", name: "Second Floor" }),
+        ]}
+        initialRooms={[
+          makeRoom({ id: "room-1", floor_id: "floor-1", floor_area: 12, volume: 96 }),
+          makeRoom({ id: "room-2", floor_id: "floor-2", floor_area: 20, volume: 160 }),
+        ]}
+      />,
+    );
+
+    // Active Floor (Ground Floor) totals: one Room — 12 ft², 96 ft³.
+    expect(screen.getByTestId("floor-surface-area").textContent).toContain("12");
+    expect(screen.getByTestId("floor-volume").textContent).toContain("96");
+    expect(screen.getByTestId("floor-rooms").textContent).toBe("1");
+
+    // Whole-Sketch totals sum both Floors: two Rooms — 32 ft², 256 ft³.
+    expect(screen.getByTestId("sketch-surface-area").textContent).toContain("32");
+    expect(screen.getByTestId("sketch-volume").textContent).toContain("256");
+    expect(screen.getByTestId("sketch-rooms").textContent).toBe("2");
+
+    // Openings aren't modeled yet, so their counts stay at zero.
+    expect(screen.getByTestId("sketch-doors").textContent).toBe("0");
+    expect(screen.getByTestId("sketch-windows").textContent).toBe("0");
+  });
+
   it("zooms: the −/%/+/Fit control changes the displayed zoom and hands it to the canvas", () => {
     render(
       <PlanEditor
         jobId="job-1"
         sketchId="sketch-1"
-        floor={makeFloor()}
+        floors={[makeFloor()]}
         initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
       />,
     );

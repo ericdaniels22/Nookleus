@@ -7,6 +7,12 @@ import {
   roomMeasurementValue,
   type RoomMeasurementKind,
 } from "@/lib/sketch/pull-resolver";
+import {
+  aggregateFloor,
+  aggregateSketch,
+  type RoomContribution,
+  type SketchAggregate,
+} from "@/lib/sketch/aggregate";
 
 interface RouteCtx {
   params: Promise<{ id: string }>;
@@ -22,6 +28,28 @@ interface RoomRow {
   gross_wall_area: number | string;
   net_wall_area: number | string;
   volume: number | string;
+}
+
+// PostgREST returns numerics as strings — coerce back to the numbers M1/M2 speak.
+function toMeasurements(room: RoomRow): RoomMeasurements {
+  return {
+    floorArea: Number(room.floor_area),
+    ceilingArea: Number(room.ceiling_area),
+    perimeter: Number(room.perimeter),
+    grossWallArea: Number(room.gross_wall_area),
+    netWallArea: Number(room.net_wall_area),
+    volume: Number(room.volume),
+  };
+}
+
+// Project a measurement set onto the six pull kinds via the same M3 mapping the
+// freeze uses, so a preview equals what the pull would land in `quantity`.
+function byKind(m: RoomMeasurements): Record<RoomMeasurementKind, number> {
+  const out = {} as Record<RoomMeasurementKind, number>;
+  for (const kind of ROOM_MEASUREMENT_KINDS) {
+    out[kind] = roomMeasurementValue(m, kind);
+  }
+  return out;
 }
 
 /**
@@ -47,7 +75,7 @@ export const GET = withRequestContext(
       return NextResponse.json({ error: "estimate not found" }, { status: 404 });
     }
     if (!estimate.job_id) {
-      return NextResponse.json({ rooms: [] });
+      return NextResponse.json({ rooms: [], floors: [], sketch: null });
     }
 
     const { data: sketch } = await supabase
@@ -56,7 +84,7 @@ export const GET = withRequestContext(
       .eq("job_id", estimate.job_id)
       .maybeSingle<{ id: string }>();
     if (!sketch) {
-      return NextResponse.json({ rooms: [] });
+      return NextResponse.json({ rooms: [], floors: [], sketch: null });
     }
 
     const { data: floors, error: floorsError } = await supabase
@@ -71,7 +99,7 @@ export const GET = withRequestContext(
     );
     const floorIds = [...floorNameById.keys()];
     if (floorIds.length === 0) {
-      return NextResponse.json({ rooms: [] });
+      return NextResponse.json({ rooms: [], floors: [], sketch: null });
     }
 
     const { data: rooms, error: roomsError } = await supabase
@@ -84,30 +112,43 @@ export const GET = withRequestContext(
       return apiDbError(roomsError.message, "GET /api/estimates/[id]/sketch/rooms rooms");
     }
 
-    const payload = (rooms ?? []).map((room: RoomRow) => {
-      // PostgREST returns numerics as strings — coerce, then project the cached
-      // measurements onto the pull kinds via the same M3 mapping the freeze uses.
-      const measurements: RoomMeasurements = {
-        floorArea: Number(room.floor_area),
-        ceilingArea: Number(room.ceiling_area),
-        perimeter: Number(room.perimeter),
-        grossWallArea: Number(room.gross_wall_area),
-        netWallArea: Number(room.net_wall_area),
-        volume: Number(room.volume),
-      };
-      const byKind = {} as Record<RoomMeasurementKind, number>;
-      for (const kind of ROOM_MEASUREMENT_KINDS) {
-        byKind[kind] = roomMeasurementValue(measurements, kind);
-      }
+    // Rooms for the picker, and — as we go — each Room's contribution grouped by
+    // Floor so the same coerced measurements feed the Floor / Sketch roll-ups (M2)
+    // without a second pass or re-coercion.
+    const contributionsByFloor = new Map<string, RoomContribution[]>();
+    const roomsPayload = (rooms ?? []).map((room: RoomRow) => {
+      const measurements = toMeasurements(room);
+      const contributions = contributionsByFloor.get(room.floor_id) ?? [];
+      contributions.push({ measurements });
+      contributionsByFloor.set(room.floor_id, contributions);
       return {
         id: room.id,
         name: room.name,
         floor_id: room.floor_id,
         floor_name: floorNameById.get(room.floor_id) ?? "",
-        measurements: byKind,
+        measurements: byKind(measurements),
       };
     });
 
-    return NextResponse.json({ rooms: payload });
+    // Each Floor's total (M2), and the whole-Sketch total summed across Floors —
+    // the options the picker offers for Floor-scoped and Sketch-scoped pulls.
+    const floorAggregates: SketchAggregate[] = floorIds.map((id) =>
+      aggregateFloor(contributionsByFloor.get(id) ?? []),
+    );
+    const floorsPayload = floorIds.map((id, i) => ({
+      id,
+      name: floorNameById.get(id) ?? "",
+      measurements: byKind(floorAggregates[i].measurements),
+    }));
+    const sketchPayload = {
+      sketch_id: sketch.id,
+      measurements: byKind(aggregateSketch(floorAggregates).measurements),
+    };
+
+    return NextResponse.json({
+      rooms: roomsPayload,
+      floors: floorsPayload,
+      sketch: sketchPayload,
+    });
   },
 );

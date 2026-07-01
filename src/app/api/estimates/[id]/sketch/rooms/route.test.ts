@@ -97,6 +97,53 @@ describe("GET /api/estimates/[id]/sketch/rooms (#861)", () => {
     });
   });
 
+  it("exposes each Floor's totals and the whole-Sketch totals keyed by pull kind", async () => {
+    // Two Floors, one Room each, so the picker can offer Floor scope and
+    // whole-Sketch scope alongside the Rooms (ADR 0026). Ground: fa 12 / vol 96;
+    // Second: fa 20 / vol 160 — the Sketch total sums both Floors.
+    useUser({
+      user: { id: "user-1" },
+      tables: seed({
+        floors: [
+          { id: "fl-1", sketch_id: "sk-1", name: "Ground Floor" },
+          { id: "fl-2", sketch_id: "sk-1", name: "Second Floor" },
+        ],
+        rooms: [
+          { id: "rm-1", floor_id: "fl-1", name: "Living Room", floor_area: "12", ceiling_area: "13", perimeter: "14", gross_wall_area: "112", net_wall_area: "100", volume: "96" },
+          { id: "rm-2", floor_id: "fl-2", name: "Bedroom", floor_area: "20", ceiling_area: "20", perimeter: "18", gross_wall_area: "150", net_wall_area: "130", volume: "160" },
+        ],
+      }),
+    });
+
+    const res = await GET(getRequest(), routeCtx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      floors: Array<{ id: string; name: string; measurements: Record<string, number> }>;
+      sketch: { sketch_id: string; measurements: Record<string, number> } | null;
+    };
+
+    // Each Floor's aggregate, keyed by the same pull kinds as the Rooms.
+    expect(body.floors).toEqual([
+      {
+        id: "fl-1",
+        name: "Ground Floor",
+        measurements: { floor_area: 12, ceiling_area: 13, wall_area_net: 100, wall_area_gross: 112, perimeter: 14, volume: 96 },
+      },
+      {
+        id: "fl-2",
+        name: "Second Floor",
+        measurements: { floor_area: 20, ceiling_area: 20, wall_area_net: 130, wall_area_gross: 150, perimeter: 18, volume: 160 },
+      },
+    ]);
+
+    // The whole-Sketch total sums both Floors.
+    expect(body.sketch).toEqual({
+      sketch_id: "sk-1",
+      measurements: { floor_area: 32, ceiling_area: 33, wall_area_net: 230, wall_area_gross: 262, perimeter: 32, volume: 256 },
+    });
+  });
+
   it("omits Rooms from another job's Sketch", async () => {
     // The picker must only offer Rooms the caller could legitimately freeze into
     // THIS estimate — the same job → Sketch → Floors walk the POST uses. A Room

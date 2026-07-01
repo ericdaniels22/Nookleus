@@ -69,26 +69,69 @@ export function roomMeasurementValue(
 }
 
 /**
- * The breadcrumb a line item stores in its nullable `sketch_source` column when
- * its `quantity` was pulled from a Room. It is a *snapshot*, not a live link
- * (ADR 0004): the `value` frozen here is what the line item shows and bills, and
- * the ids/`room_name` are soft breadcrumbs for the badge — editing or deleting
- * the Sketch afterward never changes the frozen value. `room_name` is captured
- * at pull time so the badge reads correctly even if the Room is later renamed.
+ * The fields every `sketch_source` breadcrumb carries, whatever its scope. It is
+ * a *snapshot*, not a live link (ADR 0004): the `value` frozen here is what the
+ * line item shows and bills, and editing or deleting the Sketch afterward never
+ * changes it. The scope-specific breadcrumbs (ids, names) that follow are soft —
+ * captured at pull time so the badge reads correctly even after a later rename.
  */
-export interface SketchSource {
-  /** Room scope only for #861; the field leaves room for Floor/Sketch scope. */
-  scope: "room";
+interface SketchSourceBase {
   sketch_id: string;
-  floor_id: string;
-  room_id: string;
-  /** Room name as it read at pull time — a display snapshot for the badge. */
-  room_name: string;
   kind: RoomMeasurementKind;
   /** The frozen pulled number — equals the line item's `quantity`. */
   value: number;
   /** ISO timestamp of the pull (injected — this module does no I/O). */
   pulled_at: string;
+}
+
+/** A quantity pulled from a single Room's measurement. */
+export interface RoomSketchSource extends SketchSourceBase {
+  scope: "room";
+  floor_id: string;
+  room_id: string;
+  /** Room name as it read at pull time — a display snapshot for the badge. */
+  room_name: string;
+}
+
+/** A quantity pulled from a Floor's aggregate total (M2 sums the Floor's Rooms). */
+export interface FloorSketchSource extends SketchSourceBase {
+  scope: "floor";
+  floor_id: string;
+  /** Floor name as it read at pull time — a display snapshot for the badge. */
+  floor_name: string;
+}
+
+/** A quantity pulled from the whole-Sketch total (M2 sums every Floor). */
+export interface WholeSketchSource extends SketchSourceBase {
+  scope: "sketch";
+}
+
+/**
+ * The breadcrumb a line item stores in its nullable `sketch_source` column when
+ * its `quantity` was pulled from a Sketch. A discriminated union on `scope`: a
+ * pull is taken from one Room, one Floor's total, or the whole Sketch's total
+ * (ADR 0026 — the Estimate pull supports Floor and whole-Sketch scope alongside
+ * room scope). `scope` is the discriminant the badge switches on.
+ */
+export type SketchSource =
+  | RoomSketchSource
+  | FloorSketchSource
+  | WholeSketchSource;
+
+/**
+ * The display name a source badge shows for a pulled line item, per scope: the
+ * Room's name, the Floor's name, or "Whole Sketch". Kept here beside the union so
+ * the badge switches on `scope` in one place and can't miss a variant.
+ */
+export function sketchSourceLabel(source: SketchSource): string {
+  switch (source.scope) {
+    case "room":
+      return source.room_name;
+    case "floor":
+      return source.floor_name;
+    case "sketch":
+      return "Whole Sketch";
+  }
 }
 
 /**
@@ -106,6 +149,49 @@ export interface SketchRoomOption {
   measurements: Record<RoomMeasurementKind, number>;
 }
 
+/**
+ * One Floor as the picker sees it for a Floor-scoped pull: its identity and its
+ * aggregate totals (M2 `aggregateFloor(...)`) keyed by pull kind, so the picker
+ * previews `measurements[kind]` before freezing the Floor total.
+ */
+export interface SketchFloorOption {
+  id: string;
+  name: string;
+  measurements: Record<RoomMeasurementKind, number>;
+}
+
+/**
+ * The whole Sketch as the picker sees it for a Sketch-scoped pull: its identity
+ * and its aggregate totals (M2 `aggregateSketch(...)`) keyed by pull kind. `null`
+ * in the feed when the estimate's job has no Sketch (or an empty one) yet.
+ */
+export interface SketchTotalsOption {
+  sketch_id: string;
+  measurements: Record<RoomMeasurementKind, number>;
+}
+
+/**
+ * The whole "Pull from Sketch" picker feed: the Rooms, each Floor's totals, and
+ * the whole-Sketch total. One object because one GET (`/sketch/rooms`) returns
+ * them together — the picker offers all three scopes off a single load. `sketch`
+ * is null when the estimate's job has no Sketch (or an empty one) yet.
+ */
+export interface SketchPickerFeed {
+  rooms: SketchRoomOption[];
+  floors: SketchFloorOption[];
+  sketch: SketchTotalsOption | null;
+}
+
+/**
+ * What the picker hands back on Pull, discriminated by scope — the shape the
+ * pull route accepts. Room and Floor carry their id; the whole-Sketch pull needs
+ * none. Every scope names a measurement kind.
+ */
+export type SketchPullArgs =
+  | { scope: "room"; roomId: string; kind: RoomMeasurementKind }
+  | { scope: "floor"; floorId: string; kind: RoomMeasurementKind }
+  | { scope: "sketch"; kind: RoomMeasurementKind };
+
 export interface ResolveRoomPullInput {
   measurements: RoomMeasurements;
   kind: RoomMeasurementKind;
@@ -121,7 +207,7 @@ export interface RoomPull {
   /** The number to freeze into the line item's `quantity`. */
   value: number;
   /** The breadcrumb to store in the line item's `sketch_source`. */
-  source: SketchSource;
+  source: RoomSketchSource;
 }
 
 /**
@@ -169,9 +255,11 @@ export interface RepullOk {
   /**
    * The source to persist on confirm: the frozen breadcrumb with only `value`
    * and `pulled_at` refreshed. Room identity/kind stay frozen — a re-pull
-   * refreshes the same source, it doesn't re-point it.
+   * refreshes the same source, it doesn't re-point it. Re-pull is Room-scoped
+   * (#864 predates the Floor/Sketch scope union), so this is always a
+   * {@link RoomSketchSource}.
    */
-  source: SketchSource;
+  source: RoomSketchSource;
 }
 
 /**
@@ -197,8 +285,12 @@ export interface RepullPreview {
 }
 
 export interface ResolveRoomRepullInput {
-  /** The line item's existing frozen `sketch_source` breadcrumb. */
-  source: SketchSource;
+  /**
+   * The line item's existing frozen `sketch_source` breadcrumb. Re-pull is
+   * Room-scoped, so the caller must narrow to a {@link RoomSketchSource} before
+   * resolving (Floor/Sketch-sourced lines re-pick through the pull picker).
+   */
+  source: RoomSketchSource;
   /**
    * The source Room's *current* measurements, or `null` when the Room (or its
    * Floor/Sketch) no longer exists — the re-pull's "deleted source" signal.
@@ -241,5 +333,81 @@ export function resolveRoomRepull(input: ResolveRoomRepullInput): RepullResoluti
     newValue,
     changed: newValue !== oldValue,
     source: { ...input.source, value: newValue, pulled_at: input.pulledAt },
+  };
+}
+
+export interface ResolveFloorPullInput {
+  /** The Floor's aggregate totals (M2 `aggregateFloor(...).measurements`). */
+  measurements: RoomMeasurements;
+  kind: RoomMeasurementKind;
+  sketchId: string;
+  floorId: string;
+  floorName: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+export interface FloorPull {
+  /** The number to freeze into the line item's `quantity`. */
+  value: number;
+  /** The breadcrumb to store in the line item's `sketch_source`. */
+  source: FloorSketchSource;
+}
+
+/**
+ * Resolve a Floor-scoped pull. The Floor's aggregate totals share M1's
+ * `RoomMeasurements` shape, so the same kind→field lookup reads a Floor total
+ * exactly as it reads a Room's — and the freeze works identically: the resolved
+ * `value` is copied into both the quantity and the Floor-scoped snapshot.
+ */
+export function resolveFloorPull(input: ResolveFloorPullInput): FloorPull {
+  const value = roomMeasurementValue(input.measurements, input.kind);
+  return {
+    value,
+    source: {
+      scope: "floor",
+      sketch_id: input.sketchId,
+      floor_id: input.floorId,
+      floor_name: input.floorName,
+      kind: input.kind,
+      value,
+      pulled_at: input.pulledAt,
+    },
+  };
+}
+
+export interface ResolveSketchPullInput {
+  /** The whole-Sketch aggregate totals (M2 `aggregateSketch(...).measurements`). */
+  measurements: RoomMeasurements;
+  kind: RoomMeasurementKind;
+  sketchId: string;
+  /** ISO pull timestamp — injected so the resolver stays pure/deterministic. */
+  pulledAt: string;
+}
+
+export interface WholeSketchPull {
+  /** The number to freeze into the line item's `quantity`. */
+  value: number;
+  /** The breadcrumb to store in the line item's `sketch_source`. */
+  source: WholeSketchSource;
+}
+
+/**
+ * Resolve a whole-Sketch pull. Same kind→field lookup and freeze as the Room and
+ * Floor resolvers — the Sketch's aggregate totals share M1's `RoomMeasurements`
+ * shape — but the breadcrumb carries only the Sketch identity, since the total
+ * spans every Floor and Room.
+ */
+export function resolveSketchPull(input: ResolveSketchPullInput): WholeSketchPull {
+  const value = roomMeasurementValue(input.measurements, input.kind);
+  return {
+    value,
+    source: {
+      scope: "sketch",
+      sketch_id: input.sketchId,
+      kind: input.kind,
+      value,
+      pulled_at: input.pulledAt,
+    },
   };
 }

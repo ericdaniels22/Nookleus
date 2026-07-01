@@ -14,9 +14,12 @@ import type { RoomMeasurements } from "./measure-room";
 import {
   ROOM_MEASUREMENT_KINDS,
   ROOM_MEASUREMENT_KIND_LABELS,
+  resolveFloorPull,
   resolveRoomPull,
   resolveRoomRepull,
+  resolveSketchPull,
   roomMeasurementValue,
+  sketchSourceLabel,
   type SketchSource,
 } from "./pull-resolver";
 
@@ -218,5 +221,92 @@ describe("resolveRoomRepull (#864)", () => {
     // The input breadcrumb is unchanged — its frozen value did not move.
     expect(FROZEN_SOURCE.value).toBe(100);
     expect(FROZEN_SOURCE.pulled_at).toBe("2026-06-01T00:00:00.000Z");
+  });
+});
+
+describe("resolveFloorPull", () => {
+  it("resolves the chosen kind into a frozen Floor-scoped source breadcrumb", () => {
+    // A Floor pull reads the same six kinds off the Floor's *aggregate* totals
+    // (M2 sums its Rooms into a RoomMeasurements shape), and records a
+    // Floor-scoped breadcrumb — no room_id/room_name, a floor_name instead. The
+    // MEASUREMENTS stand in for a Floor total here.
+    const pull = resolveFloorPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      floorName: "Ground Floor",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(12);
+    expect(pull.source).toEqual({
+      scope: "floor",
+      sketch_id: "sk-1",
+      floor_id: "fl-1",
+      floor_name: "Ground Floor",
+      kind: "floor_area",
+      value: 12,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    });
+  });
+});
+
+describe("resolveSketchPull", () => {
+  it("resolves the chosen kind into a frozen whole-Sketch source breadcrumb", () => {
+    // The whole-Sketch pull reads the Sketch's aggregate total (M2 sums every
+    // Floor) and records the coarsest breadcrumb — no floor_id/room_id at all,
+    // just the sketch_id, kind, and frozen value. MEASUREMENTS stand in for a
+    // whole-Sketch total.
+    const pull = resolveSketchPull({
+      measurements: MEASUREMENTS,
+      kind: "volume",
+      sketchId: "sk-1",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(pull.value).toBe(96);
+    expect(pull.source).toEqual({
+      scope: "sketch",
+      sketch_id: "sk-1",
+      kind: "volume",
+      value: 96,
+      pulled_at: "2026-06-30T12:00:00.000Z",
+    });
+  });
+});
+
+describe("sketchSourceLabel", () => {
+  it("names each scope for the badge — Room, Floor, or whole Sketch", () => {
+    // The badge renders one label whatever the scope. Driving it off the three
+    // resolvers proves the label reads the right field per variant: the Room's
+    // name, the Floor's name, and a fixed "Whole Sketch" for the coarsest pull.
+    const room = resolveRoomPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      roomId: "rm-1",
+      roomName: "Living Room",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+    const floor = resolveFloorPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      floorId: "fl-1",
+      floorName: "Ground Floor",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+    const sketch = resolveSketchPull({
+      measurements: MEASUREMENTS,
+      kind: "floor_area",
+      sketchId: "sk-1",
+      pulledAt: "2026-06-30T12:00:00.000Z",
+    });
+
+    expect(sketchSourceLabel(room.source)).toBe("Living Room");
+    expect(sketchSourceLabel(floor.source)).toBe("Ground Floor");
+    expect(sketchSourceLabel(sketch.source)).toBe("Whole Sketch");
   });
 });

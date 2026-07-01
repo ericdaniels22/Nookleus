@@ -27,7 +27,8 @@ import {
   ROOM_MEASUREMENT_KIND_LABELS,
   type RoomMeasurementKind,
   type RepullPreview,
-  type SketchRoomOption,
+  type SketchPickerFeed,
+  type SketchPullArgs,
 } from "@/lib/sketch/pull-resolver";
 import type { BuilderLineItem } from "./line-item-row";
 import type { BuilderMode } from "@/lib/types";
@@ -97,22 +98,22 @@ export interface LineItemEditorPanelProps {
   readOnly?: boolean;
   mode?: BuilderMode;
   /**
-   * Load the "Pull from Sketch" picker feed (#861) — the Rooms of this estimate's
-   * job's Sketch, each with its measurements keyed by pull kind. Optional: when
-   * omitted (template/invoice, or an estimate with no Sketch wiring) the pull
-   * affordance is not shown. Called lazily when the user opens the picker.
+   * Load the "Pull from Sketch" picker feed (#861, #865) — the Rooms, each Floor's
+   * totals, and the whole-Sketch total of this estimate's job's Sketch, each keyed
+   * by pull kind. Optional: when omitted (template/invoice, or an estimate with no
+   * Sketch wiring) the pull affordance is not shown. Called lazily when the user
+   * opens the picker.
    */
-  onLoadSketchRooms?: () => Promise<SketchRoomOption[]>;
+  onLoadSketchSources?: () => Promise<SketchPickerFeed>;
   /**
-   * Freeze a Room measurement into this line's quantity (#861). Server-authoritative
-   * (the route resolves and persists the frozen value + source); the parent then
-   * threads the returned quantity/total/sketch_source back into this item. Optional
-   * — its presence (with an editable estimate) is what gates the affordance.
+   * Freeze a Sketch measurement into this line's quantity (#861, #865). The scope
+   * chooses the source — a Room, a Floor's total, or the whole Sketch's total.
+   * Server-authoritative (the route resolves and persists the frozen value +
+   * source); the parent then threads the returned quantity/total/sketch_source
+   * back into this item. Optional — its presence (with an editable estimate) is
+   * what gates the affordance.
    */
-  onPullFromSketch?: (args: {
-    roomId: string;
-    kind: RoomMeasurementKind;
-  }) => Promise<void>;
+  onPullFromSketch?: (args: SketchPullArgs) => Promise<void>;
   /**
    * Preview a re-pull (#864): re-read this line's frozen source Room from the live
    * Sketch and return `{ old_value, new_value, changed }` so the panel can show
@@ -140,7 +141,7 @@ export function LineItemEditorPanel({
   onDuplicate,
   readOnly = false,
   mode,
-  onLoadSketchRooms,
+  onLoadSketchSources,
   onPullFromSketch,
   onRepullPreview,
   onRepullApply,
@@ -166,13 +167,20 @@ export function LineItemEditorPanel({
   // the callbacks (#861). Templates/invoices and voided estimates never opt in.
   const canPull = mode === "estimate" && !readOnly && !!onPullFromSketch;
 
-  // Re-pull (#864) is offered only on a line that already carries a frozen
-  // sketch_source and whose builder wired the re-pull callbacks. When it's
-  // available it becomes the primary Sketch action (the fresh-pull picker moves
-  // behind a "Change source" secondary), since a sourced line usually wants to
-  // refresh its existing source, not re-point it.
+  // Re-pull (#864) refreshes a frozen source in place. It's Room-scoped: the
+  // route re-reads that one Room's live measurement (#865's Floor / whole-Sketch
+  // pulls have no in-place re-pull yet — those lines re-pick via "Change source" /
+  // "Pull from Sketch"). Narrow once here so the button gate and the confirm
+  // dialog both read a Room source, and Floor/Sketch sources fall through to the
+  // plain picker instead of a broken Re-pull.
+  const repullSource = sketchSource?.scope === "room" ? sketchSource : null;
+
+  // Re-pull is offered only on a Room-sourced line whose builder wired the
+  // re-pull callbacks. When available it becomes the primary Sketch action (the
+  // fresh-pull picker moves behind a "Change source" secondary), since a sourced
+  // line usually wants to refresh its existing source, not re-point it.
   const canRepull =
-    canPull && !!sketchSource && !!onRepullPreview && !!onRepullApply;
+    canPull && !!repullSource && !!onRepullPreview && !!onRepullApply;
 
   // Each field holds its own draft, seeded from the item, and commits on blur
   // through `onChange` — mirroring the inline row so auto-save behaves the same.
@@ -245,41 +253,66 @@ export function LineItemEditorPanel({
   // first tap, so an accidental touch can't silently remove work.
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // "Pull from Sketch" picker state (#861). The Room feed is loaded lazily when
-  // the picker opens (via onLoadSketchRooms); `rooms === null` means "not loaded
-  // yet". Net wall area is the default measurement kind for a pull.
+  // "Pull from Sketch" picker state (#861, #865). The feed (Rooms, each Floor's
+  // totals, the whole-Sketch total) is loaded lazily when the picker opens (via
+  // onLoadSketchSources); `feed === null` means "not loaded yet". The scope
+  // chooses which source the pull freezes — a Room, a Floor's total, or the whole
+  // Sketch's total (defaults to Room). Net wall area is the default kind.
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [rooms, setRooms] = useState<SketchRoomOption[] | null>(null);
-  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [feed, setFeed] = useState<SketchPickerFeed | null>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [scope, setScope] = useState<SketchPullArgs["scope"]>("room");
   const [selectedRoomId, setSelectedRoomId] = useState("");
+  const [selectedFloorId, setSelectedFloorId] = useState("");
   const [selectedKind, setSelectedKind] = useState<RoomMeasurementKind>("wall_area_net");
   const [pulling, setPulling] = useState(false);
 
   async function openPicker() {
     setPickerOpen(true);
-    if (rooms === null && onLoadSketchRooms) {
-      setRoomsLoading(true);
+    if (feed === null && onLoadSketchSources) {
+      setFeedLoading(true);
       try {
-        const loaded = await onLoadSketchRooms();
-        setRooms(loaded);
-        // Preselect the first Room so the preview has something to show.
-        if (loaded.length > 0) setSelectedRoomId(loaded[0].id);
+        const loaded = await onLoadSketchSources();
+        setFeed(loaded);
+        // Preselect the first Room and Floor so a preview shows immediately when
+        // the user switches scope, whichever scope they land on.
+        if (loaded.rooms.length > 0) setSelectedRoomId(loaded.rooms[0].id);
+        if (loaded.floors.length > 0) setSelectedFloorId(loaded.floors[0].id);
       } finally {
-        setRoomsLoading(false);
+        setFeedLoading(false);
       }
     }
   }
 
-  // The value the picker previews: the selected Room's cached measurement for
+  // The value the picker previews: the selected source's cached measurement for
   // the chosen kind — the same number the server resolves and freezes on Pull.
-  const selectedRoom = rooms?.find((room) => room.id === selectedRoomId) ?? null;
-  const pickerPreview = selectedRoom ? selectedRoom.measurements[selectedKind] : null;
+  // Which source depends on the scope (Room, Floor total, or whole-Sketch total).
+  const selectedRoom = feed?.rooms.find((room) => room.id === selectedRoomId) ?? null;
+  const selectedFloor = feed?.floors.find((floor) => floor.id === selectedFloorId) ?? null;
+  const previewSource =
+    scope === "room"
+      ? (selectedRoom?.measurements ?? null)
+      : scope === "floor"
+        ? (selectedFloor?.measurements ?? null)
+        : (feed?.sketch?.measurements ?? null);
+  const pickerPreview = previewSource ? previewSource[selectedKind] : null;
+
+  // The Pull button is enabled once its scope has a concrete source: a Room for
+  // Room scope, a Floor for Floor scope, and always for whole-Sketch scope.
+  const pullReady =
+    scope === "room" ? !!selectedRoomId : scope === "floor" ? !!selectedFloorId : true;
 
   async function confirmPull() {
-    if (!onPullFromSketch || !selectedRoomId) return;
+    if (!onPullFromSketch || !pullReady) return;
+    const args: SketchPullArgs =
+      scope === "room"
+        ? { scope: "room", roomId: selectedRoomId, kind: selectedKind }
+        : scope === "floor"
+          ? { scope: "floor", floorId: selectedFloorId, kind: selectedKind }
+          : { scope: "sketch", kind: selectedKind };
     setPulling(true);
     try {
-      await onPullFromSketch({ roomId: selectedRoomId, kind: selectedKind });
+      await onPullFromSketch(args);
       setPickerOpen(false);
     } finally {
       setPulling(false);
@@ -776,9 +809,9 @@ export function LineItemEditorPanel({
                   data-testid="sketch-picker"
                   className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
                 >
-                  {roomsLoading ? (
+                  {feedLoading ? (
                     <p className="text-xs text-muted-foreground">Loading Sketch rooms…</p>
-                  ) : rooms && rooms.length === 0 ? (
+                  ) : feed && feed.floors.length === 0 ? (
                     // No Sketch, or an empty one — a valid state, not an error.
                     <p
                       data-testid="sketch-picker-empty"
@@ -787,23 +820,61 @@ export function LineItemEditorPanel({
                       No Sketch rooms yet. Draw a Room in the Sketch to pull a
                       measurement from it.
                     </p>
-                  ) : rooms ? (
+                  ) : feed ? (
                     <>
+                      {/* Scope selects the source the pull freezes: a Room, a
+                          Floor's total, or the whole-Sketch total (#865). */}
                       <label className="block">
-                        <span className={LABEL_CLASS}>Room</span>
+                        <span className={LABEL_CLASS}>Source</span>
                         <select
-                          data-testid="sketch-picker-room"
-                          value={selectedRoomId}
-                          onChange={(e) => setSelectedRoomId(e.target.value)}
+                          data-testid="sketch-picker-scope"
+                          value={scope}
+                          onChange={(e) =>
+                            setScope(e.target.value as SketchPullArgs["scope"])
+                          }
                           className={FIELD_CLASS}
                         >
-                          {rooms.map((room) => (
-                            <option key={room.id} value={room.id}>
-                              {room.floor_name} · {room.name}
-                            </option>
-                          ))}
+                          <option value="room">Room</option>
+                          <option value="floor">Floor</option>
+                          <option value="sketch">Whole Sketch</option>
                         </select>
                       </label>
+
+                      {scope === "room" && (
+                        <label className="block">
+                          <span className={LABEL_CLASS}>Room</span>
+                          <select
+                            data-testid="sketch-picker-room"
+                            value={selectedRoomId}
+                            onChange={(e) => setSelectedRoomId(e.target.value)}
+                            className={FIELD_CLASS}
+                          >
+                            {feed.rooms.map((room) => (
+                              <option key={room.id} value={room.id}>
+                                {room.floor_name} · {room.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+
+                      {scope === "floor" && (
+                        <label className="block">
+                          <span className={LABEL_CLASS}>Floor</span>
+                          <select
+                            data-testid="sketch-picker-floor"
+                            value={selectedFloorId}
+                            onChange={(e) => setSelectedFloorId(e.target.value)}
+                            className={FIELD_CLASS}
+                          >
+                            {feed.floors.map((floor) => (
+                              <option key={floor.id} value={floor.id}>
+                                {floor.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
 
                       <label className="block">
                         <span className={LABEL_CLASS}>Measurement</span>
@@ -847,7 +918,7 @@ export function LineItemEditorPanel({
                         <button
                           type="button"
                           data-testid="sketch-picker-pull"
-                          disabled={!selectedRoomId || pulling}
+                          disabled={!pullReady || pulling}
                           onClick={confirmPull}
                           className="flex min-h-[36px] flex-1 items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-60"
                         >
@@ -939,7 +1010,7 @@ export function LineItemEditorPanel({
             silently (AC #2). Reuses the blessed confirm modal (focus/inert/Escape
             handling matters when layered over the touch editor) with a primary
             tone, since updating a quantity isn't a destructive action. */}
-        {sketchSource && (
+        {repullSource && (
           <ConfirmDialog
             open={repullOpen}
             ariaLabel="Re-pull from Sketch"
@@ -947,8 +1018,8 @@ export function LineItemEditorPanel({
             title="Re-pull from Sketch?"
             body={
               <span data-testid="repull-old-vs-new">
-                {sketchSource.room_name} ·{" "}
-                {ROOM_MEASUREMENT_KIND_LABELS[sketchSource.kind]}
+                {repullSource.room_name} ·{" "}
+                {ROOM_MEASUREMENT_KIND_LABELS[repullSource.kind]}
                 {repullPreview && (
                   <>
                     {" — "}
