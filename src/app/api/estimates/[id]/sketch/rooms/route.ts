@@ -13,6 +13,13 @@ import {
   type RoomContribution,
   type SketchAggregate,
 } from "@/lib/sketch/aggregate";
+import {
+  objectInventory,
+  sumInventories,
+  type HasCategory,
+  type ObjectCategory,
+  type ObjectInventory,
+} from "@/lib/sketch/object-inventory";
 
 interface RouteCtx {
   params: Promise<{ id: string }>;
@@ -112,21 +119,52 @@ export const GET = withRequestContext(
       return apiDbError(roomsError.message, "GET /api/estimates/[id]/sketch/rooms rooms");
     }
 
+    // Each Room's count-only object inventory (S7): read every placed object for
+    // these Rooms in one pass and group by Room, so the same M1 projection the
+    // object_count pull freezes previews here — a preview equals what the pull
+    // would land in `quantity`.
+    const roomIds = (rooms ?? []).map((room: RoomRow) => room.id);
+    const objectsByRoom = new Map<string, HasCategory[]>();
+    if (roomIds.length > 0) {
+      const { data: objectRows, error: objectsError } = await supabase
+        .from("room_objects")
+        .select("room_id, category")
+        .in("room_id", roomIds)
+        .returns<Array<{ room_id: string; category: ObjectCategory }>>();
+      if (objectsError) {
+        return apiDbError(
+          objectsError.message,
+          "GET /api/estimates/[id]/sketch/rooms objects",
+        );
+      }
+      for (const row of objectRows ?? []) {
+        const list = objectsByRoom.get(row.room_id) ?? [];
+        list.push({ category: row.category });
+        objectsByRoom.set(row.room_id, list);
+      }
+    }
+
     // Rooms for the picker, and — as we go — each Room's contribution grouped by
     // Floor so the same coerced measurements feed the Floor / Sketch roll-ups (M2)
     // without a second pass or re-coercion.
     const contributionsByFloor = new Map<string, RoomContribution[]>();
+    const objectsByFloor = new Map<string, ObjectInventory[]>();
     const roomsPayload = (rooms ?? []).map((room: RoomRow) => {
       const measurements = toMeasurements(room);
       const contributions = contributionsByFloor.get(room.floor_id) ?? [];
       contributions.push({ measurements });
       contributionsByFloor.set(room.floor_id, contributions);
+      const objects = objectInventory(objectsByRoom.get(room.id) ?? []);
+      const floorObjects = objectsByFloor.get(room.floor_id) ?? [];
+      floorObjects.push(objects);
+      objectsByFloor.set(room.floor_id, floorObjects);
       return {
         id: room.id,
         name: room.name,
         floor_id: room.floor_id,
         floor_name: floorNameById.get(room.floor_id) ?? "",
         measurements: byKind(measurements),
+        objects,
       };
     });
 
@@ -135,14 +173,22 @@ export const GET = withRequestContext(
     const floorAggregates: SketchAggregate[] = floorIds.map((id) =>
       aggregateFloor(contributionsByFloor.get(id) ?? []),
     );
+    // Each Floor's object inventory sums its Rooms', and the Sketch's sums every
+    // Floor's — the same M1 monoid at both tiers (an empty part-list sums to all
+    // zeros), matching how the object_count pull rolls counts up.
+    const floorObjectInventories = floorIds.map((id) =>
+      sumInventories(objectsByFloor.get(id) ?? []),
+    );
     const floorsPayload = floorIds.map((id, i) => ({
       id,
       name: floorNameById.get(id) ?? "",
       measurements: byKind(floorAggregates[i].measurements),
+      objects: floorObjectInventories[i],
     }));
     const sketchPayload = {
       sketch_id: sketch.id,
       measurements: byKind(aggregateSketch(floorAggregates).measurements),
+      objects: sumInventories(floorObjectInventories),
     };
 
     return NextResponse.json({

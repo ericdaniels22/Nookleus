@@ -170,6 +170,12 @@ export interface SketchRoomOption {
   floor_id: string;
   floor_name: string;
   measurements: Record<RoomMeasurementKind, number>;
+  /**
+   * The Room's count-only object inventory (M1 `objectInventory(...)`), every
+   * known category present (0 when absent), so the picker can preview
+   * `objects[category]` before an object_count pull freezes it (#867).
+   */
+  objects: ObjectInventory;
 }
 
 /**
@@ -181,6 +187,8 @@ export interface SketchFloorOption {
   id: string;
   name: string;
   measurements: Record<RoomMeasurementKind, number>;
+  /** The Floor's object inventory — its Rooms' summed (M1 `sumInventories`). */
+  objects: ObjectInventory;
 }
 
 /**
@@ -191,6 +199,8 @@ export interface SketchFloorOption {
 export interface SketchTotalsOption {
   sketch_id: string;
   measurements: Record<RoomMeasurementKind, number>;
+  /** The whole-Sketch object inventory — every Floor's summed (M1 `sumInventories`). */
+  objects: ObjectInventory;
 }
 
 /**
