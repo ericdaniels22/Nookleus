@@ -41,7 +41,7 @@ export default function JobsViewToggle({
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-md transition-all",
               active
-                ? "bg-[image:var(--gradient-primary)] text-white shadow-sm"
+                ? "bg-accent-tint text-accent-text"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >

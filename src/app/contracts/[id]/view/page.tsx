@@ -41,7 +41,7 @@ export default async function ContractViewPage({
 
   if (!contract) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4">
         <div className="bg-card border border-border rounded-xl p-8 max-w-md w-full text-center">
           <h1 className="text-lg font-semibold mb-2 text-foreground">
             Contract not found
@@ -59,7 +59,7 @@ export default async function ContractViewPage({
 
   if (!contract.signed_pdf_path) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4">
         <div className="bg-card border border-border rounded-xl p-8 max-w-md w-full text-center">
           <h1 className="text-lg font-semibold mb-2 text-foreground">
             Contract has not been signed yet
@@ -89,7 +89,7 @@ export default async function ContractViewPage({
   const backHref = contract.job_id ? `/jobs/${contract.job_id}` : "/contracts";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-dvh bg-background text-foreground">
       <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link
@@ -109,7 +109,7 @@ export default async function ContractViewPage({
           <DownloadPdfButton
             pdfUrl={`/api/contracts/${contract.id}/pdf`}
             filename={filename}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
           >
             <Download size={14} /> Download
           </DownloadPdfButton>

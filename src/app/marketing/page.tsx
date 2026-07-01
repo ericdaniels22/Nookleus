@@ -86,7 +86,7 @@ export default function MarketingPage() {
             : "Active";
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] lg:h-screen flex flex-col -m-6 lg:-m-8">
+    <div className="h-[calc(100dvh-3.5rem)] lg:h-dvh flex flex-col -m-6 lg:-m-8">
       <Tabs defaultValue={0} className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-teal-500/20 flex-shrink-0">

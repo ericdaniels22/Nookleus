@@ -20,8 +20,8 @@ export default function HomeClockControl() {
   return (
     <section className="mb-6">
       {active ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
-          <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+        <div className="flex items-center gap-3 rounded-lg border border-transparent bg-accent-tint px-4 py-3 text-accent-text">
+          <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
           <p className="text-sm font-medium">
             You&apos;re on the clock — {active.job?.property_address ?? "your Job"}
           </p>
@@ -30,7 +30,7 @@ export default function HomeClockControl() {
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-4 text-base font-bold text-white shadow-sm hover:bg-emerald-700 sm:w-auto"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 py-4 text-base font-bold text-primary-foreground hover:bg-primary/90 sm:w-auto"
         >
           <Clock size={20} />
           Clock in to a Job

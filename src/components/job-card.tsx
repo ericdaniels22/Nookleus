@@ -33,7 +33,7 @@ export default function JobCard({
     <Link
       href={`/jobs/${job.id}`}
       className={cn(
-        "relative block bg-card rounded-xl border border-border overflow-hidden card-vibrant p-5 transition-all hover:-translate-y-1",
+        "relative block bg-card rounded-xl border border-border overflow-hidden p-5 transition-all hover:-translate-y-1",
         isCompleted && "opacity-60"
       )}
     >

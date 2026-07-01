@@ -140,15 +140,15 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
   return (
     <div className={`flex items-start gap-3 px-4 ${isUser ? "flex-row-reverse" : ""}`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-[image:var(--gradient-primary)] text-white flex items-center justify-center flex-shrink-0">
-          <span className="text-xs font-bold text-white">J</span>
+        <div className="w-8 h-8 rounded-full bg-accent-tint flex items-center justify-center flex-shrink-0">
+          <span className="text-xs font-bold text-accent-text">J</span>
         </div>
       )}
       <div className={`max-w-[80%] space-y-1 ${isUser ? "items-end" : "items-start"}`}>
         <div
           className={
             isUser
-              ? "bg-[image:var(--gradient-secondary)] text-white rounded-2xl rounded-tr-sm px-4 py-2.5"
+              ? "bg-accent-tint text-foreground rounded-2xl rounded-tr-sm px-4 py-2.5"
               : "bg-muted text-foreground rounded-2xl rounded-tl-sm px-4 py-2.5"
           }
         >

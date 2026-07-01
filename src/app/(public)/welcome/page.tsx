@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 // uses connected Google data. Kept deliberately simple.
 export default function WelcomePage() {
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10">
+    <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
         <Image
           src="/nookleus-lockup.png"

@@ -47,7 +47,7 @@ export function ExportPdfButton({
           "<!doctype html><title>Preparing PDF…</title>" +
             "<body style='margin:0;font:16px system-ui,sans-serif;" +
             "display:flex;align-items:center;justify-content:center;" +
-            "height:100vh;color:#475569'>Preparing your PDF…",
+            "height:100dvh;color:#475569'>Preparing your PDF…",
         );
       } catch {
         /* writing to the popup is best-effort polish, never load-bearing */

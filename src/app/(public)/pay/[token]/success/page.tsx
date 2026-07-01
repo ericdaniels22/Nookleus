@@ -73,7 +73,7 @@ export default async function PaySuccessPage({
   const company = await loadCompany(orgId);
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="public-card w-full max-w-md p-8 text-center">
         {company.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

@@ -32,10 +32,10 @@ export function OnTheClockBarView({
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 border-t border-emerald-700 bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
+      className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 border-t border-primary-foreground/20 bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <span className="size-2 shrink-0 animate-pulse rounded-full bg-white/90" aria-hidden />
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-primary-foreground/90" aria-hidden />
         <span className="truncate">On {session.addressLabel}</span>
         <span className="shrink-0 opacity-70" aria-hidden>·</span>
         <span className="shrink-0 tabular-nums opacity-90">{elapsedLabel}</span>
@@ -44,7 +44,7 @@ export function OnTheClockBarView({
         type="button"
         onClick={onClockOut}
         disabled={busy}
-        className="shrink-0 rounded-md bg-white/15 px-3 py-1.5 font-semibold hover:bg-white/25 disabled:opacity-60"
+        className="shrink-0 rounded-md bg-primary-foreground/15 px-3 py-1.5 font-semibold hover:bg-primary-foreground/25 disabled:opacity-60"
       >
         Clock out
       </button>

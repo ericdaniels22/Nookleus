@@ -116,7 +116,7 @@ export function ComposeCallModal({
             type="button"
             onClick={handleCall}
             disabled={calling || !selected?.phone}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[image:var(--gradient-primary)] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:brightness-110 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             <Phone size={14} />
             {calling ? "Calling…" : "Call"}

@@ -83,7 +83,7 @@ export default async function SignPage({
   }
 
   return (
-    <div className="min-h-screen py-10 px-4">
+    <div className="min-h-dvh py-10 px-4">
       <div className="max-w-3xl mx-auto">
         <HeaderBlock company={company} />
         <SignedRedirectWrapper view={view} signToken={token} />
@@ -191,7 +191,7 @@ function ErrorShell({
   company: CompanyBrand;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="public-card w-full max-w-md p-8 text-center">
         <h1 className="text-xl font-semibold mb-2" style={{ color: "#111827" }}>
           {title}
@@ -217,7 +217,7 @@ function SignedShell({
   company: CompanyBrand;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="public-card w-full max-w-md p-8 text-center">
         <h1 className="text-xl font-semibold mb-2" style={{ color: "#111827" }}>
           This contract has been signed

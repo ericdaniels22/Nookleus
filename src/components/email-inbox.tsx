@@ -604,7 +604,7 @@ export default function EmailInbox() {
   const showAccountBar = accounts.length >= 2;
 
   return (
-    <div className="h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] lg:h-screen flex flex-col">
+    <div className="h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] lg:h-dvh flex flex-col">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-3 bg-card border-b border-border shrink-0">
         <h1 className="text-lg font-bold text-foreground mr-2">Email</h1>

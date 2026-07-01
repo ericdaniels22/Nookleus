@@ -156,7 +156,7 @@ export default function Sidebar({
           rendered logo is sized to keep the bar's content area at h-14, which
           is what consumers (AppShell, email inbox) assume when computing
           their own offsets. */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 gradient-sidebar border-b border-white/10 px-4 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] flex items-center justify-between">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-sidebar border-b border-white/10 px-4 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           {companyLogoUrl ? (
             <Image
@@ -196,7 +196,7 @@ export default function Sidebar({
       <Tooltip.Provider delay={300}>
         <aside
           className={cn(
-            "fixed top-0 left-0 z-40 h-dvh gradient-sidebar flex flex-col transition-[transform,width] duration-200 ease-out pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            "fixed top-0 left-0 z-40 h-dvh bg-sidebar flex flex-col transition-[transform,width] duration-200 ease-out pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             "lg:translate-x-0",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
             // Mobile overlay is always full sidebar width. Collapse only applies at lg+.
@@ -220,8 +220,8 @@ export default function Sidebar({
         {collapsed ? (
           <div className="shrink-0 px-2 py-2 border-b border-white/10 flex flex-col items-center gap-1.5 overflow-hidden">
             {/* Logo mark (AAA initials square) */}
-            <div className="w-10 h-10 rounded-lg bg-[image:var(--gradient-primary)] flex items-center justify-center shrink-0 shadow-sm">
-              <span className="text-[11px] font-bold text-white tracking-tight">
+            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shrink-0">
+              <span className="text-[11px] font-bold text-primary-foreground tracking-tight">
                 {companyInitials}
               </span>
             </div>
@@ -281,7 +281,7 @@ export default function Sidebar({
             const linkClassName = cn(
               "rounded-lg text-sm font-medium transition-all duration-200",
               isActive
-                ? "bg-[image:var(--gradient-primary)] text-white shadow-lg shadow-[oklch(0.45_0.18_165_/_25%)]"
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-white/60 hover:text-white hover:bg-white/10",
               collapsed
                 ? "flex items-center justify-center w-10 h-10 mx-auto"
@@ -339,10 +339,10 @@ export default function Sidebar({
             collapsed ? (
               <div className="flex flex-col items-center gap-2">
                 <div
-                  className="w-8 h-8 rounded-full bg-[image:var(--gradient-primary)] flex items-center justify-center shrink-0 shadow-sm"
+                  className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0"
                   title={`${profile.full_name} — ${profile.role.replace("_", " ")}`}
                 >
-                  <span className="text-xs font-semibold text-white">{initials}</span>
+                  <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
                 </div>
                 <Tooltip.Root>
                   <Tooltip.Trigger
@@ -367,8 +367,8 @@ export default function Sidebar({
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-[image:var(--gradient-primary)] flex items-center justify-center shrink-0 shadow-sm">
-                  <span className="text-xs font-semibold text-white">{initials}</span>
+                <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
+                  <span className="text-xs font-semibold text-sidebar-accent-foreground">{initials}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white/90 truncate">

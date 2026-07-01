@@ -16,9 +16,9 @@ import { useOpenSessions } from "@/lib/timesheets/use-open-sessions";
 export function OnSiteNowView({ names }: { names: string[] }) {
   if (names.length === 0) return null;
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-tint px-2.5 py-0.5 text-xs font-medium text-accent-text">
       <span
-        className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500"
+        className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary"
         aria-hidden
       />
       <span className="truncate">On site now: {names.join(", ")}</span>

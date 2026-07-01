@@ -175,7 +175,7 @@ export function SignaturesTab() {
             className={cn(
               "px-3 py-2 rounded-lg text-sm font-medium border transition-all",
               selectedId === acc.id
-                ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                ? "bg-accent-tint text-accent-text border-transparent"
                 : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
             )}
           >
@@ -269,7 +269,7 @@ export function SignaturesTab() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {saving && <Loader2 size={16} className="animate-spin" />}
               {saving ? "Saving..." : "Save Signature"}

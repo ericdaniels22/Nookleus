@@ -582,7 +582,7 @@ export function LineItemEditorPanel({
         className={cn(
           "flex flex-col bg-card border-border animate-in fade-in-0 duration-200",
           isDesktop
-            ? "sticky top-6 w-full shrink-0 lg:w-[22rem] max-h-[calc(100vh-3rem)] rounded-xl border shadow-sm slide-in-from-right-4"
+            ? "sticky top-6 w-full shrink-0 lg:w-[22rem] max-h-[calc(100dvh-3rem)] rounded-xl border shadow-sm slide-in-from-right-4"
             : "fixed inset-x-0 bottom-0 z-50 max-h-[85vh] rounded-t-2xl border-t shadow-2xl slide-in-from-bottom-8",
         )}
       >
@@ -652,7 +652,7 @@ export function LineItemEditorPanel({
                   className={cn(
                     "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
                     !isEquipment
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent-tint text-accent-text"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -667,7 +667,7 @@ export function LineItemEditorPanel({
                   className={cn(
                     "rounded px-3 py-1 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-60",
                     isEquipment
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent-tint text-accent-text"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >

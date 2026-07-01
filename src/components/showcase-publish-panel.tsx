@@ -203,7 +203,7 @@ export default function ShowcasePublishPanel({
           type="button"
           onClick={handleGbpPublish}
           disabled={!consent || gbpPublishing}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground px-4 py-1.5 text-sm font-semibold disabled:opacity-50"
         >
           {gbpPublishing && <Loader2 size={14} className="animate-spin" />}
           {gbpView.state === "published"

@@ -117,7 +117,7 @@ export default function ActivityTimeline({
         </h3>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
           >
             <Plus size={16} className="mr-1" />
             Add Note
@@ -140,7 +140,7 @@ export default function ActivityTimeline({
                       className={cn(
                         "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
                         activityType === opt.value
-                          ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                          ? "bg-accent-tint text-accent-text border-transparent"
                           : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
                       )}
                     >

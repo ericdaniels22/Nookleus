@@ -26,7 +26,7 @@ export default function DashboardPage() {
     <div className="max-w-3xl animate-fade-slide-up">
       <div className="mb-8">
         <h1 className="text-3xl font-extrabold text-foreground">
-          <span className="gradient-text">Dashboard</span>
+          <span>Dashboard</span>
         </h1>
         <p className="text-muted-foreground mt-1">
           {firstName ? `Welcome back, ${firstName}.` : "Welcome back."}

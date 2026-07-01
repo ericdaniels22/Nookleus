@@ -105,7 +105,7 @@ function IntakeFormBuilderInner() {
   const selected = selectedFieldId ? findField(selectedFieldId)?.field ?? null : null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-4rem)]">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
         <div>
           <h2 className="text-lg font-semibold text-foreground">Intake Form Builder</h2>

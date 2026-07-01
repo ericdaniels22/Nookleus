@@ -127,7 +127,7 @@ function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
           type="button"
           data-testid="draft-reply"
           onClick={handleDraft}
-          className="mt-3 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+          className="mt-3 rounded-lg border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground px-3 py-1.5 text-sm font-medium"
         >
           Draft reply
         </button>
@@ -146,7 +146,7 @@ function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
             type="button"
             data-testid="post-reply"
             onClick={handlePost}
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+            className="rounded-lg border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground px-3 py-1.5 text-sm font-medium"
           >
             Post reply
           </button>

@@ -106,7 +106,7 @@ export default function ReportSettingsPanel({
                   className={cn(
                     "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
                     photosPerPage === n
-                      ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                      ? "bg-accent-tint text-accent-text border-transparent"
                       : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm",
                   )}
                 >

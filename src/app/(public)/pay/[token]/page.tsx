@@ -247,7 +247,7 @@ export default async function PayPage({
       : null;
 
   return (
-    <div className="min-h-screen py-10 px-4">
+    <div className="min-h-dvh py-10 px-4">
       <div className="max-w-xl mx-auto">
         <HeaderBlock company={company} />
 
@@ -352,7 +352,7 @@ function ErrorShell({
   company: CompanyBrand;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="public-card w-full max-w-md p-8 text-center">
         {company.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -389,7 +389,7 @@ function PaidShell({
   company: CompanyBrand;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-dvh flex items-center justify-center px-4">
       <div className="public-card w-full max-w-md p-8 text-center">
         <CheckCircle2
           size={48}

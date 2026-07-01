@@ -121,7 +121,7 @@ export function ComposeTextModal({
             type="button"
             onClick={handleSend}
             disabled={sending || body.trim().length === 0}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[image:var(--gradient-primary)] px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:brightness-110 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             <Send size={14} />
             Send Text

@@ -331,7 +331,7 @@ export function Canvas({
                     </div>
                     <button
                       onClick={addSection}
-                      className="px-3 h-9 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 transition-all"
+                      className="px-3 h-9 rounded-lg text-sm font-medium border border-input bg-transparent text-text-secondary hover:bg-muted hover:text-foreground transition-all"
                     >
                       Add
                     </button>

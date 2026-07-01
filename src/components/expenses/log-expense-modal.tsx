@@ -186,7 +186,7 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
         showCloseButton={false}
         className={cn(
           "p-0 overflow-hidden flex flex-col",
-          "max-w-full h-screen max-h-screen inset-0 translate-x-0 translate-y-0 rounded-none top-0 left-0", // mobile
+          "max-w-full h-dvh max-h-dvh inset-0 translate-x-0 translate-y-0 rounded-none top-0 left-0", // mobile
           "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-lg sm:h-[min(90vh,720px)] sm:rounded-xl", // desktop: fixed height so inner flex can scroll
         )}
       >
@@ -309,7 +309,7 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
               Cancel
             </button>
             <button type="submit" disabled={submitting}
-              className="px-5 h-11 rounded-lg text-sm font-medium bg-[image:var(--gradient-primary)] text-white shadow-sm hover:brightness-110 disabled:opacity-60 inline-flex items-center gap-2">
+              className="px-5 h-11 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60 inline-flex items-center gap-2">
               {submitting && <Loader2 size={14} className="animate-spin" />}
               {existing ? "Save Changes" : "Log Expense"}
             </button>

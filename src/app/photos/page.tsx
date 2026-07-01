@@ -85,7 +85,7 @@ export default function PhotosPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-extrabold text-foreground">
-            <span className="gradient-text">Photos</span>
+            <span>Photos</span>
           </h1>
           <p className="text-sm text-muted-foreground/60 mt-1">
             {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""} across{" "}
@@ -96,18 +96,8 @@ export default function PhotosPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatCard
-          label="Total Photos"
-          value={totalPhotos}
-          icon={Camera}
-          gradient="gradient-primary"
-        />
-        <StatCard
-          label="Jobs with Photos"
-          value={jobsWithPhotos}
-          icon={MapPin}
-          gradient="gradient-secondary"
-        />
+        <StatCard label="Total Photos" value={totalPhotos} icon={Camera} />
+        <StatCard label="Jobs with Photos" value={jobsWithPhotos} icon={MapPin} />
         <StatCard
           label="This Week"
           value={
@@ -119,14 +109,8 @@ export default function PhotosPage() {
             }).length
           }
           icon={Calendar}
-          gradient="gradient-accent"
         />
-        <StatCard
-          label="Tags"
-          value={tags.length}
-          icon={Filter}
-          gradient="bg-gradient-to-br from-violet-500 to-purple-600"
-        />
+        <StatCard label="Tags" value={tags.length} icon={Filter} />
       </div>
 
       {/* Filters */}
@@ -168,7 +152,7 @@ export default function PhotosPage() {
               className={cn(
                 "px-3 py-1 rounded-full text-xs font-medium border transition-all",
                 !selectedTag
-                  ? "bg-[image:var(--gradient-primary)] text-white border-transparent shadow-sm"
+                  ? "bg-accent-tint text-accent-text border-transparent"
                   : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
               )}
             >
@@ -214,7 +198,7 @@ export default function PhotosPage() {
             <Link
               key={photo.id}
               href={`/jobs/${photo.job_id}`}
-              className="group card-vibrant bg-card rounded-xl border border-border overflow-hidden hover:shadow-md transition-all"
+              className="group bg-card rounded-xl border border-border overflow-hidden hover:shadow-md transition-all"
             >
               <div className="aspect-square bg-muted relative overflow-hidden">
                 <img
@@ -269,22 +253,20 @@ function StatCard({
   label,
   value,
   icon: Icon,
-  gradient,
 }: {
   label: string;
   value: number;
   icon: React.ComponentType<{ size?: number; className?: string }>;
-  gradient: string;
 }) {
   return (
-    <div className={`rounded-xl p-5 text-white shadow-lg ${gradient}`}>
+    <div className="rounded-lg p-5 bg-card border border-border">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium text-white/70 uppercase tracking-wider">{label}</p>
-          <p className="text-3xl font-extrabold mt-1">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="text-[22px] font-semibold tabular-nums mt-1 text-foreground">{value}</p>
         </div>
-        <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-          <Icon size={22} className="text-white" />
+        <div className="w-10 h-10 rounded-lg bg-accent-tint flex items-center justify-center">
+          <Icon size={22} className="text-accent-text" />
         </div>
       </div>
     </div>

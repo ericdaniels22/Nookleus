@@ -43,7 +43,7 @@ export default function IconRail({
       {/* Compose button */}
       <button
         onClick={onCompose}
-        className="w-10 h-10 rounded-lg bg-[image:var(--gradient-primary)] text-white flex items-center justify-center shadow-sm hover:brightness-110 hover:shadow-md transition-all"
+        className="w-10 h-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all"
         title="Compose"
       >
         <SquarePen size={18} />
@@ -75,7 +75,7 @@ export default function IconRail({
           >
             <Icon size={18} />
             {showBadge && (
-              <span className="absolute -top-1 -right-1 bg-primary text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center">
                 {badgeValue > 99 ? "99+" : badgeValue}
               </span>
             )}
