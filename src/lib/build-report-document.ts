@@ -1,3 +1,5 @@
+import type { PlanRender } from "./sketch/plan-render";
+
 export interface ReportPhotoInput {
   id: string;
   caption: string | null;
@@ -26,6 +28,7 @@ export interface PhotoSlot {
 
 export type DocumentPage =
   | { kind: "cover" }
+  | { kind: "sketchPlan"; plan: PlanRender }
   | { kind: "sectionDivider"; title: string; description: string | null }
   | {
       kind: "photoPage";
@@ -51,6 +54,14 @@ export interface BuildReportDocumentArgs {
    * footer. Defaults to on for backward compatibility.
    */
   sectionTitlePages?: boolean;
+  /**
+   * The Job's Sketch, one built plan model per Floor with placed Rooms (#868).
+   * Each becomes its own page directly after the cover, before the first
+   * Section. Absent or empty when the report does not include the Sketch —
+   * the caller (the generator) gates on the report's includeSketchPlan setting
+   * and only builds plans when it is on, so an empty list means "don't show".
+   */
+  sketchPlans?: PlanRender[];
 }
 
 function orientationOf(photo: ReportPhotoInput): "portrait" | "landscape" {
@@ -75,6 +86,11 @@ export function buildReportDocument(
   args: BuildReportDocumentArgs,
 ): DocumentPage[] {
   const pages: DocumentPage[] = [{ kind: "cover" }];
+  // The Sketch plan pages follow the cover, one per Floor, before any Section
+  // (#868). Empty when the report does not include the Sketch.
+  for (const plan of args.sketchPlans ?? []) {
+    pages.push({ kind: "sketchPlan", plan });
+  }
   // Supported layouts are 2, 3, or 4 per page; the retired 1-per-page value (and
   // anything else) falls back to 2 (ADR 0014). The generator maps the legacy
   // "1" to 2 before this point, but the fallback keeps the builder total.

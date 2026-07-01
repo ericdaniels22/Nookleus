@@ -6,6 +6,7 @@ import BeforeAfterPairPage from "@/components/report-pdf/before-after-pair-page"
 import CoverPage from "@/components/report-pdf/cover-page";
 import PhotoPage from "@/components/report-pdf/photo-page";
 import SectionDividerPage from "@/components/report-pdf/section-divider-page";
+import SketchPlanPage from "@/components/report-pdf/sketch-plan-page";
 import type { ReportRenderModel } from "@/lib/report-render-model";
 
 interface ReportPDFProps {
@@ -38,6 +39,10 @@ export default function ReportPDFDocument({
               preparedBy={preparedBy}
             />
           );
+        }
+
+        if (page.kind === "sketchPlan") {
+          return <SketchPlanPage key={`plan-${idx}`} plan={page.plan} />;
         }
 
         if (page.kind === "sectionDivider") {

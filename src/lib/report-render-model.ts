@@ -30,6 +30,7 @@ import type {
   PointOfContact,
 } from "./cover-page-data";
 import type { ResolvedReportSettings } from "./photo-report-settings";
+import type { PlanRender } from "./sketch/plan-render";
 
 /** A photo tag as the PDF renders it: a colored chip with a name. */
 export interface RenderTag {
@@ -72,6 +73,7 @@ export interface RenderSlot {
 
 export type RenderPage =
   | { kind: "cover" }
+  | { kind: "sketchPlan"; plan: PlanRender }
   | { kind: "sectionDivider"; title: string; description: string | null }
   | {
       kind: "photoPage";
@@ -119,6 +121,12 @@ export interface BuildReportRenderModelArgs {
   coverPhotoUrl: string | null;
   /** The Job's property address, threaded onto each slot as `location`. */
   propertyAddress: string | null;
+  /**
+   * The Job's Sketch, one built plan model per Floor (#868), each rendered as
+   * its own page after the cover. Absent/empty when the report does not include
+   * the Sketch — the generator gates on includeSketchPlan upstream.
+   */
+  sketchPlans?: PlanRender[];
 }
 
 function buildSlot(
@@ -169,12 +177,15 @@ export function buildReportRenderModel(
     photos,
     photosPerPage: settings.photosPerPage,
     sectionTitlePages: details.sectionTitlePages,
+    sketchPlans: args.sketchPlans,
   });
 
   const pages: RenderPage[] = documentPages.map((page) => {
     switch (page.kind) {
       case "cover":
         return { kind: "cover" };
+      case "sketchPlan":
+        return { kind: "sketchPlan", plan: page.plan };
       case "sectionDivider":
         return {
           kind: "sectionDivider",
