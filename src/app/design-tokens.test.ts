@@ -180,3 +180,47 @@ describe("design tokens — new tokens are registered in @theme inline (§2.0)",
     );
   });
 });
+
+describe("dark-only migration — legacy palette is deleted (ADR 0027, §2.0)", () => {
+  it("has no .dark class split", () => {
+    expect(css).not.toMatch(/^\s*\.dark\s*\{/m);
+  });
+
+  const LEGACY_FAMILIES = [
+    "--vibrant-",
+    "--gradient-",
+    "--shadow-card",
+    "--shadow-vibrant",
+    "--shadow-glow-primary",
+  ];
+
+  it.each(LEGACY_FAMILIES)("defines no %s* tokens", (prefix) => {
+    expect(css).not.toContain(prefix);
+  });
+
+  const LEGACY_UTILITIES = [
+    ".gradient-primary",
+    ".gradient-secondary",
+    ".gradient-accent",
+    ".gradient-hero",
+    ".gradient-surface",
+    ".gradient-sidebar",
+    ".gradient-text",
+    ".card-vibrant",
+    ".gradient-border",
+  ];
+
+  it.each(LEGACY_UTILITIES)("ships no %s utility class", (cls) => {
+    expect(css).not.toContain(`${cls} {`);
+    expect(css).not.toContain(`${cls}:`);
+    expect(css).not.toContain(`${cls}::`);
+  });
+
+  it("keeps dark: variants applying unconditionally during migration (always-on bridge)", () => {
+    // Removing @custom-variant entirely would make dark: fall back to
+    // prefers-color-scheme. The bridge pins it on until step-18 cleanup
+    // folds the remaining dark: styles into base styles.
+    expect(css).toMatch(/@custom-variant dark \(&\);/);
+    expect(css).not.toContain(".dark *");
+  });
+});
