@@ -94,6 +94,86 @@ describe("updateSketchRoom", () => {
     });
   });
 
+  it("reshapes a Room from a new footprint — re-normalizing its position and recomputing the cache", async () => {
+    // Issue #862: editing walls/corners sends the reworked footprint back in
+    // PLACED floor coordinates. Persisting mirrors create-room (ADR 0026): split
+    // the placed shape into a normalized footprint (min corner → 0,0) plus the
+    // origin it was drawn at, backfill width/length from the bounding box, and
+    // recompute all six measurements from the new shape at the effective ceiling
+    // height. Here the Room has no override, so it inherits the Floor default (8).
+    const placed = [
+      { x: 2, y: 3 },
+      { x: 7, y: 3 },
+      { x: 7, y: 9 },
+      { x: 2, y: 9 },
+    ];
+    const { client, updates } = fakeSupabase({
+      room: {
+        id: "room-1",
+        footprint: rectangleFootprint(3, 4),
+        floor_id: "floor-1",
+        ceiling_height_override: null,
+      },
+      floor: { default_ceiling_height: "8" },
+    });
+
+    await updateSketchRoom(client, { roomId: "room-1", footprint: placed });
+
+    // The placed 5×6 rectangle normalizes to the origin, lifting (2,3) into origin.
+    const expected = measureFootprint({
+      footprint: rectangleFootprint(5, 6),
+      ceilingHeight: 8,
+    });
+    expect(updates.rooms).toEqual({
+      footprint: rectangleFootprint(5, 6),
+      origin: { x: 2, y: 3 },
+      width: 5,
+      length: 6,
+      floor_area: expected.floorArea,
+      ceiling_area: expected.ceilingArea,
+      perimeter: expected.perimeter,
+      gross_wall_area: expected.grossWallArea,
+      net_wall_area: expected.netWallArea,
+      volume: expected.volume,
+    });
+  });
+
+  it("reshapes a Room that pins its ceiling, measuring the new shape at the pinned height", async () => {
+    // A footprint edit carries no ceiling change, so the effective height is the
+    // Room's own stored override (10) — NOT the Floor default (8). Wall area and
+    // volume must reflect the pinned height, and the override is left as-is.
+    const placed = rectangleFootprint(5, 6);
+    const { client, updates } = fakeSupabase({
+      room: {
+        id: "room-1",
+        footprint: rectangleFootprint(3, 4),
+        floor_id: "floor-1",
+        ceiling_height_override: "10",
+      },
+      floor: { default_ceiling_height: "8" },
+    });
+
+    await updateSketchRoom(client, { roomId: "room-1", footprint: placed });
+
+    const expected = measureFootprint({
+      footprint: rectangleFootprint(5, 6),
+      ceilingHeight: 10,
+    });
+    // No ceiling_height_override key — the pin is untouched by a reshape.
+    expect(updates.rooms).toEqual({
+      footprint: rectangleFootprint(5, 6),
+      origin: { x: 0, y: 0 },
+      width: 5,
+      length: 6,
+      floor_area: expected.floorArea,
+      ceiling_area: expected.ceilingArea,
+      perimeter: expected.perimeter,
+      gross_wall_area: expected.grossWallArea,
+      net_wall_area: expected.netWallArea,
+      volume: expected.volume,
+    });
+  });
+
   it("clears the override, re-measuring at the Floor's default ceiling height", async () => {
     // Passing null drops the pin: the Room inherits the Floor default (8), and
     // the cache is recomputed at that height. The stored override becomes null.

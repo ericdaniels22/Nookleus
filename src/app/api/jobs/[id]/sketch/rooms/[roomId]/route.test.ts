@@ -128,6 +128,66 @@ describe("PATCH /api/jobs/[id]/sketch/rooms/[roomId]", () => {
     );
   });
 
+  it("forwards a reshaped footprint to the update step (#862)", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    // A reworked footprint arrives in placed floor coordinates; the update step
+    // re-normalizes and recomputes (covered in update-room.test.ts). Here we pin
+    // that the route accepts a ≥3-corner footprint and forwards it verbatim.
+    const footprint = [
+      { x: 2, y: 3 },
+      { x: 7, y: 3 },
+      { x: 7, y: 9 },
+      { x: 2, y: 9 },
+    ];
+    const res = await PATCH(
+      patchBody({ footprint }),
+      paramsFor("job-1", "room-1"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(updateSketchRoom).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ roomId: "room-1", footprint }),
+    );
+  });
+
+  it("returns 400 for a footprint with fewer than three corners", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await PATCH(
+      patchBody({ footprint: [{ x: 0, y: 0 }, { x: 3, y: 0 }] }),
+      paramsFor("job-1", "room-1"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(updateSketchRoom).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a footprint corner with a non-finite coordinate", async () => {
+    vi.mocked(createServerSupabaseClient).mockResolvedValue(
+      authedClient() as never,
+    );
+
+    const res = await PATCH(
+      patchBody({
+        footprint: [
+          { x: 0, y: 0 },
+          { x: 3, y: 0 },
+          { x: 3, y: "nope" },
+        ],
+      }),
+      paramsFor("job-1", "room-1"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(updateSketchRoom).not.toHaveBeenCalled();
+  });
+
   it("returns 403 for a member without the edit_jobs grant", async () => {
     vi.mocked(createServerSupabaseClient).mockResolvedValue(
       fakeUserClient({

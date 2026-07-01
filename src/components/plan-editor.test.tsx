@@ -21,9 +21,20 @@ const RECT_FOOTPRINT = [
   { x: 0, y: 4 },
 ];
 
+// The RECT_FOOTPRINT's corner 2 (3,4) dragged out to (9,4) — the placed,
+// re-worked shape a canvas vertex-drag emits (#862). origin is (0,0), so placed
+// coords equal the edited footprint.
+const VERTEX_DRAG_FOOTPRINT = [
+  { x: 0, y: 0 },
+  { x: 3, y: 0 },
+  { x: 9, y: 4 },
+  { x: 0, y: 4 },
+];
+
 // The MagicPlan canvas is thin, untested Fabric glue. Mock it to a harness that
 // surfaces its props (mode/zoom/selection) and a button per interaction the
-// shell wires: select a Room, drag it to (5,7), and finish drawing a rectangle.
+// shell wires: select a Room, drag it to (5,7), reshape it by dragging a vertex,
+// and finish drawing a rectangle.
 vi.mock("./plan-canvas", () => ({
   default: ({
     rooms,
@@ -32,6 +43,7 @@ vi.mock("./plan-canvas", () => ({
     zoom,
     onSelectRoom,
     onMoveRoom,
+    onEditFootprint,
     onFootprintComplete,
   }: {
     rooms: Room[];
@@ -40,6 +52,7 @@ vi.mock("./plan-canvas", () => ({
     zoom: number;
     onSelectRoom: (id: string | null) => void;
     onMoveRoom: (id: string, origin: { x: number; y: number }) => void;
+    onEditFootprint: (id: string, placed: { x: number; y: number }[]) => void;
     onFootprintComplete: (points: { x: number; y: number }[]) => void;
   }) => (
     <div data-testid="plan-canvas">
@@ -53,6 +66,12 @@ vi.mock("./plan-canvas", () => ({
           </button>
           <button type="button" onClick={() => onMoveRoom(r.id, { x: 5, y: 7 })}>
             drag {r.name}
+          </button>
+          <button
+            type="button"
+            onClick={() => onEditFootprint(r.id, VERTEX_DRAG_FOOTPRINT)}
+          >
+            drag vertex {r.name}
           </button>
         </div>
       ))}
@@ -319,6 +338,191 @@ describe("PlanEditor — shell (#890)", () => {
     expect(screen.getByTestId("measure-grossWallArea").textContent).toContain(
       "140",
     );
+  });
+
+  it("edits a wall length: typing an exact length reshapes the Room via PATCH {footprint} and shows the recomputed measurements", async () => {
+    // Issue #862: the inspector lists the selected Room's walls. Typing a wall's
+    // exact length slides its far corner along the wall's bearing (setWallLength),
+    // and the reworked footprint — in placed floor coords — is PATCHed. The server
+    // re-normalizes and recomputes the cache; the echoed row updates the tiles.
+    const reshaped = makeRoom({
+      id: "room-1",
+      name: "Kitchen",
+      floor_area: 20,
+      volume: 160,
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: reshaped }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floor={makeFloor()}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Kitchen",
+            footprint: RECT_FOOTPRINT, // 3×4, origin (0,0)
+            origin: { x: 0, y: 0 },
+            floor_area: 12,
+            volume: 96,
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+
+    // Wall 1 is the (0,0)→(3,0) edge, currently 3 ft. Retype it to 5 ft.
+    fireEvent.change(screen.getByLabelText(/wall 1 length/i), {
+      target: { value: "5" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /set length of wall 1/i }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    // The far corner (3,0) slid to (5,0) along +x; origin is (0,0) so placed
+    // coords equal the edited shape.
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 5, y: 0 },
+        { x: 3, y: 4 },
+        { x: 0, y: 4 },
+      ],
+    });
+
+    // The server-recomputed measurements replace the old ones in the tiles.
+    await waitFor(() =>
+      expect(screen.getByTestId("measure-floorArea").textContent).toContain("20"),
+    );
+    expect(screen.getByTestId("measure-volume").textContent).toContain("160");
+  });
+
+  it("edits a vertex on the canvas: dragging a corner reshapes the Room via PATCH {footprint} (#862)", async () => {
+    // Issue #862: grabbing a corner on the canvas and dropping it emits the
+    // reworked footprint in placed floor coordinates (moveVertex → mergeCollinear
+    // in the Fabric glue). The shell PATCHes it just like an inspector edit; the
+    // server re-normalizes and recomputes, and we take the echoed row.
+    const reshaped = makeRoom({ id: "room-1", name: "Kitchen", floor_area: 30 });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: reshaped }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floor={makeFloor()}
+        initialRooms={[makeRoom({ id: "room-1", name: "Kitchen" })]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /drag vertex kitchen/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 9, y: 4 },
+        { x: 0, y: 4 },
+      ],
+    });
+  });
+
+  it("removes a wall: the wall's Remove control reshapes the Room via PATCH {footprint}, collapsing that wall to its midpoint", async () => {
+    // Issue #862: Remove on a wall collapses it to its midpoint (deleteWall), so
+    // the neighbours join and the loop stays closed (n corners → n − 1). The
+    // reworked footprint is PATCHed in placed floor coords.
+    const reshaped = makeRoom({ id: "room-1", name: "Kitchen", floor_area: 8 });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ room: reshaped }), { status: 200 }),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floor={makeFloor()}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Kitchen",
+            footprint: RECT_FOOTPRINT, // 3×4, origin (0,0)
+            origin: { x: 0, y: 0 },
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select kitchen/i }));
+
+    // Wall 2 is the (3,0)→(3,4) edge; removing it seats its midpoint (3,2) where
+    // its two end corners were, leaving a triangle.
+    fireEvent.click(screen.getByRole("button", { name: /remove wall 2/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/rooms/room-1");
+    expect(init?.method).toBe("PATCH");
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toEqual({
+      footprint: [
+        { x: 0, y: 0 },
+        { x: 3, y: 2 },
+        { x: 0, y: 4 },
+      ],
+    });
+  });
+
+  it("hides wall-remove controls once only a triangle remains — a Room needs three walls", () => {
+    // deleteWall would drop a triangle below three corners into a degenerate,
+    // zero-area shape, so the inspector offers no Remove on a 3-wall Room. Its
+    // length fields still work.
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floor={makeFloor()}
+        initialRooms={[
+          makeRoom({
+            id: "room-1",
+            name: "Triangle",
+            footprint: [
+              { x: 0, y: 0 },
+              { x: 4, y: 0 },
+              { x: 0, y: 3 },
+            ],
+            origin: { x: 0, y: 0 },
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /select triangle/i }));
+
+    // Three walls, each with a length field, but no Remove controls.
+    expect(screen.getByLabelText(/wall 1 length/i)).toBeDefined();
+    expect(screen.getByLabelText(/wall 3 length/i)).toBeDefined();
+    expect(screen.queryByRole("button", { name: /remove wall/i })).toBeNull();
   });
 
   it("deletes a Room: the inspector's Delete removes it via DELETE and closes the inspector", async () => {

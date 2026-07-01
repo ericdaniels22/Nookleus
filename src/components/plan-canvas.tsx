@@ -4,18 +4,44 @@ import { useEffect, useRef } from "react";
 
 import type { Room } from "@/lib/types";
 import { type Point, translateFootprint } from "@/lib/sketch/footprint";
-import { snapWall, shouldClosePolygon } from "@/lib/sketch/footprint-draw";
+import {
+  mergeCollinear,
+  snapWall,
+  shouldClosePolygon,
+} from "@/lib/sketch/footprint-draw";
+import { deleteVertex, moveVertex } from "@/lib/sketch/footprint-edit";
 
-// Issue #890 — the MagicPlan-style multi-room plan canvas (ADR 0026). This is the
-// editor's Fabric glue: it renders every placed Room on a light dotted grid with
-// thick black centerline walls, a centered name + area label, and always-on
+// Issue #890 / #862 — the MagicPlan-style multi-room plan canvas (ADR 0026). This
+// is the editor's Fabric glue: it renders every placed Room on a light dotted grid
+// with thick black centerline walls, a centered name + area label, and always-on
 // per-wall dimension labels; supports panning (drag empty space) and zoom (wheel
 // or the shell's control); lets the user click a Room to select it and drag it to
 // move (a move updates only the Room's origin — the footprint and its cached
-// measurements are position-invariant); and, in "adding" mode, draws a new
-// footprint corner-by-corner (reusing the pure snapWall / shouldClosePolygon core
-// from #879) then emits it. The imperative Fabric wiring is verified visually, not
-// in unit tests; the shell that owns state (PlanEditor) mocks this component.
+// measurements are position-invariant).
+//
+// The #862 Apple-Pencil interaction model (documented here and in the PR):
+//
+//   • Drawing ("adding" mode) — DRAG to draw. Press the Pencil at a corner and
+//     drag: the wall rubber-bands from the last corner to the pen with live
+//     right-angle + clean-foot snapping (snapWall), its length shown; lift to drop
+//     that corner. Repeat corner-to-corner; lift near the first corner (≥3 corners
+//     placed) to close the loop (shouldClosePolygon). A plain tap still drops a
+//     corner, so the #879 tap-to-place model keeps working — a drag is just a tap
+//     whose lift landed somewhere new.
+//   • Editing a selected Room's vertices — every corner carries a round drag
+//     handle. Drag a handle to move that corner (moveVertex) with a live shape
+//     preview; on drop the reworked footprint is straightened (mergeCollinear, so
+//     a corner dragged flat onto its wall folds away) and emitted. Double-tap a
+//     handle to delete that corner (deleteVertex), unless only a triangle remains.
+//   • Editing walls (exact length) and deleting walls live in the inspector, not
+//     the canvas (they need a typed number / a discrete control).
+//
+// Every reshape emits the footprint in PLACED floor coordinates via onEditFootprint;
+// the shell PATCHes it and the server re-normalizes + recomputes the cache (M1), so
+// measurements refresh on each committed edit. All the geometry is the pure, tested
+// core (footprint-draw / footprint-edit); the imperative Fabric wiring here is
+// verified visually, not in unit tests — the shell that owns state (PlanEditor)
+// mocks this component.
 //
 // Fabric is loaded with a dynamic `await import("fabric")` inside the effect so it
 // never evaluates during SSR (this Fabric touches the DOM on module eval). The
@@ -53,6 +79,9 @@ export interface PlanCanvasProps {
   onSelectRoom: (roomId: string | null) => void;
   /** Drag a Room to a new position — reports the new origin on drop. */
   onMoveRoom: (roomId: string, origin: Point) => void;
+  /** Reshape a Room — a vertex dragged or a corner deleted on the canvas (#862)
+   * — reporting its reworked footprint in PLACED floor coordinates. */
+  onEditFootprint: (roomId: string, placedFootprint: Point[]) => void;
   /** A newly-drawn footprint's closed loop of corners, in floor coordinates. */
   onFootprintComplete: (footprint: Point[]) => void;
   /** Wheel zoom reports the new percentage so the shell's control stays in sync. */
@@ -86,6 +115,7 @@ export default function PlanCanvas({
   zoom,
   onSelectRoom,
   onMoveRoom,
+  onEditFootprint,
   onFootprintComplete,
   onZoomChange,
 }: PlanCanvasProps) {
@@ -104,6 +134,21 @@ export default function PlanCanvas({
   const draftRef = useRef<Point[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const draftOverlayRef = useRef<any[]>([]);
+  // Pen state while drawing: true between press and lift so mouse:move rubber-bands
+  // the prospective wall and mouse:up commits (or closes) it. The rubber-band
+  // overlay (line + length + ghost corner) lives in its own Fabric layer.
+  const penRef = useRef<{ drawing: boolean }>({ drawing: false });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rubberBandRef = useRef<any[]>([]);
+  // Draggable corner handles for the selected Room, and — while one is being
+  // dragged — the live reshaped footprint (placed feet) plus its preview overlay.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vertexHandlesRef = useRef<any[]>([]);
+  const draggingVertexRef = useRef<{ roomId: string; footprint: Point[] } | null>(
+    null,
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editPreviewRef = useRef<any[]>([]);
   // Pan bookkeeping — a drag on empty space pans; a small drag is a deselect click.
   const panRef = useRef<{ panning: boolean; x: number; y: number; moved: boolean }>({
     panning: false,
@@ -128,6 +173,8 @@ export default function PlanCanvas({
   onSelectRef.current = onSelectRoom;
   const onMoveRef = useRef(onMoveRoom);
   onMoveRef.current = onMoveRoom;
+  const onEditFootprintRef = useRef(onEditFootprint);
+  onEditFootprintRef.current = onEditFootprint;
   const onCompleteRef = useRef(onFootprintComplete);
   onCompleteRef.current = onFootprintComplete;
   const onZoomChangeRef = useRef(onZoomChange);
@@ -231,6 +278,8 @@ export default function PlanCanvas({
     }
     canvas.requestRenderAll();
     syncingRef.current = false;
+    // The selected Room's corner handles ride on top of the fresh groups.
+    redrawVertexHandles();
   }
 
   // Recolor walls to reflect the current selection without a full rebuild.
@@ -316,6 +365,174 @@ export default function PlanCanvas({
     for (const obj of draftOverlayRef.current) canvas?.remove(obj);
     draftOverlayRef.current = [];
     draftRef.current = [];
+    clearRubberBand();
+  }
+
+  // The prospective next wall while the pen is down: the snapped segment from the
+  // last committed corner to the pen, its length, and a ghost corner at the tip.
+  function redrawRubberBand(from: Point, to: Point) {
+    const fabric = fabricRef.current;
+    const canvas = canvasRef.current;
+    if (!fabric || !canvas) return;
+    clearRubberBand();
+    const a = ftToPx(from);
+    const b = ftToPx(to);
+    const len = Math.hypot(to.x - from.x, to.y - from.y);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const add = (obj: any) => {
+      rubberBandRef.current.push(obj);
+      canvas.add(obj);
+    };
+    if (len >= 0.05) {
+      add(
+        new fabric.Line([a.x, a.y, b.x, b.y], {
+          stroke: WALL_STROKE_SELECTED,
+          strokeWidth: WALL_WIDTH,
+          strokeLineCap: "round",
+          strokeDashArray: [4, 6],
+          selectable: false,
+          evented: false,
+        }),
+      );
+      add(
+        new fabric.Text(`${ft(len)}'`, {
+          left: (a.x + b.x) / 2,
+          top: (a.y + b.y) / 2,
+          fontSize: 12,
+          fill: DIM_FILL,
+          backgroundColor: "rgba(248,250,252,0.85)",
+          originX: "center",
+          originY: "center",
+          selectable: false,
+          evented: false,
+        }),
+      );
+    }
+    add(
+      new fabric.Circle({
+        left: b.x,
+        top: b.y,
+        radius: 4,
+        fill: "#2563eb",
+        originX: "center",
+        originY: "center",
+        selectable: false,
+        evented: false,
+      }),
+    );
+    canvas.requestRenderAll();
+  }
+
+  function clearRubberBand() {
+    const canvas = canvasRef.current;
+    for (const obj of rubberBandRef.current) canvas?.remove(obj);
+    rubberBandRef.current = [];
+  }
+
+  // Draggable corner handles for the selected Room (idle mode only). Removal is
+  // wrapped in the sync guard so discarding an active handle mid-rebuild doesn't
+  // masquerade as a user deselect (selection:cleared is ignored while syncing).
+  function redrawVertexHandles() {
+    const canvas = canvasRef.current;
+    const fabric = fabricRef.current;
+    if (!canvas || !fabric) return;
+    syncingRef.current = true;
+    for (const h of vertexHandlesRef.current) canvas.remove(h);
+    vertexHandlesRef.current = [];
+    syncingRef.current = false;
+
+    if (modeRef.current !== "idle") return;
+    const id = selectedRef.current;
+    if (!id) return;
+    const room = roomsRef.current.find((r) => r.id === id);
+    if (!room) return;
+
+    const placed = translateFootprint(room.footprint, room.origin);
+    placed.forEach((corner, i) => {
+      const p = ftToPx(corner);
+      const handle = new fabric.Circle({
+        left: p.x,
+        top: p.y,
+        radius: 7,
+        fill: "#ffffff",
+        stroke: WALL_STROKE_SELECTED,
+        strokeWidth: 2,
+        originX: "center",
+        originY: "center",
+        hasControls: false,
+        hasBorders: false,
+        hoverCursor: "grab",
+        selectable: true,
+        evented: true,
+      });
+      handle.roomId = room.id;
+      handle.cornerIndex = i;
+      vertexHandlesRef.current.push(handle);
+      canvas.add(handle);
+    });
+    canvas.requestRenderAll();
+  }
+
+  // While a corner handle is being dragged, hide the selected Room's group and
+  // draw a lightweight preview of the reshaped footprint (walls + length labels)
+  // so the shape follows the pen; committed on drop, cleared on release.
+  function showEditPreview(roomId: string, placed: Point[]) {
+    const fabric = fabricRef.current;
+    const canvas = canvasRef.current;
+    if (!fabric || !canvas) return;
+    const group = roomGroupsRef.current.get(roomId);
+    if (group) group.visible = false;
+
+    for (const obj of editPreviewRef.current) canvas.remove(obj);
+    editPreviewRef.current = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const add = (obj: any) => {
+      editPreviewRef.current.push(obj);
+      canvas.add(obj);
+    };
+    for (let i = 0; i < placed.length; i++) {
+      const a = ftToPx(placed[i]);
+      const b = ftToPx(placed[(i + 1) % placed.length]);
+      add(
+        new fabric.Line([a.x, a.y, b.x, b.y], {
+          stroke: WALL_STROKE_SELECTED,
+          strokeWidth: WALL_WIDTH,
+          strokeLineJoin: "round",
+          strokeLineCap: "round",
+          selectable: false,
+          evented: false,
+        }),
+      );
+      const len = Math.hypot(
+        placed[(i + 1) % placed.length].x - placed[i].x,
+        placed[(i + 1) % placed.length].y - placed[i].y,
+      );
+      if (len < 0.05) continue;
+      add(
+        new fabric.Text(`${ft(len)}'`, {
+          left: (a.x + b.x) / 2,
+          top: (a.y + b.y) / 2,
+          fontSize: 12,
+          fill: DIM_FILL,
+          backgroundColor: "rgba(248,250,252,0.85)",
+          originX: "center",
+          originY: "center",
+          selectable: false,
+          evented: false,
+        }),
+      );
+    }
+    // Keep the dragged handle on top of the fresh preview lines.
+    for (const h of vertexHandlesRef.current) canvas.bringObjectToFront(h);
+    canvas.requestRenderAll();
+  }
+
+  function clearEditPreview() {
+    const canvas = canvasRef.current;
+    for (const obj of editPreviewRef.current) canvas?.remove(obj);
+    editPreviewRef.current = [];
+    for (const group of roomGroupsRef.current.values()) group.visible = true;
+    canvas?.requestRenderAll();
   }
 
   useEffect(() => {
@@ -394,11 +611,39 @@ export default function PlanCanvas({
         onSelectRef.current(null);
       });
 
-      // A finished drag reports the Room's new origin as a pure left/top delta.
+      // Dragging a corner handle: live-preview the reshaped footprint under the
+      // pen (moveVertex on the Room's placed corners), stashing it to commit on
+      // drop.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvas.on("object:moving", (opt: any) => {
+        const h = opt.target;
+        if (!h || h.cornerIndex == null) return;
+        const room = roomsRef.current.find((r) => r.id === h.roomId);
+        if (!room) return;
+        const placed = translateFootprint(room.footprint, room.origin);
+        const feet = { x: h.left / PX_PER_FT, y: h.top / PX_PER_FT };
+        const live = moveVertex(placed, h.cornerIndex, feet);
+        draggingVertexRef.current = { roomId: h.roomId, footprint: live };
+        showEditPreview(h.roomId, live);
+      });
+
+      // A finished drag: a corner handle drop reshapes the Room (straightened by
+      // mergeCollinear so a corner dragged flat folds away); a Room group drop
+      // reports the new origin as a pure left/top delta.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       canvas.on("object:modified", (opt: any) => {
         const g = opt.target;
-        if (!g || g.roomId == null) return;
+        if (!g) return;
+        if (g.cornerIndex != null) {
+          const live = draggingVertexRef.current;
+          draggingVertexRef.current = null;
+          clearEditPreview();
+          if (live) {
+            onEditFootprintRef.current(live.roomId, mergeCollinear(live.footprint));
+          }
+          return;
+        }
+        if (g.roomId == null) return;
         const dxFt = (g.left - g.baseLeft) / PX_PER_FT;
         const dyFt = (g.top - g.baseTop) / PX_PER_FT;
         onMoveRef.current(g.roomId, {
@@ -407,29 +652,36 @@ export default function PlanCanvas({
         });
       });
 
+      // Double-tap a corner handle to delete that corner (deleteVertex), unless
+      // only a triangle remains — the smallest real Room.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvas.on("mouse:dblclick", (opt: any) => {
+        const h = opt.target;
+        if (!h || h.cornerIndex == null) return;
+        const room = roomsRef.current.find((r) => r.id === h.roomId);
+        if (!room) return;
+        const placed = translateFootprint(room.footprint, room.origin);
+        if (placed.length <= 3) return;
+        onEditFootprintRef.current(
+          h.roomId,
+          mergeCollinear(deleteVertex(placed, h.cornerIndex)),
+        );
+      });
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       canvas.on("mouse:down", (opt: any) => {
-        // Drawing a new Room: place corners, close on the first-corner tap.
+        // Drawing a new Room: press anchors the stroke. The first press drops the
+        // starting corner; the pen is now "down" so a drag rubber-bands the next
+        // wall and the lift (mouse:up) commits it — a plain tap is just a lift
+        // that landed on a new spot.
         if (modeRef.current === "adding") {
-          const sp = canvas.getScenePoint(opt.e);
-          const rawFt = { x: sp.x / PX_PER_FT, y: sp.y / PX_PER_FT };
-          const corners = draftRef.current;
-          if (corners.length === 0) {
+          if (draftRef.current.length === 0) {
+            const sp = canvas.getScenePoint(opt.e);
+            const rawFt = { x: sp.x / PX_PER_FT, y: sp.y / PX_PER_FT };
             draftRef.current = [{ x: Math.round(rawFt.x), y: Math.round(rawFt.y) }];
-          } else {
-            const prev = corners[corners.length - 1];
-            const candidate = snapWall(prev, rawFt);
-            if (shouldClosePolygon(corners, candidate, CLOSE_THRESHOLD_FT)) {
-              const finished = corners;
-              clearDraft();
-              onCompleteRef.current(finished);
-              return;
-            }
-            if (candidate.x !== prev.x || candidate.y !== prev.y) {
-              draftRef.current = [...corners, candidate];
-            }
+            redrawDraft();
           }
-          redrawDraft();
+          penRef.current.drawing = true;
           return;
         }
 
@@ -442,6 +694,19 @@ export default function PlanCanvas({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       canvas.on("mouse:move", (opt: any) => {
+        // While drawing with the pen down, rubber-band the prospective next wall
+        // from the last corner to the pen, snapped square + to whole feet.
+        if (modeRef.current === "adding") {
+          if (!penRef.current.drawing) return;
+          const corners = draftRef.current;
+          if (corners.length === 0) return;
+          const sp = canvas.getScenePoint(opt.e);
+          const rawFt = { x: sp.x / PX_PER_FT, y: sp.y / PX_PER_FT };
+          const prev = corners[corners.length - 1];
+          redrawRubberBand(prev, snapWall(prev, rawFt));
+          return;
+        }
+
         const pan = panRef.current;
         if (!pan.panning) return;
         const p = canvas.getViewportPoint(opt.e);
@@ -453,7 +718,31 @@ export default function PlanCanvas({
         pan.y = p.y;
       });
 
-      canvas.on("mouse:up", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvas.on("mouse:up", (opt: any) => {
+        // Lifting the pen commits (or closes on) the rubber-banded wall.
+        if (modeRef.current === "adding" && penRef.current.drawing) {
+          penRef.current.drawing = false;
+          clearRubberBand();
+          const corners = draftRef.current;
+          if (corners.length === 0) return;
+          const sp = canvas.getScenePoint(opt.e);
+          const rawFt = { x: sp.x / PX_PER_FT, y: sp.y / PX_PER_FT };
+          const prev = corners[corners.length - 1];
+          const candidate = snapWall(prev, rawFt);
+          if (shouldClosePolygon(corners, candidate, CLOSE_THRESHOLD_FT)) {
+            const finished = corners;
+            clearDraft();
+            onCompleteRef.current(finished);
+            return;
+          }
+          if (candidate.x !== prev.x || candidate.y !== prev.y) {
+            draftRef.current = [...corners, candidate];
+            redrawDraft();
+          }
+          return;
+        }
+
         const pan = panRef.current;
         // A click on empty space (no drag) clears the selection.
         if (pan.panning && !pan.moved && modeRef.current === "idle") {
@@ -505,6 +794,9 @@ export default function PlanCanvas({
       }
       roomGroups.clear();
       draftOverlayRef.current = [];
+      rubberBandRef.current = [];
+      vertexHandlesRef.current = [];
+      editPreviewRef.current = [];
     };
     // Built once; live values are read through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -516,9 +808,12 @@ export default function PlanCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rooms]);
 
-  // Reflect a selection change as a wall-colour highlight (no full rebuild).
+  // Reflect a selection change as a wall-colour highlight (no full rebuild), and
+  // move the corner drag handles onto the newly-selected Room (#862).
   useEffect(() => {
     applySelectionHighlight();
+    redrawVertexHandles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRoomId]);
 
   // Apply the shell's zoom, unless a wheel event already set this exact value.
@@ -548,8 +843,13 @@ export default function PlanCanvas({
       clearDraft();
     } else {
       canvas.discardActiveObject();
+      penRef.current.drawing = false;
     }
+    // Corner handles belong to idle editing only — hidden while adding.
+    redrawVertexHandles();
     canvas.requestRenderAll();
+    // Live values are read through refs; helpers are stable across renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   return (

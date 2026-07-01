@@ -601,6 +601,65 @@ describe("sketch/floor/room migration (#860)", () => {
     expect(after.rows[0].origin).toEqual({ x: 7, y: 9 }); // NOT reset to (0,0)
   });
 
+  // #862 — reshaping a Room (a corner dragged, a wall deleted, a wall length
+  // typed) rewrites its footprint. The app sends the reworked shape in PLACED
+  // floor coordinates; the write path (updateSketchRoom) re-normalizes it (min
+  // corner → 0,0), lifts the shift into `origin`, and recomputes the cache. This
+  // pins that UPDATE at the DB: a 3×4 Room at origin (0,0) is reshaped into a
+  // placed 5×6 rectangle drawn at (2,3), and the new normalized footprint, its
+  // origin, the envelope, and every recomputed measurement round-trip.
+  it("round-trips a footprint reshape UPDATE (re-normalized shape + origin + cache)", async () => {
+    const orgId = await seedOrg();
+    const jobId = await seedJob(orgId);
+    const sketchId = await insertSketch(orgId, jobId);
+    const floorId = await insertFloor(orgId, sketchId, "Ground Floor", 8);
+
+    // Start as a 3×4 Room at the origin.
+    const roomId = await insertRoom(
+      orgId, floorId, "Reshape Me", { width: 3, length: 4, ceilingHeightOverride: null }, 8,
+    );
+
+    // The user reworks it into a 5×6 rectangle drawn at (2,3) — placed coords.
+    const placed: Point[] = [
+      { x: 2, y: 3 },
+      { x: 7, y: 3 },
+      { x: 7, y: 9 },
+      { x: 2, y: 9 },
+    ];
+    const { footprint, origin } = normalizeFootprint(placed);
+    const bbox = boundingBox(footprint);
+    const m = measureFootprint({ footprint, ceilingHeight: 8 });
+    await client.query(
+      `UPDATE rooms SET
+         footprint = $2::jsonb, origin = $3::jsonb, width = $4, length = $5,
+         floor_area = $6, ceiling_area = $7, perimeter = $8,
+         gross_wall_area = $9, net_wall_area = $10, volume = $11
+       WHERE id = $1`,
+      [
+        roomId,
+        JSON.stringify(footprint),
+        JSON.stringify(origin),
+        bbox.width, bbox.length,
+        m.floorArea, m.ceilingArea, m.perimeter, m.grossWallArea, m.netWallArea, m.volume,
+      ],
+    );
+
+    const { rows } = await client.query(
+      `SELECT footprint, origin, width, length, floor_area, perimeter, volume
+         FROM rooms WHERE id = $1`,
+      [roomId],
+    );
+    // The reshaped, re-normalized shape sits at (0,0); the draw position is origin.
+    expect(rows[0].footprint).toEqual(rectangleFootprint(5, 6));
+    expect(rows[0].origin).toEqual({ x: 2, y: 3 });
+    // Envelope + cache track the new 5×6×8 shape, not the original 3×4.
+    expect(Number(rows[0].width)).toBe(5);
+    expect(Number(rows[0].length)).toBe(6);
+    expect(Number(rows[0].floor_area)).toBe(m.floorArea); // 30, not 12
+    expect(Number(rows[0].perimeter)).toBe(m.perimeter); // 22, not 14
+    expect(Number(rows[0].volume)).toBe(m.volume); // 240, not 96
+  });
+
   // The migration ships a documented `-- ROLLBACK` block; prove it isn't lying.
   // Run the LIVE down-migration inside a transaction we roll back, so the drop is
   // real (all three tables gone) but the shared cluster is restored for any other
