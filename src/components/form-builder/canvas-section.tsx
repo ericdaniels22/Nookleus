@@ -129,7 +129,7 @@ export function CanvasSection({
         ref={setDropRef}
         className={cn(
           "p-3 space-y-1.5 min-h-[60px] transition-colors",
-          isOver && "bg-[var(--brand-primary)]/5"
+          isOver && "bg-primary/5"
         )}
       >
         <SortableContext

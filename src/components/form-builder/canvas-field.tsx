@@ -60,8 +60,8 @@ export function CanvasField({
       className={cn(
         "group relative rounded-lg border bg-card px-3 py-2.5 cursor-pointer transition-colors",
         selected
-          ? "border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/20"
-          : "border-border hover:border-[var(--brand-primary)]/50"
+          ? "border-primary ring-2 ring-primary/20"
+          : "border-border hover:border-primary/50"
       )}
       onClick={onSelect}
     >
@@ -85,7 +85,7 @@ export function CanvasField({
                 onToggleRequired();
               }}
               className={cn(
-                "text-[10px] font-medium px-1.5 py-0.5 rounded transition-colors",
+                "text-[11px] font-medium px-1.5 py-0.5 rounded transition-colors",
                 field.required
                   ? "bg-destructive/10 text-destructive"
                   : "bg-muted text-muted-foreground/60 opacity-0 group-hover:opacity-100"
@@ -101,7 +101,7 @@ export function CanvasField({
                   e.stopPropagation();
                   setShowUsageList((v) => !v);
                 }}
-                className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 transition-colors"
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-accent-tint text-accent-text hover:bg-primary/20 transition-colors"
                 title={`Used by ${usageCount} contract template${usageCount === 1 ? "" : "s"}`}
               >
                 <FileText size={10} />
@@ -257,7 +257,7 @@ function FieldPreview({ field }: { field: FormField }) {
                 key={opt.value}
                 style={colored ? { backgroundColor: opt.bg_color, color: opt.text_color } : undefined}
                 className={cn(
-                  "text-[10px] px-2 py-1 rounded-full",
+                  "text-[11px] px-2 py-1 rounded-full",
                   !colored && "bg-muted text-muted-foreground"
                 )}
               >
@@ -266,7 +266,7 @@ function FieldPreview({ field }: { field: FormField }) {
             );
           })}
           {(field.options?.length ?? 0) === 0 && (
-            <span className="text-[10px] text-muted-foreground italic">No options yet</span>
+            <span className="text-[11px] text-muted-foreground italic">No options yet</span>
           )}
         </div>
       );

@@ -21,6 +21,20 @@ export const urgencyLabels: Record<string, string> = {
   scheduled: "Scheduled",
 };
 
+// Team-member role badges (Settings → Users & Crew). Not a §2.6 vocabulary,
+// but the same tint-not-fill treatment: a fixed enum (admin / crew_lead /
+// crew_member / custom), so the values are static literals here — not per-org
+// config. The dark-tint classes reuse the exact §2.6 damage-type hues the old
+// light-mode role map mapped onto (admin=red seed, crew_lead=warm, crew_member=
+// water seed #E6F1FB/#0C447C, custom=storm seed #EEEDFE/#3C3489), so the role
+// colors stay JIT-safe and consistent with the app's categorical badge language.
+export const roleColors: Record<string, string> = {
+  admin: "bg-rose-500/14 text-rose-300",
+  crew_lead: "bg-orange-400/14 text-orange-300",
+  crew_member: "bg-sky-400/14 text-sky-300",
+  custom: "bg-violet-400/14 text-violet-300",
+};
+
 // §2.6 default dark-tint map: a ~14%-alpha wash of the type's hue behind
 // colored text — never a solid fill. The shades below are exact Tailwind
 // equivalents of the doc's reference values (e.g. sky-300 = #7DD3FC,

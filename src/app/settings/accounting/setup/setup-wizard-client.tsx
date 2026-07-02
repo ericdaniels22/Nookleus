@@ -290,7 +290,7 @@ export default function SetupWizardClient({
       >
         <ArrowLeft size={14} /> Back to QuickBooks Settings
       </Link>
-      <h1 className="text-3xl font-extrabold text-foreground mb-1">
+      <h1 className="text-xl font-semibold text-foreground mb-1">
         QuickBooks Setup
       </h1>
       <p className="text-muted-foreground mb-6">
@@ -304,9 +304,9 @@ export default function SetupWizardClient({
             <div
               className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
                 step === n
-                  ? "bg-[var(--brand-primary,#0F6E56)] text-white"
+                  ? "bg-primary text-primary-foreground"
                   : step > n
-                    ? "bg-green-500/20 text-green-700"
+                    ? "bg-primary/10 text-primary"
                     : "bg-muted text-muted-foreground"
               }`}
             >
@@ -337,9 +337,9 @@ export default function SetupWizardClient({
             onChange={(e) => setStartDate(e.target.value)}
             className="border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
           />
-          <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
-            <AlertTriangle className="text-amber-500 shrink-0" size={18} />
-            <p className="text-xs text-amber-700">
+          <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-lg border border-warning/40">
+            <AlertTriangle className="text-warning shrink-0" size={18} />
+            <p className="text-xs text-warning">
               Make sure your CPA has completed the books cleanup before setting this date. Forward-only sync means historical data won&apos;t backfill into QB. This cannot be changed without reconnecting.
             </p>
           </div>
@@ -347,7 +347,7 @@ export default function SetupWizardClient({
             <button
               onClick={handleSaveStartDate}
               disabled={savingStartDate || !startDate}
-              className="px-5 py-2.5 rounded-lg bg-[var(--brand-primary,#0F6E56)] text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
+              className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
             >
               {savingStartDate && <Loader2 size={14} className="animate-spin" />}
               Next <ArrowRight size={14} />
@@ -365,15 +365,15 @@ export default function SetupWizardClient({
               Loading QuickBooks Classes and Accounts…
             </div>
           ) : qbError ? (
-            <div className="bg-card rounded-xl border border-red-500/30 p-6">
+            <div className="bg-card rounded-xl border border-destructive/30 p-6">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="text-red-500 shrink-0" size={20} />
+                <AlertTriangle className="text-destructive shrink-0" size={20} />
                 <div>
-                  <p className="font-medium text-red-700">Failed to load QuickBooks data</p>
-                  <p className="text-sm text-red-600/80 mt-1">{qbError}</p>
+                  <p className="font-medium text-destructive">Failed to load QuickBooks data</p>
+                  <p className="text-sm text-destructive/80 mt-1">{qbError}</p>
                   <button
                     onClick={loadQbData}
-                    className="mt-3 text-sm text-red-600 underline hover:no-underline"
+                    className="mt-3 text-sm text-destructive underline hover:no-underline"
                   >
                     Retry
                   </button>
@@ -389,9 +389,9 @@ export default function SetupWizardClient({
                   Maps each platform damage type to a QuickBooks Class for profitability tracking.
                 </p>
                 {(qbClasses?.length ?? 0) === 0 ? (
-                  <div className="mt-4 p-4 bg-amber-500/10 rounded-lg border border-amber-500/30 text-sm">
-                    <p className="font-medium text-amber-700">Classes not enabled in QuickBooks</p>
-                    <p className="text-amber-600/90 mt-1">
+                  <div className="mt-4 p-4 bg-warning/10 rounded-lg border border-warning/40 text-sm">
+                    <p className="font-medium text-warning">Classes not enabled in QuickBooks</p>
+                    <p className="text-warning/90 mt-1">
                       Enable them first:{" "}
                       <a
                         href="https://quickbooks.intuit.com/learn-support/en-us/help-article/account-management/turn-classes/L0TbJ0Q74_US_en_US"
@@ -495,7 +495,7 @@ export default function SetupWizardClient({
                 <button
                   onClick={handleSaveMappings}
                   disabled={savingMappings || !mappingsSavable}
-                  className="px-5 py-2.5 rounded-lg bg-[var(--brand-primary,#0F6E56)] text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
                 >
                   {savingMappings && <Loader2 size={14} className="animate-spin" />}
                   {connection.setup_completed_at ? "Save mappings" : "Save & continue"}
@@ -524,9 +524,9 @@ export default function SetupWizardClient({
             <dt className="text-muted-foreground">Deposit-account mappings</dt>
             <dd className="text-foreground">{methodMappedCount} of {methodMappings.length}</dd>
           </dl>
-          <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
-            <AlertTriangle className="text-amber-500 shrink-0" size={18} />
-            <p className="text-xs text-amber-700">
+          <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-lg border border-warning/40">
+            <AlertTriangle className="text-warning shrink-0" size={18} />
+            <p className="text-xs text-warning">
               Dry run mode is ON by default. For the next 7+ days, Nookleus will track what WOULD sync to QuickBooks without actually making changes. Review the &quot;What would have synced&quot; log on the Accounting page&apos;s QuickBooks tab. When you&apos;re confident the mappings are correct, flip the switch to live mode.
             </p>
           </div>
@@ -540,7 +540,7 @@ export default function SetupWizardClient({
             <button
               onClick={handleFinishSetup}
               disabled={finishing}
-              className="px-5 py-2.5 rounded-lg bg-[var(--brand-primary,#0F6E56)] text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
+              className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
             >
               {finishing && <Loader2 size={14} className="animate-spin" />}
               Finish setup

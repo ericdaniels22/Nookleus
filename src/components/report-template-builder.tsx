@@ -149,7 +149,7 @@ export default function ReportTemplateBuilder({
         <div className="space-y-5">
           {/* Template name */}
           <div>
-            <label className="block text-xs font-medium text-[#666666] mb-1">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
               Template Name
             </label>
             <Input
@@ -162,13 +162,13 @@ export default function ReportTemplateBuilder({
           {/* Sections */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-[#666666]">
+              <label className="text-xs font-medium text-muted-foreground">
                 Sections ({sections.length})
               </label>
               <button
                 type="button"
                 onClick={addSection}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#2B5EA7] hover:text-[#1d4a8a] transition-colors"
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
               >
                 <Plus size={14} />
                 Add Section
@@ -179,7 +179,7 @@ export default function ReportTemplateBuilder({
               {sections.map((section, i) => (
                 <div
                   key={i}
-                  className="border border-gray-200 rounded-lg p-3 bg-gray-50/50"
+                  className="border border-border rounded-lg p-3 bg-muted/30"
                 >
                   <div className="flex items-start gap-2">
                     <div className="flex flex-col gap-0.5 pt-1">
@@ -187,7 +187,7 @@ export default function ReportTemplateBuilder({
                         type="button"
                         onClick={() => moveSection(i, "up")}
                         disabled={i === 0}
-                        className="text-[#999999] hover:text-[#1A1A1A] disabled:opacity-30 transition-colors"
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
                         aria-label="Move section up"
                       >
                         <ChevronUp size={14} />
@@ -196,7 +196,7 @@ export default function ReportTemplateBuilder({
                         type="button"
                         onClick={() => moveSection(i, "down")}
                         disabled={i === sections.length - 1}
-                        className="text-[#999999] hover:text-[#1A1A1A] disabled:opacity-30 transition-colors"
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
                         aria-label="Move section down"
                       >
                         <ChevronDown size={14} />
@@ -225,7 +225,7 @@ export default function ReportTemplateBuilder({
                       type="button"
                       onClick={() => removeSection(i)}
                       disabled={sections.length <= 1}
-                      className="p-1.5 text-[#999999] hover:text-[#C41E2A] disabled:opacity-30 transition-colors"
+                      className="p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-30 transition-colors"
                       aria-label="Remove section"
                     >
                       <Trash2 size={14} />
@@ -241,7 +241,7 @@ export default function ReportTemplateBuilder({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-[#666666] hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-border bg-card text-foreground hover:bg-muted transition-colors"
           >
             Cancel
           </button>
@@ -249,7 +249,7 @@ export default function ReportTemplateBuilder({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2B5EA7] text-white hover:bg-[#244d8a] disabled:opacity-50 transition-colors"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {saving
               ? "Saving..."

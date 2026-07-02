@@ -286,7 +286,7 @@ export function AccountsTab() {
         >
           <ArrowLeft size={14} /> Back to Email
         </Link>
-        <h1 className="text-3xl font-extrabold text-foreground flex items-center gap-2">
+        <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
           <Mail size={24} /> Email Accounts
         </h1>
         <p className="text-muted-foreground mt-1">
@@ -352,7 +352,7 @@ export function AccountsTab() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleSaveEdit(account.id)}
-                          className="flex items-center gap-1 text-xs font-medium text-green-700 hover:underline"
+                          className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                         >
                           <Check size={14} /> Save
                         </button>
@@ -383,7 +383,7 @@ export function AccountsTab() {
                       {/* Account kind — a Shared account carries no owner;
                           a Personal account names the member who owns it. */}
                       {account.user_id === null ? (
-                        <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 mt-1 rounded-full bg-blue-50 text-blue-700">
+                        <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 mt-1 rounded-full bg-accent-tint text-accent-text">
                           Shared
                         </span>
                       ) : (
@@ -398,11 +398,11 @@ export function AccountsTab() {
                   <span
                     className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${
                       account.is_active
-                        ? "bg-green-50 text-green-700"
+                        ? "bg-primary/10 text-primary"
                         : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full ${account.is_active ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${account.is_active ? "bg-primary" : "bg-muted-foreground/40"}`} />
                     {account.is_active ? "Active" : "Inactive"}
                   </span>
                 </div>
@@ -475,9 +475,9 @@ export function AccountsTab() {
                 <div className="mt-3 p-3 rounded-lg bg-muted space-y-1.5">
                   <div className="flex items-center gap-2 text-sm">
                     {testResults[account.id].imap ? (
-                      <CheckCircle2 size={16} className="text-green-600" />
+                      <CheckCircle2 size={16} className="text-primary" />
                     ) : (
-                      <XCircle size={16} className="text-red-600" />
+                      <XCircle size={16} className="text-destructive" />
                     )}
                     <span>
                       IMAP: {testResults[account.id].imap ? "Connected" : testResults[account.id].imapError}
@@ -485,9 +485,9 @@ export function AccountsTab() {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     {testResults[account.id].smtp ? (
-                      <CheckCircle2 size={16} className="text-green-600" />
+                      <CheckCircle2 size={16} className="text-primary" />
                     ) : (
-                      <XCircle size={16} className="text-red-600" />
+                      <XCircle size={16} className="text-destructive" />
                     )}
                     <span>
                       SMTP: {testResults[account.id].smtp ? "Connected" : testResults[account.id].smtpError}
@@ -498,7 +498,7 @@ export function AccountsTab() {
 
               {/* Sync results */}
               {syncResults[account.id] && (
-                <div className={`mt-3 p-3 rounded-lg text-sm ${syncResults[account.id].error ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+                <div className={`mt-3 p-3 rounded-lg text-sm ${syncResults[account.id].error ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
                   {syncResults[account.id].error ? (
                     <p>Sync error: {syncResults[account.id].error}</p>
                   ) : (
@@ -541,7 +541,7 @@ export function AccountsTab() {
                 </button>
                 <button
                   onClick={() => handleDelete(account.id)}
-                  className="text-sm font-medium text-red-600 hover:underline flex items-center gap-1"
+                  className="text-sm font-medium text-destructive hover:underline flex items-center gap-1"
                 >
                   <Trash2 size={14} /> Remove
                 </button>
@@ -624,7 +624,7 @@ export function AccountsTab() {
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">
-                Email Address <span className="text-red-500">*</span>
+                Email Address <span className="text-destructive">*</span>
               </label>
               <input
                 type="email"
@@ -665,7 +665,7 @@ export function AccountsTab() {
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">
-                Password <span className="text-red-500">*</span>
+                Password <span className="text-destructive">*</span>
               </label>
               <input
                 type="password"

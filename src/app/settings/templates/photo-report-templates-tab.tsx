@@ -128,7 +128,7 @@ export function PhotoReportTemplatesTab() {
               type="button"
               onClick={handleSeedDefaults}
               disabled={seeding}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-border bg-card text-[#6C5CE7] hover:bg-[#F3F0FF] transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-border bg-card text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
             >
               <Sparkles size={16} />
               {seeding ? "Creating..." : "Add Defaults"}
@@ -191,8 +191,8 @@ export function PhotoReportTemplatesTab() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[#F3F0FF]">
-                      <Layers size={20} className="text-[#6C5CE7]" />
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent-tint">
+                      <Layers size={20} className="text-accent-text" />
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-foreground">
@@ -224,7 +224,7 @@ export function PhotoReportTemplatesTab() {
                       aria-label={`Delete ${template.name}`}
                       onClick={() => handleDelete(template.id, template.name)}
                       disabled={deleting === template.id}
-                      className="p-2 rounded-lg text-muted-foreground/60 hover:text-destructive hover:bg-red-50 transition-colors disabled:opacity-50"
+                      className="p-2 rounded-lg text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
                     >
                       <Trash2 size={16} />
                     </button>

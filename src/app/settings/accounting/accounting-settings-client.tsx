@@ -102,7 +102,7 @@ export default function AccountingSettingsClient({
   return (
     <div className="max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-extrabold text-foreground flex items-center gap-2">
+        <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
           <Link2 size={24} /> QuickBooks Integration
         </h1>
         <p className="text-muted-foreground mt-1">
@@ -114,8 +114,8 @@ export default function AccountingSettingsClient({
       {!conn?.is_active && (
         <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-lg bg-[#2CA01C]/10 flex items-center justify-center">
-              <span className="text-2xl font-bold text-[#2CA01C]">qb</span>
+            <div className="w-12 h-12 rounded-lg bg-accent-tint flex items-center justify-center">
+              <span className="text-2xl font-bold text-accent-text">qb</span>
             </div>
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-foreground">Connect to QuickBooks</h2>
@@ -124,7 +124,7 @@ export default function AccountingSettingsClient({
               </p>
               <a
                 href="/api/qb/authorize"
-                className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-lg bg-[#2CA01C] text-white text-sm font-medium hover:brightness-110 shadow-sm transition-all"
+                className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 shadow-sm transition-all"
               >
                 <Link2 size={16} /> Connect to QuickBooks
               </a>
@@ -135,9 +135,9 @@ export default function AccountingSettingsClient({
 
       {/* Connected, setup incomplete */}
       {conn?.is_active && setupIncomplete && (
-        <div className="bg-card rounded-xl border border-amber-300 p-6">
+        <div className="bg-card rounded-xl border border-warning/40 p-6">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="text-amber-500 shrink-0" size={22} />
+            <AlertTriangle className="text-warning shrink-0" size={22} />
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-foreground">Finish setup</h2>
               <p className="text-sm text-muted-foreground mt-1">
@@ -145,7 +145,7 @@ export default function AccountingSettingsClient({
               </p>
               <Link
                 href="/settings/accounting/setup"
-                className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-lg bg-[var(--brand-primary,#0F6E56)] text-white text-sm font-medium hover:brightness-110 shadow-sm transition-all"
+                className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 shadow-sm transition-all"
               >
                 <SettingsIcon size={16} /> Continue setup
               </Link>
@@ -161,8 +161,8 @@ export default function AccountingSettingsClient({
           <div className="bg-card rounded-xl border border-border p-5">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#2CA01C]/10 flex items-center justify-center">
-                  <CheckCircle2 size={22} className="text-[#2CA01C]" />
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <CheckCircle2 size={22} className="text-primary" />
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Connected</p>
@@ -176,8 +176,8 @@ export default function AccountingSettingsClient({
                   )}
                 </div>
               </div>
-              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-green-500/10 text-green-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Active
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-primary/10 text-primary">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Active
               </span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
@@ -189,12 +189,12 @@ export default function AccountingSettingsClient({
           {conn.dry_run_mode && <PreLaunchChecklist />}
 
           {/* Dry-run toggle */}
-          <div className={`bg-card rounded-xl border p-5 ${conn.dry_run_mode ? "border-amber-300" : "border-border"}`}>
+          <div className={`bg-card rounded-xl border p-5 ${conn.dry_run_mode ? "border-warning/40" : "border-border"}`}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold text-foreground">Dry-run mode</h3>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${conn.dry_run_mode ? "bg-amber-500/10 text-amber-600" : "bg-muted text-muted-foreground"}`}>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${conn.dry_run_mode ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"}`}>
                     {conn.dry_run_mode ? "ON" : "OFF"}
                   </span>
                 </div>
@@ -230,7 +230,7 @@ export default function AccountingSettingsClient({
           </Link>
 
           {/* Disconnect */}
-          <div className="bg-card rounded-xl border border-red-500/20 p-5">
+          <div className="bg-card rounded-xl border border-destructive/30 p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-semibold text-foreground">Disconnect</h3>
@@ -241,7 +241,7 @@ export default function AccountingSettingsClient({
               <button
                 onClick={handleDisconnect}
                 disabled={disconnecting}
-                className="shrink-0 px-4 py-2 rounded-lg bg-red-500/10 text-red-600 text-sm font-medium hover:bg-red-500/20 disabled:opacity-50 flex items-center gap-2"
+                className="shrink-0 px-4 py-2 rounded-lg bg-destructive/10 text-destructive text-sm font-medium hover:bg-destructive/20 disabled:opacity-50 flex items-center gap-2"
               >
                 {disconnecting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                 Disconnect
@@ -253,12 +253,12 @@ export default function AccountingSettingsClient({
 
       {/* Reconnect required */}
       {!conn?.is_active && refreshExpired && (
-        <div className="mt-4 bg-red-500/10 rounded-xl border border-red-500/30 p-5">
+        <div className="mt-4 bg-destructive/10 rounded-xl border border-destructive/30 p-5">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="text-red-500 shrink-0" size={22} />
+            <AlertTriangle className="text-destructive shrink-0" size={22} />
             <div>
-              <p className="font-medium text-red-700">QuickBooks connection expired</p>
-              <p className="text-sm text-red-600/80 mt-1">
+              <p className="font-medium text-destructive">QuickBooks connection expired</p>
+              <p className="text-sm text-destructive/80 mt-1">
                 The refresh token (100-day lifetime) has expired. Reconnect to resume sync.
               </p>
             </div>
@@ -273,7 +273,7 @@ export default function AccountingSettingsClient({
             {showGoLive === "step1" ? (
               <>
                 <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                  <AlertTriangle className="text-amber-500" size={20} /> Confirm live mode
+                  <AlertTriangle className="text-warning" size={20} /> Confirm live mode
                 </h3>
                 <p className="text-sm text-muted-foreground mt-3">
                   This will start writing to your live QuickBooks books. Are you sure you&apos;ve reviewed the dry-run log? Are the mappings correct?
@@ -287,7 +287,7 @@ export default function AccountingSettingsClient({
                   </button>
                   <button
                     onClick={() => setShowGoLive("step2")}
-                    className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:brightness-110"
+                    className="px-4 py-2 rounded-lg bg-warning text-background text-sm font-medium hover:bg-warning/90"
                   >
                     Yes, I&apos;ve reviewed
                   </button>
@@ -307,7 +307,7 @@ export default function AccountingSettingsClient({
                   onChange={(e) => setConfirmText(e.target.value)}
                   placeholder="CONFIRM"
                   autoFocus
-                  className="w-full mt-4 border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                  className="w-full mt-4 border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-warning/30 focus:border-warning"
                 />
                 <div className="flex items-center justify-end gap-2 mt-5">
                   <button
@@ -322,7 +322,7 @@ export default function AccountingSettingsClient({
                   <button
                     onClick={handleGoLive}
                     disabled={confirmText !== "CONFIRM" || togglingDryRun}
-                    className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
+                    className="px-4 py-2 rounded-lg bg-warning text-background text-sm font-medium hover:bg-warning/90 disabled:opacity-50 flex items-center gap-2"
                   >
                     {togglingDryRun && <Loader2 size={14} className="animate-spin" />}
                     Enable live mode

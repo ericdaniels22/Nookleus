@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { roleColors } from "@/lib/badge-colors";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -48,12 +49,8 @@ const ROLES = [
   { value: "crew_member", label: "Crew Member" },
 ];
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: "bg-[#FCEBEB] text-[#791F1F]",
-  crew_lead: "bg-[#FAEEDA] text-[#633806]",
-  crew_member: "bg-[#E6F1FB] text-[#0C447C]",
-  custom: "bg-[#EEEDFE] text-[#3C3489]",
-};
+// Role badge colors live in badge-colors.ts (the categorical-badge palette
+// home) as JIT-safe dark-tint literals — see `roleColors`.
 
 // The permission vocabulary is the canonical PERMISSION_CATALOG — the same
 // keys route gates check, so the management UI cannot drift from the gates.
@@ -240,11 +237,11 @@ export function UsersCrewTab() {
                       <h3 className="text-sm font-semibold text-foreground truncate">
                         {user.full_name}
                       </h3>
-                      <Badge className={cn("text-[10px] px-1.5 py-0 rounded-full", ROLE_COLORS[user.role] || ROLE_COLORS.custom)}>
+                      <Badge className={cn("text-[11px] px-1.5 py-0 rounded-full", roleColors[user.role] || roleColors.custom)}>
                         {ROLES.find((r) => r.value === user.role)?.label || user.role}
                       </Badge>
                       {!user.is_active && (
-                        <Badge className="text-[10px] px-1.5 py-0 rounded-full bg-muted text-muted-foreground">
+                        <Badge className="text-[11px] px-1.5 py-0 rounded-full bg-muted text-muted-foreground">
                           Inactive
                         </Badge>
                       )}
@@ -336,7 +333,7 @@ export function UsersCrewTab() {
                     className={cn(
                       "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
                       inviteRole === r.value
-                        ? ROLE_COLORS[r.value] + " border-current"
+                        ? roleColors[r.value] + " border-current"
                         : "bg-card text-muted-foreground border-border"
                     )}
                   >
@@ -391,7 +388,7 @@ export function UsersCrewTab() {
                             type="checkbox"
                             checked={perms[perm.key] || false}
                             onChange={(e) => setPerms({ ...perms, [perm.key]: e.target.checked })}
-                            className="w-4 h-4 rounded border-border accent-[var(--brand-primary)]"
+                            className="w-4 h-4 rounded border-border accent-primary"
                           />
                         </label>
                       ))}

@@ -358,7 +358,7 @@ export function Canvas({
             </SortableContext>
             <DragOverlay>
               {activeDragId ? (
-                <div className="rounded-lg border-2 border-[var(--brand-primary)] bg-card px-3 py-2 text-sm shadow-lg">
+                <div className="rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm shadow-lg">
                   Dragging…
                 </div>
               ) : null}

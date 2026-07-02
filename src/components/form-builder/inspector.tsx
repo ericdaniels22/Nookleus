@@ -175,7 +175,7 @@ export function Inspector({
             type="checkbox"
             checked={field.required || false}
             onChange={(e) => onUpdate({ required: e.target.checked })}
-            className="w-4 h-4 rounded accent-[var(--brand-primary)]"
+            className="w-4 h-4 rounded accent-primary"
           />
           <span className="text-foreground">Required</span>
         </label>
@@ -207,7 +207,7 @@ export function Inspector({
                 <div key={i} className="rounded bg-muted/40 px-2 py-1.5 space-y-1.5">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-foreground flex-1">{opt.label}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">{opt.value}</span>
+                    <span className="text-[11px] text-muted-foreground font-mono">{opt.value}</span>
                     {!isDefault && (
                       <button
                         onClick={() => removeOption(i)}
@@ -314,7 +314,7 @@ export function Inspector({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full p-5">
             <div className="flex items-start gap-3 mb-3">
-              <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-warning shrink-0 mt-0.5" />
               <div>
                 <h4 className="text-sm font-semibold text-foreground">
                   Change &quot;Maps to&quot; for a referenced field?

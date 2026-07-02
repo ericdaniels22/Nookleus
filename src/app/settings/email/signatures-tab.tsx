@@ -183,7 +183,7 @@ export function SignaturesTab() {
               <Mail size={14} />
               {acc.label}
             </span>
-            <span className="text-[10px] opacity-60 block">{acc.email_address}</span>
+            <span className="text-[11px] opacity-60 block">{acc.email_address}</span>
           </button>
         ))}
       </div>

@@ -88,13 +88,13 @@ export default function TemplateListClient() {
                 type="checkbox"
                 checked={t.is_active}
                 onChange={(e) => handleToggleActive(t, e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-[var(--brand-primary)]"
+                className="h-4 w-4 rounded border-border accent-primary"
               />
               <span className="text-xs text-muted-foreground">Active</span>
             </label>
             <h3 className="font-semibold">{t.name}</h3>
             <div className="text-xs text-muted-foreground mt-1">
-              {t.damage_type_tags.map((dt) => <span key={dt} className="mr-1 inline-block px-2 py-0.5 rounded bg-blue-100">{dt}</span>)}
+              {t.damage_type_tags.map((dt) => <span key={dt} className="mr-1 inline-block px-2 py-0.5 rounded bg-muted text-muted-foreground">{dt}</span>)}
             </div>
             <div className="text-sm mt-2 text-muted-foreground">
               {(t.structure?.sections?.length ?? 0)} sections

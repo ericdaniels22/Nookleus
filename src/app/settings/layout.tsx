@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { settingsNavItems } from "@/lib/settings-nav";
 import { cn } from "@/lib/utils";
-import { Settings, ChevronDown } from "lucide-react";
+import PageHeader from "@/components/page-header";
+import { ChevronDown } from "lucide-react";
 
 // The template editor (#543) renders in the full-width BuilderLayout shell, so
 // it must escape the settings chrome (header + max-w-6xl column + sub-nav) and
@@ -29,11 +30,7 @@ export default function SettingsLayout({
 
   return (
     <div className="max-w-6xl">
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-6">
-        <Settings size={22} className="text-[var(--brand-primary)]" />
-        <h1 className="text-3xl font-extrabold text-foreground">Settings</h1>
-      </div>
+      <PageHeader title="Settings" />
 
       {/* Mobile nav dropdown */}
       <div className="md:hidden mb-4">
@@ -41,7 +38,7 @@ export default function SettingsLayout({
           <select
             value={currentItem?.href || ""}
             onChange={(e) => router.push(e.target.value)}
-            className="w-full appearance-none bg-card border border-border rounded-lg px-4 py-2.5 pr-10 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"
+            className="w-full appearance-none bg-card border border-input rounded-lg px-4 py-2.5 pr-10 text-base font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
           >
             {settingsNavItems
               .filter((item) => !item.disabled)
@@ -87,8 +84,8 @@ export default function SettingsLayout({
                   className={cn(
                     "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      ? "bg-accent-tint text-accent-text font-medium"
+                      : "text-text-secondary hover:text-foreground hover:bg-muted"
                   )}
                 >
                   <Icon size={16} />

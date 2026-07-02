@@ -121,7 +121,7 @@ function PaletteItem({
       <div className="flex-1 min-w-0">
         <div className="text-foreground truncate">{label}</div>
         {description && (
-          <div className="text-[10px] text-muted-foreground truncate">{description}</div>
+          <div className="text-[11px] text-muted-foreground truncate">{description}</div>
         )}
       </div>
     </button>
