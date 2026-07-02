@@ -26,6 +26,8 @@ interface DateFieldProps {
   onChange: (value: string) => void;
   placeholder?: string;
   id?: string;
+  /** Merged onto the text input (e.g. `h-11` for 44px targets, §7.3). */
+  className?: string;
 }
 
 /**
@@ -33,7 +35,7 @@ interface DateFieldProps {
  * popover. Future dates are rejected: the calendar disables future days, and a
  * complete typed value that is in the future (or non-existent) is flagged.
  */
-export function DateField({ value, onChange, placeholder, id }: DateFieldProps) {
+export function DateField({ value, onChange, placeholder, id, className }: DateFieldProps) {
   const today = startOfToday();
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() =>
@@ -100,13 +102,13 @@ export function DateField({ value, onChange, placeholder, id }: DateFieldProps) 
           onChange={(e) => onChange(maskDateInput(e.target.value))}
           placeholder={placeholder || "MM/DD/YYYY"}
           aria-invalid={invalidMessage ? true : undefined}
-          className="pr-9"
+          className={cn("pr-11", className)}
         />
         <button
           type="button"
           onClick={toggleCalendar}
           aria-label="Open calendar"
-          className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
         >
           <CalendarIcon className="size-4" />
         </button>
@@ -164,7 +166,7 @@ export function DateField({ value, onChange, placeholder, id }: DateFieldProps) 
                     isFuture && "cursor-not-allowed text-muted-foreground/30",
                     !isFuture && !isSelected && "text-foreground hover:bg-accent",
                     isSelected && "bg-primary font-semibold text-primary-foreground",
-                    isToday && !isSelected && "font-semibold ring-1 ring-inset ring-[var(--brand-primary)]/40",
+                    isToday && !isSelected && "font-semibold ring-1 ring-inset ring-primary/40",
                   )}
                 >
                   {day.getDate()}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getActiveOrganizationId } from "@/lib/supabase/get-active-org";
@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { useConfig } from "@/lib/config-context";
 import { formatPhoneNumber, isValidUSPhone, normalizePhoneToE164 } from "@/lib/phone";
 import { isValidPastDate } from "@/lib/date-field";
+import { planFieldRows } from "@/lib/intake-form-layout";
+import { soften } from "@/lib/badge-colors";
 import { DateField } from "@/components/date-field";
 import InsuranceCompanyPicker from "@/components/insurance-company-picker";
 import ReferrerPicker, {
@@ -25,6 +27,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
   const { damageTypes } = useConfig();
   const [submitting, setSubmitting] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formConfig, setFormConfig] = useState<FormConfig | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   // The field mapped to job.insurance_company is chosen with the
@@ -40,10 +43,16 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
   const [referralPartnerId, setReferralPartnerId] = useState<string | null>(null);
   const [referralPartners, setReferralPartners] = useState<ReferrerPickerPartner[]>([]);
 
-  // Load form config
-  useEffect(() => {
+  // Load form config — retryable so the error state's "Try again" can re-run
+  // the same GET (§5: error states offer a next step).
+  const loadConfig = useCallback(() => {
+    setLoadingConfig(true);
+    setLoadError(false);
     fetch("/api/settings/intake-form")
-      .then((res) => res.ok ? res.json() : null)
+      .then((res) => {
+        if (!res.ok) throw new Error("intake form config fetch failed");
+        return res.json();
+      })
       .then((data) => {
         if (data?.config?.sections) {
           setFormConfig(data.config);
@@ -56,10 +65,17 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
           }
           setValues(defaults);
         }
+        setLoadingConfig(false);
       })
-      .catch(() => {})
-      .finally(() => setLoadingConfig(false));
+      .catch(() => {
+        setLoadError(true);
+        setLoadingConfig(false);
+      });
   }, []);
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   // Fetch the picker's source-of-truth partner list (Active + yellow Targets,
   // not trashed) once we know the form has a referrer field. The picker uses
@@ -148,7 +164,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
             if (getVal(depId) !== depVal) continue;
           }
           if (field.required && !getVal(field.id)) {
-            toast.error(`Please fill in: ${field.label}`);
+            toast.error(`${field.label} is required.`);
             return;
           }
           if (
@@ -181,7 +197,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
     const propertyAddress = valueByMapsTo("job.property_address");
 
     if (!fullName || !damageType || !propertyAddress) {
-      toast.error("Please fill in required fields: Full Name, Damage Type, and Property Address.");
+      toast.error("Full name, damage type, and property address are required.");
       return;
     }
 
@@ -189,7 +205,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
     const supabase = createClient();
     const orgId = await getActiveOrganizationId(supabase);
     if (!orgId) {
-      toast.error("No active organization — please sign in again.");
+      toast.error("No active organization — sign in again.");
       setSubmitting(false);
       return;
     }
@@ -328,7 +344,7 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         // Swallowed by contract — notifications are non-critical.
       }
 
-      toast.success(`Job ${job.job_number} created successfully!`);
+      toast.success(`Job ${job.job_number} created`);
       router.push(`/jobs/${job.id}`);
     } catch (err) {
       console.error(err);
@@ -341,9 +357,9 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
           ? String((err as { message?: unknown }).message ?? "")
           : "";
       if (message.includes("RP-INELIGIBLE")) {
-        toast.error("That Referral Partner can't be attached. Please pick another.");
+        toast.error("That Referral Partner can't be attached. Pick another.");
       } else {
-        toast.error("Something went wrong. Please try again.");
+        toast.error("Something went wrong. Try again.");
       }
     } finally {
       setSubmitting(false);
@@ -351,14 +367,26 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
   }
 
   if (loadingConfig) {
-    return <div className="text-center py-12 text-muted-foreground">Loading form...</div>;
+    return <IntakeFormSkeleton />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-6 text-center">
+        <p className="text-sm font-medium text-foreground">The intake form didn&apos;t load.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Check your connection and try again.</p>
+        <Button type="button" variant="outline" onClick={loadConfig} className="mt-4 h-11">
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   if (!formConfig || formConfig.sections.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
         <p>No form configuration found.</p>
-        <a href="/settings/intake-form" className="text-sm text-[var(--brand-primary)] hover:underline mt-1 inline-block">
+        <a href="/settings/intake-form" className="text-sm text-accent-text hover:underline mt-1 inline-block">
           Set up the intake form
         </a>
       </div>
@@ -372,51 +400,70 @@ export default function IntakeForm({ testMode = false }: { testMode?: boolean } 
         .map((section, si) => (
           <SectionCard key={section.id} number={si + 1} title={section.title}>
             <div className="space-y-4">
-              {section.fields
-                .filter((f) => f.visible !== false)
-                .filter((f) => {
-                  // Check show_when condition
-                  if (f.show_when) {
-                    const [depId, depVal] = f.show_when.split("=");
-                    return getVal(depId) === depVal;
-                  }
-                  return true;
-                })
-                .map((field) => (
-                  <DynamicField
-                    key={field.id}
-                    field={field}
-                    value={getVal(field.id)}
-                    onChange={(v) => setValue(field.id, v)}
-                    damageTypes={damageTypes}
-                    insuranceContact={insuranceContact}
-                    onInsuranceChange={(c) => setInsurance(field.id, c)}
-                    referralPartners={referralPartners}
-                    referralPartnerId={referralPartnerId}
-                    onReferralPartnerChange={setReferralPartnerId}
-                    onPromoteAndPickReferralPartner={handlePromoteAndPick}
-                  />
-                ))}
+              {planFieldRows(
+                section.fields
+                  .filter((f) => f.visible !== false)
+                  .filter((f) => {
+                    // Check show_when condition
+                    if (f.show_when) {
+                      const [depId, depVal] = f.show_when.split("=");
+                      return getVal(depId) === depVal;
+                    }
+                    return true;
+                  }),
+              ).map((row) => (
+                // Related compact fields sit two-up from iPad width (§7.2);
+                // the base layout stays a single phone-first column.
+                <div
+                  key={row[0].id}
+                  data-slot="field-row"
+                  className={cn(
+                    "grid grid-cols-1 gap-4",
+                    row.length === 2 && "md:grid-cols-2",
+                  )}
+                >
+                  {row.map((field) => (
+                    <DynamicField
+                      key={field.id}
+                      field={field}
+                      value={getVal(field.id)}
+                      onChange={(v) => setValue(field.id, v)}
+                      damageTypes={damageTypes}
+                      insuranceContact={insuranceContact}
+                      onInsuranceChange={(c) => setInsurance(field.id, c)}
+                      referralPartners={referralPartners}
+                      referralPartnerId={referralPartnerId}
+                      onReferralPartnerChange={setReferralPartnerId}
+                      onPromoteAndPickReferralPartner={handlePromoteAndPick}
+                    />
+                  ))}
+                </div>
+              ))}
             </div>
           </SectionCard>
         ))}
 
-      {/* Submit */}
-      <div className="flex justify-end">
-        <Button
-          type="submit"
-          disabled={submitting}
-          className="px-6 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-        >
-          {submitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating Job...
-            </>
-          ) : (
-            "Create Job"
-          )}
-        </Button>
+      {/* Submit — sticky at phone widths so the primary action stays in thumb
+          reach (§7.3); the app shell scrolls the body, so sticky-on-body is
+          safe on iOS (§7.4 only warns about inner scroll containers). Static
+          again from md: where the two-column layout starts. */}
+      <div className="sticky bottom-0 -mx-4 border-t border-border bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+        <div className="flex justify-end">
+          <Button
+            type="submit"
+            disabled={submitting}
+            className="h-11 w-full px-6 bg-primary text-primary-foreground hover:bg-primary/90 transition-all md:w-auto"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating job...
+              </>
+            ) : (
+              "Create job"
+            )}
+          </Button>
+        </div>
       </div>
     </form>
   );
@@ -453,7 +500,8 @@ function DynamicField({
     options = damageTypes.map((dt) => ({
       value: dt.name,
       label: dt.display_label,
-      color: `bg-[${dt.bg_color}] text-[${dt.text_color}] border-[${dt.text_color}]/20`,
+      bg_color: dt.bg_color,
+      text_color: dt.text_color,
     }));
   }
 
@@ -507,6 +555,7 @@ function DynamicField({
             onChange(field.type === "phone" ? formatPhoneNumber(e.target.value) : e.target.value)
           }
           placeholder={field.placeholder}
+          className="h-11"
         />
       )}
 
@@ -516,6 +565,7 @@ function DynamicField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
+          className="h-11"
         />
       )}
 
@@ -524,6 +574,7 @@ function DynamicField({
           value={value}
           onChange={onChange}
           placeholder={field.placeholder}
+          className="h-11"
         />
       )}
 
@@ -537,10 +588,11 @@ function DynamicField({
       )}
 
       {field.type === "select" && (
+        /* Mirrors the Input primitive; 16px + 44px per §7.3/§7.4. */
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"
+          className="h-11 w-full rounded-md border border-input bg-input/30 px-2.5 text-base text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <option value="">Select...</option>
           {options.map((opt) => (
@@ -553,9 +605,13 @@ function DynamicField({
         <div className="flex flex-wrap gap-2">
           {options.map((opt) => {
             const isSelected = value === opt.value;
-            const hasInlineColor = !!(opt.bg_color || opt.text_color);
-            const inlineSelectedStyle = isSelected && hasInlineColor
-              ? { backgroundColor: opt.bg_color, color: opt.text_color, borderColor: "transparent" }
+            const hasInlineColor = !!(opt.bg_color && opt.text_color);
+            // §2.6: stored per-Organization colors are softened into the tint
+            // treatment (~14%-alpha wash + AA-legible text) — never a solid
+            // fill of the raw stored pair.
+            const tint = hasInlineColor ? soften(opt.bg_color!, opt.text_color!) : null;
+            const inlineSelectedStyle = isSelected && tint
+              ? { backgroundColor: tint.background, color: tint.color, borderColor: "transparent" }
               : undefined;
             return (
               <button
@@ -564,7 +620,7 @@ function DynamicField({
                 onClick={() => onChange(opt.value)}
                 style={inlineSelectedStyle}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  "min-h-11 px-4 py-2 rounded-full text-sm font-medium border transition-all",
                   isSelected
                     ? hasInlineColor
                       ? "shadow-sm"
@@ -580,16 +636,41 @@ function DynamicField({
       )}
 
       {field.type === "checkbox" && (
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className="flex min-h-11 cursor-pointer items-center gap-3">
           <input
             type="checkbox"
             checked={value === "true"}
             onChange={(e) => onChange(e.target.checked ? "true" : "false")}
-            className="w-4 h-4 rounded accent-[var(--brand-primary)]"
+            className="size-5 rounded accent-[var(--primary)]"
           />
           <span className="text-sm text-foreground">{field.label}</span>
         </label>
       )}
+    </div>
+  );
+}
+
+// ── Loading skeleton (§5: shaped like the section cards it stands in for) ──
+
+function IntakeFormSkeleton() {
+  return (
+    <div role="status" aria-label="Loading form" className="space-y-8">
+      {[0, 1].map((i) => (
+        <div key={i} className="rounded-lg border border-border bg-card p-4 sm:p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="h-7 w-7 rounded-full bg-muted" />
+            <div className="h-4 w-32 rounded bg-muted" />
+          </div>
+          <div className="space-y-4">
+            {[0, 1, 2].map((j) => (
+              <div key={j}>
+                <div className="mb-1.5 h-3.5 w-24 rounded bg-muted" />
+                <div className="h-11 w-full rounded-lg bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -606,12 +687,12 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card rounded-xl border border-border p-5 sm:p-6">
+    <div className="bg-card rounded-lg border border-border p-4 sm:p-5">
       <div className="flex items-center gap-3 mb-4">
-        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-secondary text-white text-xs font-bold">
+        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-secondary text-secondary-foreground text-xs font-semibold">
           {number}
         </span>
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
       </div>
       {children}
     </div>
