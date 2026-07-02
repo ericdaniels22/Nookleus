@@ -738,6 +738,10 @@ export default function ComposeEmailModal({
       aria-modal={false}
       aria-label={title}
       className={panelClass}
+      // §2.8 — compose is a deliberate light island floating over the dark app;
+      // scope color-scheme:light so native controls (inputs, scrollbars, date
+      // pickers) render light despite the global `color-scheme: dark`.
+      style={{ colorScheme: "light" }}
       onKeyDown={(e) => {
         // Escape closes the compose window (issue #660), restoring the Base UI
         // Dialog behavior we lost. The inner pickers render inline, so their
@@ -766,7 +770,7 @@ export default function ComposeEmailModal({
           safe-area *bottom* inset to clear the home indicator (issue #660); the
           expanded window is inset and keeps the normal 10px top padding. */}
       <div
-        className={`flex items-center justify-between gap-2 px-4 bg-[#2B5EA7] text-white shrink-0 select-none ${
+        className={`flex items-center justify-between gap-2 px-4 bg-white text-[#1a1a1a] border-b border-gray-200 shrink-0 select-none ${
           isMinimized
             ? "pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)]"
             : "pt-[max(env(safe-area-inset-top),10px)] sm:pt-2.5 pb-2.5"
@@ -794,7 +798,7 @@ export default function ComposeEmailModal({
             }
             title={isMinimized ? "Restore" : "Minimize"}
             aria-label={isMinimized ? "Restore" : "Minimize"}
-            className="p-1.5 rounded hover:bg-white/15 transition-colors"
+            className="p-1.5 rounded text-[#666] hover:bg-gray-100 hover:text-[#1a1a1a] transition-colors"
           >
             {isMinimized ? <ChevronUp size={15} /> : <Minus size={15} />}
           </button>
@@ -804,7 +808,7 @@ export default function ComposeEmailModal({
               onClick={() => dispatchWindow({ type: "toggleMaximize" })}
               title={maxControl.label}
               aria-label={maxControl.label}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors"
+              className="p-1.5 rounded text-[#666] hover:bg-gray-100 hover:text-[#1a1a1a] transition-colors"
             >
               {maxControl.showsRestore ? (
                 <Minimize2 size={14} />
@@ -818,7 +822,7 @@ export default function ComposeEmailModal({
             onClick={() => onOpenChange(false)}
             title="Close"
             aria-label="Close"
-            className="p-1.5 rounded hover:bg-white/15 transition-colors"
+            className="p-1.5 rounded text-[#666] hover:bg-gray-100 hover:text-[#1a1a1a] transition-colors"
           >
             <X size={16} />
           </button>
@@ -886,7 +890,7 @@ export default function ComposeEmailModal({
                   <button
                     type="button"
                     onClick={() => setShowCc(true)}
-                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[var(--brand-primary)]"
                   >
                     Cc
                   </button>
@@ -895,7 +899,7 @@ export default function ComposeEmailModal({
                   <button
                     type="button"
                     onClick={() => setShowBcc(true)}
-                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-[#666] hover:bg-gray-100 hover:text-[var(--brand-primary)]"
                   >
                     Bcc
                   </button>
@@ -904,7 +908,7 @@ export default function ComposeEmailModal({
                   type="button"
                   aria-label="Browse contacts"
                   onClick={() => setShowContactPicker((v) => !v)}
-                  className="rounded p-1 text-[#666] hover:bg-gray-100 hover:text-[#2B5EA7]"
+                  className="rounded p-1 text-[#666] hover:bg-gray-100 hover:text-[var(--brand-primary)]"
                 >
                   <Users size={16} />
                 </button>
@@ -1043,7 +1047,7 @@ export default function ComposeEmailModal({
           <button
             type="submit"
             disabled={sending || uploading || accounts.length === 0}
-            className="px-5 py-2.5 bg-[#2B5EA7] text-white rounded-lg text-sm font-medium hover:bg-[#234b87] disabled:opacity-50 flex items-center gap-2"
+            className="px-5 py-2.5 bg-[var(--brand-primary,#0F6E56)] text-white rounded-lg text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
           >
             {sending ? (
               <Loader2 size={16} className="animate-spin" />
@@ -1111,7 +1115,7 @@ export default function ComposeEmailModal({
                         size={14}
                         className={
                           activeSignatureId === opt.id
-                            ? "text-[#2B5EA7]"
+                            ? "text-[var(--brand-primary)]"
                             : "invisible"
                         }
                       />

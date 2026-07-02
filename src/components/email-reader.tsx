@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import type { Email } from "@/lib/types";
 import { EmailBodyFrame } from "@/components/email/email-body-frame";
 import { EmailAttachments } from "@/components/email/email-attachments";
+import { LightContentIsland } from "@/components/email/light-content-island";
 
 interface EmailReaderProps {
   emailId: string;
@@ -186,7 +187,7 @@ export default function EmailReader({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-[#999]">
+      <div className="flex items-center justify-center h-full text-muted-foreground">
         Loading...
       </div>
     );
@@ -334,16 +335,16 @@ export default function EmailReader({
         {thread.map((email) => {
           const isExpanded = expandedIds.has(email.id);
           return (
-            <div
+            <LightContentIsland
               key={email.id}
-              className="border border-gray-200 rounded-lg overflow-hidden bg-white"
+              className="border border-gray-200 rounded-lg overflow-hidden"
             >
               {/* Collapsed header — always shown */}
               <button
                 onClick={() => toggleExpand(email.id)}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
               >
-                <div className="w-8 h-8 rounded-full bg-[#2B5EA7] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                <div className="w-8 h-8 rounded-full bg-[var(--brand-primary,#0F6E56)] text-white flex items-center justify-center text-xs font-bold shrink-0">
                   {(email.from_name || email.from_address)
                     .charAt(0)
                     .toUpperCase()}
@@ -368,7 +369,7 @@ export default function EmailReader({
                     <Paperclip size={14} className="text-[#999]" />
                   )}
                   {email.job && (
-                    <span className="flex items-center gap-1 text-xs bg-blue-50 text-[#2B5EA7] px-2 py-0.5 rounded-full">
+                    <span className="flex items-center gap-1 text-xs bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] px-2 py-0.5 rounded-full">
                       <Briefcase size={10} />
                       {email.job.job_number}
                     </span>
@@ -433,7 +434,7 @@ export default function EmailReader({
                   )}
                 </div>
               )}
-            </div>
+            </LightContentIsland>
           );
         })}
       </div>

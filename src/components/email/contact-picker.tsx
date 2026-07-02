@@ -136,7 +136,7 @@ export default function ContactPicker({
               onClick={() => onSelect(c)}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors"
             >
-              <div className="w-6 h-6 rounded-full bg-[#2B5EA7] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+              <div className="w-6 h-6 rounded-full bg-[var(--brand-primary,#0F6E56)] text-white flex items-center justify-center text-[11px] font-bold shrink-0">
                 {(c.name || c.email).charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">

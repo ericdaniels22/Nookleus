@@ -75,7 +75,7 @@ export default function IconRail({
           >
             <Icon size={18} />
             {showBadge && (
-              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-primary/10 text-primary text-[11px] font-bold rounded-full min-w-[17px] h-[17px] px-1 flex items-center justify-center">
                 {badgeValue > 99 ? "99+" : badgeValue}
               </span>
             )}
