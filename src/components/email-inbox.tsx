@@ -812,9 +812,11 @@ export default function EmailInbox() {
                     className="rounded border-border accent-primary"
                   />
                   {total} email{total !== 1 ? "s" : ""}
-                  {folder !== "starred" && counts[folder]?.unread
-                    ? ` (${counts[folder].unread} unread)`
-                    : ""}
+                  {folder !== "starred" && counts[folder]?.unread ? (
+                    <span className="text-primary bg-primary/10 rounded-full px-1.5 py-0.5 text-[11px] font-medium">
+                      {counts[folder].unread} unread
+                    </span>
+                  ) : null}
                 </span>
                 <div className="flex items-center gap-2">
                   {counts[folder]?.unread > 0 && (
@@ -1128,7 +1130,7 @@ function EmailRow({
             className={
               email.is_starred
                 ? "fill-yellow-400 text-yellow-400"
-                : "text-gray-300 hover:text-gray-400"
+                : "text-muted-foreground/60 hover:text-muted-foreground"
             }
           />
         </button>
@@ -1166,7 +1168,7 @@ function EmailRow({
               <Paperclip size={12} className="text-muted-foreground/40" />
             )}
             {email.job && (
-              <span className="flex items-center gap-0.5 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+              <span className="flex items-center gap-0.5 text-[11px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
                 <Briefcase size={10} />
                 {email.job.job_number}
               </span>

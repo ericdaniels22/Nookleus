@@ -41,20 +41,20 @@ export function EmailAttachments({
             download={att.filename}
             className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors group"
           >
-            <FileIcon size={16} className="text-[#2B5EA7] shrink-0" />
+            <FileIcon size={16} className="text-[var(--brand-primary)] shrink-0" />
             <div className="min-w-0">
               <p className="text-sm text-[#333] truncate max-w-[200px]">
                 {att.filename}
               </p>
               {att.file_size && (
-                <p className="text-[10px] text-[#999]">
+                <p className="text-[11px] text-[#999]">
                   {att.file_size > 1024 * 1024
                     ? `${(att.file_size / (1024 * 1024)).toFixed(1)}MB`
                     : `${(att.file_size / 1024).toFixed(0)}KB`}
                 </p>
               )}
             </div>
-            <Download size={14} className="text-[#999] group-hover:text-[#2B5EA7] shrink-0" />
+            <Download size={14} className="text-[#999] group-hover:text-[var(--brand-primary)] shrink-0" />
           </a>
         ))}
       </div>
