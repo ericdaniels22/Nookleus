@@ -31,6 +31,9 @@ import {
 import { useEmailSync } from "@/lib/email/use-email-sync";
 import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
 import { accountRowWash } from "@/lib/email/account-wash";
+import MoveToBucketMenu from "@/components/email/move-to-bucket-menu";
+import { moveEmails } from "@/lib/email/move-to-bucket";
+import type { Category } from "@/lib/email-categorizer";
 
 const LAZY_REFRESH_FOLDERS = new Set(["drafts", "trash", "spam", "archive"]);
 const LAZY_REFRESH_THROTTLE_MS = 30_000;
@@ -809,6 +812,25 @@ export default function EmailInbox() {
                       </div>
                     )}
                   </div>
+                  <MoveToBucketMenu
+                    disabled={bulkLoading}
+                    onMove={(category) => {
+                      const ids = Array.from(selectedIds);
+                      clearSelection();
+                      // No fromAddress: a multi-select can span senders, so a
+                      // bulk move just files them without the sender-rule offer.
+                      moveEmails({
+                        ids,
+                        category,
+                        onChanged: () => {
+                          loadEmails();
+                          loadCounts();
+                        },
+                      });
+                    }}
+                    size={14}
+                    align="right"
+                  />
                   <button
                     onClick={clearSelection}
                     className="px-2 py-1 rounded hover:bg-accent ml-1"
@@ -877,6 +899,17 @@ export default function EmailInbox() {
                     handleStarToggle(email.id, !email.is_starred)
                   }
                   onToggleCheck={() => toggleSelect(email.id)}
+                  onMove={(category) =>
+                    moveEmails({
+                      ids: [email.id],
+                      category,
+                      fromAddress: email.from_address,
+                      onChanged: () => {
+                        loadEmails();
+                        loadCounts();
+                      },
+                    })
+                  }
                 />
               ))
             )}
@@ -1090,6 +1123,7 @@ function EmailRow({
   onSelect,
   onStar,
   onToggleCheck,
+  onMove,
 }: {
   email: Email;
   isSelected: boolean;
@@ -1101,6 +1135,7 @@ function EmailRow({
   onSelect: () => void;
   onStar: () => void;
   onToggleCheck: () => void;
+  onMove: (category: Category) => void;
 }) {
   // Show recipient for sent/drafts, sender for everything else
   const isSentView = folder === "sent" || folder === "drafts";
@@ -1209,6 +1244,12 @@ function EmailRow({
                 {email.job.job_number}
               </span>
             )}
+            <MoveToBucketMenu
+              currentCategory={email.category}
+              onMove={onMove}
+              size={14}
+              align="right"
+            />
           </div>
         </div>
       </div>

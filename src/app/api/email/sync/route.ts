@@ -189,6 +189,10 @@ export const POST = withRequestContext(
           .select("id, from_address, subject, body_text, job_id")
           .eq("account_id", accountId)
           .eq("category", "general")
+          // A manual move always wins: never reclassify mail the user moved
+          // into General and locked (#957). Guards against a future backfill
+          // reset (as #954 did) snapping a locked email back out.
+          .eq("category_locked", false)
           .order("id", { ascending: true })
           .limit(200);
 
@@ -232,6 +236,8 @@ export const POST = withRequestContext(
           .select("id, from_address, subject, body_text, folder, uid")
           .eq("account_id", accountId)
           .eq("category", "general")
+          // Skip locked (manually-moved-into-General) mail — see Pass 1 (#957).
+          .eq("category_locked", false)
           .not("uid", "is", null)
           .order("id", { ascending: true })
           .limit(500);

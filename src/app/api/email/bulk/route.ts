@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
+import { isCategory } from "@/lib/email-categorizer";
 
 // PATCH /api/email/bulk — bulk update emails
-// Body: { ids: string[], action: "mark_read" | "mark_unread" | "archive" | "trash" | "assign_job", jobId?: string }
+// Body: { ids: string[], action: "mark_read" | "mark_unread" | "archive" | "trash" | "spam" | "assign_job" | "move", jobId?: string, category?: string }
 // Requires `send_email` (#105, PRD #95) — tightened from the logged-in-only
 // gate the #85 Request-Context conversion gave this previously-ungated route.
 export const PATCH = withRequestContext({ permission: "send_email" }, async (request, ctx) => {
   const body = await request.json();
-  const { ids, action, jobId } = body;
+  const { ids, action, jobId, category } = body;
 
   if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id: unknown) => typeof id === "string")) {
     return NextResponse.json({ error: "ids must be a non-empty array of strings" }, { status: 400 });
@@ -45,6 +46,19 @@ export const PATCH = withRequestContext({ permission: "send_email" }, async (req
       }
       // Job-linked mail lives in the Jobs bucket (#954).
       updates = { job_id: jobId, matched_by: "manual", category: "jobs" };
+      break;
+    case "move":
+      // Move-to-bucket (#957). A manual move always wins, so we lock the email:
+      // future backfills and sender-rule re-files skip category_locked rows,
+      // and the email never snaps back. Rejects the view-only pseudo-buckets
+      // ("all"/"starred") and unknown values.
+      if (!isCategory(category)) {
+        return NextResponse.json(
+          { error: "category must be a valid bucket for move" },
+          { status: 400 },
+        );
+      }
+      updates = { category, category_locked: true };
       break;
     default:
       return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

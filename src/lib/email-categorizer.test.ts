@@ -68,6 +68,32 @@ describe("categorizeEmail — Jobs bucket claim signals", () => {
     expect(verdict).toBe("promotions");
   });
 
+  it("lets a Sender rule (sender_address) win over every claim heuristic", () => {
+    // A Sender rule is a sender_address match created when a user moves an
+    // email and taps "always file this sender here". It must beat the adjuster
+    // address, carrier domain, AND claim-number heuristics that would otherwise
+    // pull this sender into Jobs — this is the precedence the whole feature
+    // rides on (issue #957, ADR 0028).
+    const rules: CategoryRule[] = [
+      { match_type: "sender_address", match_value: "jane.adjuster@statefarm.com", category: "general" },
+    ];
+
+    const verdict = categorizeEmail(
+      {
+        from_address: "Jane.Adjuster@statefarm.com",
+        subject: "Re: your inspection — Claim #ABC-1234567",
+        body_text: "Following up on the claim.",
+      },
+      rules,
+      {
+        carrierDomains: ["statefarm.com"],
+        adjusterAddresses: ["jane.adjuster@statefarm.com"],
+      },
+    );
+
+    expect(verdict).toBe("general");
+  });
+
   it("falls back to General for unrecognized mail with no rule or claim signal", () => {
     const verdict = categorizeEmail(
       {

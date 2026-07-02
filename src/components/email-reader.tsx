@@ -18,6 +18,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Email } from "@/lib/types";
+import type { Category } from "@/lib/email-categorizer";
+import { moveEmails } from "@/lib/email/move-to-bucket";
+import MoveToBucketMenu from "@/components/email/move-to-bucket-menu";
 import { EmailBodyFrame } from "@/components/email/email-body-frame";
 import { EmailAttachments } from "@/components/email/email-attachments";
 import { LightContentIsland } from "@/components/email/light-content-island";
@@ -248,6 +251,18 @@ export default function EmailReader({
             }
           />
         </button>
+        <MoveToBucketMenu
+          currentCategory={latestEmail.category}
+          disabled={actionLoading}
+          onMove={(category: Category) =>
+            moveEmails({
+              ids: [emailId],
+              category,
+              fromAddress: latestEmail.from_address,
+              onChanged: onActioned,
+            })
+          }
+        />
         <div className="relative" ref={jobPickerRef}>
           <button
             onClick={() => setJobPickerOpen((v) => !v)}

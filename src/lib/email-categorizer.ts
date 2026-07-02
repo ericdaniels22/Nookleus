@@ -1,6 +1,33 @@
 export type Category = "jobs" | "general" | "promotions" | "social" | "purchases";
 
 /**
+ * The real buckets an email can be filed into — the runtime companion to the
+ * `Category` type. Excludes the view-only pseudo-buckets ("all", "starred"),
+ * so it doubles as the allow-list for move-to-bucket targets (issue #957).
+ */
+export const CATEGORIES: readonly Category[] = [
+  "jobs",
+  "general",
+  "promotions",
+  "social",
+  "purchases",
+];
+
+/** Type guard: is `value` one of the real, file-able buckets? */
+export function isCategory(value: unknown): value is Category {
+  return typeof value === "string" && (CATEGORIES as readonly string[]).includes(value);
+}
+
+/** Human-facing bucket names, used by the move-to-bucket UI (issue #957). */
+export const CATEGORY_LABELS: Record<Category, string> = {
+  jobs: "Jobs",
+  general: "General",
+  promotions: "Promotions",
+  social: "Social",
+  purchases: "Purchases",
+};
+
+/**
  * Curated seed of common US insurance-carrier sender domains. Callers merge
  * this with the org's own adjuster addresses to build the ClaimContext, so a
  * first email from a carrier files into Jobs before any Job exists to match.
