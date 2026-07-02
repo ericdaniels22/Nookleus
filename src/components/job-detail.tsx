@@ -67,13 +67,14 @@ import {
   RotateCcw,
   ChevronDown,
   Megaphone,
+  AlertTriangle,
 } from "lucide-react";
 import { canDeleteJobs } from "@/lib/jobs/auth";
 import {
   urgencyColors,
   urgencyLabels,
-  damageTypeColors,
-  damageTypeLabels,
+  resolveStatusBadge,
+  resolveDamageTypeBadge,
 } from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
@@ -103,7 +104,7 @@ const SCREENFUL_PRELOAD = 12;
 
 export default function JobDetail({ jobId }: { jobId: string }) {
   const { hasPermission, profile } = useAuth();
-  const { getStatusColor, getStatusLabel } = useConfig();
+  const { getStatusLabel, getDamageTypeLabel, statuses, damageTypes } = useConfig();
   const showJobDeleteAffordances = canDeleteJobs(profile?.role);
   // Every Showcase surface is admin-only (#613 AC), mirroring the `{ adminOnly:
   // true }` gate on the Showcase routes — so the create/open affordance only
@@ -135,6 +136,10 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     replyToMessageId: string;
   }>({ mode: "compose", accountId: "", to: "", subject: "", body: "", replyToMessageId: "" });
   const [loading, setLoading] = useState(true);
+  // Distinguishes a failed load from a genuinely missing row (§8 DoD): a
+  // silent mount fetch that errors used to fall through to "Job not found.".
+  // Only the silent path sets this — swipe-to-refresh throws before it (#676).
+  const [loadError, setLoadError] = useState(false);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   // The grid's full loaded list, captured when a Photo is opened, so the viewer
@@ -261,7 +266,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
     // behavior so a failed background re-fetch never becomes a crash.
     if (surfaceErrors && jobRes.error) throw jobRes.error;
 
-    if (jobRes.data) setJob(jobRes.data as Job);
+    if (jobRes.data) {
+      setJob(jobRes.data as Job);
+      setLoadError(false);
+    } else if (jobRes.error) {
+      // PGRST116 = .single() found no row — that IS "Job not found";
+      // anything else is a fetch failure the user should be able to retry.
+      setLoadError((jobRes.error as { code?: string }).code !== "PGRST116");
+    }
     if (activitiesRes.data) setActivities(activitiesRes.data as JobActivity[]);
     if (paymentsRes.data) setPayments(paymentsRes.data as Payment[]);
     if (invoicesRes.data) setInvoices(invoicesRes.data as Invoice[]);
@@ -439,8 +451,48 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   }
 
   if (loading) {
+    // §5 skeleton shaped like the hub: job number + name, badge cluster,
+    // tab bar, then the two-column card grid. Muted blocks, no shimmer.
     return (
-      <div className="text-center py-12 text-muted-foreground/60">Loading job...</div>
+      <div aria-busy="true">
+        <div className="h-4 w-24 rounded bg-muted mb-2" />
+        <div className="h-8 w-64 rounded bg-muted mb-3" />
+        <div className="flex items-center gap-2 mb-6">
+          <div className="h-5 w-20 rounded-md bg-muted" />
+          <div className="h-5 w-20 rounded-md bg-muted" />
+          <div className="h-5 w-24 rounded-md bg-muted" />
+        </div>
+        <div className="h-10 w-full rounded bg-muted mb-6" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-48 rounded-xl bg-muted" />
+          <div className="h-48 rounded-xl bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!job && loadError) {
+    // §6 error state, mirroring the Jobs list's (#914): what happened +
+    // what to do, with an in-place retry.
+    return (
+      <div className="flex flex-col items-center gap-2 py-12 text-center">
+        <AlertTriangle size={28} className="text-muted-foreground/60" aria-hidden />
+        <p className="text-lg text-foreground">Couldn&apos;t load this job</p>
+        <p className="text-sm text-muted-foreground/60">
+          Something went wrong. Check your connection and try again.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadError(false);
+            setLoading(true);
+            fetchData();
+          }}
+          className="mt-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:border-primary/30 hover:shadow-sm"
+        >
+          Try again
+        </button>
+      </div>
     );
   }
 
@@ -456,6 +508,11 @@ export default function JobDetail({ jobId }: { jobId: string }) {
   }
 
   const contactName = job.contact ? job.contact.full_name : "Unknown";
+
+  // §2.6 tint treatment (the module pattern from the Jobs list pass, #914):
+  // status stays config-sourced (ADR 0022) and softens into a tint.
+  const statusBadge = resolveStatusBadge(job.status, statuses);
+  const damageBadge = resolveDamageTypeBadge(job.damage_type, damageTypes);
 
   // Stand the page-level swipe-to-refresh down while any overlay is open on top
   // of the Job — the full-screen photo viewer (and the annotator it hands off
@@ -525,29 +582,31 @@ export default function JobDetail({ jobId }: { jobId: string }) {
             <Badge
               className={cn(
                 "text-xs font-medium px-2 py-0.5 rounded-md",
-                damageTypeColors[job.damage_type]
+                damageBadge.className
               )}
+              style={damageBadge.style}
             >
-              {damageTypeLabels[job.damage_type]}
+              {getDamageTypeLabel(job.damage_type)}
             </Badge>
             <Badge
               className={cn(
                 "text-xs font-medium px-2 py-0.5 rounded-md",
-                getStatusColor(job.status)
+                statusBadge.className
               )}
+              style={statusBadge.style}
             >
               {getStatusLabel(job.status)}
             </Badge>
             {job.has_signed_contract ? (
               <Badge
-                className="text-xs font-medium px-2 py-0.5 rounded-md bg-[rgba(29,158,117,0.12)] text-[#5DCAA5] border border-[rgba(29,158,117,0.35)]"
+                className="text-xs font-medium px-2 py-0.5 rounded-md bg-accent-tint text-accent-text"
               >
                 Contract signed
               </Badge>
             ) : job.has_pending_contract ? (
               <>
                 <Badge
-                  className="text-xs font-medium px-2 py-0.5 rounded-md bg-[rgba(239,159,39,0.12)] text-[#FAC775] border border-[rgba(239,159,39,0.3)]"
+                  className="text-xs font-medium px-2 py-0.5 rounded-md bg-warning-tint text-amber-400"
                 >
                   Awaiting signature
                 </Badge>
@@ -597,14 +656,14 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-0 border-b-2 border-border mb-6">
+      {/* Tab bar — five entries overflow a 390px viewport, so it scrolls (§8) */}
+      <div className="flex gap-0 border-b-2 border-border mb-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab("overview")}
           className={cn(
             "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
             activeTab === "overview"
-              ? "text-[#2B5EA7] border-[#2B5EA7] font-semibold"
+              ? "text-primary border-primary font-semibold"
               : "text-muted-foreground border-transparent hover:text-foreground"
           )}
         >
@@ -615,7 +674,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           className={cn(
             "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
             activeTab === "financials"
-              ? "text-[#2B5EA7] border-[#2B5EA7] font-semibold"
+              ? "text-primary border-primary font-semibold"
               : "text-muted-foreground border-transparent hover:text-foreground"
           )}
         >
@@ -626,7 +685,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           className={cn(
             "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors flex items-center gap-1.5",
             activeTab === "photos"
-              ? "text-[#2B5EA7] border-[#2B5EA7] font-semibold"
+              ? "text-primary border-primary font-semibold"
               : "text-muted-foreground border-transparent hover:text-foreground"
           )}
         >
@@ -634,7 +693,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           <span className={cn(
             "text-[11px] px-1.5 py-0 rounded-full",
             activeTab === "photos"
-              ? "bg-[#dbeafe] text-[#2B5EA7]"
+              ? "bg-accent-tint text-accent-text"
               : "bg-muted text-muted-foreground"
           )}>
             {photoCount}
@@ -645,7 +704,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
           className={cn(
             "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
             activeTab === "time"
-              ? "text-[#2B5EA7] border-[#2B5EA7] font-semibold"
+              ? "text-primary border-primary font-semibold"
               : "text-muted-foreground border-transparent hover:text-foreground"
           )}
         >
@@ -811,7 +870,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                   <span className="text-sm font-medium text-foreground">
                     {job.contact.full_name}
                   </span>
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 uppercase">
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-sky-400/14 text-sky-300 uppercase">
                     {job.contact.role === "property_manager" ? "Prop Manager" : job.contact.role}
                   </span>
                 </div>
@@ -824,7 +883,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                     <ClickToCall
                       e164={normalizePhoneToE164(job.contact.phone) ?? job.contact.phone}
                       sourceContext={{ kind: "contact" }}
-                      className="inline-flex items-center gap-1 text-[11px] text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
                     />
                   </div>
                 )}
@@ -1083,7 +1142,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
                 className={cn(
                   "text-xs font-medium px-2 py-0.5 rounded-md",
                   showcase.status === "published"
-                    ? "bg-[rgba(29,158,117,0.12)] text-[#5DCAA5] border border-[rgba(29,158,117,0.35)]"
+                    ? "bg-accent-tint text-accent-text"
                     : "bg-muted text-muted-foreground border border-border",
                 )}
               >
@@ -1361,7 +1420,7 @@ function ReportRowContent({ report }: { report: PhotoReport }) {
             "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
             report.status === "generated"
               ? "bg-primary/10"
-              : "bg-vibrant-purple/10"
+              : "bg-violet-400/14"
           )}
         >
           <FileText
@@ -1369,7 +1428,7 @@ function ReportRowContent({ report }: { report: PhotoReport }) {
             className={
               report.status === "generated"
                 ? "text-primary"
-                : "text-vibrant-purple"
+                : "text-violet-300"
             }
           />
         </div>
@@ -1386,8 +1445,8 @@ function ReportRowContent({ report }: { report: PhotoReport }) {
         className={cn(
           "text-[10px] px-1.5 py-0 rounded capitalize flex-shrink-0",
           report.status === "generated"
-            ? "bg-[#E1F5EE] text-[#085041]"
-            : "bg-[#F3F0FF] text-[#5B4DB5]"
+            ? "bg-accent-tint text-accent-text"
+            : "bg-violet-400/14 text-violet-300"
         )}
       >
         {report.status}
@@ -1496,7 +1555,7 @@ function AdjusterCard({
           <ClickToCall
             e164={normalizePhoneToE164(adj.phone) ?? adj.phone}
             sourceContext={{ kind: "contact" }}
-            className="inline-flex items-center gap-1 text-xs text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
           />
         </div>
       )}
@@ -2216,15 +2275,18 @@ function AddAdjusterDialog({
 
 /* ── Payer Type Badge ── */
 function PayerTypeBadge({ value }: { value: "insurance" | "homeowner" | "mixed" }) {
+  // §2.6 tints, one hue per payer: insurance violet, homeowner sky, mixed amber.
   const styles = {
-    insurance: { bg: "rgba(139, 92, 246, 0.15)", color: "#C4B5FD", border: "rgba(139, 92, 246, 0.35)", label: "Insurance" },
-    homeowner: { bg: "rgba(59, 130, 246, 0.15)", color: "#93C5FD", border: "rgba(59, 130, 246, 0.35)", label: "Homeowner" },
-    mixed: { bg: "rgba(250, 199, 117, 0.15)", color: "#FAC775", border: "rgba(250, 199, 117, 0.35)", label: "Mixed" },
+    insurance: { className: "bg-violet-400/14 text-violet-300", label: "Insurance" },
+    homeowner: { className: "bg-sky-400/14 text-sky-300", label: "Homeowner" },
+    mixed: { className: "bg-amber-400/14 text-amber-400", label: "Mixed" },
   }[value];
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ background: styles.bg, color: styles.color, border: `1px solid ${styles.border}` }}
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        styles.className
+      )}
     >
       {styles.label}
     </span>
