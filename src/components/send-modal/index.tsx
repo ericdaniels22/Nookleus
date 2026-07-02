@@ -183,7 +183,7 @@ export function SendModal(props: SendModalProps) {
             </p>
             <Link
               href="/settings/payments"
-              className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+              className="text-sm font-medium text-primary hover:underline"
               onClick={() => onOpenChange(false)}
             >
               Open Outgoing Emails settings →
@@ -241,7 +241,7 @@ export function SendModal(props: SendModalProps) {
               </Select>
             </div>
             {unresolvedFields.length > 0 && (
-              <div className="flex items-start gap-2 rounded-md border border-yellow-300 bg-yellow-50 p-2 text-xs text-yellow-900">
+              <div className="flex items-start gap-2 rounded-md border border-amber-400/30 bg-amber-400/14 p-2 text-xs text-amber-400">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <div>
                   Unresolved merge fields:{" "}

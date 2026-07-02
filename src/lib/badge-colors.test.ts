@@ -6,6 +6,8 @@ import {
   damageTypeLabels,
   DEFAULT_DAMAGE_COLORS,
   resolveDamageTypeBadge,
+  resolvePaymentSourceBadge,
+  resolvePaymentStatusBadge,
   resolveStatusBadge,
   soften,
   urgencyColors,
@@ -36,6 +38,8 @@ const TW: Record<string, string> = {
   "yellow-400": "#facc15",
   "red-500": "#ef4444",
   "amber-400": "#fbbf24",
+  "emerald-300": "#6ee7b7",
+  "emerald-500": "#10b981",
 };
 
 // Semantic design tokens the maps lean on, with their resolved §2.3 hexes.
@@ -373,5 +377,85 @@ describe("resolveStatusBadge (#914)", () => {
 
     expect(badge.style?.background).toBe(`rgba(${r}, ${g}, ${b}, 0.14)`);
     expect(contrast(badge.style!.color, CARD)).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+// §2.5/§2.6 payment badges (#917) — a fixed, non-org, non-config vocabulary
+// shown on the Billing surface and Record-payment modal. Source is categorical
+// (a hue per party: insurance = emerald, homeowner = sky, other = neutral);
+// tint + colored text like every other badge, never a solid fill or light box.
+const PAYMENT_SOURCE_26: Record<
+  string,
+  { text: string; tint: Rgb; tintAlpha?: number }
+> = {
+  insurance: { text: "#6EE7B7", tint: { r: 16, g: 185, b: 129 } }, // emerald
+  homeowner: { text: "#7DD3FC", tint: { r: 56, g: 189, b: 248 } }, // sky
+  other: { text: "#B9C2BE", tint: { r: 255, g: 255, b: 255 }, tintAlpha: 0.07 }, // neutral
+};
+
+describe("resolvePaymentSourceBadge (#917)", () => {
+  it.each(Object.entries(PAYMENT_SOURCE_26))(
+    "%s resolves to its §2.6 text + tint",
+    (source, expected) => {
+      const cls = resolvePaymentSourceBadge(source);
+      expect(resolveTextRgb(cls)).toEqual(hexToRgb(expected.text));
+      const tint = resolveBgTint(cls);
+      expect(tint.rgb).toEqual(expected.tint);
+      expect(tint.alpha).toBeCloseTo(expected.tintAlpha ?? 0.14, 2);
+    },
+  );
+
+  it("falls back to the neutral pair for an unknown source", () => {
+    expect(resolvePaymentSourceBadge("mystery")).toBe(
+      resolvePaymentSourceBadge("other"),
+    );
+  });
+
+  it("carries no light box — tint bg only, never a solid fill or hex", () => {
+    for (const source of ["insurance", "homeowner", "other", "mystery"]) {
+      const cls = resolvePaymentSourceBadge(source);
+      expect(cls).not.toMatch(/bg-\[#/); // no arbitrary-hex fill
+      expect(cls).not.toMatch(/\btext-white\b|\bbg-white\b(?!\/)/); // no light-mode box
+      expect(cls).not.toMatch(/\bring-/);
+    }
+  });
+});
+
+// Payment status is semantic: received = success (emerald), pending = warning
+// (§2.5 amber), due = destructive (§2.5 red, text #F09595) — mirroring the
+// urgency map so the two money-path vocabularies read consistently.
+const PAYMENT_STATUS_26: Record<
+  string,
+  { text: string; tint: Rgb; tintAlpha?: number }
+> = {
+  received: { text: "#6EE7B7", tint: { r: 16, g: 185, b: 129 } }, // emerald / success
+  pending: { text: "#FBBF24", tint: { r: 251, g: 191, b: 36 } }, // amber / warning
+  due: { text: "#F09595", tint: { r: 239, g: 68, b: 68 } }, // red / destructive
+};
+
+describe("resolvePaymentStatusBadge (#917)", () => {
+  it.each(Object.entries(PAYMENT_STATUS_26))(
+    "%s resolves to its semantic text + tint",
+    (status, expected) => {
+      const cls = resolvePaymentStatusBadge(status);
+      expect(resolveTextRgb(cls)).toEqual(hexToRgb(expected.text));
+      const tint = resolveBgTint(cls);
+      expect(tint.rgb).toEqual(expected.tint);
+      expect(tint.alpha).toBeCloseTo(expected.tintAlpha ?? 0.14, 2);
+    },
+  );
+
+  it("falls back to the neutral pair for an unknown status", () => {
+    expect(resolvePaymentStatusBadge("mystery")).toBe(
+      resolvePaymentSourceBadge("other"),
+    );
+  });
+
+  it("carries no light box — tint bg only, never a solid fill or hex", () => {
+    for (const status of ["received", "pending", "due", "mystery"]) {
+      const cls = resolvePaymentStatusBadge(status);
+      expect(cls).not.toMatch(/\btext-white\b|\bbg-white\b(?!\/)/);
+      expect(cls).not.toMatch(/\bring-/);
+    }
   });
 });

@@ -34,27 +34,27 @@ const STATUS_STYLES: Record<string, { label: string; className: string }> = {
   draft: { label: "Draft", className: "bg-muted text-foreground" },
   sent: {
     label: "Sent",
-    className: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+    className: "bg-amber-500/20 text-amber-300",
   },
   viewed: {
     label: "Viewed",
-    className: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+    className: "bg-amber-500/20 text-amber-300",
   },
   paid: {
     label: "Paid",
-    className: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
+    className: "bg-emerald-500/20 text-emerald-300",
   },
   failed: {
     label: "Failed",
-    className: "bg-red-500/20 text-red-700 dark:text-red-300",
+    className: "bg-red-500/20 text-red-300",
   },
   refunded: {
     label: "Refunded",
-    className: "bg-slate-500/20 text-slate-700 dark:text-slate-300",
+    className: "bg-slate-500/20 text-slate-300",
   },
   partially_refunded: {
     label: "Partial refund",
-    className: "bg-slate-500/20 text-slate-700 dark:text-slate-300",
+    className: "bg-slate-500/20 text-slate-300",
   },
   expired: { label: "Expired", className: "bg-muted text-muted-foreground" },
   voided: {

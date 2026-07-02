@@ -173,7 +173,7 @@ export default function RecordPaymentModal({
             <button
               onClick={submit}
               disabled={saving}
-              className="px-4 py-2 rounded-lg bg-[#0F6E56] text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 flex items-center gap-2"
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : null}
               Record
