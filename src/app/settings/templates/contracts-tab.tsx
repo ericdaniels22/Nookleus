@@ -215,7 +215,7 @@ export function ContractsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <FileText size={18} className="text-[var(--brand-primary)]" />
+            <FileText size={18} className="text-accent-text" />
             Contract Templates
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -268,7 +268,7 @@ export function ContractsTab() {
                   <td className="px-4 py-3">
                     <Link
                       href={`/settings/contract-templates/${t.id}/edit`}
-                      className="font-medium text-foreground hover:text-[var(--brand-primary)] transition-colors"
+                      className="font-medium text-foreground hover:text-accent-text transition-colors"
                     >
                       {t.name}
                     </Link>
@@ -297,12 +297,12 @@ export function ContractsTab() {
                         type="checkbox"
                         checked={t.is_active}
                         onChange={(e) => handleToggleActive(t, e.target.checked)}
-                        className="h-4 w-4 rounded border-border accent-[var(--brand-primary)]"
+                        className="h-4 w-4 rounded border-border accent-primary"
                       />
                       <span
                         className={
                           t.is_active
-                            ? "text-xs text-[var(--brand-primary)]"
+                            ? "text-xs text-accent-text"
                             : "text-xs text-muted-foreground"
                         }
                       >

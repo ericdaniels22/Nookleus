@@ -48,7 +48,7 @@ export default async function ContractViewPage({
           </h1>
           <Link
             href="/contracts"
-            className="text-sm text-[var(--brand-primary)] hover:underline"
+            className="text-sm text-accent-text hover:underline"
           >
             Back to contracts
           </Link>
@@ -66,7 +66,7 @@ export default async function ContractViewPage({
           </h1>
           <Link
             href={contract.job_id ? `/jobs/${contract.job_id}` : "/contracts"}
-            className="text-sm text-[var(--brand-primary)] hover:underline"
+            className="text-sm text-accent-text hover:underline"
           >
             {contract.job_id ? "Back to job" : "Back to contracts"}
           </Link>

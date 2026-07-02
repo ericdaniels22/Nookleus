@@ -69,7 +69,7 @@ export default function ContractTemplateEditPage({ params }: PageProps) {
         </p>
         <Link
           href="/settings/contract-templates"
-          className="inline-flex items-center gap-1 mt-4 text-sm text-[var(--brand-primary)] hover:underline"
+          className="inline-flex items-center gap-1 mt-4 text-sm text-accent-text hover:underline"
         >
           <ArrowLeft size={14} /> Back to templates
         </Link>

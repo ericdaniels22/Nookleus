@@ -53,7 +53,7 @@ export default function TemplatePdfUploadZone({ templateId, onUploaded }: Props)
 
   return (
     <div
-      className="flex-1 m-6 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center text-center p-12 hover:border-[var(--brand-primary)]/40 transition-colors"
+      className="flex-1 m-6 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center text-center p-12 hover:border-primary/40 transition-colors"
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -62,7 +62,7 @@ export default function TemplatePdfUploadZone({ templateId, onUploaded }: Props)
       <p className="text-sm text-muted-foreground mb-6 max-w-md">
         Drop a PDF here, or click to choose. Drop merge fields and signature blocks onto the pages once it loads.
       </p>
-      <label className="inline-flex items-center px-4 py-2 rounded-md bg-[var(--brand-primary)] text-white font-medium cursor-pointer hover:brightness-110 disabled:opacity-50">
+      <label className="inline-flex items-center px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium cursor-pointer hover:brightness-110 disabled:opacity-50">
         {busy ? "Uploading…" : "Choose PDF"}
         <input
           type="file"

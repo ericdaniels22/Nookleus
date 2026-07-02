@@ -110,7 +110,7 @@ export default function OverlayFieldChip({
       onClick={(e) => e.stopPropagation()}
       className={`absolute border-2 rounded text-xs font-medium select-none flex items-center px-1.5 cursor-move ${
         TYPE_COLORS[field.type]
-      } ${selected ? "ring-2 ring-[var(--brand-primary)]" : ""}`}
+      } ${selected ? "ring-2 ring-primary" : ""}`}
       style={{
         left: field.x * scale,
         top: field.y * scale,
@@ -126,7 +126,7 @@ export default function OverlayFieldChip({
               key={c}
               data-handle={c}
               onPointerDown={startResize(c)}
-              className="absolute w-2 h-2 bg-[var(--brand-primary)] border border-white rounded-sm"
+              className="absolute w-2 h-2 bg-primary border border-white rounded-sm"
               style={{
                 left: c.includes("w") ? -4 : "auto",
                 right: c.includes("e") ? -4 : "auto",
