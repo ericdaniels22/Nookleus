@@ -268,10 +268,13 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
               <div className="flex flex-wrap gap-1.5">
                 {categories.map((c) => (
                   <button key={c.id} type="button" onClick={() => setCategoryId(c.id)}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                      categoryId !== c.id && "bg-transparent text-muted-foreground border-border",
+                    )}
                     style={categoryId === c.id
                       ? { backgroundColor: c.bg_color, color: c.text_color, borderColor: "transparent" }
-                      : { backgroundColor: "transparent", color: "#8A9199", borderColor: "rgba(255,255,255,0.08)" }}>
+                      : undefined}>
                     {c.display_label}
                   </button>
                 ))}
@@ -288,7 +291,7 @@ export default function LogExpenseModal({ open, onOpenChange, jobId, existing, o
                       "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
                       paymentMethod === p.value
                         ? "bg-primary/10 text-primary border-primary/30"
-                        : "bg-transparent text-[#8A9199] border-[rgba(255,255,255,0.08)] hover:text-foreground",
+                        : "bg-transparent text-muted-foreground border-border hover:text-foreground",
                     )}>
                     {p.label}
                   </button>

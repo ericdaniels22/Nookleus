@@ -131,8 +131,8 @@ export function ReviewRequestSection({ jobId }: { jobId: string }) {
       </div>
 
       {confirm && (
-        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-950/30 p-4">
-          <p className="text-sm text-amber-900 dark:text-amber-200">
+        <div className="mb-4 rounded-lg border border-warning/20 bg-warning-tint p-4">
+          <p className="text-sm text-warning">
             This customer has already been asked for a review
             {confirm.count > 1 ? ` ${confirm.count} times` : ""}
             {confirm.last
@@ -146,7 +146,7 @@ export function ReviewRequestSection({ jobId }: { jobId: string }) {
             <button
               onClick={() => void send(true)}
               disabled={sending}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-amber-600 text-white shadow-sm hover:bg-amber-700 transition-colors disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-1.5 bg-warning text-background shadow-sm hover:bg-warning/90 transition-colors disabled:opacity-60"
             >
               {sending ? "Sending…" : "Send anyway"}
             </button>

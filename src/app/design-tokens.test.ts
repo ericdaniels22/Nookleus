@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Token contract for design system v2 (docs/design-system.md §2, ADR 0027).
@@ -383,6 +383,172 @@ describe("theme system removal — dark-only, no runtime switching (ADR 0027)", 
     expect(
       offenders,
       "files still importing next-themes (dark-only — ADR 0027)",
+    ).toEqual([]);
+  });
+
+  it("declares no next-themes dependency in package.json (step 18 cleanup)", () => {
+    const pkg = JSON.parse(
+      readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = {
+      ...(pkg.dependencies ?? {}),
+      ...(pkg.devDependencies ?? {}),
+    };
+    expect(
+      Object.keys(declared).filter((name) => name === "next-themes"),
+      "next-themes was deferred from step 1 (ADR 0027) — drop it at step 18",
+    ).toEqual([]);
+  });
+});
+
+describe("hardcoded-color sweep — step 18 owned surfaces (#926)", () => {
+  // The final migration sweep (docs/design-system.md §8 step 18) closes on the
+  // surfaces no earlier pass owns: the unauthenticated auth chrome (login,
+  // set-password, logout), the trash chrome, and the global error/not-found
+  // pages. These must be tokens-only — unlike the Jobs-list warning tint, which
+  // deliberately spells the token hexes as bg-amber-400/14 / bg-amber-500
+  // (#914), there is no reason for a raw palette color on these surfaces.
+  //
+  // Predecessor steps 5, 10, 11, 13, 15, 16 have now merged, so the sweep goes
+  // cross-cutting (guards A and B below) without re-flagging the *sanctioned*
+  // §2.6 badge idiom — tint bg + colored text (bg-sky-400/14 text-sky-300, and
+  // the text-[#F09595] danger tone in badge-colors.ts).
+  const OWNED_DIRS = [
+    "src/app/login",
+    "src/app/logout",
+    "src/app/set-password",
+    "src/components/trash",
+  ];
+  const OWNED_FILES = ["src/app/error.tsx", "src/app/not-found.tsx"];
+
+  /** Drop comments so issue refs like `#386` don't read as a hex color. The
+   *  `[^:]` guard keeps `https://` URLs from being mistaken for line comments. */
+  function stripComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  }
+
+  const PALETTE =
+    "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|" +
+    "emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+  const UTILITY =
+    "bg|text|border|ring|ring-offset|from|via|to|fill|stroke|divide|" +
+    "outline|decoration|accent|caret|placeholder|shadow";
+  const OFFENDER = new RegExp(
+    `\\b(?:${UTILITY})-(?:${PALETTE})-(?:50|100|200|300|400|500|600|700|800|900|950)\\b` +
+      `|#[0-9a-fA-F]{6}\\b|#[0-9a-fA-F]{3}\\b` +
+      `|\\b(?:rgb|rgba|hsl|hsla)\\(`,
+    "g",
+  );
+
+  function ownedSourceFiles(): string[] {
+    const files: string[] = [];
+    for (const dir of OWNED_DIRS) {
+      const abs = resolve(process.cwd(), dir);
+      for (const entry of readdirSync(abs, {
+        recursive: true,
+        withFileTypes: true,
+      })) {
+        if (!entry.isFile()) continue;
+        const name = entry.name;
+        if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+        files.push(join(entry.parentPath, name));
+      }
+    }
+    for (const f of OWNED_FILES) files.push(resolve(process.cwd(), f));
+    return files;
+  }
+
+  it("uses only design tokens — no Tailwind palette, hex, or rgb/hsl colors", () => {
+    const offenders: string[] = [];
+    for (const path of ownedSourceFiles()) {
+      const source = stripComments(readFileSync(path, "utf8"));
+      const matches = source.match(OFFENDER);
+      if (matches) {
+        offenders.push(`${path}: ${[...new Set(matches)].join(", ")}`);
+      }
+    }
+    expect(
+      offenders,
+      "step-18 surfaces must be tokens-only (§2.0) — use --warning/--warning-tint, not raw amber",
+    ).toEqual([]);
+  });
+
+  // Guard A — repo-wide. The `--vibrant-*` palette was deleted in step 1
+  // (ADR 0027), so any `*-vibrant-*` utility resolves to nothing: a dead relic,
+  // never legitimate. Safe to ban everywhere because `vibrant` is not a real
+  // Tailwind hue (the CVA `vibrant` *variant key* in ui/badge.tsx is an alias,
+  // not a utility, so it never matches this pattern).
+  const VIBRANT_UTILITY = new RegExp(`\\b(?:${UTILITY})-vibrant-[a-z]+\\b`, "g");
+
+  function allSourceFiles(): string[] {
+    const files: string[] = [];
+    const root = resolve(process.cwd(), "src");
+    for (const entry of readdirSync(root, {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+      files.push(join(entry.parentPath, name));
+    }
+    return files;
+  }
+
+  it("uses no dead `*-vibrant-*` utilities anywhere in src (deleted step 1)", () => {
+    const offenders: string[] = [];
+    for (const path of allSourceFiles()) {
+      const matches = stripComments(readFileSync(path, "utf8")).match(
+        VIBRANT_UTILITY,
+      );
+      if (matches) {
+        offenders.push(
+          `${relative(process.cwd(), path)}: ${[...new Set(matches)].join(", ")}`,
+        );
+      }
+    }
+    expect(
+      offenders,
+      "`--vibrant-*` was removed in step 1 — these classes render nothing (§2.7 uses --chart-1…5)",
+    ).toEqual([]);
+  });
+
+  // Guard B — app-chrome surfaces this sweep migrates. Plain chrome only (no
+  // §2.6 badge idiom), so the strict OFFENDER scan applies with no exemption.
+  // Config-driven inline styles (e.g. a per-org damage_types.bg_color) are
+  // values, not literals, so they never match. Third-party *brand* colors
+  // (QuickBooks green, Google blue, social-platform hues) are a documented
+  // exemption per the #926 sweep decision and are deliberately excluded.
+  const SWEPT_FILES = [
+    "src/components/activity-timeline.tsx",
+    "src/components/notification-bell.tsx",
+    "src/components/email/job-email-row.tsx",
+    "src/components/job-detail/review-request-section.tsx",
+    "src/components/job-detail/collection-ring.tsx",
+    "src/components/expenses/expenses-section.tsx",
+    "src/components/expenses/log-expense-modal.tsx",
+    "src/components/job-cover-picker.tsx",
+  ];
+
+  it("swept app-chrome files are tokens-only — no palette, hex, or rgb/hsl", () => {
+    const offenders: string[] = [];
+    for (const rel of SWEPT_FILES) {
+      const source = stripComments(
+        readFileSync(resolve(process.cwd(), rel), "utf8"),
+      );
+      const matches = source.match(OFFENDER);
+      if (matches) {
+        offenders.push(`${rel}: ${[...new Set(matches)].join(", ")}`);
+      }
+    }
+    expect(
+      offenders,
+      "swept chrome must be tokens-only — map to --chart-*/--warning/--accent-*, not raw colors",
     ).toEqual([]);
   });
 });

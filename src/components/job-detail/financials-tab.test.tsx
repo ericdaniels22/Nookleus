@@ -179,9 +179,11 @@ describe("FinancialsTab phone collection ring", () => {
     const ring = within(screen.getByTestId("collection-ring"));
     expect(ring.getByText(/paid ahead/i)).toBeTruthy();
 
-    // Collected − Invoiced, a positive figure, coloured green so it reads as
-    // good news rather than a maxed-out bill
+    // Collected − Invoiced, a positive figure, given the positive accent so it
+    // reads as good news rather than a maxed-out bill. Post-#926 the ring is
+    // token-only (--primary, §2.7 chart-1 emerald); jsdom can't resolve the CSS
+    // var, so assert the token class rather than a computed rgb.
     const amount = ring.getByText("$200");
-    expect(amount.style.color).toBe("rgb(93, 202, 165)"); // #5DCAA5
+    expect(amount.className).toContain("text-primary");
   });
 });

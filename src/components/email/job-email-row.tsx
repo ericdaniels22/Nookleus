@@ -30,8 +30,8 @@ export function JobEmailRow({
     ? <Send size={14} className="text-primary" />
     : <Inbox size={14} className="text-primary" />;
 
-  const iconBg = isSent ? "bg-primary/10" : "bg-vibrant-blue/10";
-  const folderBadge = isSent ? "bg-[#E1F5EE] text-[#085041]" : "bg-[#E6F1FB] text-[#0C447C]";
+  const iconBg = isSent ? "bg-primary/10" : "bg-chart-2/10";
+  const folderBadge = isSent ? "bg-primary/10 text-primary" : "bg-chart-2/15 text-chart-2";
 
   const fromDisplay = isSent
     ? "To: " + toLine
@@ -59,7 +59,7 @@ export function JobEmailRow({
               {email.folder}
             </Badge>
             {email.matched_by && (
-              <Badge className="text-[10px] px-1.5 py-0 rounded bg-muted text-[#666] flex-shrink-0">
+              <Badge className="text-[10px] px-1.5 py-0 rounded bg-muted text-muted-foreground flex-shrink-0">
                 {email.matched_by}
               </Badge>
             )}
