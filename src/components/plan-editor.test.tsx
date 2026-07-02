@@ -1403,3 +1403,30 @@ describe("PlanEditor — RoomPlan scan (#871)", () => {
     ).toBe("true");
   });
 });
+
+describe("PlanEditor — owns its viewport height (#859)", () => {
+  it("sizes its root off the viewport instead of an ancestor h-full chain", () => {
+    // The editor renders full-bleed inside AppShell's <main>, which is
+    // auto-height (only min-h-dvh) — a percentage height can't resolve against
+    // it. The root must therefore claim the viewport itself: 100dvh minus the
+    // mobile topbar offset main applies below md, the full 100dvh from md up
+    // (mirrors email-inbox, the other viewport-owning surface). With h-full
+    // here the flex-1 canvas body collapsed to 0px and no Room could ever be
+    // drawn (#859).
+    const { container } = render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[]}
+      />,
+    );
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className).toContain(
+      "h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)]",
+    );
+    expect(root.className).toContain("md:h-dvh");
+    expect(root.className.split(/\s+/)).not.toContain("h-full");
+  });
+});
