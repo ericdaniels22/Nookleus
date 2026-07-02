@@ -11,7 +11,7 @@ import {
 // PRD #304 — Nookleus Phone. Slice 7 (#311) — Job-page message row.
 //
 // One text/MMS in the Job-page Messages section. Reuses the Phone-tab
-// bubble treatment (inbound left/muted, outbound right/brand) and the
+// bubble treatment (inbound left/muted, outbound right/primary) and the
 // shared MessageAttachment so a message reads the same wherever it
 // appears, and adds a per-message context header (who it was with + when)
 // because the Job section spans many conversations and numbers.
@@ -41,7 +41,7 @@ export function JobMessageRow({ message }: { message: JobMessageRowData }) {
       </div>
       <div
         className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${
-          isIn ? "bg-muted" : "bg-[var(--brand-primary)] text-white"
+          isIn ? "bg-muted text-foreground" : "bg-primary text-primary-foreground"
         }`}
       >
         {message.body}

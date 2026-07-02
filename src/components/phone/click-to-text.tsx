@@ -39,7 +39,7 @@ export function ClickToText({
       href={href}
       className={
         className ??
-        "inline-flex items-center gap-1 text-[var(--brand-primary)] hover:underline"
+        "inline-flex items-center gap-1 text-accent-text hover:underline"
       }
     >
       {children ?? (

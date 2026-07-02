@@ -10,6 +10,10 @@ import { ClickToCall } from "@/components/phone/click-to-call";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import PageHeader from "@/components/page-header";
 import {
   Dialog,
   DialogContent,
@@ -43,18 +47,11 @@ const roleOptions = [
   { value: "insurance", label: "Insurance" },
 ];
 
-const roleColors: Record<string, string> = {
-  homeowner: "bg-[#E6F1FB] text-[#0C447C]",
-  tenant: "bg-[#EEEDFE] text-[#3C3489]",
-  property_manager: "bg-[#FAEEDA] text-[#633806]",
-  adjuster: "bg-[#E1F5EE] text-[#085041]",
-  insurance: "bg-[#FFF8E6] text-[#7A5E00]",
-  // PRD #249, issue #255: badge for `referral_contact` rows on the
-  // Contacts tab — visually consistent with the existing role badges so
-  // a user can pick out Referral Partner contacts at a glance.
-  referral_contact: "bg-[#FDECEF] text-[#7A1B2B]",
-};
-
+// Role is metadata, not a status/urgency/damage vocabulary, so per design-
+// system §1 + §5 it carries no decorative color — the label text is the
+// distinction (issue #255: pick out a Referral Partner "at a glance" from the
+// wording, not a hue). Rendered as a neutral outline badge; the former light-
+// mode hex map was dropped in the design-v2 pass (#921).
 const roleLabels: Record<string, string> = {
   homeowner: "Homeowner",
   tenant: "Tenant",
@@ -251,27 +248,26 @@ export default function ContactsPage() {
   }
 
   return (
-    <div className="max-w-6xl animate-fade-slide-up">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-extrabold text-foreground">
-            <span>Contacts</span>
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
+    <div className="max-w-6xl">
+      <PageHeader
+        title="Contacts"
+        subtitle={
+          <>
             {totalContacts} contact{totalContacts !== 1 ? "s" : ""} &middot;{" "}
             {homeownersCount} homeowner{homeownersCount !== 1 ? "s" : ""} &middot;{" "}
             {adjustersCount} adjuster{adjustersCount !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <button
-          onClick={openAddDialog}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-        >
-          <Plus size={16} />
-          Add Contact
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <button
+            onClick={openAddDialog}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <Plus size={16} />
+            Add Contact
+          </button>
+        }
+      />
 
       {/* Search + Filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -294,10 +290,10 @@ export default function ContactsPage() {
         <button
           onClick={() => setRoleFilter("all")}
           className={cn(
-            "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
             roleFilter === "all"
-              ? "bg-accent-tint text-accent-text border-transparent"
-              : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
+              ? "border-transparent bg-accent-tint text-accent-text"
+              : "border-border bg-card text-muted-foreground hover:bg-muted"
           )}
         >
           All
@@ -309,10 +305,10 @@ export default function ContactsPage() {
               setRoleFilter(roleFilter === r.value ? "all" : r.value)
             }
             className={cn(
-              "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+              "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
               roleFilter === r.value
-                ? "bg-accent-tint text-accent-text border-transparent"
-                : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:shadow-sm"
+                ? "border-transparent bg-accent-tint text-accent-text"
+                : "border-border bg-card text-muted-foreground hover:bg-muted"
             )}
           >
             {r.label}
@@ -320,46 +316,62 @@ export default function ContactsPage() {
         ))}
       </div>
 
-      {/* Contact list */}
+      {/* Contact list — a single card of hairline-separated rows (§5); each
+          row collapses gracefully to a stacked card on phone width (§7.1). */}
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground/60">Loading...</div>
+        <div className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-card">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3">
+              <Skeleton className="size-7 shrink-0 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-card rounded-xl border border-border p-12 text-center">
-          <Users size={48} className="mx-auto text-muted-foreground/40 mb-3" />
-          <p className="text-muted-foreground/60">
-            {search || roleFilter !== "all"
-              ? "No contacts match your filters"
-              : "No contacts yet"}
-          </p>
-          {!search && roleFilter === "all" && (
-            <button
-              onClick={openAddDialog}
-              className="text-sm text-primary hover:underline font-medium mt-2 inline-block"
-            >
-              Add your first contact
-            </button>
-          )}
+        <div className="rounded-lg border border-border bg-card">
+          <EmptyState
+            icon={Users}
+            title={
+              search || roleFilter !== "all"
+                ? "No contacts match your filters"
+                : "No contacts yet"
+            }
+            description={
+              search || roleFilter !== "all"
+                ? "Try a different name, role, or search term."
+                : "Add your first contact to start tracking homeowners, adjusters, and partners."
+            }
+            action={
+              !search && roleFilter === "all" ? (
+                <button
+                  onClick={openAddDialog}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <Plus size={16} />
+                  Add Contact
+                </button>
+              ) : undefined
+            }
+          />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border-subtle overflow-hidden rounded-lg border border-border bg-card">
           {filtered.map((contact) => (
             <div
               key={contact.id}
-              className="bg-card rounded-xl border border-border p-4 hover:border-primary/30 transition-all"
+              className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted"
             >
-              <div className="flex items-start justify-between gap-4">
-                {/* Left: name + details */}
-                <div className="flex-1 min-w-0">
+              {/* Left: avatar + name + details */}
+              <Avatar name={contact.full_name} className="mt-0.5" />
+              <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-sm font-semibold text-foreground truncate">
                       {contact.full_name}
                     </h3>
-                    <Badge
-                      className={cn(
-                        "text-[10px] px-1.5 py-0 rounded-full font-medium shrink-0",
-                        roleColors[contact.role] || "bg-gray-100 text-gray-600"
-                      )}
-                    >
+                    <Badge variant="outline" className="shrink-0">
                       {roleLabels[contact.role] || contact.role}
                     </Badge>
                   </div>
@@ -372,7 +384,7 @@ export default function ContactsPage() {
                         </span>
                         <ClickToText
                           e164={normalizePhoneToE164(contact.phone) ?? contact.phone}
-                          className="text-[11px] text-[var(--brand-primary)] hover:underline"
+                          className="text-[11px] text-accent-text hover:underline"
                           label="Text"
                         />
                         {/* Slice 10 (#314) — Contact-card click-to-call.
@@ -380,7 +392,7 @@ export default function ContactsPage() {
                         <ClickToCall
                           e164={normalizePhoneToE164(contact.phone) ?? contact.phone}
                           sourceContext={{ kind: "contact" }}
-                          className="inline-flex items-center gap-1 text-[11px] text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+                          className="inline-flex items-center gap-1 text-[11px] text-accent-text hover:underline disabled:opacity-50"
                         />
                       </span>
                     )}
@@ -399,37 +411,39 @@ export default function ContactsPage() {
                     {(contact.job_count ?? 0) > 0 && (
                       <Link
                         href={`/jobs?contact=${contact.id}`}
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                        className="inline-flex items-center gap-1 text-accent-text hover:underline"
                       >
                         <Briefcase size={12} />
                         {contact.job_count} job{contact.job_count !== 1 ? "s" : ""}
                       </Link>
                     )}
                   </div>
-                  {contact.notes && (
-                    <p className="text-xs text-muted-foreground/60 mt-1.5 line-clamp-1">
-                      {contact.notes}
-                    </p>
-                  )}
-                </div>
+                {contact.notes && (
+                  <p className="mt-1.5 line-clamp-1 text-xs text-muted-foreground">
+                    {contact.notes}
+                  </p>
+                )}
+              </div>
 
-                {/* Right: actions */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => openEditDialog(contact)}
-                    className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(contact)}
-                    className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-destructive hover:bg-red-50 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+              {/* Right: actions — always visible (§7.2: no hover-only
+                  affordances), 44px touch target on phone, 36px at sm+. */}
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  onClick={() => openEditDialog(contact)}
+                  className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:size-9"
+                  title="Edit"
+                  aria-label={`Edit ${contact.full_name}`}
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={() => setDeleteTarget(contact)}
+                  className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive sm:size-9"
+                  title="Delete"
+                  aria-label={`Delete ${contact.full_name}`}
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
           ))}
@@ -474,10 +488,10 @@ export default function ContactsPage() {
                       setForm({ ...form, role: r.value as Contact["role"] })
                     }
                     className={cn(
-                      "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                       form.role === r.value
-                        ? roleColors[r.value] + " border-current"
-                        : "bg-card text-muted-foreground border-border"
+                        ? "border-transparent bg-accent-tint text-accent-text"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted"
                     )}
                   >
                     {r.label}
@@ -538,13 +552,13 @@ export default function ContactsPage() {
           </div>
 
           <DialogFooter>
-            <DialogClose className="px-4 py-2 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors">
+            <DialogClose className="min-h-11 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted">
               Cancel
             </DialogClose>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
               {editingContact ? "Save Changes" : "Create Contact"}
@@ -570,20 +584,20 @@ export default function ContactsPage() {
             ? This cannot be undone.
           </p>
           {(deleteTarget as ContactWithJobs)?.job_count ? (
-            <p className="text-xs text-destructive bg-[#FCEBEB] px-3 py-2 rounded-lg">
+            <p className="rounded-lg bg-warning-tint px-3 py-2 text-xs text-warning">
               This contact is linked to{" "}
               {(deleteTarget as ContactWithJobs).job_count} job(s) and cannot be
               deleted until those jobs are reassigned.
             </p>
           ) : null}
           <DialogFooter>
-            <DialogClose className="px-4 py-2 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-accent transition-colors">
+            <DialogClose className="min-h-11 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted">
               Cancel
             </DialogClose>
             <button
               onClick={handleDelete}
               disabled={deleting || !!(deleteTarget as ContactWithJobs)?.job_count}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-destructive text-white hover:bg-[#A3171F] disabled:opacity-50 transition-colors"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
             >
               {deleting && <Loader2 size={14} className="animate-spin" />}
               Delete

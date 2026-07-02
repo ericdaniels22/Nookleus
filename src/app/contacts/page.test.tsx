@@ -122,3 +122,33 @@ describe("/contacts — Referral Contact badge (issue #255 AC #4)", () => {
     expect(screen.getByText(/\(555\) 111-0001/)).toBeDefined();
   });
 });
+
+describe("/contacts — initials avatar (design-system §5, issue #921)", () => {
+  it("shows an initials avatar labelled with each contact's name", async () => {
+    useTables({
+      contacts: [
+        {
+          id: "c-1",
+          organization_id: "org-1",
+          full_name: "Hannah Homeowner",
+          phone: null,
+          email: null,
+          role: "homeowner",
+          company: null,
+          notes: null,
+          created_at: "2026-05-01T00:00:00Z",
+          updated_at: "2026-05-01T00:00:00Z",
+        },
+      ],
+      jobs: [],
+    });
+
+    render(<ContactsPage />);
+
+    // §5: list rows carry an initials avatar (monogram on the overlay
+    // circle). The full name is the avatar's accessible label, so it reads
+    // as an image to assistive tech and shows "HH" to sighted users.
+    const avatar = await screen.findByRole("img", { name: "Hannah Homeowner" });
+    expect(avatar.textContent).toBe("HH");
+  });
+});

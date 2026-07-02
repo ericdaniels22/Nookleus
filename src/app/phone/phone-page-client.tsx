@@ -23,6 +23,11 @@ import {
   type PhoneAttachmentRef,
 } from "@/components/phone/message-attachment";
 import { mergeThreadItems } from "@/lib/phone/merge-thread-items";
+import { Avatar } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ArrowLeft } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // PRD #304 — Nookleus Phone. Slice 4 (#308) — two-pane Phone-tab UI.
 //
@@ -733,7 +738,7 @@ export function PhonePageClient({
           id={`phone-from-${idSuffix}`}
           value={fromNumberId}
           onChange={(e) => setFromNumberId(e.target.value)}
-          className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40"
+          className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
         >
           {selectableNumbers.map((opt) => (
             <option key={opt.id} value={opt.id}>
@@ -749,7 +754,7 @@ export function PhonePageClient({
     <div className="border-b border-border p-3 space-y-2 bg-muted/30">
       <h2 className="text-sm font-semibold text-foreground">New conversation</h2>
       {newConvError ? (
-        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="text-xs text-destructive">
           {newConvError}
         </p>
       ) : null}
@@ -783,7 +788,7 @@ export function PhonePageClient({
         <button
           type="button"
           onClick={() => setNewConv(null)}
-          className="text-sm text-muted-foreground hover:underline"
+          className="inline-flex min-h-11 items-center px-2 text-sm text-muted-foreground hover:underline"
         >
           Cancel
         </button>
@@ -791,7 +796,7 @@ export function PhonePageClient({
           type="button"
           onClick={() => void onCreateConversation()}
           disabled={creatingConv}
-          className="inline-flex items-center gap-1 rounded-md bg-[var(--brand-primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           <Send size={14} /> Send
         </button>
@@ -801,64 +806,76 @@ export function PhonePageClient({
 
   if (conversations.length === 0 && !newConv) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh] px-4">
-        <div className="text-center max-w-md">
-          <PhoneIcon size={40} className="mx-auto text-muted-foreground mb-4" />
-          <h1 className="text-lg font-semibold text-foreground">Phone</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            No conversations yet — text or call a Contact to get started.
-          </p>
-          {outboundEnabled ? (
-            <button
-              type="button"
-              onClick={() => setNewConv({ to: "", body: "" })}
-              className="mt-4 inline-flex items-center gap-1 rounded-md bg-[var(--brand-primary)] px-3 py-2 text-sm font-medium text-white"
-            >
-              <Plus size={14} /> New conversation
-            </button>
-          ) : null}
-        </div>
+      <div className="flex min-h-[60dvh] items-center justify-center px-4">
+        <EmptyState
+          icon={PhoneIcon}
+          title="Start a conversation"
+          description="No conversations yet — text or call a Contact to get started."
+          action={
+            outboundEnabled ? (
+              <button
+                type="button"
+                onClick={() => setNewConv({ to: "", body: "" })}
+                className="inline-flex min-h-11 items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus size={14} /> New conversation
+              </button>
+            ) : undefined
+          }
+        />
       </div>
     );
   }
 
   return (
     <div className="flex h-[calc(100dvh-4rem)]">
-      {/* Left pane — Conversations list */}
-      <aside className="w-80 border-r border-border overflow-y-auto">
-        <div className="flex items-center justify-between p-3 border-b border-border">
+      {/* Left pane — Conversations list. Mobile master-detail (§7.1): the list
+          takes the full width until a thread is selected, then the thread pane
+          takes over; at md+ both panes are always visible side by side. */}
+      <aside
+        className={cn(
+          "w-full overflow-y-auto border-r border-border md:w-80 md:shrink-0",
+          // Gate on the *resolved* conversation, not the raw id: a stale
+          // ?conversation= deep link leaves selectedId set but selected null,
+          // and hiding the list then would strand mobile with no way back.
+          selected ? "hidden md:block" : "block",
+        )}
+      >
+        <div className="flex items-center justify-between border-b border-border p-3">
           <span className="text-sm font-semibold text-foreground">Conversations</span>
           {outboundEnabled ? (
             <button
               type="button"
               onClick={() => setNewConv({ to: "", body: "" })}
-              className="inline-flex items-center gap-1 rounded-md bg-[var(--brand-primary)] px-2 py-1 text-xs font-medium text-white"
+              className="inline-flex min-h-11 items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 md:min-h-0"
             >
               <Plus size={12} /> New conversation
             </button>
           ) : null}
         </div>
         {outboundEnabled ? newConvForm : null}
-        <ul role="list">
+        <ul role="list" className="divide-y divide-border-subtle">
           {conversations.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
                 onClick={() => setSelectedId(c.id)}
-                className={`w-full text-left px-4 py-3 border-b border-border hover:bg-accent ${
-                  selectedId === c.id ? "bg-accent" : ""
-                }`}
+                className={cn(
+                  "flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted",
+                  selectedId === c.id && "bg-muted",
+                )}
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-foreground">
-                    {conversationLabel(c)}
+                {/* Decorative — the name is already spelled out beside it, so
+                    the avatar must not duplicate it in the button's a11y name. */}
+                <Avatar name={c.contact_name ?? ""} decorative />
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {conversationLabel(c)}
+                </span>
+                {c.unread_count > 0 ? (
+                  <span className="ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full bg-accent-tint px-2 text-xs font-medium text-accent-text">
+                    {c.unread_count}
                   </span>
-                  {c.unread_count > 0 ? (
-                    <span className="ml-2 inline-flex items-center justify-center rounded-full bg-[var(--brand-primary)] text-white text-xs px-2 min-w-[20px]">
-                      {c.unread_count}
-                    </span>
-                  ) : null}
-                </div>
+                ) : null}
               </button>
             </li>
           ))}
@@ -873,22 +890,41 @@ export function PhonePageClient({
         />
       ) : null}
 
-      {/* Right pane — selected thread */}
-      <section className="flex-1 flex flex-col">
+      {/* Right pane — selected thread. On mobile it replaces the list once a
+          conversation is picked (§7.1 master-detail); always visible at md+. */}
+      <section
+        className={cn(
+          "flex-1 flex-col",
+          selected ? "flex" : "hidden md:flex",
+        )}
+      >
         {selected ? (
           <>
             <header className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div className="font-medium text-foreground">
-                {conversationLabel(selected)}
+              <div className="flex min-w-0 items-center gap-2">
+                {/* Mobile master-detail (§7.1) — back to the list. Hidden at
+                    md+ where both panes are visible. */}
+                <button
+                  type="button"
+                  aria-label="Back to conversations"
+                  onClick={() => setSelectedId(null)}
+                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted md:hidden"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <Avatar name={conversationLabel(selected)} size="header" />
+                <div className="min-w-0 truncate font-medium text-foreground">
+                  {conversationLabel(selected)}
+                </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1 sm:gap-3">
                 {/* Slice 10 (#314) — Call. No A2P 10DLC gate (voice has no
                     10DLC dependency); shown wherever the Phone tab is. */}
                 <button
                   type="button"
                   onClick={() => void onCall()}
                   disabled={calling}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-muted disabled:opacity-50"
                 >
                   <PhoneIcon size={16} /> Call
                 </button>
@@ -896,7 +932,7 @@ export function PhonePageClient({
                   <button
                     type="button"
                     onClick={onSaveAsContact}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-accent-text hover:bg-muted"
                   >
                     <UserPlus size={16} /> Save as Contact
                   </button>
@@ -906,14 +942,18 @@ export function PhonePageClient({
             {callError ? (
               <p
                 role="alert"
-                className="border-b border-border px-4 py-2 text-sm text-red-600 dark:text-red-400"
+                className="border-b border-border px-4 py-2 text-sm text-destructive"
               >
                 {callError}
               </p>
             ) : null}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {loadingThread ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
+                <div className="space-y-3" aria-hidden>
+                  <Skeleton className="h-10 w-2/5 self-start rounded-lg" />
+                  <Skeleton className="ml-auto h-10 w-1/2 rounded-lg" />
+                  <Skeleton className="h-10 w-1/3 self-start rounded-lg" />
+                </div>
               ) : null}
               {threadItems.map((item) => {
                 if (item.kind === "call") {
@@ -939,7 +979,7 @@ export function PhonePageClient({
                             key={j.id}
                             type="button"
                             onClick={() => onTagJob(m.id, j.id)}
-                            className="rounded-full bg-accent px-3 py-1 hover:bg-accent/70"
+                            className="rounded-full border border-border px-3 py-1.5 hover:bg-muted"
                           >
                             {j.label}
                           </button>
@@ -947,11 +987,12 @@ export function PhonePageClient({
                       </div>
                     ) : null}
                     <div
-                      className={`group relative max-w-[70%] rounded-lg px-3 py-2 text-sm ${
+                      className={cn(
+                        "group relative max-w-[70%] rounded-lg px-3 py-2 text-sm",
                         m.direction === "in"
-                          ? "self-start bg-muted"
-                          : "self-end bg-[var(--brand-primary)] text-white"
-                      }`}
+                          ? "self-start bg-muted text-foreground"
+                          : "self-end bg-primary text-primary-foreground",
+                      )}
                     >
                       {m.body}
                       {/* Slice 6 (#310) — render inline attachments under the body.
@@ -976,7 +1017,7 @@ export function PhonePageClient({
                         onClick={() =>
                           setRetagMenuFor(retagOpen ? null : m.id)
                         }
-                        className="absolute -top-2 -right-2 hidden h-5 w-5 items-center justify-center rounded-full bg-background text-[10px] font-medium text-foreground shadow group-hover:flex"
+                        className="absolute -top-2 -right-2 flex size-6 items-center justify-center rounded-full border border-border bg-popover text-[10px] font-medium text-foreground shadow md:hidden md:group-hover:flex"
                       >
                         ⋯
                       </button>
@@ -994,7 +1035,7 @@ export function PhonePageClient({
                               setRetagMenuFor(null);
                               void onTagJob(m.id, j.id);
                             }}
-                            className="rounded-full bg-accent px-3 py-1 hover:bg-accent/70"
+                            className="rounded-full border border-border px-3 py-1.5 hover:bg-muted"
                           >
                             {j.label}
                           </button>
@@ -1014,7 +1055,7 @@ export function PhonePageClient({
                               ),
                             );
                           }}
-                          className="rounded-full border border-border px-3 py-1 hover:bg-accent/40"
+                          className="rounded-full border border-border px-3 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                         >
                           Remove tag
                         </button>
@@ -1039,18 +1080,12 @@ export function PhonePageClient({
                 className="border-t border-border p-3 space-y-2"
               >
                 {sendError ? (
-                  <p
-                    role="alert"
-                    className="text-sm text-red-600 dark:text-red-400"
-                  >
+                  <p role="alert" className="text-sm text-destructive">
                     {sendError}
                   </p>
                 ) : null}
                 {attachError ? (
-                  <p
-                    role="alert"
-                    className="text-sm text-red-600 dark:text-red-400"
-                  >
+                  <p role="alert" className="text-sm text-destructive">
                     {attachError}
                   </p>
                 ) : null}
@@ -1085,13 +1120,15 @@ export function PhonePageClient({
                           </span>
                         ) : null}
                         {a.error ? (
-                          <span className="ml-2 text-red-600">{a.error}</span>
+                          <span className="ml-2 text-destructive">
+                            {a.error}
+                          </span>
                         ) : null}
                         <button
                           type="button"
                           aria-label="Remove attachment"
                           onClick={() => onRemoveAttachment(a.id)}
-                          className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-background shadow"
+                          className="absolute -right-1 -top-1 inline-flex size-5 items-center justify-center rounded-full border border-border bg-popover text-foreground shadow hover:bg-muted"
                         >
                           <X size={12} />
                         </button>
@@ -1115,7 +1152,7 @@ export function PhonePageClient({
                     type="button"
                     aria-label="Attach"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-accent"
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted sm:size-9"
                   >
                     <Paperclip size={16} />
                   </button>
@@ -1124,7 +1161,7 @@ export function PhonePageClient({
                     onChange={(e) => setDraft(e.target.value)}
                     placeholder="Text message"
                     rows={2}
-                    className="flex-1 resize-none rounded-md border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40"
+                    className="flex-1 resize-none rounded-md border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     onKeyDown={(e) => {
                       if (
                         (e.key === "Enter" && (e.metaKey || e.ctrlKey)) &&
@@ -1147,7 +1184,7 @@ export function PhonePageClient({
                       (draft.trim().length === 0 &&
                         readyAttachments.length === 0)
                     }
-                    className="inline-flex items-center gap-1 rounded-md bg-[var(--brand-primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:min-h-0"
                   >
                     <Send size={14} /> Send
                   </button>
