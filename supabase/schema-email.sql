@@ -88,6 +88,7 @@ CREATE TABLE emails (
   received_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   category text DEFAULT 'general',                              -- inbox categorization; free text in prod (no CHECK)
+  category_locked boolean NOT NULL DEFAULT false,               -- #957: a manual move wins; skip in backfill + sender-rule re-file
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT
 );
 

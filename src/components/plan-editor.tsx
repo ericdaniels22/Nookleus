@@ -426,7 +426,11 @@ export default function PlanEditor({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    // Full-bleed inside AppShell's auto-height <main>, so the editor claims
+    // its own viewport height (a percentage chain has nothing to resolve
+    // against — #859): 100dvh minus the mobile-topbar offset main applies
+    // below md, the full 100dvh once md:pt-0 removes it.
+    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] flex-col md:h-dvh">
       <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-2">
         <Link
           href={`/jobs/${jobId}`}
