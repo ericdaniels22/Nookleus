@@ -20,6 +20,7 @@
 --   • email_attachments  — visibility tracks the parent email
 --   • email_folder_state — straight per-tenant isolation
 --   • email_signatures   — straight per-tenant isolation
+--   • bot_senders        — straight per-tenant isolation (#956)
 -- The CREATE POLICY blocks near the bottom reproduce each one faithfully.
 
 -- ============================================
@@ -48,6 +49,7 @@ CREATE TABLE email_accounts (
   is_default boolean NOT NULL DEFAULT false,
   signature text,
   category_backfill_completed_at timestamptz,                   -- one-time inbox-categorization backfill marker
+  bot_backfill_completed_at timestamptz,                        -- one-time bot-sender detection backfill marker (#956)
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
   color text,                                                   -- per-account accent color (migration-build69)
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE      -- NULL = Shared account; set = Personal owner (migration-140)
@@ -136,6 +138,27 @@ CREATE TABLE email_signatures (
 );
 
 -- ============================================
+-- 6. BOT SENDERS (#956)
+-- Org-scoped registry of automated-mail identities. A bot sender is the
+-- display-name + address PAIR (ADR 0028): vercel[bot] and "GitHub CI" both
+-- send from notifications@github.com yet stay separate. display_name defaults
+-- to '' (never NULL) so the UNIQUE key is clean and matches an email with no
+-- from_name; address is stored lowercased by the app. Presentation-only — the
+-- inbox uses these to collapse a sender's unread mail into a Sender group and
+-- drain its read mail to "Older updates".
+-- ============================================
+CREATE TABLE bot_senders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  display_name text NOT NULL DEFAULT '',
+  address text NOT NULL,
+  provenance text NOT NULL DEFAULT 'auto' CHECK (provenance IN ('auto', 'manual')),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, display_name, address)
+);
+
+-- ============================================
 -- AUTO-UPDATE updated_at TIMESTAMPS
 -- (Only email_accounts and email_signatures carry an updated_at column.)
 -- ============================================
@@ -155,6 +178,7 @@ ALTER TABLE emails ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_folder_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_signatures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bot_senders ENABLE ROW LEVEL SECURITY;
 
 -- email_accounts — Shared vs Personal (ADR 0001 / migration-140; shared INSERT
 -- tightened to admins in #222). A row is visible/editable when it is in the
@@ -255,6 +279,28 @@ CREATE POLICY tenant_isolation_email_signatures ON email_signatures
     )
   );
 
+-- bot_senders — straight per-tenant isolation.
+CREATE POLICY tenant_isolation_bot_senders ON bot_senders
+  FOR ALL
+  USING (
+    organization_id IS NOT NULL
+    AND organization_id = nookleus.active_organization_id()
+    AND EXISTS (
+      SELECT 1 FROM user_organizations uo
+      WHERE uo.user_id = auth.uid()
+        AND uo.organization_id = bot_senders.organization_id
+    )
+  )
+  WITH CHECK (
+    organization_id IS NOT NULL
+    AND organization_id = nookleus.active_organization_id()
+    AND EXISTS (
+      SELECT 1 FROM user_organizations uo
+      WHERE uo.user_id = auth.uid()
+        AND uo.organization_id = bot_senders.organization_id
+    )
+  );
+
 -- ============================================
 -- INDEXES
 -- ============================================
@@ -288,3 +334,7 @@ CREATE INDEX idx_email_folder_state_org ON email_folder_state(organization_id);
 -- UNIQUE(account_id) constraint but is present in prod, so it is kept here too)
 CREATE INDEX idx_email_signatures_account_id ON email_signatures(account_id);
 CREATE INDEX idx_email_signatures_organization_id ON email_signatures(organization_id);
+
+-- bot_senders
+CREATE INDEX idx_bot_senders_organization_id ON bot_senders(organization_id);
+CREATE INDEX idx_bot_senders_active ON bot_senders(organization_id) WHERE is_active = true;

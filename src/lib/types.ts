@@ -505,6 +505,27 @@ export interface EmailAccount {
   user_id: string | null;
   /** One-time inbox-categorization backfill marker; null until it has run. */
   category_backfill_completed_at: string | null;
+  /** One-time bot-sender detection backfill marker; null until it has run (#956). */
+  bot_backfill_completed_at: string | null;
+}
+
+/**
+ * An automated-mail sender identity (#956). Identity is the display_name +
+ * address PAIR (ADR 0028): vercel[bot] and "GitHub CI" both send from
+ * notifications@github.com yet are separate senders. Presentation-only — used
+ * to collapse a sender's unread mail into a Sender group in the inbox.
+ */
+export interface BotSender {
+  id: string;
+  organization_id: string;
+  /** Display name; "" (never null) when the sender has no from_name. */
+  display_name: string;
+  /** Sender address, stored lowercased (exact-match identity). */
+  address: string;
+  /** How this identity was registered. */
+  provenance: "auto" | "manual";
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface JobStatus {

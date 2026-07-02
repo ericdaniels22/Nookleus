@@ -14,11 +14,20 @@ import {
   Briefcase,
   MailCheck,
   ChevronDown,
+  ChevronRight,
+  ArrowLeft,
+  Bot,
+  History,
   Settings,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Email, EmailAccount } from "@/lib/types";
+import {
+  groupInbox,
+  type BotSenderIdentity,
+  type SenderGroup,
+} from "@/lib/email-inbox-grouping";
 import EmailReader from "@/components/email-reader";
 import ComposeEmailModal from "@/components/compose-email";
 import IconRail from "@/components/email/icon-rail";
@@ -34,6 +43,11 @@ import { accountRowWash } from "@/lib/email/account-wash";
 
 const LAZY_REFRESH_FOLDERS = new Set(["drafts", "trash", "spam", "archive"]);
 const LAZY_REFRESH_THROTTLE_MS = 30_000;
+
+// Buckets where automated mail is collapsed into Sender groups below the human
+// rows (#956, ADR 0028). Jobs and Purchases stay ungrouped; grouping also
+// switches off for the "all"/"starred" views and while searching.
+const GROUPED_CATEGORIES = new Set(["general", "promotions", "social"]);
 
 interface FolderCounts {
   [key: string]: { total: number; unread: number };
@@ -69,6 +83,14 @@ export default function EmailInbox() {
   const [counts, setCounts] = useState<FolderCounts>({});
 
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+
+  // Bot-sender identities (#956). Drive inbox grouping; presentation-only.
+  const [botSenders, setBotSenders] = useState<BotSenderIdentity[]>([]);
+  // Which collapsed row is drilled into: a specific Sender group, the "Older
+  // updates" aggregate, or none (the grouped overview).
+  const [drillIn, setDrillIn] = useState<
+    { kind: "group"; key: string } | { kind: "older" } | null
+  >(null);
 
   // Category filter (inbox only). Jobs is the default view (#954); General
   // remains the filing fallback for unrecognized mail.
@@ -203,6 +225,11 @@ export default function EmailInbox() {
     setSelectedIds(new Set());
   }, [folder, selectedAccountId, searchDebounced, page]);
 
+  // Leave any Sender-group / Older-updates drill-in when the view changes.
+  useEffect(() => {
+    setDrillIn(null);
+  }, [folder, category, selectedAccountId, searchDebounced]);
+
   // Compose state
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeMode, setComposeMode] = useState<"compose" | "reply" | "forward">("compose");
@@ -266,6 +293,30 @@ export default function EmailInbox() {
       })
       .catch(() => {});
   }, []);
+
+  // Load bot-sender identities on mount. Refreshed after a sync (which may
+  // auto-detect new ones) via loadBotSenders.
+  const loadBotSenders = useCallback(async () => {
+    try {
+      const res = await fetch("/api/email/bot-senders");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.botSenders)) {
+        setBotSenders(
+          data.botSenders.map((b: { display_name: string; address: string }) => ({
+            name: b.display_name,
+            address: b.address,
+          })),
+        );
+      }
+    } catch {
+      // silent — inbox still renders, just without grouping
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBotSenders();
+  }, [loadBotSenders]);
 
   // Debounce search
   useEffect(() => {
@@ -410,8 +461,8 @@ export default function EmailInbox() {
     // the indicator and spinner communicate freshness.
     void totalSynced; // intentionally unused — value is observed via list/counts refresh
 
-    await Promise.all([loadEmails(), loadCounts(), refreshAccounts()]);
-  }, [accounts, selectedAccountId, loadEmails, loadCounts, refreshAccounts]);
+    await Promise.all([loadEmails(), loadCounts(), refreshAccounts(), loadBotSenders()]);
+  }, [accounts, selectedAccountId, loadEmails, loadCounts, refreshAccounts, loadBotSenders]);
 
   const { syncing, lastSyncedAt, syncFailed, syncSilent, syncVisible } =
     useEmailSync({
@@ -618,6 +669,69 @@ export default function EmailInbox() {
   // (#955). Once filtered to a single account the color is redundant, so the
   // wash disappears; the colored edge stays either way.
   const showWash = showAccountBar && !selectedAccountId;
+
+  // ---- Bot-sender grouping (#956) ----
+  // Grouping is presentation-only and applies to the General/Promotions/Social
+  // inbox buckets when not searching. Jobs/Purchases/All/Starred and search
+  // results always render as plain rows (AC: search unaffected).
+  const groupingActive =
+    folder === "inbox" && !searchDebounced && GROUPED_CATEGORIES.has(category);
+
+  const grouped = useMemo(
+    () => (groupingActive ? groupInbox(emails, botSenders) : null),
+    [groupingActive, emails, botSenders],
+  );
+
+  const drillInGroup =
+    drillIn?.kind === "group"
+      ? grouped?.senderGroups.find((g) => g.key === drillIn.key) ?? null
+      : null;
+
+  // The emails rendered as plain rows: a drill-in set, the human rows of a
+  // grouped view, or the raw list when grouping is off.
+  const visibleEmails: Email[] = drillIn
+    ? drillIn.kind === "group"
+      ? drillInGroup?.emails ?? []
+      : grouped?.olderUpdates?.emails ?? []
+    : grouped
+      ? grouped.humanRows
+      : emails;
+
+  // Collapsed rows show only in the grouped overview (not while drilled in).
+  const hasGroupRows =
+    !drillIn && grouped
+      ? grouped.senderGroups.length > 0 || grouped.olderUpdates !== null
+      : false;
+
+  const drillInTitle =
+    drillIn?.kind === "group"
+      ? drillInGroup?.name || drillInGroup?.address || "Sender"
+      : drillIn?.kind === "older"
+        ? "Older updates"
+        : "";
+
+  // Drill-in "mark all read": marks the loaded messages of the open group /
+  // Older-updates row via the existing bulk endpoint, then exits the drill-in.
+  async function handleDrillInMarkAllRead(ids: string[]) {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    try {
+      const res = await fetch("/api/email/bulk", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, action: "mark_read" }),
+      });
+      if (!res.ok) throw new Error("mark-all-read failed");
+      setEmails((prev) =>
+        prev.map((e) => (idSet.has(e.id) ? { ...e, is_read: true } : e)),
+      );
+      setDrillIn(null);
+      loadCounts();
+      toast.success("Marked as read");
+    } catch {
+      toast.error("Failed to mark as read");
+    }
+  }
 
   return (
     <div className="h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] lg:h-dvh flex flex-col">
@@ -856,33 +970,86 @@ export default function EmailInbox() {
               <div className="flex items-center justify-center py-12 text-muted-foreground/60 text-sm">
                 Loading...
               </div>
-            ) : emails.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/60">
-                <Inbox size={32} className="mb-2 opacity-40" />
-                <p className="text-sm">No emails</p>
-              </div>
             ) : (
-              emails.map((email) => (
-                <EmailRow
-                  key={email.id}
-                  email={email}
-                  isSelected={email.id === selectedEmailId}
-                  isChecked={selectedIds.has(email.id)}
-                  folder={folder}
-                  accountColor={accountColorById.get(email.account_id)}
-                  showAccountBar={showAccountBar}
-                  showWash={showWash}
-                  onSelect={() => handleSelectEmail(email)}
-                  onStar={() =>
-                    handleStarToggle(email.id, !email.is_starred)
-                  }
-                  onToggleCheck={() => toggleSelect(email.id)}
-                />
-              ))
+              <>
+                {/* Drill-in header: back + mark-all-read for the open group /
+                    Older-updates row (#956, AC #3). */}
+                {drillIn && (
+                  <DrillInHeader
+                    title={drillInTitle}
+                    count={visibleEmails.length}
+                    hasUnread={visibleEmails.some((e) => !e.is_read)}
+                    onBack={() => setDrillIn(null)}
+                    onMarkAllRead={() =>
+                      handleDrillInMarkAllRead(
+                        visibleEmails
+                          .filter((e) => !e.is_read)
+                          .map((e) => e.id),
+                      )
+                    }
+                  />
+                )}
+
+                {visibleEmails.length === 0 && !hasGroupRows ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/60">
+                    <Inbox size={32} className="mb-2 opacity-40" />
+                    <p className="text-sm">
+                      {drillIn ? "No messages" : "No emails"}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Human mail (or the drilled-in group's messages) as plain
+                        rows — threading, job assignment, bulk actions all work
+                        exactly as before (#956, AC #6). */}
+                    {visibleEmails.map((email) => (
+                      <EmailRow
+                        key={email.id}
+                        email={email}
+                        isSelected={email.id === selectedEmailId}
+                        isChecked={selectedIds.has(email.id)}
+                        folder={folder}
+                        accountColor={accountColorById.get(email.account_id)}
+                        showAccountBar={showAccountBar}
+                        showWash={showWash}
+                        onSelect={() => handleSelectEmail(email)}
+                        onStar={() =>
+                          handleStarToggle(email.id, !email.is_starred)
+                        }
+                        onToggleCheck={() => toggleSelect(email.id)}
+                      />
+                    ))}
+
+                    {/* Collapsed Sender groups pinned below human mail, then a
+                        single "Older updates" row for drained read bot mail
+                        (#956, AC #2/#4). Overview only — hidden while drilled in. */}
+                    {!drillIn && grouped && (
+                      <>
+                        {grouped.senderGroups.map((group) => (
+                          <SenderGroupRow
+                            key={group.key}
+                            group={group}
+                            onOpen={() =>
+                              setDrillIn({ kind: "group", key: group.key })
+                            }
+                          />
+                        ))}
+                        {grouped.olderUpdates && (
+                          <OlderUpdatesRow
+                            older={grouped.olderUpdates}
+                            onOpen={() => setDrillIn({ kind: "older" })}
+                          />
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </>
             )}
 
-            {/* Infinite scroll sentinel */}
-            {!loading && hasMore && (
+            {/* Infinite scroll sentinel — overview only; a drill-in shows the
+                already-loaded messages of one sender. */}
+            {!loading && hasMore && !drillIn && (
               <div
                 ref={sentinelRef}
                 className="flex items-center justify-center py-3 text-xs text-muted-foreground/60"
@@ -1213,5 +1380,125 @@ function EmailRow({
         </div>
       </div>
     </div>
+  );
+}
+
+// Header shown while drilled into a Sender group / the Older-updates row:
+// a back button out to the grouped overview and a mark-all-read action
+// (#956, AC #3). Mark-all-read is disabled when nothing is unread.
+function DrillInHeader({
+  title,
+  count,
+  hasUnread,
+  onBack,
+  onMarkAllRead,
+}: {
+  title: string;
+  count: number;
+  hasUnread: boolean;
+  onBack: () => void;
+  onMarkAllRead: () => void;
+}) {
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 border-b border-border bg-background">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 rounded px-2 py-1 text-sm text-muted-foreground hover:bg-accent"
+        title="Back to inbox"
+      >
+        <ArrowLeft size={14} />
+        Back
+      </button>
+      <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span className="truncate text-sm font-semibold text-foreground">
+          {title}
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground/60">
+          {count} message{count !== 1 ? "s" : ""}
+        </span>
+      </div>
+      {hasUnread && (
+        <button
+          onClick={onMarkAllRead}
+          className="flex items-center gap-1 text-sm text-primary hover:underline"
+          title="Mark all as read"
+        >
+          <MailCheck size={12} />
+          Mark all read
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A collapsed Sender group: bot icon, sender identity, latest snippet, and an
+// unread-count pill. Clicking drills into the group's messages (#956, AC #3).
+function SenderGroupRow({
+  group,
+  onOpen,
+}: {
+  group: SenderGroup;
+  onOpen: () => void;
+}) {
+  const label = group.name || group.address;
+  return (
+    <button
+      onClick={onOpen}
+      className="flex w-full items-start gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-primary/5"
+    >
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Bot size={14} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-semibold text-foreground">
+            {label}
+          </span>
+          {group.unreadCount > 0 && (
+            <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+              {group.unreadCount}
+            </span>
+          )}
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">
+            {formatEmailDate(group.latestReceivedAt)}
+          </span>
+        </div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground/40">
+          {group.latestSnippet || "(no preview)"}
+        </div>
+      </div>
+      <ChevronRight
+        size={16}
+        className="mt-1 shrink-0 text-muted-foreground/40"
+      />
+    </button>
+  );
+}
+
+// The single "Older updates" row that drained (read) bot mail collapses into
+// (#956, AC #4). Clicking drills into those messages.
+function OlderUpdatesRow({
+  older,
+  onOpen,
+}: {
+  older: { count: number };
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-primary/5"
+    >
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <History size={14} />
+      </span>
+      <span className="flex-1 text-sm text-muted-foreground">
+        Older updates
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground/60">
+        {older.count}
+      </span>
+      <ChevronRight size={16} className="shrink-0 text-muted-foreground/40" />
+    </button>
   );
 }

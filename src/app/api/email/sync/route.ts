@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { withRequestContext } from "@/lib/request-context/with-request-context";
 import { decrypt } from "@/lib/encryption";
 import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
@@ -11,6 +12,8 @@ import {
   type Category,
   type ClaimContext,
 } from "@/lib/email-categorizer";
+import { detectBotSender } from "@/lib/email-bot-detector";
+import { botSenderKey } from "@/lib/email-inbox-grouping";
 import { emailAttachmentPath } from "@/lib/storage/paths";
 import { syncFolderIncremental, type EmailFolderState } from "@/lib/email/sync-folder-incremental";
 
@@ -36,6 +39,47 @@ function mapFolder(imapPath: string): string {
   if (original.includes("spam") || original.includes("junk")) return "spam";
   if (original.includes("archive") || original.includes("all mail")) return "archive";
   return original;
+}
+
+// A detected bot-sender identity: display name (case preserved for the UI)
+// plus lowercased address. Keyed for in-memory dedup by botSenderKey.
+type DetectedBot = { display_name: string; address: string };
+
+// Record an inbox sender as an auto-detected bot when detectBotSender flags it.
+// De-dupes into the caller's map by the canonical identity key.
+function collectBotSender(
+  into: Map<string, DetectedBot>,
+  fromAddress: string,
+  fromName: string | null,
+  headers?: Record<string, string> | null,
+): void {
+  const verdict = detectBotSender({ from_address: fromAddress, from_name: fromName, headers });
+  if (!verdict.isBot) return;
+  const address = fromAddress.toLowerCase();
+  const display_name = fromName ?? "";
+  const key = botSenderKey(display_name, address);
+  if (!into.has(key)) into.set(key, { display_name, address });
+}
+
+// Upsert auto-detected bot senders for an org. UNIQUE(org, display_name,
+// address) + ignoreDuplicates makes this idempotent, so re-running sync never
+// creates duplicate rows and never disturbs a sender toggled inactive/manual
+// (the conflict target matches an existing row and the insert is skipped).
+async function upsertBotSenders(
+  supabase: SupabaseClient,
+  orgId: string,
+  detected: Map<string, DetectedBot>,
+): Promise<void> {
+  if (detected.size === 0) return;
+  const rows = [...detected.values()].map((b) => ({
+    organization_id: orgId,
+    display_name: b.display_name,
+    address: b.address,
+    provenance: "auto",
+  }));
+  await supabase
+    .from("bot_senders")
+    .upsert(rows, { onConflict: "organization_id,display_name,address", ignoreDuplicates: true });
 }
 
 // POST /api/email/sync — sync emails for a specific account.
@@ -327,6 +371,43 @@ export const POST = withRequestContext(
         .eq("id", accountId);
     }
 
+    // ---- One-time per-account bot-sender backfill (#956) ----
+    // Detect automated senders already sitting in the inbox. Stored rows carry
+    // no headers, so this pass matches on the from name/address signals only
+    // ([bot] tag, no-reply local part); header-based detection kicks in for new
+    // mail via the steady-state pass below. Idempotent upsert keyed on identity.
+    if (!account.bot_backfill_completed_at) {
+      const backfillBots = new Map<string, DetectedBot>();
+      let lastBotId: string | null = null;
+      while (true) {
+        let botQuery = supabase
+          .from("emails")
+          .select("id, from_address, from_name")
+          .eq("account_id", accountId)
+          .eq("folder", "inbox")
+          .order("id", { ascending: true })
+          .limit(500);
+        if (lastBotId) botQuery = botQuery.gt("id", lastBotId);
+
+        const { data: rows } = await botQuery;
+        if (!rows || rows.length === 0) break;
+
+        for (const e of rows as { id: string; from_address: string; from_name: string | null }[]) {
+          collectBotSender(backfillBots, e.from_address, e.from_name);
+        }
+
+        lastBotId = (rows[rows.length - 1] as { id: string }).id;
+        if (rows.length < 500) break;
+      }
+
+      await upsertBotSenders(supabase, orgId, backfillBots);
+
+      await supabase
+        .from("email_accounts")
+        .update({ bot_backfill_completed_at: new Date().toISOString() })
+        .eq("id", accountId);
+    }
+
     // ---- Incremental sync: Inbox + Sent only ----
     const imapPathByFolder = new Map<string, string>();
     for (const path of folderPaths) {
@@ -359,6 +440,11 @@ export const POST = withRequestContext(
     // already assumed serial — the "in parallel" phrasing was wrong for
     // a single connection. Multi-account parallel still works because
     // each account opens its own client (see email-inbox.tsx).
+    // Auto-detect bot senders from newly-synced inbox mail (headers available
+    // here, so this catches header-based bots the backfill can't). Accumulated
+    // across folders, upserted once after the loop.
+    const steadyStateBots = new Map<string, DetectedBot>();
+
     const perFolderResults: { folder: string; synced: number; matched: number }[] = [];
     for (const [folder, imapPath] of imapPathByFolder.entries()) {
       const r = await (async () => {
@@ -390,6 +476,15 @@ export const POST = withRequestContext(
 
         let synced = 0;
         let matched = 0;
+
+        // Bot-sender detection runs on inbox mail only (sent/drafts are our
+        // own outbound). Headers from the live fetch feed automated-header
+        // detection.
+        if (folder === "inbox") {
+          for (const p of candidates) {
+            collectBotSender(steadyStateBots, p.fromAddr, p.fromName, p.headers);
+          }
+        }
 
         if (candidates.length > 0) {
           const rows = candidates.map((p) => {
@@ -491,6 +586,8 @@ export const POST = withRequestContext(
       })();
       perFolderResults.push(r);
     }
+
+    await upsertBotSenders(supabase, orgId, steadyStateBots);
 
     for (const r of perFolderResults) {
       totalSynced += r.synced;
