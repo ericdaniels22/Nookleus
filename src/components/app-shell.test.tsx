@@ -252,3 +252,26 @@ describe("AppShell — responsive shell bands (#912, design-system §4/§7)", ()
     expect(content.className).toContain("lg:p-8");
   });
 });
+
+describe("AppShell — Sketch builder renders full-bleed beside the rail (#859)", () => {
+  it("keeps the slim rail but hangs the sketch directly off <main>, outside the §4 content box", () => {
+    // The plan editor is a viewport-owning canvas surface (like /email): its
+    // root must resolve its own height against the viewport. The §4 wrapper is
+    // auto-height, so interposing it snaps the editor's percentage-height
+    // chain — the flex-1 canvas body collapses to 0px and Fabric gets a
+    // 0-height backing store (#859: drawing a Room from scratch was
+    // impossible on every deploy of #890).
+    pathnameRef.current = "/jobs/job-1/sketch";
+    renderShell();
+
+    // Still a builder route: slim rail with the ephemeral toggle (#890).
+    expect(sidebarProps.last?.forceCollapsed).toBe(true);
+    expect(typeof sidebarProps.last?.onToggleRail).toBe("function");
+
+    // Full-bleed: the page content is a direct child of <main> — no width cap,
+    // no page padding, no auto-height wrapper between the viewport and the
+    // editor.
+    const content = screen.getByText("page content");
+    expect(content.parentElement).toBe(screen.getByRole("main"));
+  });
+});

@@ -11,6 +11,13 @@ import { cn } from "@/lib/utils";
 
 const AUTH_ROUTES = ["/login", "/logout", "/set-password"];
 const FULL_BLEED_ROUTES = ["/email"];
+// Viewport-owning canvas surfaces also render full-bleed: the §4 content box
+// is auto-height, so a surface that sizes itself with percentage heights
+// collapses inside it (#859 — the sketch canvas body measured 0px and no Room
+// could be drawn). Patterns, because these routes nest under a Job id. A
+// full-bleed surface claims its own viewport height (see email-inbox /
+// plan-editor roots).
+const FULL_BLEED_PATTERNS: RegExp[] = [/^\/jobs\/[^/]+\/sketch(\/|$)/];
 // Public customer-facing routes render without the internal app chrome. The
 // marketing landing (/welcome) and legal pages (/privacy, /terms) are public
 // too — they must be reachable, and render bare, for Google's OAuth app
@@ -50,9 +57,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isPublicPage = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   const isInternalFullscreen = INTERNAL_FULLSCREEN_PATTERNS.some((re) => re.test(pathname));
   const isBuilderRoute = BUILDER_ROUTE_PATTERNS.some((re) => re.test(pathname));
-  const isFullBleed = FULL_BLEED_ROUTES.some(
-    (r) => pathname === r || pathname.startsWith(`${r}/`),
-  );
+  const isFullBleed =
+    FULL_BLEED_ROUTES.some(
+      (r) => pathname === r || pathname.startsWith(`${r}/`),
+    ) || FULL_BLEED_PATTERNS.some((re) => re.test(pathname));
 
   if (isAuthPage || isPublicPage || isInternalFullscreen) {
     return <>{children}</>;
