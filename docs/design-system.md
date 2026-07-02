@@ -323,11 +323,18 @@ workspace + user pinned bottom. Active item: `--sidebar-accent` bg +
 `--sidebar-accent-foreground`. Count chips (e.g. unread) use the same tint
 style. Compact "N" logo mark, not the full AAA logo.
 
-**Jarvis chat** (first draft — refine during step 14): user messages on
-`--muted` bubbles aligned right, Jarvis messages on `--card` with a hairline
-border aligned left; streaming shown as a small pulsing `--accent-text` dot,
-no skeletons mid-stream; composer follows input conventions (16px on
-mobile); Jarvis is the only voice in the product that speaks as "I" (§6).
+**Jarvis chat** (finalized in step 14, #922). User messages sit on `--muted`
+(raised) bubbles aligned right; Jarvis messages on `--card` with a `--border`
+hairline aligned left. Both bubbles are radius 16px with the inner corner
+squared (`rounded-tr-sm` user / `rounded-tl-sm` Jarvis), and the Jarvis side
+carries an `--accent-tint` "J" avatar. Streaming is a single small pulsing
+`--accent-text` dot in a Jarvis-style card bubble — no three-dot bounce, no
+skeletons mid-stream. The composer is a `--card` pill following input
+conventions: the textarea stays 16px (`text-base`, no `md:` downgrade) so iOS
+doesn't zoom on focus (§7.4). Message timestamps are muted 10px. Attachment
+thumbnails and PDF chips use tokens (`--foreground/10` surfaces), never
+hardcoded white. Jarvis is the only voice in the product that speaks as "I"
+(§6).
 
 **Empty states.** Icon (Lucide, muted) + one-line headline + one-line body +
 CTA verb. Never a bare dashed box. "No one's on the clock" → show the
