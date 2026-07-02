@@ -82,10 +82,10 @@ export default function DraftDetailSheet({
   const charCount = caption.length;
   const charColor =
     charCount > limits.max
-      ? "text-red-500"
+      ? "text-destructive"
       : charCount > limits.optimal
-        ? "text-yellow-500"
-        : "text-green-500";
+        ? "text-warning"
+        : "text-accent-text";
 
   const platformLabel =
     draft.platform === "gbp"
@@ -255,7 +255,7 @@ export default function DraftDetailSheet({
                   <button
                     type="button"
                     onClick={handleRemoveImage}
-                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
                   >
                     <XIcon className="h-4 w-4" />
                     Remove Image
@@ -297,7 +297,7 @@ export default function DraftDetailSheet({
               className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-muted transition-colors"
             >
               {copied ? (
-                <Check className="h-4 w-4 text-green-500" />
+                <Check className="h-4 w-4 text-accent-text" />
               ) : (
                 <Copy className="h-4 w-4" />
               )}
@@ -306,7 +306,7 @@ export default function DraftDetailSheet({
             <button
               type="button"
               onClick={handleMarkAsPosted}
-              className="inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-sm text-white hover:bg-teal-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:brightness-110 transition-colors"
             >
               <Check className="h-4 w-4" />
               Mark as Posted
@@ -314,7 +314,7 @@ export default function DraftDetailSheet({
             <button
               type="button"
               onClick={handleDelete}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
             >
               <Trash2 className="h-4 w-4" />
               Delete

@@ -179,7 +179,7 @@ function MergeFieldDropdown({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-accent-text hover:bg-primary/10 transition-colors"
       >
         <Plus size={12} /> Merge Field <ChevronDown size={10} />
       </button>

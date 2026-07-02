@@ -106,7 +106,7 @@ export default function FieldInspector({ field, signerCount, mergeRegistry, onCh
                 onClick={() => onChange({ ...field, signerOrder: n as 1 | 2 })}
                 className={`flex-1 px-2 py-1.5 text-sm rounded border ${
                   field.signerOrder === n
-                    ? "bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]"
+                    ? "bg-primary text-primary-foreground border-primary"
                     : "border-border bg-background"
                 }`}
               >
@@ -184,7 +184,7 @@ export default function FieldInspector({ field, signerCount, mergeRegistry, onCh
         <button
           type="button"
           onClick={onDelete}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-700 border border-red-300 rounded hover:bg-red-50"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-300 border border-red-500/30 rounded hover:bg-red-500/10"
         >
           <Trash2 size={14} />
           Delete field
@@ -392,7 +392,7 @@ function AutoFillBindingEditor({
       )}
 
       {unknownMatches.length > 0 && (
-        <div className="flex items-start gap-2 p-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded">
+        <div className="flex items-start gap-2 p-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           <span>
             {unknownMatches.length === 1

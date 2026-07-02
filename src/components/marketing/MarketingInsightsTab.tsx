@@ -18,6 +18,8 @@ import {
   type InsightDailySeries,
 } from "@/lib/insights/series";
 import { costPerLeadBySource } from "@/lib/insights/cost-per-lead";
+import { getChartPalette } from "@/lib/charts/palette";
+import { buildInsightLineChart } from "@/lib/insights/insight-chart";
 
 Chart.register(
   CategoryScale,
@@ -45,7 +47,6 @@ const SOURCE_ORDER: InsightMetricSource[] = [
   "local_services_ads",
 ];
 
-const LINE_COLORS = ["#2DD4BF", "#F59E0B", "#60A5FA", "#A78BFA", "#F472B6"];
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -97,17 +98,16 @@ function InsightSourcePanel({
     valueByMetricDate.set(s.metric, byDate);
   }
 
-  const chartData = {
+  // Every color the chart draws comes from the shared palette (#911), which reads
+  // the design tokens at runtime — no hex literal lives in this chart config.
+  const chart = buildInsightLineChart({
     labels: dates.map(formatDay),
-    datasets: series.map((s, i) => ({
+    datasets: series.map((s) => ({
       label: metricLabel(s.metric),
       data: dates.map((d) => valueByMetricDate.get(s.metric)?.get(d) ?? null),
-      borderColor: LINE_COLORS[i % LINE_COLORS.length],
-      backgroundColor: LINE_COLORS[i % LINE_COLORS.length],
-      tension: 0.3,
-      spanGaps: true,
     })),
-  };
+    palette: getChartPalette(),
+  });
 
   return (
     <section className="rounded-xl border border-border p-4">
@@ -115,18 +115,7 @@ function InsightSourcePanel({
         {SOURCE_LABELS[source]}
       </h3>
       <div style={{ height: 260 }} className="mb-4">
-        <Line
-          data={chartData}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: "bottom" } },
-            scales: {
-              x: { grid: { color: "#262626" }, ticks: { color: "#a3a3a3" } },
-              y: { grid: { color: "#262626" }, ticks: { color: "#a3a3a3" } },
-            },
-          }}
-        />
+        <Line data={chart.data} options={chart.options} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

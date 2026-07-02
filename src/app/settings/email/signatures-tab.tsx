@@ -147,7 +147,7 @@ export function SignaturesTab() {
         <div className="bg-card rounded-xl border border-border p-12 text-center">
           <Mail size={48} className="mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-muted-foreground">No email accounts configured.</p>
-          <a href="/settings/email" className="text-sm text-primary hover:underline mt-1 inline-block">
+          <a href="/settings/email" className="text-sm text-accent-text hover:underline mt-1 inline-block">
             Add an email account first
           </a>
         </div>

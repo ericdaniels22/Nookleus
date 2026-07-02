@@ -49,7 +49,7 @@ export default function FieldPalette({
                 e.dataTransfer.setData("application/x-overlay-field-type", type);
                 e.dataTransfer.effectAllowed = "copy";
               }}
-              className="cursor-grab active:cursor-grabbing flex flex-col items-center gap-1 p-3 rounded-lg bg-card border border-border hover:border-[var(--brand-primary)] hover:bg-accent transition-colors"
+              className="cursor-grab active:cursor-grabbing flex flex-col items-center gap-1 p-3 rounded-lg bg-card border border-border hover:border-primary hover:bg-accent transition-colors"
             >
               <Icon size={18} />
               <span className="text-[11px] font-medium">{label}</span>
@@ -94,7 +94,7 @@ export default function FieldPalette({
                 onClick={() => onMetaChange({ signer_count: n as 1 | 2 })}
                 className={`flex-1 px-2 py-1.5 text-sm rounded border ${
                   signerCount === n
-                    ? "bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]"
+                    ? "bg-primary text-primary-foreground border-primary"
                     : "border-border bg-background"
                 }`}
               >

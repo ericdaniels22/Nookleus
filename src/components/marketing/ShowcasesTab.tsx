@@ -111,7 +111,7 @@ export default function ShowcasesTab() {
             {nudges.map((job) => (
               <div
                 key={job.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 hover:border-teal-500/30 transition-colors"
+                className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 hover:border-primary/30 transition-colors"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">
@@ -125,7 +125,7 @@ export default function ShowcasesTab() {
                   type="button"
                   onClick={() => createFromNudge(job.id)}
                   disabled={creatingJobId === job.id}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal-500/20 px-3 py-1.5 text-sm font-medium text-teal-300 border border-teal-500/30 hover:bg-teal-500/30 transition-colors disabled:opacity-60"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-tint px-3 py-1.5 text-sm font-medium text-accent-text border border-primary/30 hover:brightness-125 transition-colors disabled:opacity-60"
                 >
                   {creatingJobId === job.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -162,14 +162,14 @@ export default function ShowcasesTab() {
               <Link
                 key={showcase.id}
                 href={`/jobs/${showcase.job_id}/showcases/${showcase.id}`}
-                className="group rounded-xl border bg-card p-4 transition hover:border-teal-500/30"
+                className="group rounded-xl border bg-card p-4 transition hover:border-primary/30"
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <Badge
                     variant={showcase.status === "published" ? undefined : "outline"}
                     className={
                       showcase.status === "published"
-                        ? "bg-teal-500/20 text-teal-300 border-teal-500/30"
+                        ? "bg-accent-tint text-accent-text border-primary/30"
                         : undefined
                     }
                   >
@@ -177,7 +177,7 @@ export default function ShowcasesTab() {
                   </Badge>
                   <ArrowRight
                     size={16}
-                    className="text-muted-foreground/40 group-hover:text-teal-300 transition-colors"
+                    className="text-muted-foreground/40 group-hover:text-accent-text transition-colors"
                   />
                 </div>
                 <p className="truncate text-sm font-medium text-foreground">

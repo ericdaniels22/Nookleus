@@ -5,6 +5,10 @@ import type { Payment } from "@/lib/types";
 import RecordPaymentModal from "@/components/record-payment";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import {
+  resolvePaymentSourceBadge,
+  resolvePaymentStatusBadge,
+} from "@/lib/badge-colors";
 import { OnlinePaymentRequestsSubsection } from "@/components/payments/online-payment-requests-subsection";
 
 type Props = {
@@ -66,7 +70,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
               <div className="h-3 bg-muted rounded-full overflow-hidden flex">
                 {insurancePaid > 0 && (
                   <div
-                    className="bg-[#0F6E56] h-full"
+                    className="bg-emerald-500 h-full"
                     style={{
                       width: `${(insurancePaid / totalPaid) * 100}%`,
                     }}
@@ -74,7 +78,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
                 )}
                 {homeownerPaid > 0 && (
                   <div
-                    className="bg-[#2B5EA7] h-full"
+                    className="bg-sky-400 h-full"
                     style={{
                       width: `${(homeownerPaid / totalPaid) * 100}%`,
                     }}
@@ -84,11 +88,11 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
             )}
             <div className="flex gap-4 text-xs text-muted-foreground/60">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#0F6E56]" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 Insurance: ${insurancePaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#2B5EA7]" />
+                <span className="w-2 h-2 rounded-full bg-sky-400" />
                 Homeowner: ${homeownerPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}
               </span>
             </div>
@@ -105,11 +109,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
                   <Badge
                     className={cn(
                       "text-[10px] px-1.5 py-0 rounded",
-                      p.source === "insurance"
-                        ? "bg-[#E1F5EE] text-[#085041]"
-                        : p.source === "homeowner"
-                        ? "bg-[#E6F1FB] text-[#0C447C]"
-                        : "bg-[#F1EFE8] text-[#5F5E5A]"
+                      resolvePaymentSourceBadge(p.source),
                     )}
                   >
                     {p.source}
@@ -126,11 +126,7 @@ export default function BillingSection({ jobId, payments, onPaymentRecorded, str
                   <Badge
                     className={cn(
                       "text-[10px] px-1.5 py-0 rounded",
-                      p.status === "received"
-                        ? "bg-[#E1F5EE] text-[#085041]"
-                        : p.status === "pending"
-                        ? "bg-[#FAEEDA] text-[#633806]"
-                        : "bg-[#FCEBEB] text-[#791F1F]"
+                      resolvePaymentStatusBadge(p.status),
                     )}
                   >
                     {p.status}

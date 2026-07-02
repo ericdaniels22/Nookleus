@@ -65,20 +65,6 @@ function formatDate(iso: string | null): string {
   });
 }
 
-const STATUS_CHIP_CLASS: Record<LifecycleStatus, string> = {
-  grey:   "bg-gray-200 text-gray-700",
-  yellow: "bg-yellow-200 text-yellow-900",
-  green:  "bg-green-200 text-green-900",
-  red:    "bg-red-200 text-red-900",
-};
-
-const STATUS_LABEL: Record<LifecycleStatus, string> = {
-  grey:   "Uncontacted",
-  yellow: "In progress",
-  green:  "Active",
-  red:    "Declined",
-};
-
 const ALL_STATUSES: ReadonlyArray<LifecycleStatus> = ["grey", "yellow", "green", "red"];
 
 type View = "active" | "trash";
@@ -214,11 +200,13 @@ export default function ReferralPartnersPage() {
                 type="button"
                 onClick={() => toggleStatus(s)}
                 aria-pressed={active}
-                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition ${
-                  STATUS_CHIP_CLASS[s]
-                } ${active ? "ring-2 ring-primary" : "opacity-40"}`}
+                className={cn(
+                  "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition",
+                  STATUS_ROW_STYLES[s].chip,
+                  active ? "ring-2 ring-primary" : "opacity-40",
+                )}
               >
-                {STATUS_LABEL[s]}
+                {STATUS_ROW_STYLES[s].label}
               </button>
             );
           })}

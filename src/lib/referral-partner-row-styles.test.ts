@@ -19,12 +19,16 @@ const ALL_STATUSES: ReadonlyArray<LifecycleStatus> = [
 
 describe("STATUS_ROW_STYLES", () => {
   it.each(ALL_STATUSES)(
-    "has a non-empty wrap, label, and text entry for %s",
+    "has a non-empty wrap, label, text, and chip entry for %s",
     (status) => {
       const palette = STATUS_ROW_STYLES[status];
       expect(palette.wrap.trim().length).toBeGreaterThan(0);
       expect(palette.label.trim().length).toBeGreaterThan(0);
       expect(palette.text.trim().length).toBeGreaterThan(0);
+      // The `chip` variant is the pill treatment shared by the list-page
+      // filter chips and the Worksheet status chip/flip buttons — one home
+      // for the four palettes so a new status can't ship without a chip.
+      expect(palette.chip.trim().length).toBeGreaterThan(0);
     },
   );
 });

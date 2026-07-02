@@ -164,7 +164,7 @@ export default function ReviewScreen({
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex flex-col bg-black text-white"
+      className="fixed inset-0 z-[1000] flex flex-col bg-background text-foreground"
       style={{ touchAction: "manipulation" }}
     >
       <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
@@ -186,7 +186,7 @@ export default function ReviewScreen({
             onClick={toggleSelectMode}
             className={cn(
               "rounded-full px-3 py-2 text-sm",
-              selectMode ? "bg-white text-black" : "bg-white/10 text-white",
+              selectMode ? "bg-foreground text-background" : "bg-white/10 text-white",
             )}
           >
             {selectMode ? "Done" : "Select"}
@@ -194,7 +194,7 @@ export default function ReviewScreen({
           <button
             type="button"
             onClick={onExit}
-            className="rounded-full bg-emerald-500 px-3 py-2 text-sm font-medium text-black"
+            className="rounded-full bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
           >
             Save &amp; exit
           </button>
@@ -261,7 +261,7 @@ export default function ReviewScreen({
             value={batchCaption}
             onChange={(e) => setBatchCaption(e.target.value)}
             placeholder="Caption applied to all selected photos"
-            className="h-24 w-full resize-none rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 outline-none focus:border-white"
+            className="h-24 w-full resize-none rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 outline-none focus:border-ring"
           />
         </BatchPanel>
       )}
@@ -277,7 +277,7 @@ export default function ReviewScreen({
               <span className="text-xs text-white/60">Loading tags&hellip;</span>
             )}
             {tagsError && !tagsLoading && (
-              <span className="text-xs text-red-300">
+              <span className="text-xs text-destructive">
                 Couldn&apos;t load tags ({tagsError}).
               </span>
             )}
@@ -305,7 +305,7 @@ export default function ReviewScreen({
                     className={cn(
                       "rounded-full border px-3 py-1 text-xs font-medium transition",
                       active
-                        ? "border-white bg-white text-black"
+                        ? "border-foreground bg-foreground text-background"
                         : "border-white/30 bg-transparent text-white",
                     )}
                     style={
@@ -353,7 +353,7 @@ function ReviewTile({ capture, isSelected, onTap }: ReviewTileProps) {
       type="button"
       onClick={onTap}
       style={{ touchAction: "manipulation" }}
-      className="relative block aspect-square overflow-hidden rounded-md bg-black"
+      className="relative block aspect-square overflow-hidden rounded-md bg-muted"
     >
       <img
         src={capture.thumbnail_data_url}
@@ -361,7 +361,7 @@ function ReviewTile({ capture, isSelected, onTap }: ReviewTileProps) {
         className="h-full w-full object-cover"
       />
       {isSelected && (
-        <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/40">
+        <div className="absolute inset-0 flex items-center justify-center bg-primary/40">
           <Check className="h-10 w-10 text-white" />
         </div>
       )}
@@ -392,7 +392,7 @@ function FooterAction({
       onClick={onClick}
       className={cn(
         "flex flex-col items-center gap-1 rounded-md px-4 py-1 text-xs font-medium",
-        destructive ? "text-red-400" : "text-white",
+        destructive ? "text-destructive" : "text-white",
       )}
     >
       {icon}
@@ -430,7 +430,7 @@ function BatchPanel({
         <button
           type="button"
           onClick={onSubmit}
-          className="rounded-full bg-white px-5 py-2 text-sm font-medium text-black"
+          className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground"
         >
           Apply
         </button>
@@ -463,7 +463,7 @@ function ExpandedPhoto({
         <button
           type="button"
           onClick={onDelete}
-          className="flex items-center gap-1 rounded-full bg-red-600/90 px-3 py-2 text-sm"
+          className="flex items-center gap-1 rounded-full bg-destructive/90 px-3 py-2 text-sm"
         >
           <Trash2 className="h-4 w-4" />
           Delete

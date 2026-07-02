@@ -152,7 +152,11 @@ describe("/referral-partners list page", () => {
     expect(candidates).toHaveLength(1);
     const label = candidates[0]!;
     expect(label.className).toContain("uppercase");
-    expect(label.className).toContain("text-[#5DCAA5]");
+    // Derive the color class from the shared palette rather than hardcoding a
+    // hex — the palette owns the token, the row just renders it (#924).
+    for (const cls of STATUS_ROW_STYLES.green.text.split(/\s+/).filter(Boolean)) {
+      expect(label.className).toContain(cls);
+    }
     // The old pill chip class must be gone from inside the row.
     expect(row.innerHTML).not.toContain("rounded-full");
   });

@@ -152,7 +152,7 @@ function HeaderBlock({ company, title }: { company: CompanyBrand; title: string 
           <div className="text-base font-medium text-muted-foreground truncate">{title}</div>
         </div>
       </div>
-      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold px-2 py-1 rounded-full bg-[rgba(15,110,86,0.15)] text-[#5DCAA5] border border-[rgba(15,110,86,0.35)] whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold px-2 py-1 rounded-full bg-accent-tint text-accent-text border border-primary/25 whitespace-nowrap">
         Hand to Customer
       </span>
     </div>

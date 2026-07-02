@@ -41,7 +41,7 @@ function ErrorPage({ title, message }: ErrorPageProps) {
         <p className="text-sm text-muted-foreground mt-1">{message}</p>
         <Link
           href="/referral-partners"
-          className="inline-flex items-center gap-1 mt-4 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+          className="inline-flex items-center gap-1 mt-4 text-sm font-medium text-accent-text hover:underline"
         >
           <ArrowLeft size={14} />
           Back to Referral Partners

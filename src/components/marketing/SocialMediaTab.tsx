@@ -116,8 +116,8 @@ export default function SocialMediaTab() {
               onClick={() => setPlatformFilter(p.value)}
               className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                 platformFilter === p.value
-                  ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                  : "bg-muted text-muted-foreground border border-border hover:border-teal-500/30"
+                  ? "bg-accent-tint text-accent-text border border-primary/30"
+                  : "bg-muted text-muted-foreground border border-border hover:border-primary/30"
               }`}
             >
               {p.label}

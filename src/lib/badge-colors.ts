@@ -39,8 +39,10 @@ export const roleColors: Record<string, string> = {
 // colored text — never a solid fill. The shades below are exact Tailwind
 // equivalents of the doc's reference values (e.g. sky-300 = #7DD3FC,
 // sky-400/14 = rgba(56,189,248,0.14)); keeping them as palette classes (not
-// arbitrary hexes) lets by-damage-type-tab keep deriving a chart hue from the
-// family. Rebuild/Other are the neutral pair (--text-secondary on white/7).
+// arbitrary hexes) keeps every damage-type pill on the shared palette — the
+// by-damage-type-tab table reuses this same map (#923). The chart bars there
+// cycle the §2.7 chart-slot palette, so this map no longer feeds any chart
+// hue. Rebuild/Other are the neutral pair (--text-secondary on white/7).
 export const damageTypeColors: Record<string, string> = {
   water: "bg-sky-400/14 text-sky-300",
   fire: "bg-orange-400/14 text-orange-300",
@@ -268,6 +270,38 @@ export function resolveStatusBadge(
   if (stored) return { style: soften(stored.bg_color, stored.text_color) };
   const seed = getJobStatusPresentation(name).badge;
   return { style: soften(seed.bg, seed.text) };
+}
+
+// ---------------------------------------------------------------------------
+// Payment badges (§2.5/§2.6, #917) — the Billing surface and Record-payment
+// modal tag each payment with its source (which party paid) and status. Unlike
+// damage type / job status these are a fixed enum (see `Payment` in types.ts),
+// never per-Organization data, so a plain dark-tint class map (like
+// `damageTypeColors`) is the source of truth — no soften()/inline-style path.
+// Source is categorical (a hue per party); status is semantic (received =
+// success/emerald, pending = warning/amber, due = destructive/red).
+// ---------------------------------------------------------------------------
+
+export const paymentSourceColors: Record<string, string> = {
+  insurance: "bg-emerald-500/14 text-emerald-300",
+  homeowner: "bg-sky-400/14 text-sky-300",
+  other: "bg-white/7 text-text-secondary",
+};
+
+export const paymentStatusColors: Record<string, string> = {
+  received: "bg-emerald-500/14 text-emerald-300",
+  pending: "bg-amber-400/14 text-amber-400",
+  due: "bg-red-500/14 text-[#F09595]",
+};
+
+/** Badge classes for a payment's source; an unknown value → the neutral pair. */
+export function resolvePaymentSourceBadge(source: string): string {
+  return paymentSourceColors[source] ?? paymentSourceColors.other;
+}
+
+/** Badge classes for a payment's status; an unknown value → the neutral pair. */
+export function resolvePaymentStatusBadge(status: string): string {
+  return paymentStatusColors[status] ?? paymentSourceColors.other;
 }
 
 export const damageTypeLabels: Record<string, string> = {

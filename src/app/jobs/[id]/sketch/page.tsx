@@ -42,7 +42,7 @@ export default async function SketchBuilderPage({
           </p>
           <Link
             href="/jobs"
-            className="inline-block mt-4 text-sm font-medium text-[#2B5EA7] hover:underline"
+            className="inline-block mt-4 text-sm font-medium text-accent-text hover:underline"
           >
             Back to jobs
           </Link>

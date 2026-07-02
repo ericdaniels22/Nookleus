@@ -74,7 +74,7 @@ export default function PreviewEmailModal({
       <DialogContent className="w-[min(100vw-2rem,48rem)] sm:max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0">
         <DialogHeader className="px-5 py-3 border-b border-border shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            <Mail size={18} className="text-[var(--brand-primary)]" />
+            <Mail size={18} className="text-accent-text" />
             {title || "Email Preview"}
           </DialogTitle>
         </DialogHeader>

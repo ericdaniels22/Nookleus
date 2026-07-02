@@ -70,10 +70,10 @@ export default function MarketingPage() {
   const indicator = marketingGoogleIndicator(connection, nowMs);
   const dotClass =
     indicator.kind === "expired" || indicator.kind === "broken"
-      ? "bg-red-500"
+      ? "bg-destructive"
       : indicator.kind === "expiring"
-        ? "bg-amber-400"
-        : "bg-teal-400";
+        ? "bg-warning"
+        : "bg-primary";
   const dotTitle =
     indicator.kind === "expired"
       ? "Google connection expired — reconnect"
@@ -89,9 +89,9 @@ export default function MarketingPage() {
     <div className="h-[calc(100dvh-3.5rem)] lg:h-dvh flex flex-col -m-6 lg:-m-8">
       <Tabs defaultValue={0} className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-teal-500/20 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Megaphone size={20} className="text-teal-400" />
+            <Megaphone size={20} className="text-accent-text" />
             <h1 className="text-lg font-semibold text-foreground">Marketing</h1>
             <span className={`w-2 h-2 rounded-full ${dotClass}`} title={dotTitle} />
           </div>

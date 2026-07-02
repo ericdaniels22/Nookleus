@@ -169,7 +169,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
         <h2 className="text-2xl font-bold tracking-tight">Image Library</h2>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110"
         >
           <Upload className="h-4 w-4" />
           Upload
@@ -191,7 +191,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
             onClick={() => toggleFilterTag(tag)}
             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               selectedTags.includes(tag)
-                ? "bg-teal-600 text-white"
+                ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-muted/80"
             }`}
           >
@@ -227,7 +227,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
           </p>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110"
           >
             <Upload className="h-4 w-4" />
             Upload your first image
@@ -285,7 +285,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 placeholder="Optional description..."
-                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
 
@@ -300,7 +300,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
                     onClick={() => toggleNewTag(tag)}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       newTags.includes(tag)
-                        ? "bg-teal-600 text-white"
+                        ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                   >
@@ -322,7 +322,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
                     }
                   }}
                   placeholder="Add custom tag..."
-                  className="flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                  className="flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
                 <button
                   type="button"
@@ -368,7 +368,7 @@ export default function ImageLibrary({ onRefresh }: ImageLibraryProps) {
                 type="button"
                 onClick={handleUpload}
                 disabled={uploading}
-                className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:brightness-110 disabled:opacity-50"
               >
                 {uploading ? "Uploading..." : "Upload"}
               </button>
