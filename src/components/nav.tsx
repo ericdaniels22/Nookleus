@@ -306,9 +306,13 @@ export default function Sidebar({
       <Tooltip.Provider delay={300}>
         <aside
           className={cn(
-            "fixed top-0 left-0 z-40 h-dvh bg-sidebar flex flex-col transition-[transform,width] duration-200 ease-out pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
-            // Off-canvas drawer below md; docked from md up (§7.1).
-            overlayOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+            // Tailwind v4 translate-x-* utilities set the CSS `translate`
+            // property, so the transition list names `translate` (naming
+            // `transform` instead makes the drawer snap).
+            "fixed top-0 right-0 md:left-0 md:right-auto z-40 h-dvh bg-sidebar flex flex-col transition-[translate,width] duration-200 ease-out motion-reduce:transition-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            // Off-canvas drawer past the RIGHT edge below md (it slides in
+            // under the top-right hamburger); docked left from md up (§7.1).
+            overlayOpen ? "translate-x-0" : "translate-x-full md:translate-x-0",
             // Widths per §7.1: drawer/overlay and the full desktop sidebar
             // are 240px; the icon rail is 56px from md up.
             collapsed ? "w-60 md:w-14" : "w-60",
