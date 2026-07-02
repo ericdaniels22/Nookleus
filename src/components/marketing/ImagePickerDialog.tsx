@@ -64,8 +64,8 @@ export default function ImagePickerDialog({
               onClick={() => setFilterTag(null)}
               className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                 !filterTag
-                  ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                  : "bg-muted text-muted-foreground border border-border hover:border-teal-500/30"
+                  ? "bg-accent-tint text-accent-text border border-primary/30"
+                  : "bg-muted text-muted-foreground border border-border hover:border-primary/30"
               }`}
             >
               All
@@ -76,8 +76,8 @@ export default function ImagePickerDialog({
                 onClick={() => setFilterTag(filterTag === tag ? null : tag)}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   filterTag === tag
-                    ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                    : "bg-muted text-muted-foreground border border-border hover:border-teal-500/30"
+                    ? "bg-accent-tint text-accent-text border border-primary/30"
+                    : "bg-muted text-muted-foreground border border-border hover:border-primary/30"
                 }`}
               >
                 {tag}
@@ -93,7 +93,7 @@ export default function ImagePickerDialog({
               onRemove();
               onClose();
             }}
-            className="mb-4 text-sm text-red-400 hover:text-red-300 transition-colors"
+            className="mb-4 text-sm text-destructive hover:text-destructive/80 transition-colors"
           >
             Remove current image
           </button>
@@ -116,9 +116,9 @@ export default function ImagePickerDialog({
                   onSelect(asset.id);
                   onClose();
                 }}
-                className={`group relative aspect-square rounded-lg overflow-hidden border-2 transition-all hover:border-teal-400 ${
+                className={`group relative aspect-square rounded-lg overflow-hidden border-2 transition-all hover:border-primary ${
                   asset.id === currentImageId
-                    ? "border-teal-400 ring-2 ring-teal-400/30"
+                    ? "border-primary ring-2 ring-primary/30"
                     : "border-border"
                 }`}
               >
@@ -140,8 +140,8 @@ export default function ImagePickerDialog({
                   )}
                 </div>
                 {asset.id === currentImageId && (
-                  <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-teal-400 flex items-center justify-center">
-                    <span className="text-xs text-black font-bold">✓</span>
+                  <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    <span className="text-xs text-primary-foreground font-bold">✓</span>
                   </div>
                 )}
               </button>

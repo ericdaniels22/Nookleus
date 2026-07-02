@@ -59,23 +59,23 @@ function bannerCopy(
   if (indicator.kind === "expiring") {
     const d = indicator.daysRemaining;
     return {
-      tone: "border-amber-500/30 bg-amber-500/10 text-amber-700",
-      icon: "text-amber-500",
+      tone: "border-warning/30 bg-warning-tint text-warning",
+      icon: "text-warning",
       title: `Google connection expires in ${d} day${d === 1 ? "" : "s"}`,
       body: "Reconnect now to keep posts, reviews, and the marketing tools working without interruption.",
     };
   }
   if (indicator.kind === "expired") {
     return {
-      tone: "border-red-500/30 bg-red-500/10 text-red-700",
-      icon: "text-red-500",
+      tone: "border-destructive/30 bg-destructive/10 text-destructive",
+      icon: "text-destructive",
       title: "Google connection expired",
       body: "Your Google access has lapsed. Reconnect to restore posts, reviews, and the marketing tools.",
     };
   }
   return {
-    tone: "border-red-500/30 bg-red-500/10 text-red-700",
-    icon: "text-red-500",
+    tone: "border-destructive/30 bg-destructive/10 text-destructive",
+    icon: "text-destructive",
     title: "Google connection needs reconnecting",
     body: "Access was revoked or expired. Reconnect to resume the Google-powered marketing tools.",
   };

@@ -23,6 +23,7 @@ import {
 } from "@/lib/referral-partner-call";
 import { shouldOfferCreate } from "@/lib/insurance-picker";
 import type { NewReferralContactInput } from "@/lib/referral-contact-form";
+import { STATUS_ROW_STYLES } from "@/lib/referral-partner-row-styles";
 
 export interface ReferralPartnerForWorksheet {
   id: string;
@@ -79,27 +80,6 @@ function formatDate(iso: string | null): string {
 
 type LifecycleStatus = ReferralPartnerForWorksheet["status"];
 
-const STATUS_CHIP_CLASS: Record<LifecycleStatus, string> = {
-  grey: "bg-gray-200 text-gray-700",
-  yellow: "bg-yellow-200 text-yellow-900",
-  green: "bg-green-200 text-green-900",
-  red: "bg-red-200 text-red-900",
-};
-
-const STATUS_BUTTON_CLASS: Record<LifecycleStatus, string> = {
-  grey: "bg-gray-200 text-gray-700 hover:bg-gray-300",
-  yellow: "bg-yellow-200 text-yellow-900 hover:bg-yellow-300",
-  green: "bg-green-200 text-green-900 hover:bg-green-300",
-  red: "bg-red-200 text-red-900 hover:bg-red-300",
-};
-
-const STATUS_LABEL: Record<LifecycleStatus, string> = {
-  grey: "Uncontacted",
-  yellow: "In progress",
-  green: "Active",
-  red: "Declined",
-};
-
 const STATUS_ORDER: ReadonlyArray<LifecycleStatus> = [
   "grey",
   "yellow",
@@ -142,7 +122,7 @@ function EditableField({
   };
 
   const inputClass =
-    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none";
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-ring focus:outline-none";
 
   return (
     <div className="flex flex-col gap-1">
@@ -229,7 +209,7 @@ function ContactSlot({
         aria-label={heading}
         value={selectedId}
         onChange={onChange}
-        className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none mb-2"
+        className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-ring focus:outline-none mb-2"
       >
         <option value="">— Not set —</option>
         {contacts.map((c) => (
@@ -334,9 +314,9 @@ export function ReferralPartnerWorksheet({
           </h1>
           <span
             data-testid="worksheet-lifecycle-status-chip"
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CHIP_CLASS[status]}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_ROW_STYLES[status].chip}`}
           >
-            {STATUS_LABEL[status]}
+            {STATUS_ROW_STYLES[status].label}
           </span>
           <button
             type="button"
@@ -365,14 +345,14 @@ export function ReferralPartnerWorksheet({
               key={s}
               type="button"
               data-testid={`worksheet-lifecycle-flip-${s}`}
-              aria-label={`Set Lifecycle status to ${STATUS_LABEL[s]}`}
+              aria-label={`Set Lifecycle status to ${STATUS_ROW_STYLES[s].label}`}
               aria-pressed={status === s}
               onClick={() => flipStatus(s)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-shadow ${STATUS_BUTTON_CLASS[s]} ${
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${STATUS_ROW_STYLES[s].chip} hover:brightness-125 ${
                 status === s ? "ring-2 ring-foreground/40" : ""
               }`}
             >
-              {STATUS_LABEL[s]}
+              {STATUS_ROW_STYLES[s].label}
             </button>
           ))}
         </div>
@@ -604,7 +584,7 @@ function AddContactAffordance({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs font-medium text-[var(--brand-primary)] hover:underline"
+        className="text-xs font-medium text-accent-text hover:underline"
       >
         + Add contact
       </button>
@@ -612,7 +592,7 @@ function AddContactAffordance({
   }
 
   const inputClass =
-    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-[var(--brand-primary)] focus:outline-none";
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground focus:border-ring focus:outline-none";
 
   return (
     <form
@@ -692,7 +672,7 @@ function AddContactAffordance({
         <button
           type="submit"
           disabled={!canSave || submitting}
-          className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium disabled:opacity-50"
         >
           Save contact
         </button>
@@ -881,7 +861,7 @@ function CallLogSection({
           <button
             type="submit"
             disabled={submitting}
-            className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+            className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
           >
             Log call
           </button>

@@ -19,7 +19,7 @@ function StarRating({ value }: { value: number }) {
           size={14}
           className={
             i <= value
-              ? "fill-amber-400 text-amber-400"
+              ? "fill-warning text-warning"
               : "text-muted-foreground/40"
           }
         />
@@ -98,7 +98,7 @@ function ReviewRow({ review }: { review: GoogleReviewInboxItem }) {
         ) : (
           <span
             data-testid="review-needs-reply"
-            className="shrink-0 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300"
+            className="shrink-0 rounded-full bg-warning-tint px-2.5 py-1 text-xs font-medium text-warning"
           >
             Needs reply
           </span>

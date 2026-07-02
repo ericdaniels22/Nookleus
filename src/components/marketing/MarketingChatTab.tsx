@@ -82,7 +82,7 @@ export default function MarketingChatTab() {
         <div className="flex items-center justify-between px-4 py-2 border-b border-border/50">
           <button
             onClick={handleNewConversation}
-            className="lg:hidden text-sm text-teal-400 font-medium"
+            className="lg:hidden text-sm text-accent-text font-medium"
           >
             New Chat
           </button>
