@@ -256,12 +256,27 @@ once **Active** became a single **Job status** and the two would have collided.
 _Avoid_: active job (collides with the **Active** status), current job,
 running job, in-progress job (that one is a specific status, not the whole alive set)
 
+**Document Ledger**:
+The condensed panel on a Job's Overview tab listing the Job's authored
+paper trail — its Contracts, its Estimates (a converted Estimate's row
+flips to show its Invoice, mirroring the Estimates & Invoices behavior),
+its one Sketch, and its Photo Reports — one line per document with a
+status dot. A *document* here is something Nookleus itself authors or
+generates on the Job; a **File** (an upload from outside — a carrier PDF,
+a receipt) is deliberately excluded and stays in the separate Files
+section. The Sketch counts as one document (it is 1:1 with the Job) and
+carries no workflow status. The UI header reads "Documents".
+_Avoid_: documents section (vague), paperwork; files (those are uploads,
+not documents)
+
 **Photo**:
 A single image — or short video — captured on a Job and shown in the Job's
 Photos tab. Belongs to exactly one Job. Distinct from a **File**: the Job's
-Files tab holds documents/attachments, which are a separate feature. When
+Files tab holds uploads/attachments, which are a separate feature. When
 someone refers loosely to "the job's file" of pictures, they mean Photos.
-_Avoid_: image, attachment, media; "file" (that's the separate documents feature)
+_Avoid_: image, attachment, media; "file" (that's the separate uploads
+feature); "document" for a File (a document is authored by Nookleus — see
+**Document Ledger**)
 
 **Photo Report**:
 A document an Organization generates from a Job's Photos — Sections of
