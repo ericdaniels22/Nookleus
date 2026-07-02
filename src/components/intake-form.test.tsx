@@ -27,8 +27,17 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
 }));
 
+// The org's damage_types rows (name/label/colors), seeded per test for the
+// §2.6 tint-treatment specs (#915).
+let damageTypesFixture: {
+  name: string;
+  display_label: string;
+  bg_color: string;
+  text_color: string;
+}[] = [];
+
 vi.mock("@/lib/config-context", () => ({
-  useConfig: () => ({ damageTypes: [] }),
+  useConfig: () => ({ damageTypes: damageTypesFixture }),
 }));
 
 vi.mock("@/lib/supabase/get-active-org", () => ({
@@ -186,6 +195,7 @@ function makeConfig(opts: { insuranceRequired?: boolean } = {}): FormConfig {
 beforeEach(() => {
   vi.clearAllMocks();
   formConfigFixture = makeConfig();
+  damageTypesFixture = [];
   contactsSearchResult = { data: [], error: null };
   selectResults = {};
   inserts = {};
@@ -199,6 +209,129 @@ beforeEach(() => {
       json: () => Promise.resolve({ config: formConfigFixture }),
     }),
   ) as unknown as typeof fetch;
+});
+
+// ─── Mobile-first layout (#915) ─────────────────────────────────────────────
+// Related fields share a two-up row at iPad width (design-system §7.2); the
+// pairing is planned by src/lib/intake-form-layout.ts from whatever config
+// the org has. The form renders each planned row as a `data-slot="field-row"`
+// group — paired fields land in the same group, full-width fields alone.
+
+describe("IntakeForm — related compact fields share a row (#915)", () => {
+  it("renders adjacent phone + email in one field-row and the address alone in its own", async () => {
+    formConfigFixture = {
+      sections: [
+        {
+          id: "s1",
+          title: "Customer",
+          fields: [
+            {
+              id: "f-name",
+              type: "text",
+              label: "Full Name",
+              placeholder: "name-input",
+              maps_to: "contact.full_name",
+            },
+            { id: "f-phone", type: "phone", label: "Phone", placeholder: "phone-input" },
+            { id: "f-email", type: "email", label: "Email", placeholder: "email-input" },
+            {
+              id: "f-addr",
+              type: "text",
+              label: "Property Address",
+              placeholder: "address-input",
+              maps_to: "job.property_address",
+            },
+          ],
+        },
+      ],
+    };
+
+    render(<IntakeForm />);
+
+    const phone = await screen.findByPlaceholderText("phone-input");
+    const email = screen.getByPlaceholderText("email-input");
+    const address = screen.getByPlaceholderText("address-input");
+
+    const rowOf = (el: HTMLElement) => el.closest('[data-slot="field-row"]');
+    expect(rowOf(phone)).not.toBeNull();
+    expect(rowOf(phone)).toBe(rowOf(email));
+    expect(rowOf(address)).not.toBe(rowOf(phone));
+  });
+});
+
+// ─── Loading / empty / error states (#915, design-system §5 + §8 DoD) ───────
+
+describe("IntakeForm — loading state (#915)", () => {
+  it("shows a skeleton while the form config is loading", () => {
+    // A fetch that never settles keeps the form in its loading state.
+    global.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
+
+    render(<IntakeForm />);
+
+    expect(screen.getByRole("status", { name: /loading/i })).toBeDefined();
+  });
+});
+
+describe("IntakeForm — config fetch failure shows an error with retry (#915)", () => {
+  it("renders an error state when the fetch fails, and retry loads the form", async () => {
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementationOnce(() => Promise.reject(new Error("network down")));
+
+    render(<IntakeForm />);
+
+    // The failure is surfaced as an error state — not the misleading
+    // "no form configuration" empty state.
+    fireEvent.click(await screen.findByRole("button", { name: /try again/i }));
+
+    // The retry re-fetches (mock now resolves the config) and the form renders.
+    expect(await screen.findByPlaceholderText("name-input")).toBeDefined();
+  });
+});
+
+// ─── Damage-type tint treatment (#915, design-system §2.6) ──────────────────
+// The Damage type selector is where the badge vocabulary is chosen, so the
+// selected pill renders the softened tint — a ~14%-alpha wash of the org's
+// stored bg color behind an AA-legible text tone — never a solid fill of the
+// raw stored colors.
+
+describe("IntakeForm — damage-type pill renders the §2.6 tint, not a solid fill (#915)", () => {
+  it("gives the selected damage-type pill a softened 14%-alpha background and legible text", async () => {
+    damageTypesFixture = [
+      { name: "water", display_label: "Water", bg_color: "#38BDF8", text_color: "#7DD3FC" },
+      { name: "fire", display_label: "Fire", bg_color: "#FB923C", text_color: "#FDBA74" },
+    ];
+    formConfigFixture = {
+      sections: [
+        {
+          id: "s1",
+          title: "Job",
+          fields: [
+            {
+              id: "f-damage",
+              type: "pill",
+              label: "Damage Type",
+              maps_to: "job.damage_type",
+              options_source: "damage_types",
+            },
+          ],
+        },
+      ],
+    };
+
+    render(<IntakeForm />);
+
+    const water = await screen.findByRole("button", { name: "Water" });
+    fireEvent.click(water);
+
+    // Softened per §2.6: the stored bg becomes a 14%-alpha tint; the stored
+    // text tone (already AA on the card surface) passes through unchanged.
+    expect(water.style.backgroundColor).toBe("rgba(56, 189, 248, 0.14)");
+    expect(water.style.color).toBe("rgb(125, 211, 252)");
+
+    // Unselected pills stay neutral — no stored-color fill leaks through.
+    const fire = screen.getByRole("button", { name: "Fire" });
+    expect(fire.style.backgroundColor).toBe("");
+  });
 });
 
 describe("IntakeForm — insurance-company picker swap (#195)", () => {
@@ -505,7 +638,8 @@ describe("IntakeForm — fires new-intake notifications after submit (#669)", ()
     fireEvent.click(screen.getByRole("button", { name: /create job/i }));
 
     await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/jobs/job-1"));
-    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/created successfully/i));
+    // §6 voice: confirmations are past tense — no "successfully", no exclamation.
+    expect(toast.success).toHaveBeenCalledWith("Job J-100 created");
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
