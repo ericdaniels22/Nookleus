@@ -523,3 +523,75 @@ describe("JobDetail — swipe-to-refresh data preservation (#751)", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
+
+// ── Why this suite exists (#965) ──────────────────────────────────────────
+// On a 390px phone the five-entry menu row overflows and scrolls horizontally.
+// The bug: `overflow-x-auto` on its own promotes the row's `overflow-y` from
+// `visible` to `auto` (CSS spec), so an unconstrained menu also scrolled
+// up/down — and without `whitespace-nowrap` the labels could wrap and grow the
+// row tall, feeding that vertical scroll. The fix pins scrolling to the x-axis,
+// keeps each tab on one line, tightens the spacing, and adds a decorative,
+// mobile-only left/right affordance so the horizontal scroll is discoverable.
+describe("JobDetail — tab bar scroll affordance (#965)", () => {
+  // The scroll container is the flex row that directly holds the tab buttons.
+  const tabRow = () => screen.getByRole("button", { name: "Overview" }).parentElement!;
+
+  it("constrains the tab bar to horizontal-only scrolling", async () => {
+    render(<JobDetail jobId="job-1" />);
+    expect(await screen.findByText("JOB-1001")).toBeTruthy();
+
+    const row = tabRow();
+    // Horizontal scroll stays, but vertical is explicitly locked instead of
+    // being left to compute to `auto`, and touch is pinned to horizontal pans
+    // so a vertical drag can't hijack the row.
+    expect(row.className).toContain("overflow-x-auto");
+    expect(row.className).toContain("overflow-y-hidden");
+    expect(row.className).toContain("touch-pan-x");
+  });
+
+  it("keeps each tab on a single line so the row overflows sideways, never taller", async () => {
+    render(<JobDetail jobId="job-1" />);
+    expect(await screen.findByText("JOB-1001")).toBeTruthy();
+
+    // Every entry — the buttons and the Sketch link — must refuse to wrap
+    // (`whitespace-nowrap`) and refuse to compress (`shrink-0`); otherwise the
+    // labels wrap onto two lines, growing the row tall and re-creating the
+    // vertical-scroll bug the container lock is meant to kill.
+    for (const entry of [
+      screen.getByRole("button", { name: "Overview" }),
+      screen.getByRole("button", { name: "Financials" }),
+      screen.getByRole("link", { name: /Sketch/ }),
+    ]) {
+      expect(entry.className).toContain("whitespace-nowrap");
+      expect(entry.className).toContain("shrink-0");
+    }
+  });
+
+  it("places the tab options closer together with tighter horizontal padding", async () => {
+    render(<JobDetail jobId="job-1" />);
+    expect(await screen.findByText("JOB-1001")).toBeTruthy();
+
+    // "Place the options a bit closer together" (#965): the roomy px-6 gutters
+    // tighten to px-4 so the five entries pack in without feeling cramped.
+    const overview = screen.getByRole("button", { name: "Overview" });
+    expect(overview.className).toContain("px-4");
+    expect(overview.className).not.toContain("px-6");
+  });
+
+  it("shows decorative, mobile-only left/right scroll hints that bounce", async () => {
+    render(<JobDetail jobId="job-1" />);
+    expect(await screen.findByText("JOB-1001")).toBeTruthy();
+
+    for (const side of ["left", "right"] as const) {
+      const hint = screen.getByTestId(`tab-scroll-hint-${side}`);
+      // Pure affordance: announced to no assistive tech and never intercepting
+      // the touch that actually scrolls the row.
+      expect(hint.getAttribute("aria-hidden")).toBe("true");
+      expect(hint.className).toContain("pointer-events-none");
+      // Only surfaced at the phone widths where the row overflows and scrolls.
+      expect(hint.className).toContain("sm:hidden");
+      // It periodically bounces to advertise the horizontal scroll direction.
+      expect(hint.querySelector(`.animate-scroll-hint-${side}`)).not.toBeNull();
+    }
+  });
+});

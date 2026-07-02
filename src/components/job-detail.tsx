@@ -66,6 +66,8 @@ import {
   Trash2,
   RotateCcw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Megaphone,
   AlertTriangle,
 } from "lucide-react";
@@ -101,6 +103,18 @@ const propertyTypeLabels: Record<string, string> = {
 // `.limit(12)` newest photos fetched below) — about a screenful — and no more,
 // so opening a Job and never tapping Photos costs little background data.
 const SCREENFUL_PRELOAD = 12;
+
+// Shared tab-bar entry styling (#965). Every entry stays on one line
+// (`whitespace-nowrap`) and refuses to compress (`shrink-0`) so a narrow
+// viewport overflows the row sideways instead of wrapping labels and growing
+// it tall. Kept in one place so the four buttons and the Sketch link can't
+// drift apart.
+const TAB_ITEM_BASE =
+  "px-4 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors whitespace-nowrap shrink-0";
+const tabItemState = (active: boolean) =>
+  active
+    ? "text-primary border-primary font-semibold"
+    : "text-muted-foreground border-transparent hover:text-foreground";
 
 export default function JobDetail({ jobId }: { jobId: string }) {
   const { hasPermission, profile } = useAuth();
@@ -656,38 +670,27 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      {/* Tab bar — five entries overflow a 390px viewport, so it scrolls (§8) */}
-      <div className="flex gap-0 border-b-2 border-border mb-6 overflow-x-auto">
+      {/* Tab bar — five entries overflow a 390px viewport, so it scrolls (§8).
+          Scroll is pinned to the x-axis: `overflow-x-auto` alone would promote
+          overflow-y to `auto`, letting the row scroll up/down on mobile (#965).
+          The relative wrapper anchors the mobile-only left/right scroll hints. */}
+      <div className="relative mb-6">
+      <div className="flex gap-0 border-b-2 border-border overflow-x-auto overflow-y-hidden touch-pan-x overscroll-x-contain scrollbar-none">
         <button
           onClick={() => setActiveTab("overview")}
-          className={cn(
-            "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
-            activeTab === "overview"
-              ? "text-primary border-primary font-semibold"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          )}
+          className={cn(TAB_ITEM_BASE, tabItemState(activeTab === "overview"))}
         >
           Overview
         </button>
         <button
           onClick={() => setActiveTab("financials")}
-          className={cn(
-            "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
-            activeTab === "financials"
-              ? "text-primary border-primary font-semibold"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          )}
+          className={cn(TAB_ITEM_BASE, tabItemState(activeTab === "financials"))}
         >
           Financials
         </button>
         <button
           onClick={() => setActiveTab("photos")}
-          className={cn(
-            "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors flex items-center gap-1.5",
-            activeTab === "photos"
-              ? "text-primary border-primary font-semibold"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          )}
+          className={cn(TAB_ITEM_BASE, "flex items-center gap-1.5", tabItemState(activeTab === "photos"))}
         >
           Photos
           <span className={cn(
@@ -701,12 +704,7 @@ export default function JobDetail({ jobId }: { jobId: string }) {
         </button>
         <button
           onClick={() => setActiveTab("time")}
-          className={cn(
-            "px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 transition-colors",
-            activeTab === "time"
-              ? "text-primary border-primary font-semibold"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          )}
+          className={cn(TAB_ITEM_BASE, tabItemState(activeTab === "time"))}
         >
           Time
         </button>
@@ -716,10 +714,30 @@ export default function JobDetail({ jobId }: { jobId: string }) {
             anything. AppShell collapses the nav to a rail there. */}
         <Link
           href={`/jobs/${jobId}/sketch`}
-          className="px-6 py-2.5 text-sm font-medium -mb-[2px] border-b-2 border-transparent text-muted-foreground hover:text-foreground transition-colors"
+          className={cn(TAB_ITEM_BASE, tabItemState(false))}
         >
           Sketch
         </Link>
+      </div>
+        {/* Mobile-only scroll affordance (#965): the row is scrollbar-hidden on
+            phones, so these decorative edge fades gently bounce their chevron
+            to advertise that the menu scrolls left/right. Purely cosmetic —
+            aria-hidden and pointer-events-none so they never touch AT or taps,
+            and sm:hidden so they vanish once the row fits without scrolling. */}
+        <span
+          aria-hidden="true"
+          data-testid="tab-scroll-hint-left"
+          className="pointer-events-none absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background to-transparent pr-5 text-muted-foreground sm:hidden"
+        >
+          <ChevronLeft size={16} className="animate-scroll-hint-left" />
+        </span>
+        <span
+          aria-hidden="true"
+          data-testid="tab-scroll-hint-right"
+          className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background to-transparent pl-5 text-muted-foreground sm:hidden"
+        >
+          <ChevronRight size={16} className="animate-scroll-hint-right" />
+        </span>
       </div>
 
       {activeTab === "financials" && (() => {

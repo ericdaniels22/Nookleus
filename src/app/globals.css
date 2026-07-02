@@ -203,6 +203,31 @@
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
+/* Scroll-hint affordance for horizontally-scrollable menu rows (#965).
+   The chevron rests most of the cycle, then gives a subtle periodic nudge
+   outward to advertise that the row scrolls left/right on phones. */
+@keyframes scrollHintNudgeLeft {
+  0%, 60%, 100% { transform: translateX(0); opacity: 0.4; }
+  80% { transform: translateX(-3px); opacity: 0.85; }
+}
+@keyframes scrollHintNudgeRight {
+  0%, 60%, 100% { transform: translateX(0); opacity: 0.4; }
+  80% { transform: translateX(3px); opacity: 0.85; }
+}
+.animate-scroll-hint-left {
+  animation: scrollHintNudgeLeft 2.6s ease-in-out infinite;
+}
+.animate-scroll-hint-right {
+  animation: scrollHintNudgeRight 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-scroll-hint-left,
+  .animate-scroll-hint-right {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
 /* ============================================
  * Contract-template merge fields (Build 15a)
  * ============================================ */
