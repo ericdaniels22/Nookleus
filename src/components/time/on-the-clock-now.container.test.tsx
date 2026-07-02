@@ -23,12 +23,24 @@ vi.mock("@/lib/timesheets/use-open-sessions", () => ({
 
 vi.mock("@/lib/supabase", () => ({ createClient: () => ({ __fake: true }) }));
 
+// The empty state offers an inline clock-in CTA (#913) — but only to a viewer
+// who can actually clock in. Stub the context that gates that, and the picker
+// the CTA opens.
+const useOnTheClockMock = vi.fn();
+vi.mock("@/lib/on-the-clock-context", () => ({
+  useOnTheClock: () => useOnTheClockMock(),
+}));
+vi.mock("@/components/time/clock-in-picker", () => ({
+  default: () => null,
+}));
+
 import OnTheClockNow from "./on-the-clock-now";
 
 beforeEach(() => {
   vi.clearAllMocks();
   authState.organizationId = "org-1";
   useOpenSessionsMock.mockReturnValue({ sessions: [], loading: false });
+  useOnTheClockMock.mockReturnValue({ canTrackTime: false });
 });
 afterEach(cleanup);
 
@@ -73,5 +85,31 @@ describe("OnTheClockNow (container, #705)", () => {
     expect(useOpenSessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: "org-7" }),
     );
+  });
+
+  it("offers an inline clock-in CTA in the empty state when the viewer can track time", () => {
+    hasPermission.mockReturnValue(true);
+    useOpenSessionsMock.mockReturnValue({ sessions: [], loading: false });
+    useOnTheClockMock.mockReturnValue({ canTrackTime: true });
+
+    render(<OnTheClockNow />);
+
+    expect(screen.getByText("No one's on the clock")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /clock in to a job/i }),
+    ).toBeTruthy();
+  });
+
+  it("omits the inline clock-in CTA for a viewer who cannot clock in", () => {
+    hasPermission.mockReturnValue(true);
+    useOpenSessionsMock.mockReturnValue({ sessions: [], loading: false });
+    useOnTheClockMock.mockReturnValue({ canTrackTime: false });
+
+    render(<OnTheClockNow />);
+
+    expect(screen.getByText("No one's on the clock")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /clock in to a job/i }),
+    ).toBeNull();
   });
 });
