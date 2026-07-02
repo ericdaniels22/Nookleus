@@ -25,8 +25,10 @@ export const urgencyLabels: Record<string, string> = {
 // colored text — never a solid fill. The shades below are exact Tailwind
 // equivalents of the doc's reference values (e.g. sky-300 = #7DD3FC,
 // sky-400/14 = rgba(56,189,248,0.14)); keeping them as palette classes (not
-// arbitrary hexes) lets by-damage-type-tab keep deriving a chart hue from the
-// family. Rebuild/Other are the neutral pair (--text-secondary on white/7).
+// arbitrary hexes) keeps every damage-type pill on the shared palette — the
+// by-damage-type-tab table reuses this same map (#923). The chart bars there
+// cycle the §2.7 chart-slot palette, so this map no longer feeds any chart
+// hue. Rebuild/Other are the neutral pair (--text-secondary on white/7).
 export const damageTypeColors: Record<string, string> = {
   water: "bg-sky-400/14 text-sky-300",
   fire: "bg-orange-400/14 text-orange-300",

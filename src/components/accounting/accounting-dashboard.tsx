@@ -74,8 +74,7 @@ export default function AccountingDashboard() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm ${tab === t.id ? "text-foreground border-b-2" : "text-muted-foreground hover:text-foreground"}`}
-            style={tab === t.id ? { borderBottomColor: "#0F6E56" } : undefined}
+            className={`px-3 py-2 text-sm ${tab === t.id ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}
           >
             {t.label}
           </button>

@@ -26,12 +26,16 @@ const BUCKET_LABEL: Record<Bucket, string> = {
   "61-90": "61-90d",
   "90+": "90+d",
 };
-const BUCKET_COLOR: Record<Bucket, string> = {
-  current: "#a3a3a3",
-  "1-30": "#a3a3a3",
-  "31-60": "#FAC775",
-  "61-90": "#F0B060",
-  "90+": "#F09595",
+// §2.6 aging-severity gradient as palette classes (tint-not-fill, never a raw
+// hex): neutral → amber → orange → red as the bucket ages. `text` paints the
+// label + age pill foreground, `border` the card outline (~25% alpha), `tint`
+// the age-pill wash (~14% alpha).
+const BUCKET_SEVERITY: Record<Bucket, { text: string; border: string; tint: string }> = {
+  current: { text: "text-muted-foreground", border: "border-white/10", tint: "bg-white/5" },
+  "1-30": { text: "text-muted-foreground", border: "border-white/10", tint: "bg-white/5" },
+  "31-60": { text: "text-amber-300", border: "border-amber-400/25", tint: "bg-amber-400/14" },
+  "61-90": { text: "text-orange-300", border: "border-orange-400/25", tint: "bg-orange-400/14" },
+  "90+": { text: "text-red-300", border: "border-red-500/25", tint: "bg-red-500/14" },
 };
 
 function fmt(n: number) {
@@ -70,17 +74,12 @@ export default function ArAgingTab() {
       <div className="grid grid-cols-5 gap-3">
         {(["current", "1-30", "31-60", "61-90", "90+"] as Bucket[]).map((b) => {
           const bk = data?.buckets?.[b] ?? { total: 0, count: 0 };
+          const sev = BUCKET_SEVERITY[b];
           return (
-            <div
-              key={b}
-              className="rounded-lg p-4"
-              style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BUCKET_COLOR[b]}40` }}
-            >
-              <div className="text-xs uppercase" style={{ color: BUCKET_COLOR[b] }}>
-                {BUCKET_LABEL[b]}
-              </div>
-              <div className="mt-1 text-xl font-semibold">{fmt(bk.total)}</div>
-              <div className="text-xs text-muted-foreground">{bk.count} invoices</div>
+            <div key={b} className={`rounded-lg p-4 bg-white/3 border ${sev.border}`}>
+              <div className={`text-xs uppercase ${sev.text}`}>{BUCKET_LABEL[b]}</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums">{fmt(bk.total)}</div>
+              <div className="text-xs text-muted-foreground tabular-nums">{bk.count} invoices</div>
             </div>
           );
         })}
@@ -92,8 +91,7 @@ export default function ArAgingTab() {
           <button
             key={p}
             onClick={() => setPayer(p)}
-            className={`px-3 py-1.5 text-sm capitalize ${payer === p ? "text-white" : "text-muted-foreground"}`}
-            style={payer === p ? { background: "#0F6E56" } : undefined}
+            className={`px-3 py-1.5 text-sm capitalize ${payer === p ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
           >
             {p === "all" ? "All payers" : p}
           </button>
@@ -125,11 +123,10 @@ export default function ArAgingTab() {
                 <td className="px-3 py-2">
                   {r.payerType ? <PayerBadge value={r.payerType} /> : <span className="text-muted-foreground">—</span>}
                 </td>
-                <td className="text-right px-3 py-2">{fmt(r.outstanding)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.outstanding)}</td>
                 <td className="px-3 py-2">
                   <span
-                    className="inline-flex rounded px-2 py-0.5 text-xs"
-                    style={{ color: BUCKET_COLOR[r.bucket], background: `${BUCKET_COLOR[r.bucket]}20` }}
+                    className={`inline-flex rounded px-2 py-0.5 text-xs tabular-nums ${BUCKET_SEVERITY[r.bucket].text} ${BUCKET_SEVERITY[r.bucket].tint}`}
                   >
                     {r.ageDays}d
                   </span>
@@ -152,15 +149,13 @@ export default function ArAgingTab() {
 }
 
 function PayerBadge({ value }: { value: string }) {
-  const m: Record<string, { bg: string; color: string; label: string }> = {
-    insurance: { bg: "rgba(139, 92, 246, 0.15)", color: "#C4B5FD", label: "Insurance" },
-    homeowner: { bg: "rgba(59, 130, 246, 0.15)", color: "#93C5FD", label: "Homeowner" },
-    mixed: { bg: "rgba(250, 199, 117, 0.15)", color: "#FAC775", label: "Mixed" },
+  // §2.6 tint treatment as palette classes: insurance = violet, homeowner =
+  // blue, mixed = amber, anything else = neutral.
+  const m: Record<string, { cls: string; label: string }> = {
+    insurance: { cls: "bg-violet-500/15 text-violet-300", label: "Insurance" },
+    homeowner: { cls: "bg-blue-500/15 text-blue-300", label: "Homeowner" },
+    mixed: { cls: "bg-amber-400/15 text-amber-300", label: "Mixed" },
   };
-  const s = m[value] ?? { bg: "rgba(255,255,255,0.05)", color: "#a3a3a3", label: value };
-  return (
-    <span className="inline-flex rounded px-2 py-0.5 text-xs" style={{ background: s.bg, color: s.color }}>
-      {s.label}
-    </span>
-  );
+  const s = m[value] ?? { cls: "bg-white/5 text-muted-foreground", label: value };
+  return <span className={`inline-flex rounded px-2 py-0.5 text-xs ${s.cls}`}>{s.label}</span>;
 }

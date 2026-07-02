@@ -44,15 +44,13 @@ export default function StatCards({ range }: { range: RangePreset }) {
       <Card label="Revenue" value={fmt(data.revenue.current)}>
         {data.revenue.delta && data.revenue.delta.pct !== null && (
           <div
-            className="text-xs"
-            style={{
-              color:
-                data.revenue.delta.direction === "up"
-                  ? "#5DCAA5"
-                  : data.revenue.delta.direction === "down"
-                  ? "#F09595"
-                  : "#a3a3a3",
-            }}
+            className={`text-xs tabular-nums ${
+              data.revenue.delta.direction === "up"
+                ? "text-emerald-300"
+                : data.revenue.delta.direction === "down"
+                ? "text-red-300"
+                : "text-muted-foreground"
+            }`}
           >
             {data.revenue.delta.direction === "up" ? "▲" : data.revenue.delta.direction === "down" ? "▼" : "–"}{" "}
             {Math.abs(data.revenue.delta.pct).toFixed(1)}% vs prior
@@ -71,14 +69,14 @@ export default function StatCards({ range }: { range: RangePreset }) {
         title="Estimate — includes manual crew labor cost where entered"
       >
         {data.grossMargin.pct !== null && (
-          <div className="text-xs" style={{ color: "#9FE1CB" }}>
+          <div className="text-xs tabular-nums text-emerald-300">
             {data.grossMargin.pct.toFixed(1)}% margin
           </div>
         )}
       </Card>
       <Card label="Outstanding AR" value={fmt(data.outstandingAR.amount)}>
         {data.outstandingAR.overSixty > 0 && (
-          <div className="text-xs" style={{ color: "#FAC775" }}>
+          <div className="text-xs tabular-nums text-warning">
             {fmt(data.outstandingAR.overSixty)} over 60 days
           </div>
         )}
@@ -100,13 +98,15 @@ function Card({
   highlight?: boolean;
   title?: string;
 }) {
-  const hl = highlight
-    ? { background: "rgba(29, 158, 117, 0.12)", border: "1px solid rgba(29, 158, 117, 0.35)" }
-    : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" };
+  // §2.4 highlight = product-accent tint (--primary emerald); the neutral card
+  // is a subtle white wash on the page surface — both as palette classes.
+  const surface = highlight
+    ? "bg-primary/12 border border-primary/35"
+    : "bg-white/3 border border-white/8";
   return (
-    <div className="rounded-lg p-4" style={hl} title={title}>
+    <div className={`rounded-lg p-4 ${surface}`} title={title}>
       <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold" style={highlight ? { color: "#5DCAA5" } : undefined}>
+      <div className={`mt-1 text-2xl font-semibold tabular-nums ${highlight ? "text-primary" : ""}`}>
         {value}
       </div>
       <div className="mt-1">{children}</div>
@@ -116,10 +116,7 @@ function Card({
 
 function CardSkel() {
   return (
-    <div
-      className="rounded-lg p-4 animate-pulse"
-      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
-    >
+    <div className="rounded-lg p-4 animate-pulse bg-white/3 border border-white/8">
       <div className="h-4 w-16 rounded bg-muted" />
       <div className="mt-2 h-7 w-24 rounded bg-muted" />
     </div>
