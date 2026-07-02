@@ -205,19 +205,50 @@ describe("AppShell — public marketing & legal routes render bare (#789 OAuth v
   );
 });
 
-describe("AppShell — content margin tracks the rail (#543)", () => {
+describe("AppShell — content margin tracks the rail (#543 / #912)", () => {
   it("reserves the slim-rail margin on a builder route and widens when expanded", () => {
     // The document must sit beside the slim rail (narrow left margin) even
-    // though the persisted pref is expanded — then follow the rail as it opens.
+    // though the persisted pref is expanded — then follow the rail as it
+    // opens. Rail is 56px from md up (§7.1); the full sidebar is 240px at lg.
     pathnameRef.current = "/estimates/est-1/edit";
     renderShell();
 
     const main = screen.getByRole("main");
-    expect(main.className).toContain("lg:ml-16");
-    expect(main.className).not.toContain("lg:ml-52");
+    expect(main.className).toContain("md:ml-14");
+    expect(main.className).not.toContain("lg:ml-60");
 
     fireEvent.click(screen.getByText("rail-toggle"));
-    expect(main.className).toContain("lg:ml-52");
-    expect(main.className).not.toContain("lg:ml-16");
+    expect(main.className).toContain("lg:ml-60");
+  });
+});
+
+describe("AppShell — responsive shell bands (#912, design-system §4/§7)", () => {
+  it("clears the icon rail from md and the full 240px sidebar from lg", () => {
+    // §7.1: drawer < 640 (no margin — the topbar offsets via padding), icon
+    // rail 56px at md, full sidebar 240px at lg. The expanded margin scheme
+    // must carry both responsive steps.
+    pathnameRef.current = "/";
+    renderShell();
+
+    const main = screen.getByRole("main");
+    expect(main.className).toContain("md:ml-14");
+    expect(main.className).toContain("lg:ml-60");
+    // The mobile topbar disappears at md (the rail takes over), so the
+    // topbar height offset must clear at md, not lg.
+    expect(main.className).toContain("md:pt-0");
+  });
+
+  it("caps content at 1440px with 16px phone padding stepping up per band", () => {
+    // §4: main content max-width 1440px, fluid below. Page padding 16px
+    // mobile (p-4), 24–32px desktop (md:p-6 lg:p-8).
+    pathnameRef.current = "/";
+    renderShell();
+
+    const content = screen.getByText("page content").parentElement!;
+    expect(content.className).toContain("max-w-[1440px]");
+    expect(content.className).toContain("mx-auto");
+    expect(content.className).toContain("p-4");
+    expect(content.className).toContain("md:p-6");
+    expect(content.className).toContain("lg:p-8");
   });
 });

@@ -4,7 +4,9 @@ const config: CapacitorConfig = {
   appId: 'com.aaacontracting.platform',
   appName: 'Nookleus',
   webDir: 'out',
-  backgroundColor: '#0a0a0aff',
+  // WebView background = the dark canvas (--background, design-system §7.6)
+  // so load/overscroll gaps never flash a different color.
+  backgroundColor: '#0B0F0EFF',
   server: {
     url: 'https://aaaplatform.vercel.app',
     cleartext: false,
@@ -12,7 +14,7 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'automatic',
-    backgroundColor: '#0a0a0aff',
+    backgroundColor: '#0B0F0EFF',
   },
 };
 

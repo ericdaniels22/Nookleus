@@ -10,6 +10,7 @@ import JobCard from "@/components/job-card";
 import JobListRow from "@/components/job-list-row";
 import JobComfortableRow from "@/components/job-comfortable-row";
 import JobsViewToggle from "@/components/jobs-view-toggle";
+import PageHeader from "@/components/page-header";
 import { JobStageSections } from "@/components/job-stage-sections";
 import { useJobsViewMode } from "@/lib/jobs/use-jobs-view-mode";
 import { loadJobsWithCover } from "@/lib/jobs/jobs-with-cover";
@@ -171,14 +172,7 @@ export default function JobsPage() {
 
   return (
     <div className="max-w-6xl animate-fade-slide-up">
-      <div className="mb-6">
-        <h1 className="text-3xl font-extrabold text-foreground">
-          <span>Jobs</span>
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Track and manage all your jobs.
-        </p>
-      </div>
+      <PageHeader title="Jobs" subtitle="Track and manage all your jobs." />
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
