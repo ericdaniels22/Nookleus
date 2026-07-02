@@ -5,7 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { MapPin, User, Shield, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { Job } from "@/lib/types";
-import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
+import {
+  urgencyColors,
+  urgencyLabels,
+  resolveDamageTypeBadge,
+  resolveStatusBadge,
+} from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import { cn } from "@/lib/utils";
 import { JobStageStripe } from "@/components/job-stage-stripe";
@@ -21,9 +26,16 @@ export default function JobCard({
   // list's single org-wide presence subscription (#705). Empty → no badge.
   onSiteNames?: string[];
 }) {
-  const { getStatusColor, getStatusLabel, getDamageTypeColor, getDamageTypeLabel, damageTypes } = useConfig();
+  const { getStatusLabel, getDamageTypeLabel, statuses, damageTypes } =
+    useConfig();
   const isCompleted = job.status === "completed" || job.status === "cancelled";
   const contactName = job.contact ? job.contact.full_name : "Unknown";
+
+  // §2.6 tint treatment: status stays config-sourced (ADR 0022) and softens
+  // into a tint; damage type shows its vivid canonical class unless the org
+  // customized the color, which is then softened to stay legible.
+  const statusBadge = resolveStatusBadge(job.status, statuses);
+  const damageBadge = resolveDamageTypeBadge(job.damage_type, damageTypes);
 
   // Get damage type color for top border
   const dtConfig = damageTypes.find((dt) => dt.name === job.damage_type);
@@ -68,8 +80,9 @@ export default function JobCard({
             variant="secondary"
             className={cn(
               "text-[11px] font-medium px-2 py-0.5 rounded-md",
-              getDamageTypeColor(job.damage_type)
+              damageBadge.className
             )}
+            style={damageBadge.style}
           >
             {getDamageTypeLabel(job.damage_type)}
           </Badge>
@@ -120,8 +133,9 @@ export default function JobCard({
             variant="secondary"
             className={cn(
               "text-[11px] font-medium px-2 py-0.5 rounded-md",
-              getStatusColor(job.status)
+              statusBadge.className
             )}
+            style={statusBadge.style}
           >
             {getStatusLabel(job.status)}
           </Badge>

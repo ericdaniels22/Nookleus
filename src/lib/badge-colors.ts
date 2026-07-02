@@ -1,3 +1,6 @@
+import type { DamageType, JobStatus } from "@/lib/types";
+import { getJobStatusPresentation } from "@/lib/job-status-presentation";
+
 // Static badge palettes for job urgency and damage type. (Job-status colors and
 // labels now come from useConfig() + src/lib/job-status-presentation.ts — the
 // single source of truth per ADR 0022; #722 migrated the job-detail view off the
@@ -33,6 +36,23 @@ export const damageTypeColors: Record<string, string> = {
   contents: "bg-yellow-400/14 text-yellow-300",
   rebuild: "bg-white/7 text-text-secondary",
   other: "bg-white/7 text-text-secondary",
+};
+
+// The light-mode seed (bg, text) every Organization starts with for the eight
+// canonical damage types — the exact hexes the `damage_types` rows are seeded
+// with (organization_id null). Single source of truth: config-context imports
+// this for its pre-load fallback, and resolveDamageTypeBadge compares a stored
+// color against it to tell an *uncustomized* default (→ vivid class map) from a
+// per-org override (→ soften). Keep in lockstep with the DB seed migration.
+export const DEFAULT_DAMAGE_COLORS: Record<string, { bg: string; text: string }> = {
+  water: { bg: "#E6F1FB", text: "#0C447C" },
+  fire: { bg: "#FAECE7", text: "#712B13" },
+  mold: { bg: "#EAF3DE", text: "#27500A" },
+  storm: { bg: "#EEEDFE", text: "#3C3489" },
+  biohazard: { bg: "#FCEBEB", text: "#791F1F" },
+  contents: { bg: "#FFF8E6", text: "#7A5E00" },
+  rebuild: { bg: "#F1EFE8", text: "#5F5E5A" },
+  other: { bg: "#F1EFE8", text: "#5F5E5A" },
 };
 
 // ---------------------------------------------------------------------------
@@ -164,6 +184,76 @@ export function soften(bgHex: string, textHex: string): SoftenedBadge {
     background: `rgba(${r}, ${g}, ${b}, ${TINT_ALPHA})`,
     color: legibleTextTone(textHex),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Badge resolvers — the §2.6 treatment the Jobs surfaces (#914) apply to a
+// damage-type / status value. Each returns a BadgeStyle: EITHER a Tailwind
+// `className` (the vivid dark-tint default, JIT-safe because it is a literal
+// from the maps above) OR an inline `style` (a softened per-org color). The
+// two branches are mutually exclusive, so a consumer can always spread both:
+//   <Badge className={cn(base, badge.className)} style={badge.style} />
+// ---------------------------------------------------------------------------
+
+export interface BadgeStyle {
+  /** Tailwind classes for the vivid class-map path (undefined on the soften path). */
+  className?: string;
+  /** Inline tint style for the soften path (undefined on the class-map path). */
+  style?: { background: string; color: string };
+}
+
+/** Case/`#`-insensitive hex equality, so a seed match survives casing drift. */
+function sameColor(a: string, b: string): boolean {
+  return a.trim().replace(/^#/, "").toLowerCase() ===
+    b.trim().replace(/^#/, "").toLowerCase();
+}
+
+/**
+ * The badge treatment for a Job's damage type (§2.6). An uncustomized canonical
+ * type — the stored color still equals its seed, or no row exists yet — renders
+ * the vivid dark-tint class from `damageTypeColors`. A per-Organization override
+ * (any color differing from the seed) is softened to a legible tint so a hostile
+ * choice (white, neon) can't break the dark theme. A non-canonical custom type
+ * with no color falls back to the neutral pair.
+ */
+export function resolveDamageTypeBadge(
+  name: string,
+  damageTypes: DamageType[],
+): BadgeStyle {
+  const stored = damageTypes.find((d) => d.name === name);
+  const canonicalClass = damageTypeColors[name];
+  const seed = DEFAULT_DAMAGE_COLORS[name];
+
+  if (stored) {
+    const isUncustomizedDefault =
+      seed &&
+      sameColor(stored.bg_color, seed.bg) &&
+      sameColor(stored.text_color, seed.text);
+    if (canonicalClass && isUncustomizedDefault) return { className: canonicalClass };
+    return { style: soften(stored.bg_color, stored.text_color) };
+  }
+
+  // No stored row (pre-load, or a type the org never seeded): show the vivid
+  // canonical class when we know it, else the neutral fallback.
+  return { className: canonicalClass ?? damageTypeColors.other };
+}
+
+/**
+ * The badge treatment for a Job's status (§2.6). Status colors stay
+ * config-driven per ADR 0022 — this only restyles them into the tint treatment,
+ * it never substitutes a different palette. The stored `job_statuses` color is
+ * softened to a legible tint; before the config loads (or for an unknown key)
+ * the presentation-module seed is softened instead, so the source of the color
+ * never moves.
+ */
+export function resolveStatusBadge(
+  name: string,
+  statuses: JobStatus[],
+): BadgeStyle {
+  const stored = statuses.find((s) => s.name === name);
+  if (stored) return { style: soften(stored.bg_color, stored.text_color) };
+  const seed = getJobStatusPresentation(name).badge;
+  return { style: soften(seed.bg, seed.text) };
 }
 
 export const damageTypeLabels: Record<string, string> = {

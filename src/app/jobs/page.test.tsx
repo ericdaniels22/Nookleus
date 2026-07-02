@@ -19,23 +19,25 @@ import {
 // vi.mock factories below can reference it safely.
 const h = vi.hoisted(() => ({
   role: "admin",
+  // Status rows carry bg/text colors so the #914 badge resolvers can soften
+  // them into a tint when a job row renders (the #728 tests below mount rows).
   statuses: [
-    { name: "new", display_label: "Lead", sort_order: 1 },
-    { name: "in_progress", display_label: "Active", sort_order: 2 },
-    { name: "pending_invoice", display_label: "Collections", sort_order: 3 },
-    { name: "completed", display_label: "Closed", sort_order: 4 },
-    { name: "cancelled", display_label: "Lost", sort_order: 5 },
+    { name: "new", display_label: "Lead", sort_order: 1, bg_color: "#123456", text_color: "#88CCFF" },
+    { name: "in_progress", display_label: "Active", sort_order: 2, bg_color: "#123456", text_color: "#88CCFF" },
+    { name: "pending_invoice", display_label: "Collections", sort_order: 3, bg_color: "#123456", text_color: "#88CCFF" },
+    { name: "completed", display_label: "Closed", sort_order: 4, bg_color: "#123456", text_color: "#88CCFF" },
+    { name: "cancelled", display_label: "Lost", sort_order: 5, bg_color: "#123456", text_color: "#88CCFF" },
   ],
 }));
 
 vi.mock("@/lib/config-context", () => ({
   useConfig: () => ({
     statuses: h.statuses,
-    // Job rows render in the #728 tests below; these keep JobComfortableRow's
-    // status / damage-type badge lookups from blowing up under the mock.
-    getStatusColor: () => "",
+    // The job rows (#728 tests) now pass status/damage config through the §2.6
+    // resolvers (#914); an empty damageTypes list resolves each damage type to
+    // its vivid canonical class, and the labels come from these getters.
+    damageTypes: [],
     getStatusLabel: (key: string) => key,
-    getDamageTypeColor: () => "",
     getDamageTypeLabel: (key: string) => key,
   }),
 }));
@@ -319,5 +321,44 @@ describe("Jobs page — hide Closed & Lost by default (#728)", () => {
       expect(screen.queryByTestId("section-completed")).toBeNull(),
     );
     expect(screen.queryByTestId("section-cancelled")).toBeNull();
+  });
+});
+
+// §8 definition of done requires every data surface to carry a loading, empty,
+// AND error state. The page had loading + empty but swallowed fetch failures
+// into an empty `setJobs([])`, so a network error read as "No jobs found".
+// #914 adds a distinct error state with a retry action.
+describe("Jobs page — error state (§8 DoD, #914)", () => {
+  it("shows an error state with a retry action when the jobs fetch fails", async () => {
+    loadJobs.mockRejectedValueOnce(new Error("network down"));
+
+    render(<JobsPage />);
+
+    // The error state appears — NOT the empty "No jobs found", which would
+    // misrepresent a failed load as an org with zero jobs.
+    await waitFor(() => expect(screen.getByTestId("jobs-error")).toBeTruthy());
+    expect(screen.queryByText("No jobs found")).toBeNull();
+    // ...and offers a retry CTA (verb-first per §5).
+    expect(
+      screen.getByRole("button", { name: /try again/i }),
+    ).toBeTruthy();
+  });
+
+  it("recovers to the list when the retry succeeds", async () => {
+    loadJobs.mockRejectedValueOnce(new Error("network down"));
+    // Every call after the first failure returns a live job, so a retry loads.
+    loadJobs.mockResolvedValue([
+      makeJob({ id: "recovered-1", status: "in_progress" }),
+    ]);
+
+    render(<JobsPage />);
+    await waitFor(() => expect(screen.getByTestId("jobs-error")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("section-in_progress")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("jobs-error")).toBeNull();
   });
 });
