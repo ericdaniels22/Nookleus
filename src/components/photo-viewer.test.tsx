@@ -501,7 +501,7 @@ describe("PhotoViewer — edits survive paging away and back (#847)", () => {
   });
 
   // The active "After" role carries the side panel's selected-state classes; a
-  // reverted role would fall back to the inactive `bg-white` styling.
+  // reverted role would fall back to the inactive `bg-card` styling.
   const afterButton = () => screen.getByRole("button", { name: "After" });
 
   it("keeps an edited Before/After role after paging back", async () => {
@@ -513,7 +513,7 @@ describe("PhotoViewer — edits survive paging away and back (#847)", () => {
     await act(async () => {
       fireEvent.click(afterButton());
     });
-    expect(afterButton().className).toContain("E1F5EE");
+    expect(afterButton().className).toContain("bg-accent-tint");
 
     // Page to B (still unset) and back to A.
     await act(async () => {
@@ -524,7 +524,7 @@ describe("PhotoViewer — edits survive paging away and back (#847)", () => {
     });
 
     // A's role is still After — not reverted to the snapshot's null.
-    expect(afterButton().className).toContain("E1F5EE");
+    expect(afterButton().className).toContain("bg-accent-tint");
   });
 });
 

@@ -462,7 +462,7 @@ export default function JobPhotosTab({
         {/* Upload */}
         <button
           onClick={() => setUploadOpen(true)}
-          className="px-4 py-1.5 rounded-lg bg-[#2B5EA7] text-white text-sm font-semibold flex items-center gap-1.5 hover:bg-[#234b8a] transition-colors"
+          className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold flex items-center gap-1.5 hover:bg-primary/90 transition-colors"
         >
           <Plus size={14} />
           Upload Photos
@@ -482,7 +482,7 @@ export default function JobPhotosTab({
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-[#2B5EA7] text-white rounded-xl mb-4 text-sm sticky top-0 z-40">
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-primary text-white rounded-xl mb-4 text-sm sticky top-0 z-40">
           <span className="font-semibold">{selectedIds.size} photos selected</span>
           <div className="relative">
             <button
@@ -571,7 +571,7 @@ export default function JobPhotosTab({
               </button>
               <button
                 onClick={handleBulkDelete}
-                className="px-4 py-2 rounded-lg bg-[#C41E2A] text-white text-sm font-medium hover:bg-[#a01823] transition-colors"
+                className="px-4 py-2 rounded-lg bg-destructive text-white text-sm font-medium hover:bg-destructive/90 transition-colors"
               >
                 Delete
               </button>
@@ -590,7 +590,7 @@ export default function JobPhotosTab({
           <p className="text-muted-foreground">No photos found.</p>
           {(startDate || endDate || selectedUsers.length > 0 || selectedTags.length > 0) && (
             <button
-              className="text-sm text-[#2B5EA7] hover:underline mt-2"
+              className="text-sm text-primary hover:underline mt-2"
               onClick={() => {
                 setStartDate("");
                 setEndDate("");
@@ -612,7 +612,7 @@ export default function JobPhotosTab({
                   type="checkbox"
                   checked={isGroupSelected(group.photos)}
                   onChange={() => toggleGroupSelect(group.photos)}
-                  className="w-4 h-4 rounded border-2 border-muted-foreground/30 accent-[#2B5EA7] cursor-pointer"
+                  className="w-4 h-4 rounded border-2 border-muted-foreground/30 accent-primary cursor-pointer"
                 />
                 <span className="text-lg font-semibold text-foreground">{group.label}</span>
               </div>
@@ -640,9 +640,9 @@ export default function JobPhotosTab({
                       <div
                         className={`aspect-square rounded-lg overflow-hidden relative transition-transform hover:scale-[1.03] ${
                           isSelected
-                            ? "ring-[3px] ring-[#2B5EA7]"
+                            ? "ring-[3px] ring-primary"
                             : isCover
-                            ? "ring-[3px] ring-[#F5A623]"
+                            ? "ring-[3px] ring-warning"
                             : ""
                         }`}
                         onClick={(e) => {
@@ -665,13 +665,13 @@ export default function JobPhotosTab({
                           fetchPriority={imgPriority.fetchPriority}
                         />
                         {/* User avatar */}
-                        <div className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-full bg-[#2B5EA7] border-2 border-white flex items-center justify-center">
-                          <span className="text-[9px] font-bold text-white">{getInitials(photo.taken_by)}</span>
+                        <div className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-full bg-primary border-2 border-background flex items-center justify-center">
+                          <span className="text-[9px] font-bold text-primary-foreground">{getInitials(photo.taken_by)}</span>
                         </div>
                         {/* Cover photo control */}
                         {isCover ? (
                           <div
-                            className="absolute top-1.5 left-1.5 flex items-center gap-1 h-6 px-1.5 rounded-full bg-[#F5A623] text-white text-[10px] font-semibold"
+                            className="absolute top-1.5 left-1.5 flex items-center gap-1 h-6 px-1.5 rounded-full bg-warning text-background text-[10px] font-semibold"
                             title="Current cover photo"
                           >
                             <Star size={11} fill="currentColor" />
@@ -698,8 +698,8 @@ export default function JobPhotosTab({
                         )}
                         {/* Selection checkmark */}
                         {isSelected && (
-                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#2B5EA7] flex items-center justify-center">
-                            <span className="text-white text-[10px]">✓</span>
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                            <span className="text-primary-foreground text-[10px]">✓</span>
                           </div>
                         )}
                       </div>
@@ -712,13 +712,13 @@ export default function JobPhotosTab({
                         <span className="text-[11px] text-muted-foreground/60">{photo.taken_by}</span>
                         <div className="flex gap-1 mt-0.5">
                           {photo.before_after_role === "before" && (
-                            <span className="text-[9px] px-1 py-0 rounded bg-[#FCEBEB] text-[#791F1F]">Before</span>
+                            <span className="text-[9px] px-1 py-0 rounded bg-warning-tint text-warning">Before</span>
                           )}
                           {photo.before_after_role === "after" && (
-                            <span className="text-[9px] px-1 py-0 rounded bg-[#E1F5EE] text-[#085041]">After</span>
+                            <span className="text-[9px] px-1 py-0 rounded bg-accent-tint text-accent-text">After</span>
                           )}
                           {photo.annotated_path && (
-                            <span className="text-[9px] px-1 py-0 rounded bg-[#dbeafe] text-[#2B5EA7]">Edited</span>
+                            <span className="text-[9px] px-1 py-0 rounded bg-accent-tint text-accent-text">Edited</span>
                           )}
                         </div>
                       </div>

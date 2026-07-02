@@ -97,14 +97,14 @@ function PhoneSheet({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative w-full max-h-[80vh] overflow-y-auto rounded-t-2xl bg-white px-4 pt-4 pb-[max(env(safe-area-inset-bottom),24px)]">
+      <div className="relative w-full max-h-[80vh] overflow-y-auto rounded-t-2xl bg-popover text-popover-foreground px-4 pt-4 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[#1A1A1A]">{title}</h2>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <button
             type="button"
             aria-label="Dismiss"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#666666] hover:bg-gray-100"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-accent"
           >
             <X size={18} />
           </button>
@@ -848,10 +848,10 @@ export default function PhotoViewer({
 
   // A row in the ⋯ More slide-up panel: an icon + label, full-width and tappable.
   const phoneMenuItem =
-    "flex items-center gap-3 px-1 py-3 text-sm text-[#1A1A1A] text-left border-b border-gray-100 last:border-0 disabled:opacity-60";
+    "flex items-center gap-3 px-1 py-3 text-sm text-foreground text-left border-b border-border-subtle last:border-0 disabled:opacity-60";
 
   return (
-    <div className="fixed inset-0 z-[90] flex bg-black">
+    <div className="fixed inset-0 z-[90] flex bg-background">
       {/* Photo, centered + letterboxed on black, with the action toolbar over it */}
       <div
         ref={surfaceRef}
@@ -971,7 +971,7 @@ export default function PhotoViewer({
             indicates when the current Photo is the Job's cover. */}
         {isCover && (
           <div
-            className="absolute top-3 left-14 flex items-center gap-1 h-9 px-2.5 rounded-full bg-[#F5A623] text-white text-xs font-semibold"
+            className="absolute top-3 left-14 flex items-center gap-1 h-9 px-2.5 rounded-full bg-warning text-background text-xs font-semibold"
             title="Current cover photo"
           >
             <Star size={13} fill="currentColor" />
@@ -1018,7 +1018,7 @@ export default function PhotoViewer({
               setConfirmDelete(true);
               setMoreOpen(false);
             }}
-            className={cn(toolbarBtn, "hover:bg-[#C41E2A]")}
+            className={cn(toolbarBtn, "hover:bg-destructive")}
           >
             <Trash2 size={18} />
           </button>
@@ -1039,17 +1039,17 @@ export default function PhotoViewer({
         {/* ⋯ More menu — scaffolding for the less-frequent actions. Set as
             cover lives here; later slices add Share, Save to device, Duplicate. */}
         {moreOpen && (
-          <div className="absolute top-14 right-3 bg-white rounded-lg shadow-lg p-1.5 min-w-[180px] flex flex-col">
+          <div className="absolute top-14 right-3 bg-popover text-popover-foreground rounded-lg shadow-lg p-1.5 min-w-[180px] flex flex-col">
             <button
               type="button"
               onClick={handleSetCover}
               disabled={settingCover || isCover}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
             >
               {settingCover ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : isCover ? (
-                <Check size={14} className="text-[#085041]" />
+                <Check size={14} className="text-primary" />
               ) : (
                 <Star size={14} />
               )}
@@ -1059,7 +1059,7 @@ export default function PhotoViewer({
               type="button"
               onClick={() => handleExport("share")}
               disabled={exporting !== null}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
             >
               {exporting === "share" ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -1072,7 +1072,7 @@ export default function PhotoViewer({
               type="button"
               onClick={() => handleExport("save")}
               disabled={exporting !== null}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
             >
               {exporting === "save" ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -1085,7 +1085,7 @@ export default function PhotoViewer({
               type="button"
               onClick={handleDuplicate}
               disabled={duplicating}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-[#1A1A1A] hover:bg-gray-100 rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors disabled:opacity-60 disabled:hover:bg-transparent"
             >
               {duplicating ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -1146,18 +1146,18 @@ export default function PhotoViewer({
 
         {/* Delete confirmation */}
         {confirmDelete && (
-          <div className="absolute top-14 right-3 bg-white rounded-lg shadow-lg p-3 flex items-center gap-2">
+          <div className="absolute top-14 right-3 bg-popover text-popover-foreground rounded-lg shadow-lg p-3 flex items-center gap-2">
             <button
               type="button"
               onClick={handleConfirmDelete}
-              className="text-sm text-white bg-[#C41E2A] hover:bg-[#A3171F] px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
+              className="text-sm text-white bg-destructive hover:bg-destructive/90 px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
             >
               Confirm Delete
             </button>
             <button
               type="button"
               onClick={() => setConfirmDelete(false)}
-              className="text-sm text-[#666666] hover:text-[#1A1A1A]"
+              className="text-sm text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
@@ -1234,12 +1234,12 @@ export default function PhotoViewer({
 
       {/* Always-visible side panel (desktop) carries the modal's fields */}
       {!isPhone && (
-      <aside className="w-[340px] shrink-0 bg-white border-l border-gray-200 overflow-y-auto p-4 space-y-4">
+      <aside className="w-[340px] shrink-0 bg-card border-l border-border overflow-y-auto p-4 space-y-4">
         {/* Caption */}
         <div>
           <label
             htmlFor="photo-viewer-caption"
-            className="block text-sm font-medium text-[#666666] mb-1.5"
+            className="block text-sm font-medium text-text-secondary mb-1.5"
           >
             Caption
           </label>
@@ -1265,7 +1265,7 @@ export default function PhotoViewer({
 
         {/* Before / After */}
         <div>
-          <label className="block text-sm font-medium text-[#666666] mb-1.5">
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">
             Before / After
           </label>
           <div className="flex gap-2">
@@ -1275,8 +1275,8 @@ export default function PhotoViewer({
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
                 beforeAfterRole === "before"
-                  ? "bg-[#FCEBEB] text-[#791F1F] border-[#791F1F]/20"
-                  : "bg-white text-[#666666] border-gray-200",
+                  ? "bg-warning-tint text-warning border-warning/20"
+                  : "bg-card text-text-secondary border-border",
               )}
             >
               Before
@@ -1287,8 +1287,8 @@ export default function PhotoViewer({
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
                 beforeAfterRole === "after"
-                  ? "bg-[#E1F5EE] text-[#085041] border-[#085041]/20"
-                  : "bg-white text-[#666666] border-gray-200",
+                  ? "bg-accent-tint text-accent-text border-accent-text/20"
+                  : "bg-card text-text-secondary border-border",
               )}
             >
               After
@@ -1298,7 +1298,7 @@ export default function PhotoViewer({
 
         {/* Tags */}
         <div>
-          <label className="block text-sm font-medium text-[#666666] mb-1.5">
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">
             <Tag size={14} className="inline mr-1 -mt-0.5" />
             Tags
           </label>
@@ -1314,7 +1314,7 @@ export default function PhotoViewer({
                     "px-2.5 py-1 rounded-full text-xs font-medium border transition-all flex items-center gap-1",
                     selected
                       ? "text-white border-transparent"
-                      : "bg-white text-[#666666] border-gray-200 hover:border-gray-300",
+                      : "bg-card text-text-secondary border-border hover:border-input",
                   )}
                   style={
                     selected
@@ -1331,7 +1331,7 @@ export default function PhotoViewer({
         </div>
 
         {/* Read-only metadata */}
-        <div className="text-xs text-[#999999] space-y-1 pt-2 border-t border-gray-100">
+        <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border-subtle">
           <p>
             Uploaded:{" "}
             {format(new Date(currentPhoto.created_at), "MMM d, yyyy 'at' h:mm a")}
@@ -1349,7 +1349,7 @@ export default function PhotoViewer({
               type="button"
               onClick={handleRestoreOriginal}
               disabled={restoring}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#791F1F] hover:text-[#C41E2A] transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive/80 hover:text-destructive transition-colors disabled:opacity-50"
             >
               {restoring ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -1385,7 +1385,7 @@ export default function PhotoViewer({
                       "px-2.5 py-1 rounded-full text-sm font-medium border transition-all flex items-center gap-1",
                       selected
                         ? "text-white border-transparent"
-                        : "bg-white text-[#666666] border-gray-200 hover:border-gray-300",
+                        : "bg-card text-text-secondary border-border hover:border-input",
                     )}
                     style={
                       selected
@@ -1402,7 +1402,7 @@ export default function PhotoViewer({
             <button
               type="button"
               onClick={() => setPhoneSheet(null)}
-              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors"
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
             >
               Done
             </button>
@@ -1420,8 +1420,8 @@ export default function PhotoViewer({
                 className={cn(
                   "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   beforeAfterRole === "before"
-                    ? "bg-[#FCEBEB] text-[#791F1F] border-[#791F1F]/20"
-                    : "bg-white text-[#666666] border-gray-200",
+                    ? "bg-warning-tint text-warning border-warning/20"
+                    : "bg-card text-text-secondary border-border",
                 )}
               >
                 Before
@@ -1432,8 +1432,8 @@ export default function PhotoViewer({
                 className={cn(
                   "flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   beforeAfterRole === "after"
-                    ? "bg-[#E1F5EE] text-[#085041] border-[#085041]/20"
-                    : "bg-white text-[#666666] border-gray-200",
+                    ? "bg-accent-tint text-accent-text border-accent-text/20"
+                    : "bg-card text-text-secondary border-border",
                 )}
               >
                 After
@@ -1442,7 +1442,7 @@ export default function PhotoViewer({
             <button
               type="button"
               onClick={() => setPhoneSheet(null)}
-              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors"
+              className="mt-4 w-full inline-flex items-center justify-center rounded-lg text-sm font-medium px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
             >
               Done
             </button>
@@ -1463,7 +1463,7 @@ export default function PhotoViewer({
                 {settingCover ? (
                   <Loader2 size={18} className="animate-spin" />
                 ) : isCover ? (
-                  <Check size={18} className="text-[#085041]" />
+                  <Check size={18} className="text-primary" />
                 ) : (
                   <Star size={18} />
                 )}
@@ -1514,7 +1514,7 @@ export default function PhotoViewer({
                   setPhoneSheet(null);
                   setConfirmDelete(true);
                 }}
-                className={cn(phoneMenuItem, "text-[#C41E2A]")}
+                className={cn(phoneMenuItem, "text-destructive")}
               >
                 <Trash2 size={18} />
                 Delete
@@ -1527,21 +1527,21 @@ export default function PhotoViewer({
             onClose={() => setPhoneSheet(null)}
             title="Details"
           >
-            <div className="text-sm text-[#444444] space-y-1.5">
+            <div className="text-sm text-text-secondary space-y-1.5">
               <p>
-                <span className="text-[#999999]">Uploaded: </span>
+                <span className="text-muted-foreground">Uploaded: </span>
                 {format(
                   new Date(currentPhoto.created_at),
                   "MMM d, yyyy 'at' h:mm a",
                 )}
               </p>
               <p>
-                <span className="text-[#999999]">By: </span>
+                <span className="text-muted-foreground">By: </span>
                 {currentPhoto.taken_by}
               </p>
               {currentPhoto.file_size && (
                 <p>
-                  <span className="text-[#999999]">Size: </span>
+                  <span className="text-muted-foreground">Size: </span>
                   {(currentPhoto.file_size / 1024 / 1024).toFixed(1)} MB
                 </p>
               )}
@@ -1551,7 +1551,7 @@ export default function PhotoViewer({
                 type="button"
                 onClick={handleRestoreOriginal}
                 disabled={restoring}
-                className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-[#791F1F] hover:text-[#C41E2A] transition-colors disabled:opacity-50"
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-destructive/80 hover:text-destructive transition-colors disabled:opacity-50"
               >
                 {restoring ? (
                   <Loader2 size={14} className="animate-spin" />

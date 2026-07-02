@@ -49,17 +49,17 @@ export function UploadQueueSheet({ open, onOpenChange }: Props) {
     <div className="fixed inset-0 z-50 flex items-end" onClick={() => onOpenChange(false)}>
       <div className="absolute inset-0 bg-black/40" />
       <div
-        className="relative w-full max-h-[80vh] bg-white rounded-t-2xl overflow-y-auto"
+        className="relative w-full max-h-[80vh] bg-popover text-popover-foreground rounded-t-2xl overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white px-4 py-3 border-b flex justify-between items-center">
+        <div className="sticky top-0 bg-popover px-4 py-3 border-b border-border flex justify-between items-center">
           <h2 className="font-semibold">Upload queue</h2>
           <button onClick={() => onOpenChange(false)} aria-label="Close">×</button>
         </div>
         {list.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">All synced</div>
+          <div className="p-8 text-center text-muted-foreground">All synced</div>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-border-subtle">
             {list.map((s) => (
               <li key={s.client_capture_id} className="px-4 py-3 flex gap-3 items-start">
                 {thumbs[s.client_capture_id] && (
@@ -73,7 +73,7 @@ export function UploadQueueSheet({ open, onOpenChange }: Props) {
                   <div className="text-sm font-medium">
                     Capture {new Date(s.taken_at).toLocaleTimeString()}
                   </div>
-                  <div className="text-xs text-gray-600">
+                  <div className="text-xs text-muted-foreground">
                     {s.upload_state === "uploading" && "Uploading…"}
                     {s.upload_state === "pending" && "Pending"}
                     {s.upload_state === "failed" &&
@@ -83,13 +83,13 @@ export function UploadQueueSheet({ open, onOpenChange }: Props) {
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={() => retry(s.client_capture_id)}
-                        className="text-xs px-3 py-1 rounded bg-blue-600 text-white"
+                        className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground"
                       >
                         Retry
                       </button>
                       <button
                         onClick={() => deleteFromQueue(s.client_capture_id)}
-                        className="text-xs px-3 py-1 rounded border border-gray-300"
+                        className="text-xs px-3 py-1 rounded border border-input"
                       >
                         Delete
                       </button>
@@ -101,10 +101,10 @@ export function UploadQueueSheet({ open, onOpenChange }: Props) {
           </ul>
         )}
         {failedItems.length > 1 && (
-          <div className="sticky bottom-0 bg-white border-t p-3">
+          <div className="sticky bottom-0 bg-popover border-t border-border p-3">
             <button
               onClick={() => Promise.all(failedItems.map((s) => retry(s.client_capture_id)))}
-              className="w-full py-2 rounded bg-blue-600 text-white"
+              className="w-full py-2 rounded bg-primary text-primary-foreground"
             >
               Retry all failed ({failedItems.length})
             </button>

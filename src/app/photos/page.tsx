@@ -211,8 +211,8 @@ export default function PhotosPage() {
                     className={cn(
                       "absolute top-2 left-2 text-[10px] px-1.5 py-0 rounded",
                       photo.before_after_role === "before"
-                        ? "bg-[#FCEBEB] text-[#791F1F]"
-                        : "bg-[#E1F5EE] text-[#085041]"
+                        ? "bg-warning-tint text-warning"
+                        : "bg-accent-tint text-accent-text"
                     )}
                   >
                     {photo.before_after_role === "before" ? "Before" : "After"}
