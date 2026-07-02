@@ -131,7 +131,17 @@ vi.mock("./sketch-3d-viewer", () => ({
   ),
 }));
 
+// The RoomPlan scan is a native-only affordance (LiDAR iPad shell, #871). Mock
+// the capture module so the shell's gating and its scan→persist→place wiring are
+// tested without a device: isRoomPlanScanAvailable decides whether the "Scan
+// room" button shows, scanRoom yields the capture the shell forwards to the API.
+vi.mock("@/lib/mobile/roomplan-capture", () => ({
+  isRoomPlanScanAvailable: vi.fn(),
+  scanRoom: vi.fn(),
+}));
+
 import PlanEditor from "./plan-editor";
+import { isRoomPlanScanAvailable, scanRoom } from "@/lib/mobile/roomplan-capture";
 
 function makeFloor(overrides: Partial<Floor> = {}): Floor {
   return {
@@ -188,6 +198,10 @@ function makeObject(overrides: Partial<SketchObject> = {}): SketchObject {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // Off the native shell by default: the scan affordance stays hidden unless a
+  // test opts a device in. Set here (not in the factory) because restoreAllMocks
+  // clears the mock's implementation before every test.
+  vi.mocked(isRoomPlanScanAvailable).mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -1269,5 +1283,123 @@ describe("PlanEditor — 2D⇄3D toggle (#870)", () => {
 
     // Read-only: no "Add room" in 3D.
     expect(screen.queryByRole("button", { name: /add room/i })).toBeNull();
+  });
+});
+
+describe("PlanEditor — RoomPlan scan (#871)", () => {
+  it("offers a 'Scan room' button on a device where RoomPlan can run", async () => {
+    // On the LiDAR iPad shell isRoomPlanScanAvailable resolves true — the assisted
+    // scan is offered beside "Add room" so a scan can fill the Sketch (ADR 0025).
+    vi.mocked(isRoomPlanScanAvailable).mockResolvedValue(true);
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[]}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /scan room/i }),
+    ).toBeDefined();
+  });
+
+  it("hides the scan affordance where RoomPlan can't run (web / non-LiDAR)", async () => {
+    // isRoomPlanScanAvailable resolves false off the native shell (the beforeEach
+    // default) — the Sketch is authored by hand, so no scan button is offered.
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[makeFloor()]}
+        initialRooms={[]}
+      />,
+    );
+
+    // Let the availability effect settle, then confirm the button never appears.
+    await waitFor(() => expect(isRoomPlanScanAvailable).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /scan room/i })).toBeNull();
+  });
+
+  it("scans, POSTs the capture to the scan API, and places the returned Room selected on its Floor", async () => {
+    // A scan on a device: scanRoom yields RoomPlan's capture, the shell forwards it
+    // to POST /sketch/scan, and the server echoes the Room + objects it wrote
+    // (applyRoomScan). The shell drops that Room onto its Floor and selects it so
+    // the user lands in the inspector to review/correct it (ADR 0025).
+    vi.mocked(isRoomPlanScanAvailable).mockResolvedValue(true);
+    const capture = {
+      walls: [
+        {
+          identifier: "w1",
+          dimensions: [4, 2.4, 0.1] as [number, number, number],
+          transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.2, 1.5, 1],
+          confidence: "high" as const,
+        },
+      ],
+      doors: [],
+      windows: [],
+      openings: [],
+      objects: [],
+    };
+    vi.mocked(scanRoom).mockResolvedValue({
+      room: capture,
+      meshUri: "file:///scan.usdz",
+    });
+
+    const scanned = makeRoom({
+      id: "room-scan",
+      name: "Scanned Room",
+      floor_id: "floor-1",
+    });
+    const scannedObject = makeObject({ id: "obj-scan", room_id: "room-scan" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            sketchId: "sketch-1",
+            room: scanned,
+            objects: [scannedObject],
+          }),
+          { status: 201 },
+        ),
+      );
+
+    render(
+      <PlanEditor
+        jobId="job-1"
+        sketchId="sketch-1"
+        floors={[
+          makeFloor({ id: "floor-1", name: "Ground Floor" }),
+          makeFloor({ id: "floor-2", name: "Second Floor" }),
+        ]}
+        initialRooms={[]}
+      />,
+    );
+
+    // Move off the target Floor first, to prove the scan brings us back to the
+    // Floor the Room landed on.
+    fireEvent.click(screen.getByRole("button", { name: /second floor/i }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /scan room/i }));
+
+    // The capture is forwarded verbatim to the Job's scan endpoint.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-1/sketch/scan");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ room: capture });
+
+    // The returned Room joins the plan, selected and on its Floor with its objects.
+    await screen.findByRole("button", { name: /select scanned room/i });
+    expect(screen.getByTestId("canvas-selected").textContent).toBe("room-scan");
+    expect(screen.getByTestId("canvas-object-count").textContent).toBe("1");
+    expect(
+      screen
+        .getByRole("button", { name: /ground floor/i })
+        .getAttribute("aria-current"),
+    ).toBe("true");
   });
 });
