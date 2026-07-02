@@ -66,6 +66,65 @@ of thing. The settings UI groups these together because they share a shape
 being sent.
 _Avoid_: send config, mail rule, payment email / invoice email / contract email (use "Outgoing email for X")
 
+**Bucket**:
+One of the fixed sub-divisions of the Inbox that every incoming email is
+filed into exactly one of — Jobs, General, Promotions, Social, Purchases —
+so the important mail isn't buried in the automated noise. Buckets
+subdivide the Inbox **folder** only (a folder — Inbox/Sent/Drafts/Trash/
+Archive/Spam — is the mail server's container; a Bucket is Nookleus's
+filing within Inbox). Filing is rule-driven at sync time; the **Jobs
+bucket** is the default view when the email page opens, and General is
+the filing fallback for mail no rule recognizes. The database column is
+`category` — an implementation name, not the domain term. The email page
+also offers an **All** view (every Inbox bucket in one list) — All is a
+view, not a Bucket; no email is filed "in All". There is deliberately no
+"Updates" bucket: automated mail stays in its Bucket and collapses into
+**Sender groups** instead.
+_Avoid_: category (in docs/UI — the code column keeps the name), label,
+tab (that's where buckets render, not what they are), folder (taken — the
+server-side container), Updates bucket (rejected — see Sender group)
+
+**Jobs bucket**:
+The Bucket for Job and insurance-claim mail — the emails the business
+actually runs on, and the default view when the email page opens. An email
+files here when it is linked to a Job (auto-matched or manually assigned)
+**or** merely looks claim-related (known carrier/adjuster senders,
+claim-number patterns) even before any Job exists to match — the first
+email about a brand-new claim is exactly the one that must not be missed.
+_Avoid_: claims bucket, work bucket, job folder
+
+**Bot sender**:
+A sender identity — the display-name + address *pair*, because e.g.
+vercel[bot] and GitHub CI both mail from `notifications@github.com` —
+whose email is automated notifications rather than human correspondence.
+Auto-detected (no-reply addresses, "[bot]" names, automated-mail headers)
+and user-manageable as a visible Rules list: remove one and its mail
+returns to normal rows, add one the detection missed. A Bot sender's
+Inbox mail renders as a collapsed **Sender group** and never counts
+toward bucket/Inbox unread badges — unread badges mean humans.
+_Avoid_: bot address (the key is the name+address pair, not the address),
+automated sender, robot
+
+**Sender group**:
+The collapsed row bundling one **Bot sender**'s unread Inbox mail (e.g.
+"vercel[bot] · 12"), pinned below the human mail inside its Bucket.
+Tapping drills into a focused list of just that sender (with
+mark-all-read); read mail drains out of per-sender groups into a single
+"Older updates" catch-all row. Grouping is presentation — the underlying
+emails stay ordinary rows in their Bucket.
+_Avoid_: bundle, digest, thread (taken — reply threading is a different
+axis)
+
+**Sender rule**:
+A persistent "always file mail from this sender in this Bucket"
+instruction, created the everyday way — moving a mis-filed email offers a
+one-tap "always do this" — and listed alongside Bot senders in the Rules
+area, removable anytime. Creating one re-files the sender's existing
+Inbox mail retroactively. This is how Buckets harden over time: every
+correction teaches the system.
+_Avoid_: filter (Gmail-speak), category rule (the code table
+`category_rules` keeps its name)
+
 **Phone number**:
 A telephony endpoint (a single phone number provisioned through Nookleus's
 telephony backbone — Twilio, see [ADR 0006](docs/adr/0006-twilio-as-telephony-backbone.md)) that Nookleus uses to send and receive
