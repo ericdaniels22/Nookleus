@@ -26,6 +26,7 @@ const TAILWIND_HEX: Record<string, string> = {
   orange: "#F97316",
   lime: "#84CC16",
   violet: "#8B5CF6",
+  rose: "#F43F5E",
   red: "#EF4444",
   yellow: "#EAB308",
   stone: "#78716C",
