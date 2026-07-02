@@ -69,9 +69,12 @@ export default function EmailInbox() {
 
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
 
-  // Category filter (inbox only)
-  const [category, setCategory] = useState<CategoryFilter>("general");
+  // Category filter (inbox only). Jobs is the default view (#954); General
+  // remains the filing fallback for unrecognized mail.
+  const [category, setCategory] = useState<CategoryFilter>("jobs");
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({
+    jobs: 0,
+    all: 0,
     general: 0,
     promotions: 0,
     social: 0,
@@ -563,7 +566,7 @@ export default function EmailInbox() {
     setPage(1);
     setSelectedEmailId(null);
     setSelectedIds(new Set());
-    setCategory("general");
+    setCategory("jobs");
 
     if (!LAZY_REFRESH_FOLDERS.has(key)) return;
     const last = lazyRefreshTsRef.current.get(key) ?? 0;

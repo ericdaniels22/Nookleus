@@ -38,6 +38,9 @@ export const PATCH = withRequestContext(
     if (body.job_id !== undefined) {
       updates.job_id = body.job_id || null;
       updates.matched_by = body.job_id ? "manual" : null;
+      // Job-linked mail lives in the Jobs bucket (#954). Assigning a job files
+      // the email into Jobs; unassigning leaves the stored bucket untouched.
+      if (body.job_id) updates.category = "jobs";
     }
 
     if (Object.keys(updates).length === 0) {

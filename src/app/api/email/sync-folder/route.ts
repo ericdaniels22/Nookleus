@@ -4,7 +4,13 @@ import { decrypt } from "@/lib/encryption";
 import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
-import { categorizeEmail, type CategoryRule } from "@/lib/email-categorizer";
+import {
+  categorizeEmail,
+  INSURANCE_CARRIER_DOMAINS,
+  type CategoryRule,
+  type Category,
+  type ClaimContext,
+} from "@/lib/email-categorizer";
 import { emailAttachmentPath } from "@/lib/storage/paths";
 import { syncFolderIncremental, type EmailFolderState } from "@/lib/email/sync-folder-incremental";
 
@@ -134,6 +140,22 @@ export const POST = withRequestContext(
   }
   const matcherCache: MatcherCache = { jobs, contacts };
 
+  // Claim signals for the Jobs bucket — org adjuster addresses + curated
+  // carrier-domain seed (see ADR 0028).
+  const adjusterContactIds = new Set<string>();
+  for (const job of jobs) {
+    for (const ja of job.job_adjusters || []) {
+      adjusterContactIds.add(ja.contact_id);
+    }
+  }
+  const adjusterAddresses = contacts
+    .filter((c) => c.email && adjusterContactIds.has(c.id))
+    .map((c) => c.email!.toLowerCase());
+  const claimContext: ClaimContext = {
+    carrierDomains: [...INSURANCE_CARRIER_DOMAINS],
+    adjusterAddresses,
+  };
+
   const { data: rulesData } = await supabase
     .from("category_rules")
     .select("match_type, match_value, category")
@@ -231,15 +253,20 @@ export const POST = withRequestContext(
               },
               account.email_address,
             );
-            const category = categorizeEmail(
-              {
-                from_address: p.fromAddr,
-                subject: p.subject,
-                headers: p.headers,
-                body_text: p.bodyText,
-              },
-              categoryRules,
-            );
+            // Job-linked mail always lands in Jobs; otherwise the classifier
+            // (rules → claim signals → General) decides the bucket.
+            const category: Category = match
+              ? "jobs"
+              : categorizeEmail(
+                  {
+                    from_address: p.fromAddr,
+                    subject: p.subject,
+                    headers: p.headers,
+                    body_text: p.bodyText,
+                  },
+                  categoryRules,
+                  claimContext,
+                );
             return {
               organization_id: orgId,
               account_id: account.id,

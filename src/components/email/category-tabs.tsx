@@ -1,10 +1,13 @@
 "use client";
 
-import { Inbox, Tag, Users, ShoppingBag, Star } from "lucide-react";
+import { Briefcase, Layers, Inbox, Tag, Users, ShoppingBag, Star } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Category } from "@/lib/email-categorizer";
 
-export type CategoryFilter = Category | "starred";
+// "starred" and "all" are reading views, not stored buckets: "starred" filters
+// the inbox to starred mail; "all" is the cross-bucket view (no category
+// filter). Everything else maps to a stored `category` value. (#954)
+export type CategoryFilter = Category | "starred" | "all";
 
 interface CategoryTabsProps {
   category: CategoryFilter;
@@ -13,6 +16,8 @@ interface CategoryTabsProps {
 }
 
 const TABS: { key: CategoryFilter; label: string; icon: LucideIcon }[] = [
+  { key: "jobs", label: "Jobs", icon: Briefcase },
+  { key: "all", label: "All", icon: Layers },
   { key: "general", label: "General", icon: Inbox },
   { key: "promotions", label: "Promotions", icon: Tag },
   { key: "social", label: "Social", icon: Users },

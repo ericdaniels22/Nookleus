@@ -448,7 +448,7 @@ export interface Email {
   is_starred: boolean;
   has_attachments: boolean;
   matched_by: "contact" | "claim_number" | "address" | "job_id" | "manual" | null;
-  category: "general" | "promotions" | "social" | "purchases" | null;
+  category: "jobs" | "general" | "promotions" | "social" | "purchases" | null;
   uid: number | null;
   received_at: string;
   created_at: string;

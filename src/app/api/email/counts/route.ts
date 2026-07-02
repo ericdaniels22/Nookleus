@@ -63,6 +63,7 @@ export const GET = withRequestContext({ permission: "view_email" }, async (reque
   const { data: categoryData } = await categoryQuery;
 
   const categoryUnread: Record<string, number> = {
+    jobs: 0,
     general: 0,
     promotions: 0,
     social: 0,
@@ -74,6 +75,9 @@ export const GET = withRequestContext({ permission: "view_email" }, async (reque
     const cat = row.category || "general";
     if (cat in categoryUnread) categoryUnread[cat]++;
   }
+
+  // "All" is the cross-bucket reading view — its badge is total inbox unread.
+  categoryUnread.all = (categoryData || []).length;
 
   // Starred count for the inbox tab (total, not unread — starred status is
   // independent of read state and users want to see the full set).

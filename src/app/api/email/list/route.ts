@@ -56,8 +56,9 @@ export const GET = withRequestContext(
   }
 
   // Filter by category (only applies to inbox). "starred" is a pseudo-category
-  // that filters the inbox to starred emails only.
-  if (category && folder === "inbox" && starred !== "true") {
+  // that filters the inbox to starred emails only; "all" is the cross-bucket
+  // reading view, so it applies no category filter at all (#954).
+  if (category && category !== "all" && folder === "inbox" && starred !== "true") {
     if (category === "starred") {
       query = query.eq("is_starred", true);
     } else {

@@ -4,7 +4,13 @@ import { decrypt } from "@/lib/encryption";
 import { resolveEmailAccountAccess } from "@/lib/email/email-account-access-for-route";
 import { ImapFlow } from "imapflow";
 import { matchEmailToJob, type MatcherCache, type JobRow, type ContactRow } from "@/lib/email-matcher";
-import { categorizeEmail, type CategoryRule, type Category } from "@/lib/email-categorizer";
+import {
+  categorizeEmail,
+  INSURANCE_CARRIER_DOMAINS,
+  type CategoryRule,
+  type Category,
+  type ClaimContext,
+} from "@/lib/email-categorizer";
 import { emailAttachmentPath } from "@/lib/storage/paths";
 import { syncFolderIncremental, type EmailFolderState } from "@/lib/email/sync-folder-incremental";
 
@@ -143,6 +149,23 @@ export const POST = withRequestContext(
 
     const matcherCache: MatcherCache = { jobs, contacts };
 
+    // Claim signals for the Jobs bucket: the org's adjuster addresses plus the
+    // curated carrier-domain seed. Claim-looking mail files into Jobs even
+    // before a Job exists to match (see ADR 0028).
+    const adjusterContactIds = new Set<string>();
+    for (const job of jobs) {
+      for (const ja of job.job_adjusters || []) {
+        adjusterContactIds.add(ja.contact_id);
+      }
+    }
+    const adjusterAddresses = contacts
+      .filter((c) => c.email && adjusterContactIds.has(c.id))
+      .map((c) => c.email!.toLowerCase());
+    const claimContext: ClaimContext = {
+      carrierDomains: [...INSURANCE_CARRIER_DOMAINS],
+      adjusterAddresses,
+    };
+
     const { data: rulesData } = await supabase
       .from("category_rules")
       .select("match_type, match_value, category")
@@ -163,7 +186,7 @@ export const POST = withRequestContext(
       while (true) {
         let batchQuery = supabase
           .from("emails")
-          .select("id, from_address, subject, body_text")
+          .select("id, from_address, subject, body_text, job_id")
           .eq("account_id", accountId)
           .eq("category", "general")
           .order("id", { ascending: true })
@@ -177,11 +200,16 @@ export const POST = withRequestContext(
         if (!oldEmails || oldEmails.length === 0) break;
 
         const byCategory = new Map<Category, string[]>();
-        for (const e of oldEmails as { id: string; from_address: string; subject: string; body_text: string | null }[]) {
-          const cat = categorizeEmail(
-            { from_address: e.from_address, subject: e.subject, body_text: e.body_text },
-            categoryRules,
-          );
+        for (const e of oldEmails as { id: string; from_address: string; subject: string; body_text: string | null; job_id: string | null }[]) {
+          // Existing job-linked mail belongs in Jobs; everything else runs
+          // through the classifier (now claim-signal-aware).
+          const cat: Category = e.job_id
+            ? "jobs"
+            : categorizeEmail(
+                { from_address: e.from_address, subject: e.subject, body_text: e.body_text },
+                categoryRules,
+                claimContext,
+              );
           if (cat !== "general") {
             if (!byCategory.has(cat)) byCategory.set(cat, []);
             byCategory.get(cat)!.push(e.id);
@@ -269,6 +297,7 @@ export const POST = withRequestContext(
                       body_text: matchedEmail.bodyText,
                     },
                     categoryRules,
+                    claimContext,
                   );
 
                   if (cat !== "general") {
@@ -374,15 +403,20 @@ export const POST = withRequestContext(
               },
               account.email_address,
             );
-            const category = categorizeEmail(
-              {
-                from_address: p.fromAddr,
-                subject: p.subject,
-                headers: p.headers,
-                body_text: p.bodyText,
-              },
-              categoryRules,
-            );
+            // Job-linked mail always lands in Jobs; otherwise the classifier
+            // (rules → claim signals → General) decides the bucket.
+            const category: Category = match
+              ? "jobs"
+              : categorizeEmail(
+                  {
+                    from_address: p.fromAddr,
+                    subject: p.subject,
+                    headers: p.headers,
+                    body_text: p.bodyText,
+                  },
+                  categoryRules,
+                  claimContext,
+                );
             return {
               organization_id: orgId,
               account_id: accountId,

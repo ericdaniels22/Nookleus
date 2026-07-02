@@ -43,7 +43,8 @@ export const PATCH = withRequestContext({ permission: "send_email" }, async (req
       if (!jobId) {
         return NextResponse.json({ error: "jobId required for assign_job" }, { status: 400 });
       }
-      updates = { job_id: jobId, matched_by: "manual" };
+      // Job-linked mail lives in the Jobs bucket (#954).
+      updates = { job_id: jobId, matched_by: "manual", category: "jobs" };
       break;
     default:
       return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
