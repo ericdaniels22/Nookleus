@@ -291,18 +291,18 @@ export default function CameraView({
 
   if (permissionError) {
     return (
-      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black px-6 text-center text-white">
+      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-background px-6 text-center text-foreground">
         <Camera className="mb-4 h-12 w-12 opacity-70" />
         <h2 className="mb-2 text-xl font-semibold">Camera unavailable</h2>
-        <p className="mb-4 max-w-sm text-sm text-white/85">{permissionError}</p>
-        <p className="mb-6 max-w-sm text-xs text-white/65">
+        <p className="mb-4 max-w-sm text-sm text-text-secondary">{permissionError}</p>
+        <p className="mb-6 max-w-sm text-xs text-muted-foreground">
           If you previously denied camera access, open iOS Settings &rarr;
           Nookleus &rarr; Camera and re-enable it, then return to this screen.
         </p>
         <button
           type="button"
           onClick={handleAbort}
-          className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+          className="rounded-full bg-primary px-6 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
         >
           Back to job
         </button>
@@ -335,7 +335,7 @@ export default function CameraView({
               onClick={() => handleSetZoom(factor)}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium transition",
-                active ? "bg-white text-black" : "bg-transparent text-white",
+                active ? "bg-foreground text-background" : "bg-transparent text-white",
               )}
               aria-pressed={active}
               aria-label={`Zoom ${formatFactorLabel(factor)}`}
@@ -374,8 +374,8 @@ export default function CameraView({
         aria-label={`Flash ${flash}`}
       >
         {flash === "off" && <ZapOff className="h-5 w-5" />}
-        {flash === "on" && <Zap className="h-5 w-5 text-yellow-300" />}
-        {flash === "torch" && <Flashlight className="h-5 w-5 text-yellow-300" />}
+        {flash === "on" && <Zap className="h-5 w-5 text-warning" />}
+        {flash === "torch" && <Flashlight className="h-5 w-5 text-warning" />}
       </button>
       <button
         type="button"
@@ -439,8 +439,8 @@ export default function CameraView({
         aria-label={`Flash ${flash}`}
       >
         {flash === "off" && <ZapOff className="h-6 w-6" />}
-        {flash === "on" && <Zap className="h-6 w-6 text-yellow-300" />}
-        {flash === "torch" && <Flashlight className="h-6 w-6 text-yellow-300" />}
+        {flash === "on" && <Zap className="h-6 w-6 text-warning" />}
+        {flash === "torch" && <Flashlight className="h-6 w-6 text-warning" />}
       </button>
       <button
         type="button"
@@ -457,19 +457,19 @@ export default function CameraView({
     <button
       type="button"
       onClick={() => setQueueSheetOpen(true)}
-      className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+      className="relative flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
       aria-label="Open upload queue"
     >
       <List className="h-5 w-5" />
       {counts.failed > 0 && (
         <span
-          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
+          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-destructive animate-pulse"
           aria-label={`${counts.failed} upload${counts.failed === 1 ? "" : "s"} failed`}
         />
       )}
       {counts.failed === 0 && counts.uploading + counts.pending > 0 && (
         <span
-          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400"
+          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-warning"
           aria-label={`${counts.uploading + counts.pending} uploading`}
         />
       )}
@@ -482,8 +482,8 @@ export default function CameraView({
       onClick={handleShutter}
       disabled={busy || pendingTag !== null}
       className={cn(
-        "h-20 w-20 rounded-full bg-white transition active:scale-95",
-        "border-[5px] border-[#0F6E56]/60",
+        "h-20 w-20 rounded-full bg-foreground transition active:scale-95",
+        "border-[5px] border-primary/60",
         busy || pendingTag !== null ? "opacity-60" : "opacity-100",
       )}
       aria-label="Capture photo"
@@ -494,7 +494,7 @@ export default function CameraView({
     <button
       type="button"
       onClick={handleDone}
-      className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-6 py-3 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+      className="rounded-full bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
       aria-label="Finish capture session"
     >
       Done
@@ -547,7 +547,7 @@ export default function CameraView({
           </div>
 
           <div
-            className="flex flex-1 flex-col justify-between bg-black px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3"
+            className="flex flex-1 flex-col justify-between bg-background px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-3"
             data-testid="camera-controls-panel"
           >
             {stackedTopRow}
@@ -579,12 +579,12 @@ export default function CameraView({
             <>
               <div
                 data-testid="camera-left-bezel"
-                className="absolute bottom-0 left-0 top-0 bg-black"
+                className="absolute bottom-0 left-0 top-0 bg-background"
                 style={{ width: layout.previewRect.x }}
               />
               <div
                 data-testid="camera-right-bezel"
-                className="absolute bottom-0 right-0 top-0 bg-black"
+                className="absolute bottom-0 right-0 top-0 bg-background"
                 style={{ width: layout.previewRect.x }}
               />
             </>
@@ -642,7 +642,7 @@ export default function CameraView({
           data-mode={layout.mode}
           className="absolute inset-0 z-[1030] flex items-center justify-center bg-black/70 px-6"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-black p-6 text-white">
+          <div className="w-full max-w-sm rounded-2xl bg-popover p-6 text-popover-foreground">
             <h3 className="mb-3 text-lg font-semibold">Leave camera?</h3>
             <p className="mb-6 text-sm text-white/85">
               Your {count} photo{count === 1 ? "" : "s"} will still upload.
@@ -658,7 +658,7 @@ export default function CameraView({
               <button
                 type="button"
                 onClick={handleConfirmLeave}
-                className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+                className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
               >
                 Leave
               </button>
@@ -686,7 +686,7 @@ export default function CameraView({
             <button
               type="button"
               onClick={() => setSettingsOpen(false)}
-              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
             >
               Close
             </button>
@@ -711,14 +711,14 @@ export default function CameraView({
             value={captionDraft}
             onChange={(e) => setCaptionDraft(e.target.value)}
             placeholder="Caption (optional)"
-            className="mb-3 w-full rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 outline-none focus:border-white"
+            className="mb-3 w-full rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 outline-none focus:border-ring"
           />
           <div className="mb-4 flex flex-wrap gap-2">
             {tagsLoading && (
               <span className="text-xs text-white/60">Loading tags&hellip;</span>
             )}
             {tagsError && !tagsLoading && (
-              <span className="text-xs text-red-300">
+              <span className="text-xs text-destructive">
                 Couldn&apos;t load tags ({tagsError}). Caption still saves.
               </span>
             )}
@@ -738,7 +738,7 @@ export default function CameraView({
                     className={cn(
                       "rounded-full border px-3 py-1 text-xs font-medium transition",
                       active
-                        ? "border-white bg-white text-black"
+                        ? "border-foreground bg-foreground text-background"
                         : "border-white/30 bg-transparent text-white",
                     )}
                     style={
@@ -761,7 +761,7 @@ export default function CameraView({
               type="button"
               onClick={handleContinueAfterTag}
               disabled={busy}
-              className="rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] px-5 py-2 text-sm font-medium text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 active:from-[#0F6E56] active:to-[#08362c]"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 active:bg-primary/90"
             >
               Continue
             </button>

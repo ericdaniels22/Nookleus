@@ -45,7 +45,7 @@ export default function CaptureFab({ jobId }: { jobId: string }) {
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onClick={onClick}
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#1a8a6c] to-[#0a4d3e] text-white shadow-lg shadow-[#0F6E56]/50 ring-1 ring-inset ring-white/15 transition active:scale-95 active:from-[#0F6E56] active:to-[#08362c]"
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/15 transition active:scale-95 active:bg-primary/90"
           >
             <Camera className="h-6 w-6" />
           </Link>

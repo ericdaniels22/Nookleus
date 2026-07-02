@@ -2767,11 +2767,13 @@ export default function PhotoAnnotator({
   if (!open || photos.length === 0) return null;
 
   // ─── Render ────────────────────────────────────────────────────────────────
+  // #916 chrome region — everything below is design-v2 token chrome (§7.6);
+  // the Fabric.js canvas + drawing constants above stay byte-for-byte (§9.2).
 
   return (
-    <div className="fixed inset-0 z-[100] flex bg-[#1a1a1a]">
+    <div className="fixed inset-0 z-[100] flex bg-background">
       {/* Left Sidebar */}
-      <div className="w-[56px] bg-[#111111] border-r border-[#333] flex flex-col items-center py-3 gap-1 overflow-y-auto">
+      <div className="w-[56px] bg-card border-r border-border flex flex-col items-center py-3 gap-1 overflow-y-auto">
         {/* Select tool */}
         <button
           onClick={() => !isCropping && setActiveTool("select")}
@@ -2779,8 +2781,8 @@ export default function PhotoAnnotator({
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
             activeTool === "select"
-              ? "bg-[#2B5EA7] text-white"
-              : "text-[#999] hover:text-white hover:bg-[#333]"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
           )}
         >
           <MousePointer size={18} />
@@ -2793,14 +2795,14 @@ export default function PhotoAnnotator({
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
             activeTool === "pan"
-              ? "bg-[#2B5EA7] text-white"
-              : "text-[#999] hover:text-white hover:bg-[#333]"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
           )}
         >
           <Hand size={18} />
         </button>
 
-        <div className="w-8 h-px bg-[#333] my-1" />
+        <div className="w-8 h-px bg-border my-1" />
 
         {/* Drawing tools */}
         {TOOLS.map((tool) => (
@@ -2811,15 +2813,15 @@ export default function PhotoAnnotator({
             className={cn(
               "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
               activeTool === tool.value
-                ? "bg-[#2B5EA7] text-white"
-                : "text-[#999] hover:text-white hover:bg-[#333]"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
             )}
           >
             <tool.icon size={18} />
           </button>
         ))}
 
-        <div className="w-8 h-px bg-[#333] my-1" />
+        <div className="w-8 h-px bg-border my-1" />
 
         {/* Colors */}
         {ANNOTATION_COLORS.map((color) => (
@@ -2830,14 +2832,14 @@ export default function PhotoAnnotator({
             className={cn(
               "w-6 h-6 rounded-full border-2 transition-all",
               paletteColor === color.value
-                ? "border-white scale-125"
-                : "border-[#555] hover:border-[#888]"
+                ? "border-foreground scale-125"
+                : "border-input hover:border-muted-foreground"
             )}
             style={{ backgroundColor: color.value }}
           />
         ))}
 
-        <div className="w-8 h-px bg-[#333] my-1" />
+        <div className="w-8 h-px bg-border my-1" />
 
         {/* Line Thickness */}
         {ANNOTATION_THICKNESSES.map((t) => (
@@ -2848,8 +2850,8 @@ export default function PhotoAnnotator({
             className={cn(
               "w-10 h-8 rounded-lg flex items-center justify-center transition-all",
               paletteThickness === t.value
-                ? "border border-white scale-110"
-                : "border border-transparent hover:border-[#555]"
+                ? "border border-foreground scale-110"
+                : "border border-transparent hover:border-input"
             )}
           >
             <div
@@ -2863,14 +2865,14 @@ export default function PhotoAnnotator({
           </button>
         ))}
 
-        <div className="w-8 h-px bg-[#333] my-1" />
+        <div className="w-8 h-px bg-border my-1" />
 
         {/* Rotate */}
         <button
           onClick={handleRotate}
           title="Rotate 90°"
           disabled={isCropping}
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-[#999] hover:text-white hover:bg-[#333] transition-colors disabled:opacity-30"
+          className="w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30"
         >
           <RotateCw size={18} />
         </button>
@@ -2882,8 +2884,8 @@ export default function PhotoAnnotator({
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
             isCropping
-              ? "bg-[#2B5EA7] text-white"
-              : "text-[#999] hover:text-white hover:bg-[#333]"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
           )}
         >
           <Crop size={18} />
@@ -2900,8 +2902,8 @@ export default function PhotoAnnotator({
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
             canUndoState
-              ? "text-[#999] hover:text-white hover:bg-[#333]"
-              : "text-[#555] cursor-not-allowed"
+              ? "text-muted-foreground hover:text-foreground hover:bg-muted"
+              : "text-text-faint cursor-not-allowed"
           )}
         >
           <Undo2 size={18} />
@@ -2913,8 +2915,8 @@ export default function PhotoAnnotator({
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
             canRedoState
-              ? "text-[#999] hover:text-white hover:bg-[#333]"
-              : "text-[#555] cursor-not-allowed"
+              ? "text-muted-foreground hover:text-foreground hover:bg-muted"
+              : "text-text-faint cursor-not-allowed"
           )}
         >
           <Redo2 size={18} />
@@ -2922,7 +2924,7 @@ export default function PhotoAnnotator({
         <button
           onClick={handleClear}
           title="Clear All"
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-[#999] hover:text-[#C41E2A] hover:bg-[#333] transition-colors"
+          className="w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
         >
           <Trash2 size={18} />
         </button>
@@ -2939,40 +2941,40 @@ export default function PhotoAnnotator({
 
         {/* Crop floating panel */}
         {isCropping && (
-          <div className="absolute top-4 left-2 z-10 bg-white rounded-xl shadow-2xl w-[170px] overflow-hidden">
+          <div className="absolute top-4 left-2 z-10 bg-popover text-popover-foreground rounded-xl shadow-2xl w-[170px] overflow-hidden">
             <div className="px-4 pt-3 pb-2">
-              <h3 className="text-sm font-semibold text-[#1a1a1a]">
+              <h3 className="text-sm font-semibold text-foreground">
                 Crop Image
               </h3>
             </div>
-            <div className="h-px bg-[#e5e5e5]" />
+            <div className="h-px bg-border" />
             <div className="p-3 flex flex-col gap-2">
               <button
                 onClick={handleResetCrop}
-                className="w-full px-3 py-2 bg-[#f0f0f0] hover:bg-[#e5e5e5] text-[#333] text-sm font-medium rounded-lg transition-colors"
+                className="w-full px-3 py-2 bg-muted hover:bg-accent text-foreground text-sm font-medium rounded-lg transition-colors"
               >
                 Reset Crop
               </button>
               <button
                 onClick={handleApplyCrop}
-                className="w-full px-3 py-2 bg-[#0F6E56] hover:bg-[#0a5a46] text-white text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                className="w-full px-3 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
               >
                 <Check size={14} />
                 Apply
               </button>
               <button
                 onClick={handleCancelCrop}
-                className="w-full px-3 py-2 bg-[#f0f0f0] hover:bg-[#e5e5e5] text-[#555] text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                className="w-full px-3 py-2 bg-muted hover:bg-accent text-muted-foreground text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
               >
                 <X size={14} />
                 Cancel
               </button>
               {hasOriginalBackup && (
                 <>
-                  <div className="h-px bg-[#e5e5e5] my-1" />
+                  <div className="h-px bg-border my-1" />
                   <button
                     onClick={handleRestoreOriginal}
-                    className="w-full px-3 py-2 bg-[#f0f0f0] hover:bg-[#FCEBEB] text-[#791F1F] text-xs font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full px-3 py-2 bg-muted hover:bg-destructive/20 text-destructive text-xs font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <ImageOff size={12} />
                     Restore Original
@@ -2986,7 +2988,7 @@ export default function PhotoAnnotator({
         {/* In-context action toolbar (every selected Annotation) */}
         {objectToolbar && (
           <div
-            className="absolute z-20 flex items-center gap-0.5 bg-[#333] rounded-lg shadow-xl p-1"
+            className="absolute z-20 flex items-center gap-0.5 bg-popover rounded-lg shadow-xl p-1"
             style={{
               left: objectToolbar.x,
               top: Math.max(8, objectToolbar.y - 52),
@@ -2997,7 +2999,7 @@ export default function PhotoAnnotator({
               <button
                 onClick={() => handleLabel(objectToolbar.target)}
                 title={objectToolbar.target?.labelText ? "Edit Label" : "Add Text"}
-                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-foreground hover:bg-accent transition-colors"
               >
                 <Type size={18} />
               </button>
@@ -3006,7 +3008,7 @@ export default function PhotoAnnotator({
               <button
                 onClick={() => handleCopy(objectToolbar.target)}
                 title="Duplicate"
-                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#555] transition-colors"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-foreground hover:bg-accent transition-colors"
               >
                 <Copy size={18} />
               </button>
@@ -3015,7 +3017,7 @@ export default function PhotoAnnotator({
               <button
                 onClick={() => handleDelete(objectToolbar.target)}
                 title="Delete"
-                className="w-9 h-9 rounded-md flex items-center justify-center text-white hover:bg-[#C41E2A] transition-colors"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-foreground hover:bg-destructive transition-colors"
               >
                 <Trash2 size={18} />
               </button>
@@ -3030,7 +3032,7 @@ export default function PhotoAnnotator({
             GET failed, or still loading) just omits the chips. */}
         {labelInput && (
           <div
-            className="absolute z-30 bg-[#333] rounded-lg shadow-xl p-2 flex flex-col gap-2"
+            className="absolute z-30 bg-popover rounded-lg shadow-xl p-2 flex flex-col gap-2"
             style={{
               left: labelInput.x,
               top: Math.max(8, labelInput.y - 52),
@@ -3043,7 +3045,7 @@ export default function PhotoAnnotator({
                   <button
                     key={ql.id}
                     onClick={() => commitLabel(labelInput.target, ql.label)}
-                    className="px-2 py-1 rounded-full bg-[#444] text-white text-xs hover:bg-[#2B5EA7] transition-colors"
+                    className="px-2 py-1 rounded-full bg-muted text-foreground text-xs hover:bg-accent transition-colors"
                   >
                     {ql.label}
                   </button>
@@ -3061,18 +3063,18 @@ export default function PhotoAnnotator({
                   if (e.key === "Enter") handleLabelSubmit();
                   if (e.key === "Escape") setLabelInput(null);
                 }}
-                className="bg-[#222] text-white text-sm px-2 py-1 rounded border border-[#555] outline-none focus:border-[#2B5EA7] w-32"
+                className="bg-background text-foreground text-sm px-2 py-1 rounded border border-input outline-none focus:border-ring w-32"
                 placeholder="Label text..."
               />
               <button
                 onClick={handleLabelSubmit}
-                className="w-7 h-7 rounded bg-[#0F6E56] text-white flex items-center justify-center hover:bg-[#0a5a46]"
+                className="w-7 h-7 rounded bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90"
               >
                 <Check size={14} />
               </button>
               <button
                 onClick={() => setLabelInput(null)}
-                className="w-7 h-7 rounded bg-[#555] text-white flex items-center justify-center hover:bg-[#666]"
+                className="w-7 h-7 rounded bg-muted text-foreground flex items-center justify-center hover:bg-accent"
               >
                 <X size={14} />
               </button>
@@ -3102,8 +3104,8 @@ export default function PhotoAnnotator({
         <div className="flex-1 flex items-center justify-center overflow-hidden">
           {!canvasReady && (
             <div className="flex items-center gap-2">
-              <Loader2 size={24} className="animate-spin text-[#999]" />
-              <span className="text-sm text-[#999]">Loading editor...</span>
+              <Loader2 size={24} className="animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Loading editor...</span>
             </div>
           )}
           <div
@@ -3156,7 +3158,7 @@ export default function PhotoAnnotator({
           <button
             onClick={handleClose}
             title="Done"
-            className="w-10 h-10 rounded-full bg-[#0F6E56] hover:bg-[#0a5a46] text-white flex items-center justify-center transition-colors shadow-lg"
+            className="w-10 h-10 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors shadow-lg"
           >
             <Check size={20} />
           </button>

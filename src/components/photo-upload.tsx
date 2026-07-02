@@ -229,21 +229,21 @@ export default function PhotoUploadModal({
             className={cn(
               "border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors",
               dragOver
-                ? "border-[#2B5EA7] bg-[#E6F1FB]"
-                : "border-gray-300 hover:border-gray-400 bg-gray-50"
+                ? "border-primary bg-accent-tint"
+                : "border-input hover:border-muted-foreground bg-muted"
             )}
           >
             <Upload
               size={40}
               className={cn(
                 "mx-auto mb-3",
-                dragOver ? "text-[#2B5EA7]" : "text-[#CCCCCC]"
+                dragOver ? "text-primary" : "text-text-faint"
               )}
             />
-            <p className="text-sm font-medium text-[#666666]">
+            <p className="text-sm font-medium text-text-secondary">
               Drag & drop photos here
             </p>
-            <p className="text-xs text-[#999999] mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               or click to browse files
             </p>
           </div>
@@ -254,11 +254,11 @@ export default function PhotoUploadModal({
               {files.map((fp, index) => (
                 <div
                   key={index}
-                  className="bg-gray-50 rounded-xl border border-gray-200 p-3"
+                  className="bg-muted rounded-xl border border-border p-3"
                 >
                   <div className="flex gap-3">
                     {/* Thumbnail */}
-                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-card flex-shrink-0">
                       <img
                         src={fp.preview}
                         alt="Preview"
@@ -269,17 +269,17 @@ export default function PhotoUploadModal({
                     {/* Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium text-[#1A1A1A] truncate">
+                        <p className="text-sm font-medium text-foreground truncate">
                           {fp.file.name}
                         </p>
                         <button
                           onClick={() => removeFile(index)}
-                          className="text-[#999999] hover:text-[#C41E2A] flex-shrink-0"
+                          className="text-muted-foreground hover:text-destructive flex-shrink-0"
                         >
                           <X size={16} />
                         </button>
                       </div>
-                      <p className="text-xs text-[#999999] mb-2">
+                      <p className="text-xs text-muted-foreground mb-2">
                         {(fp.file.size / 1024 / 1024).toFixed(1)} MB
                       </p>
 
@@ -295,15 +295,15 @@ export default function PhotoUploadModal({
 
                       {/* Before/After toggle */}
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs text-[#999999]">Type:</span>
+                        <span className="text-xs text-muted-foreground">Type:</span>
                         <button
                           type="button"
                           onClick={() => toggleBeforeAfter(index, "before")}
                           className={cn(
                             "px-2 py-0.5 rounded text-xs font-medium border transition-all",
                             fp.beforeAfterRole === "before"
-                              ? "bg-[#FCEBEB] text-[#791F1F] border-[#791F1F]/20"
-                              : "bg-white text-[#666666] border-gray-200"
+                              ? "bg-warning-tint text-warning border-warning/20"
+                              : "bg-card text-text-secondary border-border"
                           )}
                         >
                           Before
@@ -314,8 +314,8 @@ export default function PhotoUploadModal({
                           className={cn(
                             "px-2 py-0.5 rounded text-xs font-medium border transition-all",
                             fp.beforeAfterRole === "after"
-                              ? "bg-[#E1F5EE] text-[#085041] border-[#085041]/20"
-                              : "bg-white text-[#666666] border-gray-200"
+                              ? "bg-accent-tint text-accent-text border-accent-text/20"
+                              : "bg-card text-text-secondary border-border"
                           )}
                         >
                           After
@@ -335,7 +335,7 @@ export default function PhotoUploadModal({
                                 "px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all flex items-center gap-0.5",
                                 selected
                                   ? "text-white border-transparent"
-                                  : "bg-white text-[#666666] border-gray-200"
+                                  : "bg-card text-text-secondary border-border"
                               )}
                               style={
                                 selected
@@ -362,14 +362,14 @@ export default function PhotoUploadModal({
             <div className="flex items-center justify-between pt-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="text-sm text-[#2B5EA7] hover:underline"
+                className="text-sm text-primary hover:underline"
               >
                 + Add more photos
               </button>
               <button
                 onClick={handleUpload}
                 disabled={uploading}
-                className="inline-flex items-center justify-center rounded-lg text-sm font-medium px-6 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-lg text-sm font-medium px-6 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground transition-colors disabled:opacity-50"
               >
                 {uploading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />

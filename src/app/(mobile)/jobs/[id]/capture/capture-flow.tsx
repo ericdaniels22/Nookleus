@@ -32,7 +32,7 @@ export default function CaptureFlow({ jobId }: CaptureFlowProps) {
 
   if (!ready) {
     return (
-      <div className="flex h-dvh w-full items-center justify-center bg-black text-white">
+      <div className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
         <span className="text-sm opacity-70">Preparing capture&hellip;</span>
       </div>
     );
@@ -44,7 +44,7 @@ export default function CaptureFlow({ jobId }: CaptureFlowProps) {
 
   if (sessionId === null) {
     return (
-      <div className="flex h-dvh w-full items-center justify-center bg-black text-white">
+      <div className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
         <span className="text-sm opacity-70">Initializing session&hellip;</span>
       </div>
     );
