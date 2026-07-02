@@ -35,8 +35,11 @@ export default function SignaturePadModal({ open, onClose, onConfirm, title = "S
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Keep the exported bitmap transparent — the canvas only *looks* white
+    // via its `bg-white` CSS. Baking a white fill in here would carry an
+    // opaque rectangle into the PNG that later covers the contract when the
+    // signature is stamped onto the PDF (#968).
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.lineWidth = 3.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -91,8 +94,9 @@ export default function SignaturePadModal({ open, onClose, onConfirm, title = "S
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Clear to transparent (not white) so the exported PNG stays alpha — see
+    // the open/tab effect above (#968).
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     setHasInk(false);
     lastPointRef.current = null;
   }
@@ -110,8 +114,9 @@ export default function SignaturePadModal({ open, onClose, onConfirm, title = "S
     off.height = 200;
     const ctx = off.getContext("2d");
     if (!ctx) throw new Error("Could not get 2d context for offscreen canvas");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, off.width, off.height);
+    // No background fill — the offscreen canvas starts transparent and the
+    // typed name is drawn in black, so the exported PNG keeps its alpha and
+    // won't paint a white box over the contract (#968).
     ctx.fillStyle = "#000";
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
