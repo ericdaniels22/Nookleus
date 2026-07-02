@@ -193,3 +193,25 @@ describe("AddItemDialog → equipment library seed (#685)", () => {
     expect(body).not.toHaveProperty("days");
   });
 });
+
+// #929 — §3 typography: the catalog unit price is money, so it renders with
+// tabular numerals like every other currency figure in the builder.
+describe("AddItemDialog catalog price typography (#929)", () => {
+  it("renders the library unit price with tabular numerals", async () => {
+    stubLibraryFetch([equipmentItem, laborItem]);
+    render(
+      <AddItemDialog
+        open
+        onOpenChange={() => {}}
+        estimateId="est-1"
+        sectionId="sec-1"
+        onAdded={vi.fn()}
+        initialTab="library"
+        mode="estimate"
+      />,
+    );
+
+    const price = await screen.findByText("$100.00 / day");
+    expect(price.className).toContain("tabular-nums");
+  });
+});

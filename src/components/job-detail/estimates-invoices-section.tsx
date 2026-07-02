@@ -382,7 +382,7 @@ export function EstimatesInvoicesSection({
                         {row.frozenEstimateId && (
                           <Link
                             href={`/estimates/${row.frozenEstimateId}`}
-                            className="inline-flex items-center gap-0.5 text-xs text-blue-600 hover:underline"
+                            className="inline-flex items-center gap-0.5 text-xs text-accent-text hover:underline"
                             title="View the original estimate (frozen)"
                           >
                             <FileText size={11} />
@@ -535,13 +535,13 @@ export function EstimatesInvoicesSection({
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <button
-                        className="text-blue-600 text-xs hover:underline"
+                        className="text-accent-text text-xs hover:underline"
                         onClick={() => void restoreEstimate(est.id)}
                       >
                         Restore
                       </button>
                       <button
-                        className="text-red-600 text-xs hover:underline"
+                        className="text-destructive text-xs hover:underline"
                         onClick={() => setForceTarget({ kind: "estimate", row: est })}
                       >
                         Delete now
@@ -573,13 +573,13 @@ export function EstimatesInvoicesSection({
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <button
-                        className="text-blue-600 text-xs hover:underline"
+                        className="text-accent-text text-xs hover:underline"
                         onClick={() => void restoreInvoice(inv.id)}
                       >
                         Restore
                       </button>
                       <button
-                        className="text-red-600 text-xs hover:underline"
+                        className="text-destructive text-xs hover:underline"
                         onClick={() => setForceTarget({ kind: "invoice", row: inv })}
                       >
                         Delete now

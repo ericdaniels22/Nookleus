@@ -9,6 +9,7 @@ import { ExportPdfButton } from "@/components/documents/export-pdf-button";
 import { SendButton } from "@/components/send-modal/button";
 import { TrashedBanner } from "@/components/trash/trashed-banner";
 import { LiveLayoutPanel } from "@/components/documents/live-layout-panel";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { getStatusBadgeClasses, formatStatusLabel } from "@/lib/estimate-status";
 import type { DocumentPdfLayout, InvoiceWithContents, PdfPreset } from "@/lib/types";
 
@@ -80,7 +81,7 @@ export default function InvoiceReadOnlyClient({
         >
           <ArrowLeft size={14} /> Back
         </Link>
-        <h1 className="text-2xl font-semibold font-mono">{invoice.invoice_number}</h1>
+        <h1 className="text-xl font-semibold font-mono">{invoice.invoice_number}</h1>
         <span
           className={`px-2 py-1 rounded text-xs ${getStatusBadgeClasses("invoice", invoice.status)}`}
         >
@@ -90,18 +91,21 @@ export default function InvoiceReadOnlyClient({
             beside the layout panel/preview below (#487). */}
         {!isTrashed && (
           <div className="ml-auto flex gap-2">
-            <Link href={`/invoices/${invoice.id}/edit`} className="btn">
+            <Link
+              href={`/invoices/${invoice.id}/edit`}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
               Edit
             </Link>
             {invoice.status !== "voided" && invoice.status !== "paid" && stripeConnected && (
-              <button onClick={() => setPaymentRequestOpen(true)} className="btn">
+              <Button variant="outline" size="sm" onClick={() => setPaymentRequestOpen(true)}>
                 Send Payment Request
-              </button>
+              </Button>
             )}
             {(invoice.status === "sent" || invoice.status === "partial") && (
-              <button onClick={() => setRecordPaymentOpen(true)} className="btn">
+              <Button variant="outline" size="sm" onClick={() => setRecordPaymentOpen(true)}>
                 Record Payment
-              </button>
+              </Button>
             )}
           </div>
         )}

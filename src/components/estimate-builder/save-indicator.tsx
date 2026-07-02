@@ -36,7 +36,7 @@ export function SaveIndicator({ status, lastSavedAt, mode = "estimate" }: SaveIn
         : null;
 
     return (
-      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+      <span className="flex items-center gap-1 text-xs text-emerald-300">
         <Check size={12} />
         {timeStr !== null ? `Saved at ${timeStr}` : "Saved"}
       </span>

@@ -2,11 +2,70 @@ import { describe, it, expect } from "vitest";
 import {
   rowTint,
   canTransitionEstimate,
+  getStatusBadgeClasses,
+  ESTIMATE_STATUS_BADGE_CLASSES,
+  INVOICE_STATUS_BADGE_CLASSES,
   ESTIMATE_STATUS_TRANSITIONS,
+  ROW_TINT_CLASSES,
   type RowTint,
   type EntityKind,
 } from "./estimate-status";
 import type { EstimateStatus } from "@/lib/types";
+
+// #929 — §2.6 dark-tint status badges for the money path. Same treatment as
+// the payment badges (#917): a ~14%-alpha wash of the status hue behind
+// colored text, never a solid light fill. Fixed enums, so literal class maps
+// are the source of truth (JIT-safe). Semantics: draft = neutral, sent = sky,
+// converted = indigo, partial = amber (warning), paid = emerald (success),
+// voided = muted + line-through.
+describe("§2.6 status badge classes (#929)", () => {
+  it("pins the estimate map to the dark-tint palette", () => {
+    expect(ESTIMATE_STATUS_BADGE_CLASSES).toEqual({
+      draft: "bg-white/7 text-text-secondary",
+      sent: "bg-sky-400/14 text-sky-300",
+      converted: "bg-indigo-400/14 text-indigo-300",
+      voided: "bg-white/5 text-muted-foreground line-through",
+    });
+  });
+
+  it("pins the invoice map to the dark-tint palette", () => {
+    expect(INVOICE_STATUS_BADGE_CLASSES).toEqual({
+      draft: "bg-white/7 text-text-secondary",
+      sent: "bg-sky-400/14 text-sky-300",
+      partial: "bg-amber-400/14 text-amber-400",
+      paid: "bg-emerald-500/14 text-emerald-300",
+      voided: "bg-white/5 text-muted-foreground line-through",
+    });
+  });
+
+  it("falls back to the neutral pair for unknown statuses", () => {
+    expect(getStatusBadgeClasses("estimate", "bogus")).toBe(
+      "bg-white/7 text-text-secondary",
+    );
+    expect(getStatusBadgeClasses("invoice", "bogus")).toBe(
+      "bg-white/7 text-text-secondary",
+    );
+  });
+
+  it("carries no light-mode fills anywhere in the maps", () => {
+    const all = [
+      ...Object.values(ESTIMATE_STATUS_BADGE_CLASSES),
+      ...Object.values(INVOICE_STATUS_BADGE_CLASSES),
+      ...Object.values(ROW_TINT_CLASSES),
+    ].join(" ");
+    // Light shades (-50/-100/-200) are solid fills for white canvases; the
+    // dark theme only ever tints (low-alpha washes) per §2.6.
+    expect(all).not.toMatch(/-(50|100|200)\b/);
+  });
+
+  it("renders the row tints as low-alpha dark washes, semantics unchanged", () => {
+    expect(ROW_TINT_CLASSES).toEqual({
+      yellow: "bg-amber-400/8",
+      blue: "bg-sky-400/8",
+      none: "",
+    });
+  });
+});
 
 // #384 — Status presentation: the Overview row tint draws attention only where
 // it's needed. A converted invoice still in draft is yellow ("ready for

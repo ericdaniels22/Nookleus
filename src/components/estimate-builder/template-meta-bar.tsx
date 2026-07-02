@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { resolveDamageTypeBadge } from "@/lib/badge-colors";
+import { cn } from "@/lib/utils";
 import type { DamageType, TemplateWithContents } from "@/lib/types";
 
 export interface TemplateMetaBarProps {
@@ -87,19 +89,24 @@ function DamageTypeTagPicker({
       <div className="flex flex-wrap gap-1.5">
         {damageTypes.map((dt) => {
           const selected = value.includes(dt.name);
+          // §2.6 (#929): a selected pill takes the shared damage-type badge
+          // treatment — the vivid dark-tint class for an uncustomized default,
+          // or the softened (theme-safe) tint of a per-org override. Never the
+          // raw stored light-mode colors.
+          const badge = selected ? resolveDamageTypeBadge(dt.name, damageTypes) : undefined;
           return (
             <button
               key={dt.id}
               type="button"
               onClick={() => toggle(dt.name)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              className={cn(
+                "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
                 selected
                   ? "border-transparent shadow-sm"
-                  : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-              style={
-                selected ? { backgroundColor: dt.bg_color, color: dt.text_color } : undefined
-              }
+                  : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+                badge?.className,
+              )}
+              style={badge?.style}
               aria-pressed={selected}
             >
               {dt.display_label}

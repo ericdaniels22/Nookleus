@@ -29,7 +29,7 @@ export function FinancialsInvoiceList({ invoices }: { invoices: FinancialsInvoic
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-neutral-200">Invoices</h3>
+      <h3 className="text-sm font-semibold text-foreground">Invoices</h3>
       <ul className="divide-y divide-white/5 rounded-lg border border-white/10">
         {official.map((inv) => (
           <li key={inv.id}>
@@ -38,10 +38,10 @@ export function FinancialsInvoiceList({ invoices }: { invoices: FinancialsInvoic
               className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-white/5"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <span className="font-mono text-xs text-neutral-400">{inv.invoice_number}</span>
-                <span className="truncate text-sm text-neutral-200">{inv.title}</span>
+                <span className="font-mono text-xs text-muted-foreground">{inv.invoice_number}</span>
+                <span className="truncate text-sm text-foreground">{inv.title}</span>
               </span>
-              <span className="tabular-nums text-sm text-neutral-100">
+              <span className="tabular-nums text-sm text-foreground">
                 {fmtCurrency(inv.total_amount)}
               </span>
             </Link>
