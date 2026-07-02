@@ -206,6 +206,27 @@ treatment but does not move where they come from.
 Damage-type badges appear on every job row, job card, and the job detail
 header, alongside status and urgency.
 
+**Document status dots** (the Document Ledger and any future document
+list). A fourth vocabulary, rendered as a small solid dot (~7px) beside
+the document name — the one sanctioned solid-fill, because at dot size a
+tint is invisible. Exactly four colors, mapped from each document kind's
+*real* status enum in one shared module (`src/lib/document-status.ts`);
+never a synthetic unified status enum:
+
+| Dot | Meaning | Examples |
+|---|---|---|
+| Green (accent family) | Terminal good | signed, paid, generated |
+| Amber (`--warning`) | Waiting on a human — chase it | contract sent/viewed (awaiting signature), expired link, partial payment |
+| Blue (sky family) | Sent / in flight | estimate sent, invoice sent |
+| Gray (muted) | Draft / voided / no workflow | draft, voided, the Sketch (statusless) |
+
+There is deliberately no red dot — expired/stalled states are amber
+(action required), reserving `--destructive` for errors and overdue
+money. A dot is never the only carrier of state: the row's right-aligned
+muted text ("sent Jun 18", "signed Jun 16") repeats it, and dots carry
+`aria-label`s. If any row in a group is amber, the group's header shows
+an amber indicator too.
+
 ### 2.7 Charts
 
 Chart.js receives colors as JS values, so charts silently keep old colors
