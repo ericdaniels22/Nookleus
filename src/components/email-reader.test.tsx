@@ -1,5 +1,6 @@
+import type React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 // The reading pane routes an email's body to one of two light surfaces: HTML
 // mail goes to the sandboxed light content island (EmailBodyFrame, §2.8),
@@ -64,7 +65,7 @@ function stubFetch(email: Record<string, unknown>) {
   });
 }
 
-function renderReader() {
+function renderReader(props: Partial<React.ComponentProps<typeof EmailReader>> = {}) {
   return render(
     <EmailReader
       emailId="e1"
@@ -73,6 +74,7 @@ function renderReader() {
       onReplyAll={() => {}}
       onForward={() => {}}
       onStarToggle={() => {}}
+      {...props}
     />,
   );
 }
@@ -97,5 +99,30 @@ describe("EmailReader body routing", () => {
     renderReader();
     await screen.findByText("just plain text");
     expect(screen.queryByTestId("email-body-frame")).toBeNull();
+  });
+});
+
+// #955 — the reader header spells out the full address the email was delivered
+// to, so there's never doubt about which mailbox got it. The receiving address
+// is the connected account's own address, keyed by the email's account_id
+// (the [id] route does not join the account, so the parent passes a map).
+describe("EmailReader receiving address (#955)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the full address the email was delivered to", async () => {
+    vi.stubGlobal("fetch", stubFetch(makeEmail({ account_id: "acc-1" })));
+    renderReader({
+      accountAddressById: new Map([["acc-1", "team@aaadisasterrecovery.com"]]),
+    });
+    await screen.findByText(/team@aaadisasterrecovery\.com/);
+  });
+
+  it("omits the receiving line when the address is unknown", async () => {
+    vi.stubGlobal("fetch", stubFetch(makeEmail({ account_id: "acc-1" })));
+    renderReader({ accountAddressById: new Map() });
+    await screen.findByText("Hello"); // header rendered
+    expect(screen.queryByText(/delivered to/i)).toBeNull();
   });
 });
