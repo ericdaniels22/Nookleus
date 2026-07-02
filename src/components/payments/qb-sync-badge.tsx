@@ -14,14 +14,14 @@ export function QbSyncBadge({ status }: { status: QbSyncStatus }) {
   if (status === null || status === "not_applicable") return null;
   if (status === "synced")
     return (
-      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+      <Badge className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
         <Check className="h-3 w-3 mr-1" />
         Synced to QB
       </Badge>
     );
   if (status === "failed")
     return (
-      <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30">
+      <Badge className="bg-red-500/15 text-red-300 border border-red-500/30">
         <X className="h-3 w-3 mr-1" />
         QB sync failed
       </Badge>

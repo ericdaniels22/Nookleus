@@ -256,6 +256,38 @@ export function resolveStatusBadge(
   return { style: soften(seed.bg, seed.text) };
 }
 
+// ---------------------------------------------------------------------------
+// Payment badges (§2.5/§2.6, #917) — the Billing surface and Record-payment
+// modal tag each payment with its source (which party paid) and status. Unlike
+// damage type / job status these are a fixed enum (see `Payment` in types.ts),
+// never per-Organization data, so a plain dark-tint class map (like
+// `damageTypeColors`) is the source of truth — no soften()/inline-style path.
+// Source is categorical (a hue per party); status is semantic (received =
+// success/emerald, pending = warning/amber, due = destructive/red).
+// ---------------------------------------------------------------------------
+
+export const paymentSourceColors: Record<string, string> = {
+  insurance: "bg-emerald-500/14 text-emerald-300",
+  homeowner: "bg-sky-400/14 text-sky-300",
+  other: "bg-white/7 text-text-secondary",
+};
+
+export const paymentStatusColors: Record<string, string> = {
+  received: "bg-emerald-500/14 text-emerald-300",
+  pending: "bg-amber-400/14 text-amber-400",
+  due: "bg-red-500/14 text-[#F09595]",
+};
+
+/** Badge classes for a payment's source; an unknown value → the neutral pair. */
+export function resolvePaymentSourceBadge(source: string): string {
+  return paymentSourceColors[source] ?? paymentSourceColors.other;
+}
+
+/** Badge classes for a payment's status; an unknown value → the neutral pair. */
+export function resolvePaymentStatusBadge(status: string): string {
+  return paymentStatusColors[status] ?? paymentSourceColors.other;
+}
+
 export const damageTypeLabels: Record<string, string> = {
   water: "Water",
   fire: "Fire",

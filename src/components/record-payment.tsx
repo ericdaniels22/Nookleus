@@ -12,13 +12,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  resolvePaymentSourceBadge,
+  resolvePaymentStatusBadge,
+} from "@/lib/badge-colors";
 import { Loader2, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 
+// §2.6 tints come from the shared resolvers so the selector pills match the
+// source/status badges rendered on the Billing card (#917).
 const paymentSources = [
-  { value: "insurance", label: "Insurance", color: "bg-[#E1F5EE] text-[#085041] border-[#085041]/20" },
-  { value: "homeowner", label: "Homeowner", color: "bg-[#E6F1FB] text-[#0C447C] border-[#0C447C]/20" },
-  { value: "other", label: "Other", color: "bg-[#F1EFE8] text-[#5F5E5A] border-[#5F5E5A]/20" },
+  { value: "insurance", label: "Insurance" },
+  { value: "homeowner", label: "Homeowner" },
+  { value: "other", label: "Other" },
 ];
 
 const paymentMethods = [
@@ -30,9 +36,9 @@ const paymentMethods = [
 ];
 
 const paymentStatuses = [
-  { value: "received", label: "Received", color: "bg-[#E1F5EE] text-[#085041] border-[#085041]/20" },
-  { value: "pending", label: "Pending", color: "bg-[#FAEEDA] text-[#633806] border-[#633806]/20" },
-  { value: "due", label: "Due", color: "bg-[#FCEBEB] text-[#791F1F] border-[#791F1F]/20" },
+  { value: "received", label: "Received" },
+  { value: "pending", label: "Pending" },
+  { value: "due", label: "Due" },
 ];
 
 export default function RecordPaymentModal({
@@ -119,6 +125,7 @@ export default function RecordPaymentModal({
               options={paymentSources}
               value={source}
               onChange={setSource}
+              selectedColor={resolvePaymentSourceBadge}
             />
           </div>
 
@@ -139,6 +146,7 @@ export default function RecordPaymentModal({
               options={paymentStatuses}
               value={status}
               onChange={setStatus}
+              selectedColor={resolvePaymentStatusBadge}
             />
           </div>
 
@@ -149,7 +157,7 @@ export default function RecordPaymentModal({
               <div className="relative">
                 <DollarSign
                   size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#999999]"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
                 <Input
                   value={amount}
@@ -208,7 +216,7 @@ export default function RecordPaymentModal({
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              className="inline-flex items-center justify-center rounded-lg text-sm font-medium px-6 py-2.5 bg-[#C41E2A] hover:bg-[#A3171F] text-white transition-colors disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg text-sm font-medium px-6 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -224,7 +232,7 @@ export default function RecordPaymentModal({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <label className="block text-sm font-medium text-[#666666] mb-1.5">
+    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
       {children}
     </label>
   );
@@ -234,10 +242,12 @@ function PillSelector({
   options,
   value,
   onChange,
+  selectedColor,
 }: {
-  options: { value: string; label: string; color?: string }[];
+  options: { value: string; label: string }[];
   value: string;
   onChange: (val: string) => void;
+  selectedColor?: (value: string) => string;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -249,10 +259,12 @@ function PillSelector({
             type="button"
             onClick={() => onChange(opt.value)}
             className={cn(
-              "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
+              "px-3 py-1.5 rounded-lg text-sm font-medium border border-transparent transition-all",
               isSelected
-                ? opt.color || "bg-[#1B2434] text-white border-[#1B2434]"
-                : "bg-white text-[#666666] border-gray-200 hover:border-gray-300"
+                ? selectedColor
+                  ? selectedColor(opt.value)
+                  : "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
             )}
           >
             {opt.label}
