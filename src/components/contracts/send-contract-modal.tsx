@@ -187,7 +187,7 @@ export default function SendContractModal({
       <DialogContent className="w-[min(100vw-2rem,56rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Send size={18} className="text-[var(--brand-primary)]" />
+            <Send size={18} className="text-accent-text" />
             Send for Signature
           </DialogTitle>
         </DialogHeader>
@@ -231,7 +231,7 @@ export default function SendContractModal({
               <select
                 value={templateId}
                 onChange={(e) => setTemplateId(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
+                className="mt-1 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -252,7 +252,7 @@ export default function SendContractModal({
                 <button
                   type="button"
                   onClick={addSigner}
-                  className="text-[11px] text-[var(--brand-primary)] hover:underline inline-flex items-center gap-1"
+                  className="text-[11px] text-accent-text hover:underline inline-flex items-center gap-1"
                 >
                   <Plus size={11} /> Add signer
                 </button>
@@ -269,14 +269,14 @@ export default function SendContractModal({
                     placeholder={`Signer ${idx + 1} full name`}
                     value={s.name}
                     onChange={(e) => updateSigner(idx, { name: e.target.value })}
-                    className="min-w-0 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
+                    className="min-w-0 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   <input
                     type="email"
                     placeholder="Email"
                     value={s.email}
                     onChange={(e) => updateSigner(idx, { email: e.target.value })}
-                    className="min-w-0 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
+                    className="min-w-0 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   {signers.length > 1 ? (
                     <button
@@ -309,7 +309,7 @@ export default function SendContractModal({
               max={30}
               value={expiryDays}
               onChange={(e) => setExpiryDays(Math.max(1, Math.min(30, Number(e.target.value))))}
-              className="mt-1 w-28 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
+              className="mt-1 w-28 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
 
@@ -320,7 +320,7 @@ export default function SendContractModal({
               type="text"
               value={emailSubject}
               onChange={(e) => setEmailSubject(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
+              className="mt-1 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
 

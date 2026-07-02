@@ -44,7 +44,7 @@ const MergeFieldInput = forwardRef<MergeFieldInputHandle, Props>(function MergeF
       attributes: {
         class:
           (className ??
-            "w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 focus:border-[var(--brand-primary)]") +
+            "w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary") +
           " merge-field-input-line",
       },
       handleKeyDown(_view, event) {

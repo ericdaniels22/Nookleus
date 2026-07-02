@@ -29,6 +29,19 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
   const [signaturePadOpen, setSignaturePadOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Dual-surface chrome. This view renders on the public light signing page
+  // (!inPerson, inside `.public-scope`) and on the in-app dark in-person page
+  // (inPerson). Customer-facing surfaces stay light on the brand triad with no
+  // Product accent (§2.8); the in-app surface uses the dark semantic tokens and
+  // the emerald primary. The on-PDF field markers below stay light on BOTH
+  // surfaces — they sit over the white PDF page, so only the surrounding chrome
+  // flips.
+  const mutedText = inPerson ? "text-muted-foreground" : "public-muted";
+  const footerBar = inPerson ? "bg-card border-border" : "bg-white border-gray-200";
+  const submitButton = inPerson
+    ? "bg-primary text-primary-foreground"
+    : "bg-[var(--brand-primary)] text-white";
+
   // Pre-filled values stamped at draft time (auto-fill checkboxes from #70).
   // The signer can't toggle these — they render as a locked input.
   const prefilledInputs = view.contract.customer_inputs ?? {};
@@ -39,7 +52,7 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
   // The guard keeps the type honest for the degraded view shape.
   if (!view.template) {
     return (
-      <div className="p-8 text-muted-foreground">
+      <div className={`p-8 ${mutedText}`}>
         This contract is no longer available for signing.
       </div>
     );
@@ -106,7 +119,7 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
         />
       );
     }
-    return <div className="p-8 text-muted-foreground">No PDF available.</div>;
+    return <div className={`p-8 ${mutedText}`}>No PDF available.</div>;
   }
 
   return (
@@ -250,15 +263,15 @@ export default function ContractSignerView({ view, signToken, inPerson, onSigned
           </>
         )}
       />
-      <div className="sticky bottom-0 inset-x-0 bg-card border-t border-border p-4 flex justify-between items-center">
-        <span className="text-sm text-muted-foreground">
+      <div className={`sticky bottom-0 inset-x-0 border-t p-4 flex justify-between items-center ${footerBar}`}>
+        <span className={`text-sm ${mutedText}`}>
           {requiredMissing ? "Fill all required fields and sign to submit" : "Ready to submit"}
         </span>
         <button
           type="button"
           onClick={submit}
           disabled={requiredMissing || submitting}
-          className="px-4 py-2 rounded bg-[var(--brand-primary)] text-white font-medium disabled:opacity-50"
+          className={`px-4 py-2 rounded font-medium disabled:opacity-50 ${submitButton}`}
         >
           {submitting ? "Submitting…" : "Submit signed contract"}
         </button>

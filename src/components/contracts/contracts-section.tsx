@@ -349,21 +349,26 @@ interface RowProps {
   onPermanentlyDelete: () => void;
 }
 
+// §2.5/§2.6 tint treatment on semantic tokens (not hardcoded hex): signed =
+// success (emerald family), sent/viewed = warning (amber), expired = danger,
+// draft/voided = neutral. Contract status is a fixed enum (not the config-driven
+// job-status vocabulary of ADR 0022), so it maps to the semantic palette here
+// rather than through resolveStatusBadge.
 const STATUS_STYLES: Record<ContractListItem["status"], { wrap: string; label: string; text: string }> = {
   signed: {
-    wrap: "bg-[rgba(29,158,117,0.10)] border-[rgba(29,158,117,0.30)]",
+    wrap: "bg-accent-tint border-primary/25",
     label: "Signed",
-    text: "text-[#5DCAA5]",
+    text: "text-accent-text",
   },
   sent: {
-    wrap: "bg-[rgba(239,159,39,0.10)] border-[rgba(239,159,39,0.30)]",
+    wrap: "bg-amber-400/14 border-amber-400/25",
     label: "Sent",
-    text: "text-[#FAC775]",
+    text: "text-amber-400",
   },
   viewed: {
-    wrap: "bg-[rgba(239,159,39,0.10)] border-[rgba(239,159,39,0.30)]",
+    wrap: "bg-amber-400/14 border-amber-400/25",
     label: "Viewed",
-    text: "text-[#FAC775]",
+    text: "text-amber-400",
   },
   draft: {
     wrap: "bg-muted/30 border-border",
@@ -376,7 +381,7 @@ const STATUS_STYLES: Record<ContractListItem["status"], { wrap: string; label: s
     text: "text-muted-foreground",
   },
   expired: {
-    wrap: "bg-[rgba(228,75,74,0.08)] border-[rgba(228,75,74,0.30)]",
+    wrap: "bg-red-500/14 border-red-500/30",
     label: "Expired",
     text: "text-[#F09595]",
   },
@@ -486,7 +491,7 @@ function ContractRow({
             type="button"
             onClick={onResend}
             disabled={busy}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-accent-tint text-accent-text hover:bg-primary/20 transition-colors"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Resend
           </button>
@@ -583,11 +588,11 @@ function MultiSignerStatus({ signers }: { signers: ContractListSigner[] }) {
             Signer {s.signer_order}:
           </span>
           {s.signed_at ? (
-            <span className="text-[#5DCAA5] inline-flex items-center gap-0.5">
+            <span className="text-accent-text inline-flex items-center gap-0.5">
               <Check size={11} /> Signed {formatDate(s.signed_at)}
             </span>
           ) : (
-            <span className="text-[#FAC775]">Awaiting signature</span>
+            <span className="text-amber-400">Awaiting signature</span>
           )}
         </span>
       ))}

@@ -52,8 +52,8 @@ export default async function SignInPersonCompletePage({
   return (
     <div className="min-h-dvh bg-background text-foreground flex items-center justify-center px-6 py-10">
       <div className="max-w-xl w-full bg-card border border-border rounded-2xl p-10 text-center">
-        <div className="mx-auto w-16 h-16 rounded-full bg-[rgba(29,158,117,0.15)] flex items-center justify-center mb-5">
-          <CheckCircle2 size={40} className="text-[#5DCAA5]" />
+        <div className="mx-auto w-16 h-16 rounded-full bg-accent-tint flex items-center justify-center mb-5">
+          <CheckCircle2 size={40} className="text-accent-text" />
         </div>
         <h1 className="text-2xl font-semibold mb-2">Contract signed</h1>
         <p className="text-sm text-muted-foreground mb-1">{contract.title}</p>
@@ -62,7 +62,7 @@ export default async function SignInPersonCompletePage({
         {contract.signed_pdf_path && (
           <Link
             href={`/contracts/${contract.id}/view`}
-            className="inline-flex items-center gap-2 text-sm text-[var(--brand-primary)] hover:underline mb-6"
+            className="inline-flex items-center gap-2 text-sm text-accent-text hover:underline mb-6"
           >
             <Eye size={14} /> View signed PDF
           </Link>

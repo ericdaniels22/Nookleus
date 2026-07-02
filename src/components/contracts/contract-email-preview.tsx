@@ -74,7 +74,7 @@ export default function ContractEmailPreview({ settings }: Props) {
               onClick={() => setKind(value)}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 kind === value
-                  ? "bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]"
+                  ? "bg-accent-tint text-accent-text"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               }`}
             >
@@ -87,7 +87,7 @@ export default function ContractEmailPreview({ settings }: Props) {
 
       <div className="rounded-lg overflow-hidden border border-border bg-white">
         {error ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-amber-600 py-20">
+          <div className="flex items-center justify-center gap-2 text-sm text-amber-400 py-20 bg-background/40">
             <AlertTriangle size={16} /> {error}
           </div>
         ) : html === null ? (

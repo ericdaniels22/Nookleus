@@ -292,7 +292,7 @@ export default function TemplatePdfEditor({ initial }: Props) {
       />
       <main
         ref={mainRef}
-        className={`flex-1 overflow-auto bg-zinc-100 ${
+        className={`flex-1 overflow-auto bg-muted ${
           panEnabled ? (panning ? "cursor-grabbing" : "cursor-grab") : ""
         }`}
         onPointerDown={onMainPointerDown}
@@ -342,7 +342,7 @@ export default function TemplatePdfEditor({ initial }: Props) {
               href={`/api/settings/contract-templates/${template.id}/preview`}
               target="_blank"
               rel="noopener"
-              className="text-xs text-[var(--brand-primary)] hover:underline"
+              className="text-xs text-accent-text hover:underline"
             >
               Preview ↗
             </a>
