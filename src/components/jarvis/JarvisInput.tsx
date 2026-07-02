@@ -370,7 +370,7 @@ export default function JarvisInput({
               : placeholder || "Message Jarvis..."
           }
           rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50 py-1"
+          className="flex-1 resize-none bg-transparent text-base text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50 py-1"
         />
         <button
           onClick={handleSend}

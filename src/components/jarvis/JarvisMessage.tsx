@@ -41,14 +41,14 @@ function JarvisAttachmentImage({
 
   if (failed) {
     return (
-      <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-white/10 px-3 text-center text-xs text-white/70">
+      <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-foreground/10 px-3 text-center text-xs text-muted-foreground">
         Image unavailable
       </div>
     );
   }
   if (!url) {
     return (
-      <div className="h-40 w-40 animate-pulse rounded-xl bg-white/10" />
+      <div className="h-40 w-40 animate-pulse rounded-xl bg-foreground/10" />
     );
   }
   return (
@@ -94,9 +94,9 @@ function JarvisAttachmentPdf({
 
   const label = attachment.filename || "PDF document";
   const chip = (
-    <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2">
-      <FileText size={16} className="flex-shrink-0 text-white/80" />
-      <span className="max-w-[200px] truncate text-xs text-white">
+    <div className="flex items-center gap-2 rounded-xl bg-foreground/10 px-3 py-2">
+      <FileText size={16} className="flex-shrink-0 text-muted-foreground" />
+      <span className="max-w-[200px] truncate text-xs text-foreground">
         {label}
       </span>
     </div>
@@ -138,7 +138,11 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex items-start gap-3 px-4 ${isUser ? "flex-row-reverse" : ""}`}>
+    <div
+      data-slot="jarvis-message"
+      data-role={message.role}
+      className={`flex items-start gap-3 px-4 ${isUser ? "flex-row-reverse" : ""}`}
+    >
       {!isUser && (
         <div className="w-8 h-8 rounded-full bg-accent-tint flex items-center justify-center flex-shrink-0">
           <span className="text-xs font-bold text-accent-text">J</span>
@@ -146,10 +150,11 @@ export default function JarvisMessage({ message }: { message: JarvisMessageType 
       )}
       <div className={`max-w-[80%] space-y-1 ${isUser ? "items-end" : "items-start"}`}>
         <div
+          data-slot="jarvis-bubble"
           className={
             isUser
-              ? "bg-accent-tint text-foreground rounded-2xl rounded-tr-sm px-4 py-2.5"
-              : "bg-muted text-foreground rounded-2xl rounded-tl-sm px-4 py-2.5"
+              ? "bg-muted text-foreground rounded-2xl rounded-tr-sm px-4 py-2.5"
+              : "bg-card border border-border text-foreground rounded-2xl rounded-tl-sm px-4 py-2.5"
           }
         >
           {isUser ? (
