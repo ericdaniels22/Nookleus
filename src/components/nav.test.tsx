@@ -95,7 +95,9 @@ describe("Sidebar — Phone item visibility (PRD #304 / #306)", () => {
     expect(screen.queryByText("Phone")).toBeNull();
   });
 
-  it("positions the Phone item between Contacts and Email", () => {
+  it("positions the Phone item between Email and Contacts", () => {
+    // #306 placed Phone adjacent to Contacts and Email; design-system §5
+    // (#912) fixed the Comms group order as Email, Phone, Contacts.
     setAuth({ role: "crew_lead", grants: { view_phone: true } });
     render(<Sidebar />);
     const links = Array.from(document.querySelectorAll("a[href]"));
@@ -103,9 +105,9 @@ describe("Sidebar — Phone item visibility (PRD #304 / #306)", () => {
     const contactsIdx = hrefs.indexOf("/contacts");
     const phoneIdx = hrefs.indexOf("/phone");
     const emailIdx = hrefs.indexOf("/email");
-    expect(contactsIdx).toBeGreaterThanOrEqual(0);
-    expect(phoneIdx).toBeGreaterThan(contactsIdx);
-    expect(emailIdx).toBeGreaterThan(phoneIdx);
+    expect(emailIdx).toBeGreaterThanOrEqual(0);
+    expect(phoneIdx).toBeGreaterThan(emailIdx);
+    expect(contactsIdx).toBeGreaterThan(phoneIdx);
   });
 });
 

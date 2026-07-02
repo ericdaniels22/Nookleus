@@ -74,13 +74,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           isBuilderRoute ? () => setRailExpanded((v) => !v) : undefined
         }
       />
+      {/* Responsive bands (design-system §7.1): drawer below md (the fixed
+          mobile topbar offsets via padding), 56px icon rail from md, full
+          240px sidebar from lg. Collapsed keeps the rail at every band. */}
       <main
         className={cn(
-          "pt-[calc(env(safe-area-inset-top)+3.5rem)] lg:pt-0 min-h-dvh transition-[margin] duration-200 ease-out",
-          effectiveCollapsed ? "lg:ml-16" : "lg:ml-52",
+          "pt-[calc(env(safe-area-inset-top)+3.5rem)] md:pt-0 min-h-dvh transition-[margin] duration-200 ease-out",
+          effectiveCollapsed ? "md:ml-14" : "md:ml-14 lg:ml-60",
         )}
       >
-        {isFullBleed ? children : <div className="p-6 lg:p-8">{children}</div>}
+        {isFullBleed ? (
+          children
+        ) : (
+          // §4: content max-width 1440px, fluid below; page padding 16px on
+          // phone stepping to 24/32px.
+          <div className="mx-auto max-w-[1440px] p-4 md:p-6 lg:p-8">
+            {children}
+          </div>
+        )}
       </main>
       <OnTheClockBar />
       <AwayNudgeWatcher />
