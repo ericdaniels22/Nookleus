@@ -1,7 +1,7 @@
 // PRD #304 — Nookleus Phone. Slice 7 (#311) — Job-page message row.
 //
 // One text/MMS in the Job-page Messages section. Keeps the Phone-tab
-// bubble treatment (inbound left/muted, outbound right/brand) and adds a
+// bubble treatment (inbound left/muted, outbound right/primary) and adds a
 // per-message context header (counterparty + timestamp) — the Job section
 // shows messages across many conversations, so each needs to say who it
 // was with and when.
@@ -50,13 +50,15 @@ describe("JobMessageRow — bubble treatment", () => {
     expect(bubble.parentElement!.className).toMatch(/items-start|self-start/);
   });
 
-  it("renders an outbound message right-aligned in the brand bubble", () => {
+  it("renders an outbound message right-aligned in the primary bubble", () => {
     render(
       <JobMessageRow message={row({ direction: "out", body: "On our way" })} />,
     );
     const bubble = screen.getByText("On our way");
-    expect(bubble.className).toContain("bg-[var(--brand-primary)]");
-    expect(bubble.className).toContain("text-white");
+    // design-v2 (#921): the outbound bubble is the primary fill, not the
+    // legacy --brand-primary hex.
+    expect(bubble.className).toContain("bg-primary");
+    expect(bubble.className).toContain("text-primary-foreground");
     expect(bubble.parentElement!.className).toMatch(/items-end|self-end/);
   });
 });

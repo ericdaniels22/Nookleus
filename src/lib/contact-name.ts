@@ -39,3 +39,17 @@ export function splitName(fullName: string): NameParts {
     familyName: normalized.slice(lastSpace + 1),
   };
 }
+
+/**
+ * The one- or two-letter monogram for an avatar (design-system §5): the first
+ * letter of the first token plus the first letter of the last token, uppercased.
+ */
+export function initials(fullName: string): string {
+  const normalized = normalizeWhitespace(fullName ?? "");
+  if (normalized === "") return "?";
+  const tokens = normalized.split(" ");
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  const monogram = tokens.length === 1 ? first[0] : first[0] + last[0];
+  return monogram.toUpperCase();
+}

@@ -32,16 +32,16 @@ export default async function PhonePage() {
 
   if (!auth.ok || !auth.orgId) {
     return (
-      <div className="flex items-center justify-center min-h-[40vh] px-4">
-        <div className="rounded-xl border border-border bg-card p-8 text-center max-w-md w-full">
-          <AlertCircle size={28} className="mx-auto text-destructive mb-3" />
+      <div className="flex min-h-[40vh] items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-8 text-center">
+          <AlertCircle size={28} className="mx-auto mb-3 text-destructive" />
           <h2 className="text-lg font-semibold text-foreground">Access restricted</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             You don&apos;t have permission to view the Phone tab.
           </p>
           <Link
             href="/"
-            className="inline-block mt-4 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+            className="mt-4 inline-block text-sm font-medium text-accent-text hover:underline"
           >
             Back to dashboard
           </Link>

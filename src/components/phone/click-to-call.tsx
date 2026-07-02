@@ -72,7 +72,7 @@ export function ClickToCall({
         disabled={calling}
         className={
           className ??
-          "inline-flex items-center gap-1 text-[var(--brand-primary)] hover:underline disabled:opacity-50"
+          "inline-flex items-center gap-1 text-accent-text hover:underline disabled:opacity-50"
         }
       >
         <Phone size={12} aria-hidden /> {calling ? "Calling…" : label}
@@ -83,7 +83,7 @@ export function ClickToCall({
         </span>
       ) : null}
       {error ? (
-        <span role="alert" className="text-xs text-red-600 dark:text-red-400">
+        <span role="alert" className="text-xs text-destructive">
           {error}
         </span>
       ) : null}
