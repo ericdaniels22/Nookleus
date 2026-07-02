@@ -30,6 +30,7 @@ import {
 } from "@/lib/email/draft-attachments";
 import { useEmailSync } from "@/lib/email/use-email-sync";
 import { useEmailSummaryCache } from "@/lib/mobile/use-email-summary-cache";
+import { accountRowWash } from "@/lib/email/account-wash";
 
 const LAZY_REFRESH_FOLDERS = new Set(["drafts", "trash", "spam", "archive"]);
 const LAZY_REFRESH_THROTTLE_MS = 30_000;
@@ -600,8 +601,20 @@ export default function EmailInbox() {
     }
     return map;
   }, [accounts]);
+  // The receiving address the reader spells out per message (#955).
+  const accountAddressById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accounts) {
+      if (a.email_address) map.set(a.id, a.email_address);
+    }
+    return map;
+  }, [accounts]);
   // Bar appears once there's more than one connected account to distinguish.
   const showAccountBar = accounts.length >= 2;
+  // The full-row account-color wash only helps in the *mixed* All-Inboxes view
+  // (#955). Once filtered to a single account the color is redundant, so the
+  // wash disappears; the colored edge stays either way.
+  const showWash = showAccountBar && !selectedAccountId;
 
   return (
     <div className="h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] lg:h-dvh flex flex-col">
@@ -855,6 +868,7 @@ export default function EmailInbox() {
                   folder={folder}
                   accountColor={accountColorById.get(email.account_id)}
                   showAccountBar={showAccountBar}
+                  showWash={showWash}
                   onSelect={() => handleSelectEmail(email)}
                   onStar={() =>
                     handleStarToggle(email.id, !email.is_starred)
@@ -902,6 +916,7 @@ export default function EmailInbox() {
                 loadCounts();
               }}
               accountColorById={accountColorById}
+              accountAddressById={accountAddressById}
               showAccountBar={showAccountBar}
             />
           ) : (
@@ -1068,6 +1083,7 @@ function EmailRow({
   folder,
   accountColor,
   showAccountBar,
+  showWash,
   onSelect,
   onStar,
   onToggleCheck,
@@ -1078,6 +1094,7 @@ function EmailRow({
   folder: string;
   accountColor?: string;
   showAccountBar: boolean;
+  showWash: boolean;
   onSelect: () => void;
   onStar: () => void;
   onToggleCheck: () => void;
@@ -1088,15 +1105,23 @@ function EmailRow({
     ? email.to_addresses?.[0]?.name || email.to_addresses?.[0]?.email || "Unknown"
     : email.from_name || email.from_address;
 
+  // Full-row account-color wash (mixed All-Inboxes view only, #955). A
+  // selected row keeps its selection highlight instead. Applied as the row's
+  // inline background so it paints behind the content; hover feedback is only
+  // added for un-washed rows so it isn't overridden by the inline style.
+  const washColor =
+    showWash && !isSelected ? accountRowWash(accountColor) : undefined;
+
   return (
     <div
       onClick={onSelect}
+      style={washColor ? { backgroundColor: washColor } : undefined}
       className={`relative flex items-start gap-3 px-4 py-3 cursor-pointer border-b border-border/50 transition-colors ${
         isSelected
           ? "bg-primary/5 border-l-2 border-l-primary"
-          : email.is_read
-          ? "hover:bg-primary/5"
-          : "bg-primary/5 hover:bg-primary/10"
+          : washColor
+          ? ""
+          : "hover:bg-primary/5"
       }`}
     >
       {showAccountBar && accountColor && !isSelected && (
@@ -1139,6 +1164,12 @@ function EmailRow({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
+          {!email.is_read && (
+            <span
+              aria-label="Unread"
+              className="h-2 w-2 rounded-full bg-primary shrink-0"
+            />
+          )}
           <span
             className={`text-sm truncate ${
               email.is_read ? "text-muted-foreground" : "font-semibold text-foreground"
@@ -1153,7 +1184,9 @@ function EmailRow({
         <div className="flex items-center gap-1.5 mt-0.5">
           <span
             className={`text-sm truncate ${
-              email.is_read ? "text-muted-foreground/60" : "text-foreground"
+              email.is_read
+                ? "text-muted-foreground/60"
+                : "font-semibold text-foreground"
             }`}
           >
             {email.subject || "(no subject)"}

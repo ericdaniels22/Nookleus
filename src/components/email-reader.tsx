@@ -31,6 +31,7 @@ interface EmailReaderProps {
   onStarToggle: (id: string, starred: boolean) => void;
   onActioned?: () => void;
   accountColorById?: Map<string, string>;
+  accountAddressById?: Map<string, string>;
   showAccountBar?: boolean;
 }
 
@@ -49,6 +50,7 @@ export default function EmailReader({
   onStarToggle,
   onActioned,
   accountColorById,
+  accountAddressById,
   showAccountBar,
 }: EmailReaderProps) {
   const [thread, setThread] = useState<Email[]>([]);
@@ -197,6 +199,9 @@ export default function EmailReader({
 
   const latestEmail = thread[thread.length - 1];
   const accountColor = accountColorById?.get(latestEmail.account_id);
+  // The mailbox that received this mail — the connected account's own address.
+  // Spelled out in the header so there's never doubt which inbox got it (#955).
+  const receivingAddress = accountAddressById?.get(latestEmail.account_id);
 
   return (
     <div className="flex flex-col h-full min-w-0">
@@ -215,9 +220,16 @@ export default function EmailReader({
         >
           <ArrowLeft size={18} />
         </button>
-        <h2 className="text-base font-semibold text-foreground truncate flex-1 min-w-0">
-          {latestEmail.subject || "(no subject)"}
-        </h2>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-semibold text-foreground truncate">
+            {latestEmail.subject || "(no subject)"}
+          </h2>
+          {receivingAddress && (
+            <p className="text-xs text-muted-foreground truncate">
+              Delivered to {receivingAddress}
+            </p>
+          )}
+        </div>
         {thread.length > 1 && (
           <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
             {thread.length} messages
