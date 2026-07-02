@@ -107,6 +107,22 @@ describe("Sidebar — icon rail at the tablet band (#912, design-system §7.1)",
     expect(screen.getByText("Work")).toBeTruthy();
   });
 
+  it("anchors the phone drawer to the right edge and animates its slide", () => {
+    // Below md the drawer lives off-canvas PAST THE RIGHT EDGE (matching the
+    // top-right hamburger) and slides in. Tailwind v4's translate-x-*
+    // utilities set the CSS `translate` property — not `transform` — so the
+    // transition list must name `translate` or the drawer snaps.
+    stubBand({ tablet: false, desktop: false });
+    const { container } = render(<Sidebar />);
+    const aside = container.querySelector("aside")!;
+
+    expect(aside.className).toContain("right-0");
+    expect(aside.className).not.toContain("-translate-x-full");
+    expect(aside.className).toContain("translate-x-full");
+    expect(aside.className).toContain("transition-[translate,width]");
+    expect(aside.className).toContain("motion-reduce:transition-none");
+  });
+
   it("expands the rail into the labeled overlay on tap — the touch equivalent (§7.2)", () => {
     // Tooltips only serve hover/long-press; the rail's expand button must
     // open the full labeled sidebar as an overlay so nothing is
