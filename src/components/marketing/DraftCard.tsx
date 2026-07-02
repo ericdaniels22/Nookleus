@@ -19,7 +19,7 @@ const statusConfig: Record<
   draft: { label: "Draft", variant: "outline" },
   ready: {
     label: "Ready",
-    className: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+    className: "bg-accent-tint text-accent-text border-primary/30",
   },
   posted: {
     label: "Posted",
@@ -39,7 +39,7 @@ export default function DraftCard({ draft, onClick }: DraftCardProps) {
   return (
     <div
       onClick={onClick}
-      className="cursor-pointer overflow-hidden rounded-xl border bg-card transition hover:border-teal-500/30"
+      className="cursor-pointer overflow-hidden rounded-xl border bg-card transition hover:border-primary/30"
     >
       {/* Image area */}
       {draft.image ? (
