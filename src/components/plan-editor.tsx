@@ -1,11 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, Maximize, Minus, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Maximize,
+  Minus,
+  Pencil,
+  Plus,
+  ScanLine,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import type { Floor, Room, SketchObject, SketchOpening } from "@/lib/types";
+import { isRoomPlanScanAvailable, scanRoom } from "@/lib/mobile/roomplan-capture";
 import { translateFootprint, type Point } from "@/lib/sketch/footprint";
 import { deleteWall, setWallLength } from "@/lib/sketch/footprint-edit";
 import { floorStatistics, sketchStatistics } from "@/lib/sketch/room-stats";
@@ -33,6 +43,52 @@ const Sketch3DViewer = dynamic(() => import("./sketch-3d-viewer"), {
 /** Trim trailing zeros so "12.000" reads as "12" but "12.5" survives. */
 function fmt(value: number): string {
   return Number(Number(value).toFixed(3)).toString();
+}
+
+/** PostgREST returns `numeric` columns as strings; coerce before arithmetic. */
+function n(value: number | string | null | undefined): number {
+  return value == null ? 0 : Number(value);
+}
+
+// The scan API (#871) echoes a freshly-written Room and its objects straight from
+// PostgREST, so the numeric columns arrive as strings (footprint/origin/position
+// are jsonb and come back parsed). These coerce at that wire boundary exactly as
+// the page loader does, so the Statistics roll-up and inspector arithmetic stay
+// numeric rather than string-concatenating a scanned Room's areas.
+function coerceScannedRoom(raw: Room): Room {
+  return {
+    ...raw,
+    footprint: Array.isArray(raw.footprint) ? raw.footprint : [],
+    origin:
+      raw.origin && typeof raw.origin === "object" ? raw.origin : { x: 0, y: 0 },
+    width: n(raw.width),
+    length: n(raw.length),
+    ceiling_height_override:
+      raw.ceiling_height_override == null
+        ? null
+        : Number(raw.ceiling_height_override),
+    floor_area: n(raw.floor_area),
+    ceiling_area: n(raw.ceiling_area),
+    perimeter: n(raw.perimeter),
+    gross_wall_area: n(raw.gross_wall_area),
+    net_wall_area: n(raw.net_wall_area),
+    volume: n(raw.volume),
+    sort_order: Number(raw.sort_order),
+  };
+}
+
+function coerceScannedObject(raw: SketchObject): SketchObject {
+  return {
+    id: raw.id,
+    room_id: raw.room_id,
+    category: raw.category,
+    position:
+      raw.position && typeof raw.position === "object"
+        ? raw.position
+        : { x: 0, y: 0 },
+    rotation: n(raw.rotation),
+    sort_order: Number(raw.sort_order),
+  };
 }
 
 // Issue #890 — the full-screen desktop plan editor (ADR 0026). Replaces the
@@ -94,6 +150,21 @@ export default function PlanEditor({
   // and `floorNameDraft` holds the in-progress name until Save.
   const [renamingFloor, setRenamingFloor] = useState(false);
   const [floorNameDraft, setFloorNameDraft] = useState("");
+  // Whether the assisted RoomPlan scan is offered (#871). False everywhere but the
+  // LiDAR iOS shell (ADR 0025 — the web/desktop authors the Sketch by hand), so the
+  // "Scan room" button is gated on this. Resolved once on mount; the capture module
+  // reports false off the native platform, so nothing shows there.
+  const [scanAvailable, setScanAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void isRoomPlanScanAvailable().then((available) => {
+      if (active && available) setScanAvailable(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Zoom as a percentage (100 = 1:1), stepped 25% at a time within a sane range.
   // "Fit" returns to 1:1; true fit-to-content recentring is canvas glue (#890).
   const [zoom, setZoom] = useState(100);
@@ -304,6 +375,35 @@ export default function PlanEditor({
     setSelectedObjectId(null);
   }
 
+  // Filling the Sketch from an assisted RoomPlan scan (#871). Native-only (gated
+  // on scanAvailable). A scan is an INPUT to the Job's one Sketch (ADR 0025): we
+  // hand the capture to the scan API, which bootstraps the Sketch if needed, maps
+  // it (M11) and writes the Room + objects server-side (so the measurement cache
+  // stays app-written). The echoed Room joins the plan, and we jump to its Floor
+  // and select it so the user lands in the inspector to review and correct it. An
+  // empty capture writes no Room (result.room null) — the editor just opens blank.
+  async function scanRoomIntoSketch() {
+    const scan = await scanRoom();
+    const res = await fetch(`/api/jobs/${jobId}/sketch/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: scan.room }),
+    });
+    if (!res.ok) return;
+    const result = (await res.json()) as {
+      sketchId: string;
+      room: Room | null;
+      objects: SketchObject[];
+    };
+    if (!result.room) return;
+    const room = coerceScannedRoom(result.room);
+    const scannedObjects = result.objects.map(coerceScannedObject);
+    setRooms((prev) => [...prev, room]);
+    setObjects((prev) => [...prev, ...scannedObjects]);
+    setActiveFloorId(room.floor_id);
+    selectRoom(room.id);
+  }
+
   // Re-categorizing a placed object (#867) — the only edit the inspector offers
   // (objects are count-only; position/rotation are a canvas drag). We PATCH just
   // the category and replace the row with the echoed one.
@@ -488,6 +588,20 @@ export default function PlanEditor({
                 <Plus size={16} />
                 Add room
               </button>
+
+              {/* Assisted RoomPlan scan (#871) — native-only. A scan fills the
+                  Sketch's Room to review and correct here (ADR 0025); the button
+                  only shows where RoomPlan can run. */}
+              {scanAvailable ? (
+                <button
+                  type="button"
+                  onClick={() => void scanRoomIntoSketch()}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted/60"
+                >
+                  <ScanLine size={16} />
+                  Scan room
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>
