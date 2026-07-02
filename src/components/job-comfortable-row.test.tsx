@@ -4,17 +4,31 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Job, Photo } from "@/lib/types";
 import { getJobStatusPresentation } from "@/lib/job-status-presentation";
 
-// JobComfortableRow reads status/damage colors + labels from the config
-// context. Stub it so the row renders without a ConfigProvider; the
-// stubbed color strings double as a marker that the row threaded the
-// lookups through.
+// JobComfortableRow reads the status/damage config rows + labels and passes
+// them through the §2.6 badge resolvers (#914). Stub the context so the row
+// renders without a ConfigProvider: the in_progress status row carries a
+// distinctive bg (#123456) so the soften tint traces back to the config as its
+// source, and damageTypes is empty so an uncustomized Water resolves to its
+// vivid canonical class.
 vi.mock("@/lib/config-context", () => ({
   useConfig: () => ({
-    getStatusColor: (name: string) => `status-color-${name}`,
     getStatusLabel: (name: string) =>
       name === "in_progress" ? "In Progress" : name,
-    getDamageTypeColor: (name: string) => `damage-color-${name}`,
     getDamageTypeLabel: (name: string) => (name === "water" ? "Water" : name),
+    statuses: [
+      {
+        id: "s1",
+        name: "in_progress",
+        display_label: "In Progress",
+        bg_color: "#123456",
+        text_color: "#88CCFF",
+        sort_order: 0,
+        is_default: true,
+        created_at: "",
+        updated_at: "",
+      },
+    ],
+    damageTypes: [],
   }),
 }));
 
@@ -178,17 +192,24 @@ describe("JobComfortableRow — stage icon (#727)", () => {
 });
 
 describe("JobComfortableRow — status / urgency / damage badges (#163)", () => {
-  it("renders colored status, urgency, and damage-type badges", () => {
+  it("renders tint-treatment status, urgency, and damage-type badges (#914)", () => {
     render(<JobComfortableRow job={makeJob()} />);
 
     const status = screen.getByText("In Progress");
     const urgency = screen.getByText("Urgent");
     const damage = screen.getByText("Water");
 
-    // Each badge carries its config-driven / urgency color class.
-    expect(status.className).toContain("status-color-in_progress");
-    expect(urgency.className).toContain("bg-amber-100"); // urgencyColors.urgent
-    expect(damage.className).toContain("damage-color-water");
+    // Status: still config-sourced (ADR 0022), restyled into a soften tint
+    // derived from the config bg (#123456 → r=18) — never a solid `bg-[#hex]`.
+    const statusStyle = status.getAttribute("style") ?? "";
+    expect(statusStyle).toMatch(/rgba?\(/);
+    expect(statusStyle).toContain("18");
+    expect(status.className).not.toContain("bg-[");
+    // Urgency: §2.6 semantic warning tint (was the stale light bg-amber-100).
+    expect(urgency.className).toContain("bg-amber-400/14");
+    // Damage: uncustomized Water → vivid §2.6 dark-tint class.
+    expect(damage.className).toContain("text-sky-300");
+    expect(damage.getAttribute("style") ?? "").not.toMatch(/rgba?\(/);
   });
 });
 

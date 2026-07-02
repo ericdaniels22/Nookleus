@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import { createClient } from "@/lib/supabase";
 import type { JobStatus, DamageType } from "@/lib/types";
 import { JOB_STATUS_PRESENTATION } from "@/lib/job-status-presentation";
+import { DEFAULT_DAMAGE_COLORS } from "@/lib/badge-colors";
 
 // Fallback defaults used before DB data loads. Derived from the single
 // code-side source of truth (issue #720) so the pre-load labels/colors —
@@ -18,16 +19,9 @@ const DEFAULT_STATUS_LABELS: Record<string, string> = Object.fromEntries(
   Object.values(JOB_STATUS_PRESENTATION).map((p) => [p.key, p.label]),
 );
 
-const DEFAULT_DAMAGE_COLORS: Record<string, { bg: string; text: string }> = {
-  water: { bg: "#E6F1FB", text: "#0C447C" },
-  fire: { bg: "#FAECE7", text: "#712B13" },
-  mold: { bg: "#EAF3DE", text: "#27500A" },
-  storm: { bg: "#EEEDFE", text: "#3C3489" },
-  biohazard: { bg: "#FCEBEB", text: "#791F1F" },
-  contents: { bg: "#FFF8E6", text: "#7A5E00" },
-  rebuild: { bg: "#F1EFE8", text: "#5F5E5A" },
-  other: { bg: "#F1EFE8", text: "#5F5E5A" },
-};
+// DEFAULT_DAMAGE_COLORS (the light-mode seed pairs) now lives in
+// src/lib/badge-colors.ts as the single source of truth — the Jobs badge
+// resolvers compare against the same seed to detect an uncustomized default.
 
 const DEFAULT_DAMAGE_LABELS: Record<string, string> = {
   water: "Water",

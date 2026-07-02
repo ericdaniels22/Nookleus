@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { DamageType, JobStatus } from "@/lib/types";
+import { getJobStatusPresentation } from "@/lib/job-status-presentation";
 import {
   damageTypeColors,
   damageTypeLabels,
+  DEFAULT_DAMAGE_COLORS,
+  resolveDamageTypeBadge,
+  resolveStatusBadge,
   soften,
   urgencyColors,
   urgencyLabels,
@@ -244,5 +249,129 @@ describe("soften — per-Organization damage-type color → theme-safe tint", ()
     const { r, g, b } = hexToRgb(color);
     expect(b).toBeGreaterThan(r); // still blue-dominant
     expect(color).not.toBe("#FFFFFF"); // didn't collapse to white
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDamageTypeBadge / resolveStatusBadge — the §2.6 badge resolvers that
+// the Jobs list wires in (#914). Each takes the config rows and returns a
+// BadgeStyle: a Tailwind `className` for the vivid dark-tint default, or an
+// inline `style` when a per-org color has to be softened to stay legible.
+// ---------------------------------------------------------------------------
+
+function makeDamageType(overrides: Partial<DamageType> = {}): DamageType {
+  return {
+    id: "dt-1",
+    name: "water",
+    display_label: "Water",
+    bg_color: DEFAULT_DAMAGE_COLORS.water.bg,
+    text_color: DEFAULT_DAMAGE_COLORS.water.text,
+    icon: null,
+    sort_order: 0,
+    is_default: true,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeJobStatus(overrides: Partial<JobStatus> = {}): JobStatus {
+  return {
+    id: "st-1",
+    name: "in_progress",
+    display_label: "Active",
+    bg_color: "#E1F5EE",
+    text_color: "#085041",
+    sort_order: 0,
+    is_default: true,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("resolveDamageTypeBadge (#914)", () => {
+  it("uses the vivid §2.6 dark-tint class for an uncustomized canonical type", () => {
+    // The seeded org default (bg/text still equal the seed) is the common case:
+    // render the vivid class map, never a washed-out soften of a light hex.
+    const badge = resolveDamageTypeBadge("water", [makeDamageType()]);
+
+    expect(badge.className).toBe(damageTypeColors.water);
+    expect(badge.style).toBeUndefined();
+  });
+
+  it("still treats a seed match as default despite hex casing drift", () => {
+    // The DB could store the seed lower-cased; a case-sensitive compare would
+    // mis-read that as a customization and soften it into a washed tint.
+    const badge = resolveDamageTypeBadge("water", [
+      makeDamageType({
+        bg_color: DEFAULT_DAMAGE_COLORS.water.bg.toLowerCase(),
+        text_color: DEFAULT_DAMAGE_COLORS.water.text.toLowerCase(),
+      }),
+    ]);
+
+    expect(badge.className).toBe(damageTypeColors.water);
+    expect(badge.style).toBeUndefined();
+  });
+
+  it("softens a hostile per-org override (white on white) to a legible tint", () => {
+    // AC #2: a deliberately hostile custom color must stay legible on --card,
+    // not fall back to the canonical sky class.
+    const badge = resolveDamageTypeBadge("water", [
+      makeDamageType({ bg_color: "#FFFFFF", text_color: "#FFFFFF" }),
+    ]);
+
+    expect(badge.className).toBeUndefined();
+    expect(badge.style?.background).toBe("rgba(255, 255, 255, 0.14)");
+    expect(contrast(badge.style!.color, CARD)).toBeGreaterThanOrEqual(AA);
+  });
+
+  it("softens a neon override rather than showing the canonical hue", () => {
+    const badge = resolveDamageTypeBadge("water", [
+      makeDamageType({ bg_color: "#39FF14", text_color: "#39FF14" }),
+    ]);
+
+    expect(badge.className).toBeUndefined();
+    expect(badge.style?.background).toBe("rgba(57, 255, 20, 0.14)");
+    expect(contrast(badge.style!.color, CARD)).toBeGreaterThanOrEqual(AA);
+  });
+
+  it("softens a non-canonical custom type that carries a stored color", () => {
+    const badge = resolveDamageTypeBadge("asbestos", [
+      makeDamageType({ name: "asbestos", bg_color: "#123456", text_color: "#ABCDEF" }),
+    ]);
+
+    expect(badge.style?.background).toBe("rgba(18, 52, 86, 0.14)");
+    expect(badge.className).toBeUndefined();
+  });
+
+  it("falls back to the neutral pair for an unknown type with no stored color", () => {
+    const badge = resolveDamageTypeBadge("asbestos", []);
+
+    expect(badge.className).toBe(damageTypeColors.other);
+    expect(badge.style).toBeUndefined();
+  });
+});
+
+describe("resolveStatusBadge (#914)", () => {
+  it("softens the config-driven status color — the source stays config (ADR 0022)", () => {
+    // The badge is restyled into the tint treatment, but the color is still the
+    // org's stored job_statuses color, not a substituted palette.
+    const badge = resolveStatusBadge("in_progress", [
+      makeJobStatus({ bg_color: "#123456", text_color: "#88CCFF" }),
+    ]);
+
+    expect(badge.className).toBeUndefined();
+    expect(badge.style?.background).toBe("rgba(18, 52, 86, 0.14)");
+    expect(contrast(badge.style!.color, CARD)).toBeGreaterThanOrEqual(AA);
+  });
+
+  it("softens the presentation-module seed before the config loads", () => {
+    const seed = getJobStatusPresentation("in_progress").badge;
+    const { r, g, b } = hexToRgb(seed.bg);
+    const badge = resolveStatusBadge("in_progress", []);
+
+    expect(badge.style?.background).toBe(`rgba(${r}, ${g}, ${b}, 0.14)`);
+    expect(contrast(badge.style!.color, CARD)).toBeGreaterThanOrEqual(AA);
   });
 });

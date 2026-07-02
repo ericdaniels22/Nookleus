@@ -8,7 +8,12 @@ import { ImageOff, Image as ImageIcon, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import JobCoverPicker from "@/components/job-cover-picker";
 import { resolveCoverPhotoUrl } from "@/lib/jobs/cover-photo";
-import { urgencyColors, urgencyLabels } from "@/lib/badge-colors";
+import {
+  urgencyColors,
+  urgencyLabels,
+  resolveDamageTypeBadge,
+  resolveStatusBadge,
+} from "@/lib/badge-colors";
 import { useConfig } from "@/lib/config-context";
 import type { Job, Photo } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -29,15 +34,17 @@ const badgeClass = "text-[11px] font-medium px-2 py-0.5 rounded-md";
  * badges stay.
  */
 export default function JobComfortableRow({ job }: { job: Job }) {
-  const {
-    getStatusColor,
-    getStatusLabel,
-    getDamageTypeColor,
-    getDamageTypeLabel,
-  } = useConfig();
+  const { getStatusLabel, getDamageTypeLabel, statuses, damageTypes } =
+    useConfig();
   const isCompleted =
     job.status === "completed" || job.status === "cancelled";
   const contactName = job.contact ? job.contact.full_name : "Unknown";
+
+  // §2.6 tint treatment: status stays config-sourced (ADR 0022) and softens
+  // into a tint; damage type shows its vivid canonical class unless the org
+  // customized the color, which is then softened to stay legible.
+  const statusBadge = resolveStatusBadge(job.status, statuses);
+  const damageBadge = resolveDamageTypeBadge(job.damage_type, damageTypes);
 
   // The row owns its cover photo so choosing a new one updates the
   // thumbnail in place — no page reload, no parent refetch (#164).
@@ -114,7 +121,8 @@ export default function JobComfortableRow({ job }: { job: Job }) {
               />
               <Badge
                 variant="secondary"
-                className={cn(badgeClass, getStatusColor(job.status))}
+                className={cn(badgeClass, statusBadge.className)}
+                style={statusBadge.style}
               >
                 {getStatusLabel(job.status)}
               </Badge>
@@ -127,7 +135,8 @@ export default function JobComfortableRow({ job }: { job: Job }) {
             </Badge>
             <Badge
               variant="secondary"
-              className={cn(badgeClass, getDamageTypeColor(job.damage_type))}
+              className={cn(badgeClass, damageBadge.className)}
+              style={damageBadge.style}
             >
               {getDamageTypeLabel(job.damage_type)}
             </Badge>

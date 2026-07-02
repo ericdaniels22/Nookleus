@@ -19,7 +19,7 @@ import {
   countOpenJobs,
 } from "@/lib/jobs/build-job-sections";
 import { getJobStatusOptions } from "@/lib/job-status-presentation";
-import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2 } from "lucide-react";
+import { Briefcase, FileText, CalendarDays, Flame, RotateCcw, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/lib/config-context";
 import { useAuth } from "@/lib/auth-context";
@@ -58,35 +58,43 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  // Distinguishes a failed load from a genuinely empty list (§8 DoD): a fetch
+  // that throws used to fall through to setJobs([]) and read as "No jobs found".
+  const [error, setError] = useState(false);
   // The "all" view defers Closed & Lost until this is on (#728). Not persisted —
   // it resets to off on each visit so the default load stays fast.
   const [showClosedLost, setShowClosedLost] = useState(false);
   const { mode, setMode } = useJobsViewMode();
 
   const fetchJobs = useCallback(async () => {
-    if (filter === "trash") {
-      const res = await fetch("/api/jobs/trash");
-      if (res.ok) {
+    setError(false);
+    try {
+      if (filter === "trash") {
+        const res = await fetch("/api/jobs/trash");
+        if (!res.ok) throw new Error(`Trash fetch failed: ${res.status}`);
         const data = await res.json();
         setJobs((data.jobs ?? []) as Job[]);
-      } else {
-        setJobs([]);
+        return;
       }
-      setLoading(false);
-      return;
-    }
 
-    // One batched query joins each job to its cover photo, so the
-    // Comfortable view needs no per-job lookup; Cards and List ignore it.
-    // Closed & Lost are deferred until the toggle reveals them, so toggling it
-    // on re-fetches with those stages included (#728).
-    const supabase = createClient();
-    setJobs(
-      await loadJobsWithCover(supabase, filter, {
-        includeClosedLost: showClosedLost,
-      }),
-    );
-    setLoading(false);
+      // One batched query joins each job to its cover photo, so the
+      // Comfortable view needs no per-job lookup; Cards and List ignore it.
+      // Closed & Lost are deferred until the toggle reveals them, so toggling
+      // it on re-fetches with those stages included (#728).
+      const supabase = createClient();
+      setJobs(
+        await loadJobsWithCover(supabase, filter, {
+          includeClosedLost: showClosedLost,
+        }),
+      );
+    } catch {
+      // A failed load is distinct from an empty org: surface the error state
+      // with a retry rather than silently showing "No jobs found" (§8 DoD).
+      setJobs([]);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [filter, showClosedLost]);
 
   useEffect(() => {
@@ -214,6 +222,31 @@ export default function JobsPage() {
       {/* Job list */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground/60">Loading jobs...</div>
+      ) : error ? (
+        <div
+          data-testid="jobs-error"
+          className="flex flex-col items-center gap-2 py-12 text-center"
+        >
+          <AlertTriangle
+            size={28}
+            className="text-muted-foreground/60"
+            aria-hidden
+          />
+          <p className="text-lg text-foreground">Couldn&apos;t load jobs</p>
+          <p className="text-sm text-muted-foreground/60">
+            Something went wrong. Check your connection and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              fetchJobs();
+            }}
+            className="mt-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:border-primary/30 hover:shadow-sm"
+          >
+            Try again
+          </button>
+        </div>
       ) : jobs.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground text-lg">
