@@ -67,7 +67,7 @@ export function TrashedBanner({ documentKind, documentId, documentNumber, delete
 
   return (
     <>
-      <div className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+      <div className="flex items-center justify-between rounded-md border border-warning/20 bg-warning-tint p-3 text-sm text-warning">
         <span>
           This {documentKind} is in the trash. Auto-deletes on {purgeAt}.
         </span>

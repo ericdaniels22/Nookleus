@@ -385,4 +385,95 @@ describe("theme system removal — dark-only, no runtime switching (ADR 0027)", 
       "files still importing next-themes (dark-only — ADR 0027)",
     ).toEqual([]);
   });
+
+  it("declares no next-themes dependency in package.json (step 18 cleanup)", () => {
+    const pkg = JSON.parse(
+      readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = {
+      ...(pkg.dependencies ?? {}),
+      ...(pkg.devDependencies ?? {}),
+    };
+    expect(
+      Object.keys(declared).filter((name) => name === "next-themes"),
+      "next-themes was deferred from step 1 (ADR 0027) — drop it at step 18",
+    ).toEqual([]);
+  });
+});
+
+describe("hardcoded-color sweep — step 18 owned surfaces (#926)", () => {
+  // The final migration sweep (docs/design-system.md §8 step 18) closes on the
+  // surfaces no earlier pass owns: the unauthenticated auth chrome (login,
+  // set-password, logout), the trash chrome, and the global error/not-found
+  // pages. These must be tokens-only — unlike the Jobs-list warning tint, which
+  // deliberately spells the token hexes as bg-amber-400/14 / bg-amber-500
+  // (#914), there is no reason for a raw palette color on these surfaces.
+  //
+  // Scope is intentionally NOT repo-wide: the cross-cutting sweep waits for the
+  // still-in-flight steps (5, 10, 11, 13, 15, 16) to merge so it does not race
+  // their branches. This block grows into that guard as they land.
+  const OWNED_DIRS = [
+    "src/app/login",
+    "src/app/logout",
+    "src/app/set-password",
+    "src/components/trash",
+  ];
+  const OWNED_FILES = ["src/app/error.tsx", "src/app/not-found.tsx"];
+
+  /** Drop comments so issue refs like `#386` don't read as a hex color. The
+   *  `[^:]` guard keeps `https://` URLs from being mistaken for line comments. */
+  function stripComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  }
+
+  const PALETTE =
+    "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|" +
+    "emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+  const UTILITY =
+    "bg|text|border|ring|ring-offset|from|via|to|fill|stroke|divide|" +
+    "outline|decoration|accent|caret|placeholder|shadow";
+  const OFFENDER = new RegExp(
+    `\\b(?:${UTILITY})-(?:${PALETTE})-(?:50|100|200|300|400|500|600|700|800|900|950)\\b` +
+      `|#[0-9a-fA-F]{6}\\b|#[0-9a-fA-F]{3}\\b` +
+      `|\\b(?:rgb|rgba|hsl|hsla)\\(`,
+    "g",
+  );
+
+  function ownedSourceFiles(): string[] {
+    const files: string[] = [];
+    for (const dir of OWNED_DIRS) {
+      const abs = resolve(process.cwd(), dir);
+      for (const entry of readdirSync(abs, {
+        recursive: true,
+        withFileTypes: true,
+      })) {
+        if (!entry.isFile()) continue;
+        const name = entry.name;
+        if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+        files.push(join(entry.parentPath, name));
+      }
+    }
+    for (const f of OWNED_FILES) files.push(resolve(process.cwd(), f));
+    return files;
+  }
+
+  it("uses only design tokens — no Tailwind palette, hex, or rgb/hsl colors", () => {
+    const offenders: string[] = [];
+    for (const path of ownedSourceFiles()) {
+      const source = stripComments(readFileSync(path, "utf8"));
+      const matches = source.match(OFFENDER);
+      if (matches) {
+        offenders.push(`${path}: ${[...new Set(matches)].join(", ")}`);
+      }
+    }
+    expect(
+      offenders,
+      "step-18 surfaces must be tokens-only (§2.0) — use --warning/--warning-tint, not raw amber",
+    ).toEqual([]);
+  });
 });
