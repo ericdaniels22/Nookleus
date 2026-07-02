@@ -36,10 +36,12 @@ interface SearchResult {
   similarity: number;
 }
 
+// Fixed 3-state ingestion enum (not the per-org §2.6 job-status vocabulary),
+// so it maps straight onto semantic state tokens rather than resolveStatusBadge.
 const STATUS_STYLES: Record<string, string> = {
-  processing: "bg-amber-100 text-amber-700",
-  ready: "bg-teal-100 text-teal-700",
-  error: "bg-red-100 text-red-700",
+  processing: "bg-warning/10 text-warning",
+  ready: "bg-primary/10 text-primary",
+  error: "bg-destructive/10 text-destructive",
 };
 
 export function KnowledgeBaseTab() {
@@ -247,7 +249,7 @@ export function KnowledgeBaseTab() {
                   <TableCell>
                     <Badge
                       variant="secondary"
-                      className="text-[10px] px-1.5 py-0 rounded-full"
+                      className="text-[11px] px-1.5 py-0 rounded-full"
                     >
                       {doc.standard_id}
                     </Badge>
@@ -258,7 +260,7 @@ export function KnowledgeBaseTab() {
                   <TableCell>
                     <Badge
                       className={cn(
-                        "text-[10px] px-1.5 py-0 rounded-full inline-flex items-center gap-1",
+                        "text-[11px] px-1.5 py-0 rounded-full inline-flex items-center gap-1",
                         STATUS_STYLES[doc.status] || STATUS_STYLES.error,
                       )}
                     >
@@ -342,7 +344,7 @@ export function KnowledgeBaseTab() {
                       {result.section_number && (
                         <Badge
                           variant="secondary"
-                          className="text-[10px] px-1.5 py-0 rounded-full"
+                          className="text-[11px] px-1.5 py-0 rounded-full"
                         >
                           {result.section_number}
                         </Badge>
@@ -353,7 +355,7 @@ export function KnowledgeBaseTab() {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs font-medium text-teal-600 shrink-0">
+                    <span className="text-xs font-medium text-accent-text shrink-0">
                       {(result.similarity * 100).toFixed(1)}%
                     </span>
                   </div>

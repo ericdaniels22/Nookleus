@@ -137,7 +137,7 @@ export function TemplatesTab() {
       ) : (
         <>
           <TemplateSection
-            icon={<Building2 size={16} className="text-[var(--brand-primary)]" />}
+            icon={<Building2 size={16} className="text-primary" />}
             title="Organization templates"
             description="Shared across everyone in your organization."
             templates={orgTemplates}
@@ -157,7 +157,7 @@ export function TemplatesTab() {
           />
 
           <TemplateSection
-            icon={<User size={16} className="text-[var(--brand-primary)]" />}
+            icon={<User size={16} className="text-primary" />}
             title="Personal templates"
             description="Private to you — no one else can see or use them."
             templates={personalTemplates}
@@ -177,9 +177,9 @@ export function TemplatesTab() {
         <div className="bg-card rounded-xl border border-border p-6 space-y-4">
           <div className="flex items-center gap-2">
             {editor.scope === "organization" ? (
-              <Building2 size={16} className="text-[var(--brand-primary)]" />
+              <Building2 size={16} className="text-primary" />
             ) : (
-              <User size={16} className="text-[var(--brand-primary)]" />
+              <User size={16} className="text-primary" />
             )}
             <h3 className="text-sm font-semibold text-foreground">
               {editor.id ? "Edit" : "New"}{" "}
@@ -311,7 +311,7 @@ function TemplateSection({
                       <button
                         type="button"
                         onClick={() => onEdit(t)}
-                        className="font-medium text-foreground hover:text-[var(--brand-primary)] transition-colors text-left"
+                        className="font-medium text-foreground hover:text-primary transition-colors text-left"
                       >
                         {t.name}
                       </button>

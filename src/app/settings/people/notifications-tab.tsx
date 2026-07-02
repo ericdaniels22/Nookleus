@@ -153,7 +153,7 @@ export function NotificationsTab() {
                       name={`pref-${type.key}`}
                       checked={prefs[type.key] === opt.value}
                       onChange={() => updatePref(type.key, opt.value)}
-                      className="w-4 h-4 accent-[var(--brand-primary)] cursor-pointer"
+                      className="w-4 h-4 accent-primary cursor-pointer"
                     />
                   </div>
                 ))}

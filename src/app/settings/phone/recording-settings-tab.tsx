@@ -72,7 +72,7 @@ export function RecordingSettingsTab() {
   return (
     <div className="space-y-3 p-4">
       {error ? (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}

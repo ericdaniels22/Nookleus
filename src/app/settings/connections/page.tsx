@@ -37,7 +37,7 @@ export default async function ConnectionsSettingsPage() {
     return (
       <div className="max-w-3xl">
         <div className="mb-6">
-          <h1 className="text-3xl font-extrabold text-foreground flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
             <Link2 size={24} /> Connections
           </h1>
         </div>
@@ -57,7 +57,7 @@ export default async function ConnectionsSettingsPage() {
   return (
     <div className="max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-extrabold text-foreground flex items-center gap-2">
+        <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
           <Link2 size={24} /> Connections
         </h1>
         <p className="text-muted-foreground mt-1">

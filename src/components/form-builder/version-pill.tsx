@@ -97,7 +97,7 @@ export function VersionPill({
       case "idle":
         return (
           <>
-            <Check size={12} className="text-emerald-500" />
+            <Check size={12} className="text-primary" />
             <span>Saved</span>
           </>
         );
@@ -121,7 +121,7 @@ export function VersionPill({
             togglePill();
           }
         }}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-card hover:bg-muted/50 transition-colors cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-card hover:bg-muted/50 transition-colors cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-ring/40"
       >
         <StatusBadge />
         <History size={12} className="text-muted-foreground ml-1" />

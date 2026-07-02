@@ -155,7 +155,7 @@ export default function StripeSettingsClient({
               className={
                 connection.mode === "live"
                   ? ""
-                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                  : "bg-warning/10 text-warning"
               }
             >
               {connection.mode === "live" ? "Live" : "Test"}
@@ -455,13 +455,13 @@ function WebhookConfigSection({
   const statusBadge = (() => {
     if (!configured)
       return (
-        <Badge className="bg-red-500/20 text-red-700 dark:text-red-300">
+        <Badge className="bg-destructive/10 text-destructive">
           No webhook configured
         </Badge>
       );
     if (!lastEventAt)
       return (
-        <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-300">
+        <Badge className="bg-warning/10 text-warning">
           Configured — no events received yet
         </Badge>
       );
@@ -475,7 +475,7 @@ function WebhookConfigSection({
             ? `${Math.floor(diff / 3_600_000)}h ago`
             : `${Math.floor(diff / 86_400_000)}d ago`;
     return (
-      <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+      <Badge className="bg-primary/10 text-primary">
         Configured — last event {readable}
       </Badge>
     );

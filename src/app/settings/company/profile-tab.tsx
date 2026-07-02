@@ -203,7 +203,7 @@ export function ProfileTab() {
                 </button>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">
+            <p className="text-[11px] text-muted-foreground mt-2">
               PNG, JPG, SVG, or WebP. Max 2MB. Recommended 400x400px.
             </p>
           </div>

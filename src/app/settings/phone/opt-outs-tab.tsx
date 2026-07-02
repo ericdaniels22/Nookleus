@@ -96,7 +96,7 @@ export function OptOutsTab() {
   return (
     <div className="space-y-3 p-4">
       {error ? (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
@@ -114,7 +114,7 @@ export function OptOutsTab() {
                 </div>
                 {reOpted ? (
                   <>
-                    <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 dark:bg-green-900/30 dark:text-green-200">
+                    <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
                       Re-opted-in
                     </span>
                     {r.re_opted_in_note ? (
@@ -124,7 +124,7 @@ export function OptOutsTab() {
                     ) : null}
                   </>
                 ) : (
-                  <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                  <span className="inline-block rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
                     Opted out
                   </span>
                 )}
@@ -136,7 +136,7 @@ export function OptOutsTab() {
                     setReOptInFor(r);
                     setNote("");
                   }}
-                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                  className="text-sm font-medium text-primary hover:underline"
                 >
                   Re-opt-in
                 </button>
@@ -180,7 +180,7 @@ export function OptOutsTab() {
               type="button"
               onClick={() => void onConfirm()}
               disabled={submitting || note.trim().length === 0}
-              className="rounded-md bg-[var(--brand-primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
               Confirm
             </button>

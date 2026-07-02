@@ -550,7 +550,7 @@ export function PhoneNumbersTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <PhoneIcon size={20} className="text-[var(--brand-primary)]" />
+          <PhoneIcon size={20} className="text-primary" />
           <h2 className="text-xl font-semibold text-foreground">
             Phone numbers
           </h2>
@@ -563,7 +563,7 @@ export function PhoneNumbersTab() {
                 setReclaimNotice(null);
                 setShowClaimDialog(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--brand-primary)] text-[var(--brand-primary)] text-sm font-medium hover:bg-[var(--brand-primary)]/5"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-primary text-primary text-sm font-medium hover:bg-primary/5"
             >
               <Plus size={16} />
               Claim Personal Number
@@ -573,7 +573,7 @@ export function PhoneNumbersTab() {
             <button
               type="button"
               onClick={() => setShowAddDialog(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--brand-primary)] text-white text-sm font-medium hover:opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
             >
               <Plus size={16} />
               Add Shared Number
@@ -591,7 +591,7 @@ export function PhoneNumbersTab() {
       {reclaimNotice && (
         <div
           role="status"
-          className="flex items-start justify-between gap-3 rounded-md border border-amber-400/40 bg-amber-50 text-amber-900 text-sm px-3 py-2 dark:bg-amber-950/30 dark:text-amber-200"
+          className="flex items-start justify-between gap-3 rounded-md border border-warning/40 bg-warning/5 text-warning text-sm px-3 py-2"
         >
           <span>
             {`Heads up — this number was previously owned by ${reclaimNotice}. Its prior calls and messages stay with that member and won't appear on your line.`}
@@ -668,7 +668,7 @@ export function PhoneNumbersTab() {
                         <button
                           type="button"
                           onClick={() => void openEditor(r)}
-                          className="text-[var(--brand-primary)] font-medium hover:underline"
+                          className="text-primary font-medium hover:underline"
                         >
                           Configure
                         </button>
@@ -684,7 +684,7 @@ export function PhoneNumbersTab() {
                         <button
                           type="button"
                           onClick={() => openGreeting(r)}
-                          className="inline-flex items-center gap-1 text-[var(--brand-primary)] text-xs font-medium hover:underline"
+                          className="inline-flex items-center gap-1 text-primary text-xs font-medium hover:underline"
                           title={
                             r.voicemail_greeting_url
                               ? "Custom voicemail greeting set"
@@ -806,7 +806,7 @@ export function PhoneNumbersTab() {
                 type="button"
                 onClick={handleProvision}
                 disabled={!pickedNumber || provisioning}
-                className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
                 {provisioning ? "Provisioning…" : "Provision"}
               </button>
@@ -893,7 +893,7 @@ export function PhoneNumbersTab() {
                 type="button"
                 onClick={handleClaim}
                 disabled={!claimPicked || claiming}
-                className="rounded-md bg-[var(--brand-primary)] text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                className="rounded-md bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
                 {claiming ? "Claiming…" : "Claim"}
               </button>
@@ -1030,7 +1030,7 @@ export function PhoneNumbersTab() {
                   type="button"
                   onClick={() => void handleGreetingSave()}
                   disabled={!greetingFile || greetingSaving || recording !== null}
-                  className="rounded-md bg-[var(--brand-primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
                 >
                   {greetingSaving ? "Saving…" : "Save greeting"}
                 </button>
@@ -1130,7 +1130,7 @@ export function PhoneNumbersTab() {
                 type="button"
                 onClick={() => void handleSaveRule()}
                 disabled={saveInFlight}
-                className="rounded-md bg-[var(--brand-primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
               >
                 {saveInFlight ? "Saving…" : "Save"}
               </button>

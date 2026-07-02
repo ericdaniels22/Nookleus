@@ -205,7 +205,7 @@ export function ItemLibraryTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Library size={18} className="text-[var(--brand-primary)]" />
+            <Library size={18} className="text-primary" />
             Item Library
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">

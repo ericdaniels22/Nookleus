@@ -99,7 +99,7 @@ export function PdfPresetsSection() {
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <>
-          <div className="flex gap-2 border-b">
+          <div className="flex gap-2 border-b border-border">
             {TABS.map((t) => (
               <button
                 key={t.value}
@@ -122,13 +122,13 @@ export function PdfPresetsSection() {
               {filtered.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-center justify-between rounded border p-3"
+                  className="flex items-center justify-between rounded-lg border border-border p-3"
                 >
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{p.name}</span>
                       {p.is_default && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                        <span className="text-xs px-2 py-0.5 rounded bg-accent-tint text-accent-text">
                           Default
                         </span>
                       )}

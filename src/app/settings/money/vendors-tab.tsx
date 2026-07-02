@@ -89,8 +89,8 @@ export function VendorsTab() {
               className={cn(
                 "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
                 active
-                  ? "bg-[rgba(55,138,221,0.15)] text-[#85B7EB] border-[rgba(55,138,221,0.3)]"
-                  : "bg-transparent text-[#8A9199] border-[rgba(255,255,255,0.08)] hover:text-foreground",
+                  ? "bg-accent-tint text-accent-text border-transparent"
+                  : "bg-transparent text-muted-foreground border-border hover:text-foreground",
               )}>
               {t.label}
             </button>
@@ -147,7 +147,7 @@ export function VendorsTab() {
                         v.is_active ? "bg-primary" : "bg-muted-foreground/20",
                       )}>
                       <span className={cn(
-                        "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform",
+                        "absolute top-0.5 w-3 h-3 bg-background rounded-full transition-transform",
                         v.is_active ? "translate-x-4" : "translate-x-0.5",
                       )} />
                     </button>
@@ -268,7 +268,7 @@ function VendorModal({
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setIs1099(!is1099)}
               className={cn("w-8 h-4 rounded-full relative transition-colors", is1099 ? "bg-primary" : "bg-muted-foreground/20")}>
-              <span className={cn("absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform", is1099 ? "translate-x-4" : "translate-x-0.5")} />
+              <span className={cn("absolute top-0.5 w-3 h-3 bg-background rounded-full transition-transform", is1099 ? "translate-x-4" : "translate-x-0.5")} />
             </button>
             <span className="text-sm text-foreground">Requires 1099-NEC</span>
           </div>

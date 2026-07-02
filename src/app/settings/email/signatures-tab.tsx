@@ -147,7 +147,7 @@ export function SignaturesTab() {
         <div className="bg-card rounded-xl border border-border p-12 text-center">
           <Mail size={48} className="mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-muted-foreground">No email accounts configured.</p>
-          <a href="/settings/email" className="text-sm text-[var(--brand-primary)] hover:underline mt-1 inline-block">
+          <a href="/settings/email" className="text-sm text-primary hover:underline mt-1 inline-block">
             Add an email account first
           </a>
         </div>
@@ -183,7 +183,7 @@ export function SignaturesTab() {
               <Mail size={14} />
               {acc.label}
             </span>
-            <span className="text-[10px] opacity-60 block">{acc.email_address}</span>
+            <span className="text-[11px] opacity-60 block">{acc.email_address}</span>
           </button>
         ))}
       </div>
@@ -226,7 +226,7 @@ export function SignaturesTab() {
                 type="checkbox"
                 checked={autoInsert}
                 onChange={(e) => setAutoInsert(e.target.checked)}
-                className="w-5 h-5 rounded border-border accent-[var(--brand-primary)]"
+                className="w-5 h-5 rounded border-border accent-primary"
               />
             </label>
 
@@ -244,7 +244,7 @@ export function SignaturesTab() {
                 type="checkbox"
                 checked={includeLogo}
                 onChange={(e) => setIncludeLogo(e.target.checked)}
-                className="w-5 h-5 rounded border-border accent-[var(--brand-primary)]"
+                className="w-5 h-5 rounded border-border accent-primary"
               />
             </label>
           </div>
