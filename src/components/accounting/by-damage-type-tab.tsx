@@ -5,6 +5,7 @@ import type { RangePreset } from "@/lib/accounting/date-ranges";
 import { Bar } from "react-chartjs-2";
 import { Chart, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
 import { damageTypeColors } from "@/lib/badge-colors";
+import { getChartPalette } from "@/lib/charts/palette";
 
 Chart.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -17,30 +18,10 @@ type Row = {
   avg_margin_pct: number | null;
 };
 
-// damageTypeColors values are Tailwind class strings like "bg-sky-100 text-sky-800 ring-1 ring-sky-200".
-// Extract the Tailwind color family name (e.g. "sky") from the text-* class, then map to a
-// chart-safe hex so Chart.js can render the bars. This keeps damageTypeColors as the single
-// source of truth for which color family each damage type belongs to.
-const TAILWIND_HEX: Record<string, string> = {
-  sky: "#0EA5E9",
-  orange: "#F97316",
-  lime: "#84CC16",
-  violet: "#8B5CF6",
-  rose: "#F43F5E",
-  red: "#EF4444",
-  yellow: "#EAB308",
-  stone: "#78716C",
-};
-
-function colorFor(damageType: string): string {
-  const classes = damageTypeColors[damageType] ?? "";
-  // Match the color family from the "text-<color>-<shade>" class
-  const match = classes.match(/text-([a-z]+)-\d+/);
-  if (match) {
-    const family = match[1];
-    if (family in TAILWIND_HEX) return TAILWIND_HEX[family];
-  }
-  return "#6B7280";
+// §2.6 damage-type tint class for a type; neutral pair for anything the
+// canonical map doesn't cover (a per-org custom type).
+function pillClass(damageType: string): string {
+  return damageTypeColors[damageType] ?? damageTypeColors.other;
 }
 
 function fmt(n: number) {
@@ -56,13 +37,18 @@ export default function ByDamageTypeTab({ range }: { range: RangePreset }) {
       .then((d) => setRows(d.rows ?? []));
   }, [range]);
 
+  // §2.7 — series colors from the shared chart palette (--chart-1…5), read from
+  // CSS at runtime. This single-series categorical chart identifies each bar by
+  // its y-axis label + the table pill above; the bars themselves cycle the slots.
+  const palette = getChartPalette();
+
   const chartData = {
     labels: rows.map((r) => r.damage_type),
     datasets: [
       {
         label: "Average margin %",
         data: rows.map((r) => r.avg_margin_pct ?? 0),
-        backgroundColor: rows.map((r) => colorFor(r.damage_type)),
+        backgroundColor: rows.map((_, i) => palette.series[i % palette.series.length]),
         borderWidth: 0,
       },
     ],
@@ -86,18 +72,15 @@ export default function ByDamageTypeTab({ range }: { range: RangePreset }) {
             {rows.map((r) => (
               <tr key={r.damage_type} className="border-t border-border">
                 <td className="px-3 py-2">
-                  <span
-                    className="inline-flex rounded px-2 py-0.5 text-xs"
-                    style={{ background: `${colorFor(r.damage_type)}30`, color: colorFor(r.damage_type) }}
-                  >
+                  <span className={`inline-flex rounded px-2 py-0.5 text-xs ${pillClass(r.damage_type)}`}>
                     {r.damage_type}
                   </span>
                 </td>
-                <td className="text-right px-3 py-2">{r.job_count}</td>
-                <td className="text-right px-3 py-2">{fmt(r.revenue)}</td>
-                <td className="text-right px-3 py-2">{fmt(r.expenses)}</td>
-                <td className="text-right px-3 py-2">{fmt(r.margin)}</td>
-                <td className="text-right px-3 py-2">
+                <td className="text-right px-3 py-2 tabular-nums">{r.job_count}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.revenue)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.expenses)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.margin)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">
                   {r.avg_margin_pct !== null ? `${r.avg_margin_pct.toFixed(1)}%` : "—"}
                 </td>
               </tr>
@@ -122,10 +105,13 @@ export default function ByDamageTypeTab({ range }: { range: RangePreset }) {
               indexAxis: "y",
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
+              plugins: {
+                legend: { display: false },
+                tooltip: { backgroundColor: palette.tooltip },
+              },
               scales: {
-                x: { grid: { color: "#262626" }, ticks: { color: "#a3a3a3" } },
-                y: { grid: { display: false }, ticks: { color: "#a3a3a3" } },
+                x: { grid: { color: palette.grid }, ticks: { color: palette.axis } },
+                y: { grid: { display: false }, ticks: { color: palette.axis } },
               },
             }}
           />

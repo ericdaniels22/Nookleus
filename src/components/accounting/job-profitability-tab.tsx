@@ -52,8 +52,7 @@ export default function JobProfitabilityTab({ range }: { range: RangePreset }) {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-sm capitalize ${filter === f ? "text-white" : "text-muted-foreground hover:text-foreground"}`}
-              style={filter === f ? { background: "#0F6E56" } : undefined}
+              className={`px-3 py-1.5 text-sm capitalize ${filter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               {f === "all" ? "All jobs" : f}
             </button>
@@ -107,10 +106,10 @@ export default function JobProfitabilityTab({ range }: { range: RangePreset }) {
                     <div className="text-xs text-muted-foreground">{r.jobNumber}</div>
                   </Link>
                 </td>
-                <td className="text-right px-3 py-2">{fmt(r.invoiced)}</td>
-                <td className="text-right px-3 py-2">{fmt(r.collected)}</td>
-                <td className="text-right px-3 py-2">{fmt(r.expenses)}</td>
-                <td className="text-right px-3 py-2">
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.invoiced)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.collected)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.expenses)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">
                   {fmt(r.gross_margin)}
                   {r.in_progress && (
                     <span className="ml-1 text-xs text-muted-foreground" title="In progress">

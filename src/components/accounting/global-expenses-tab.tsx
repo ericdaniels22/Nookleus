@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { RangePreset } from "@/lib/accounting/date-ranges";
 import ReceiptDetailModal from "@/components/expenses/receipt-detail-modal";
+import { soften } from "@/lib/badge-colors";
 import type { Expense } from "@/lib/types";
 
 type Row = {
@@ -99,7 +100,7 @@ export default function GlobalExpensesTab({ range }: { range: RangePreset }) {
       </p>
       {data && (
         <div className="text-sm">
-          <span className="font-medium">Total: {fmt(data.summary.total)}</span>
+          <span className="font-medium tabular-nums">Total: {fmt(data.summary.total)}</span>
           <span className="text-muted-foreground">
             {" "}across {data.summary.count} expenses on {data.summary.jobs} jobs
           </span>
@@ -145,10 +146,7 @@ export default function GlobalExpensesTab({ range }: { range: RangePreset }) {
                   {r.expense_categories && (
                     <span
                       className="inline-flex rounded px-2 py-0.5 text-xs"
-                      style={{
-                        background: r.expense_categories.bg_color,
-                        color: r.expense_categories.text_color,
-                      }}
+                      style={soften(r.expense_categories.bg_color, r.expense_categories.text_color)}
                     >
                       {r.expense_categories.display_label}
                     </span>
@@ -167,7 +165,7 @@ export default function GlobalExpensesTab({ range }: { range: RangePreset }) {
                   )}
                 </td>
                 <td className="px-3 py-2">{r.submitter_name ?? "—"}</td>
-                <td className="text-right px-3 py-2">{fmt(r.amount)}</td>
+                <td className="text-right px-3 py-2 tabular-nums">{fmt(r.amount)}</td>
               </tr>
             ))}
           </tbody>
