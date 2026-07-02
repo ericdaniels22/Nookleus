@@ -37,9 +37,30 @@ function makeJob(over: Partial<Job> = {}): Job {
 }
 
 describe("<NewJobsSection>", () => {
-  it("renders the stable empty-state copy when total is 0", () => {
+  it("shows a shared EmptyState (headline + intake CTA) when total is 0", () => {
     render(<NewJobsSection jobs={[]} total={0} />);
-    expect(screen.getByText("No new jobs.")).toBeTruthy();
+
+    expect(screen.getByText("No new jobs")).toBeTruthy();
+    const cta = screen.getByRole("link", { name: /start an intake/i });
+    expect(cta.getAttribute("href")).toBe("/intake");
+  });
+
+  it("renders skeleton rows while loading, not the empty state or rows", () => {
+    const { container } = render(
+      <NewJobsSection jobs={[]} total={0} loading />,
+    );
+
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(screen.queryByText("No new jobs")).toBeNull();
+  });
+
+  it("renders an error state when the load failed", () => {
+    render(<NewJobsSection jobs={[]} total={0} error="boom" />);
+
+    expect(screen.getByText(/couldn't load new jobs/i)).toBeTruthy();
+    // A raw exception string never reaches the UI (§6).
+    expect(screen.queryByText("boom")).toBeNull();
+    expect(screen.queryByText("No new jobs")).toBeNull();
   });
 
   it("wraps each preview row in an anchor to /jobs/<id>", () => {

@@ -30,7 +30,10 @@ export default function HomeClockControl() {
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 py-4 text-base font-bold text-primary-foreground hover:bg-primary/90 sm:w-auto"
+          // §2.4: the one solid emerald per view is the page header's primary,
+          // so this stays in the emerald family via tint + accent-text — still
+          // full-width and large for a fast field tap, just not a solid fill.
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-5 py-4 text-base font-semibold text-accent-text transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto"
         >
           <Clock size={20} />
           Clock in to a Job

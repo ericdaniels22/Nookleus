@@ -21,9 +21,36 @@ function makeThread(over: Partial<UnreadResponseThread> = {}): UnreadResponseThr
 }
 
 describe("<UnreadResponsesSection>", () => {
-  it("renders the stable empty-state copy when total is 0", () => {
+  it("shows a shared EmptyState (headline + inbox CTA) when total is 0", () => {
     render(<UnreadResponsesSection threads={[]} total={0} />);
-    expect(screen.getByText("No unread responses on shared inboxes.")).toBeTruthy();
+
+    // The empty-state headline sits next to an inline CTA (§5); both it and the
+    // header link route to the inbox.
+    const heading = screen.getByText("You're all caught up");
+    expect(heading).toBeTruthy();
+    const cta = heading
+      .closest("div")
+      ?.querySelector<HTMLAnchorElement>('a[href="/email"]');
+    expect(cta).not.toBeNull();
+    expect(cta?.textContent).toMatch(/open inbox/i);
+  });
+
+  it("renders skeleton rows while loading, not the empty state or rows", () => {
+    const { container } = render(
+      <UnreadResponsesSection threads={[]} total={0} loading />,
+    );
+
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(screen.queryByText("You're all caught up")).toBeNull();
+  });
+
+  it("renders an error state when the load failed", () => {
+    render(<UnreadResponsesSection threads={[]} total={0} error="boom" />);
+
+    expect(screen.getByText(/couldn't load unread responses/i)).toBeTruthy();
+    // A raw exception string never reaches the UI (§6).
+    expect(screen.queryByText("boom")).toBeNull();
+    expect(screen.queryByText("You're all caught up")).toBeNull();
   });
 
   it("wraps each preview row in an anchor to /email?id=<latest_email_id>", () => {

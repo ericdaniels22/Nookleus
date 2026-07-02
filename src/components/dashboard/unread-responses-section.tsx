@@ -2,21 +2,45 @@
 
 import Link from "next/link";
 import { format } from "date-fns";
-import { Mail, Clock } from "lucide-react";
+import { Mail, MailCheck, Clock } from "lucide-react";
 import type { UnreadResponseThread } from "@/lib/dashboard/use-dashboard-data";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export type { UnreadResponseThread };
 
 interface UnreadResponsesSectionProps {
   threads: UnreadResponseThread[];
   total: number;
+  loading?: boolean;
+  error?: string | null;
 }
 
 const PREVIEW_CAP = 3;
 
+// Skeleton rows mirror the final row silhouette (avatar tile + sender/subject
+// lines) so loading reads as the same shape the data will fill.
+function UnreadResponsesSkeleton() {
+  return (
+    <ul className="divide-y divide-border">
+      {Array.from({ length: PREVIEW_CAP }).map((_, i) => (
+        <li key={i} className="flex items-start gap-3 px-5 py-3">
+          <Skeleton className="mt-0.5 h-9 w-9 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-3.5 w-36" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function UnreadResponsesSection({
   threads,
   total,
+  loading = false,
+  error = null,
 }: UnreadResponsesSectionProps) {
   const preview = threads.slice(0, PREVIEW_CAP);
   const overflow = total - PREVIEW_CAP;
@@ -28,12 +52,14 @@ export function UnreadResponsesSection({
           <h2 className="text-base font-semibold text-foreground">
             People to respond to
           </h2>
-          <span
-            data-testid="unread-responses-count"
-            className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold text-primary"
-          >
-            {total}
-          </span>
+          {!loading && !error && (
+            <span
+              data-testid="unread-responses-count"
+              className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold text-primary"
+            >
+              {total}
+            </span>
+          )}
         </div>
         <Link
           href="/email"
@@ -43,10 +69,26 @@ export function UnreadResponsesSection({
         </Link>
       </header>
 
-      {total === 0 ? (
-        <p className="px-5 py-8 text-center text-sm text-muted-foreground/70">
-          No unread responses on shared inboxes.
+      {loading ? (
+        <UnreadResponsesSkeleton />
+      ) : error ? (
+        <p className="px-5 py-8 text-center text-[13px] text-destructive">
+          Couldn&apos;t load unread responses. It&apos;ll retry shortly.
         </p>
+      ) : total === 0 ? (
+        <EmptyState
+          icon={MailCheck}
+          title="You're all caught up"
+          description="New replies on shared inboxes will show up here."
+          action={
+            <Link
+              href="/email"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Open inbox →
+            </Link>
+          }
+        />
       ) : (
         <ul className="divide-y divide-border">
           {preview.map((thread) => {
