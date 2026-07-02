@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Token contract for design system v2 (docs/design-system.md §2, ADR 0027).
@@ -412,9 +412,10 @@ describe("hardcoded-color sweep — step 18 owned surfaces (#926)", () => {
   // deliberately spells the token hexes as bg-amber-400/14 / bg-amber-500
   // (#914), there is no reason for a raw palette color on these surfaces.
   //
-  // Scope is intentionally NOT repo-wide: the cross-cutting sweep waits for the
-  // still-in-flight steps (5, 10, 11, 13, 15, 16) to merge so it does not race
-  // their branches. This block grows into that guard as they land.
+  // Predecessor steps 5, 10, 11, 13, 15, 16 have now merged, so the sweep goes
+  // cross-cutting (guards A and B below) without re-flagging the *sanctioned*
+  // §2.6 badge idiom — tint bg + colored text (bg-sky-400/14 text-sky-300, and
+  // the text-[#F09595] danger tone in badge-colors.ts).
   const OWNED_DIRS = [
     "src/app/login",
     "src/app/logout",
@@ -474,6 +475,80 @@ describe("hardcoded-color sweep — step 18 owned surfaces (#926)", () => {
     expect(
       offenders,
       "step-18 surfaces must be tokens-only (§2.0) — use --warning/--warning-tint, not raw amber",
+    ).toEqual([]);
+  });
+
+  // Guard A — repo-wide. The `--vibrant-*` palette was deleted in step 1
+  // (ADR 0027), so any `*-vibrant-*` utility resolves to nothing: a dead relic,
+  // never legitimate. Safe to ban everywhere because `vibrant` is not a real
+  // Tailwind hue (the CVA `vibrant` *variant key* in ui/badge.tsx is an alias,
+  // not a utility, so it never matches this pattern).
+  const VIBRANT_UTILITY = new RegExp(`\\b(?:${UTILITY})-vibrant-[a-z]+\\b`, "g");
+
+  function allSourceFiles(): string[] {
+    const files: string[] = [];
+    const root = resolve(process.cwd(), "src");
+    for (const entry of readdirSync(root, {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!/\.(tsx?|css)$/.test(name) || name.includes(".test.")) continue;
+      files.push(join(entry.parentPath, name));
+    }
+    return files;
+  }
+
+  it("uses no dead `*-vibrant-*` utilities anywhere in src (deleted step 1)", () => {
+    const offenders: string[] = [];
+    for (const path of allSourceFiles()) {
+      const matches = stripComments(readFileSync(path, "utf8")).match(
+        VIBRANT_UTILITY,
+      );
+      if (matches) {
+        offenders.push(
+          `${relative(process.cwd(), path)}: ${[...new Set(matches)].join(", ")}`,
+        );
+      }
+    }
+    expect(
+      offenders,
+      "`--vibrant-*` was removed in step 1 — these classes render nothing (§2.7 uses --chart-1…5)",
+    ).toEqual([]);
+  });
+
+  // Guard B — app-chrome surfaces this sweep migrates. Plain chrome only (no
+  // §2.6 badge idiom), so the strict OFFENDER scan applies with no exemption.
+  // Config-driven inline styles (e.g. a per-org damage_types.bg_color) are
+  // values, not literals, so they never match. Third-party *brand* colors
+  // (QuickBooks green, Google blue, social-platform hues) are a documented
+  // exemption per the #926 sweep decision and are deliberately excluded.
+  const SWEPT_FILES = [
+    "src/components/activity-timeline.tsx",
+    "src/components/notification-bell.tsx",
+    "src/components/email/job-email-row.tsx",
+    "src/components/job-detail/review-request-section.tsx",
+    "src/components/job-detail/collection-ring.tsx",
+    "src/components/expenses/expenses-section.tsx",
+    "src/components/expenses/log-expense-modal.tsx",
+    "src/components/job-cover-picker.tsx",
+  ];
+
+  it("swept app-chrome files are tokens-only — no palette, hex, or rgb/hsl", () => {
+    const offenders: string[] = [];
+    for (const rel of SWEPT_FILES) {
+      const source = stripComments(
+        readFileSync(resolve(process.cwd(), rel), "utf8"),
+      );
+      const matches = source.match(OFFENDER);
+      if (matches) {
+        offenders.push(`${rel}: ${[...new Set(matches)].join(", ")}`);
+      }
+    }
+    expect(
+      offenders,
+      "swept chrome must be tokens-only — map to --chart-*/--warning/--accent-*, not raw colors",
     ).toEqual([]);
   });
 });

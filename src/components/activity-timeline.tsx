@@ -34,12 +34,15 @@ const activityTypeConfig: Record<
   string,
   { icon: React.ComponentType<{ size?: number; className?: string }>; color: string; label: string }
 > = {
-  note: { icon: MessageSquare, color: "bg-vibrant-blue", label: "Note" },
+  // Categorical icon avatars — §2.7 chart hues (--chart-1…5), which survive the
+  // dark-only theme. `expense` gets neutral muted-foreground so it stays
+  // distinct from `photo` (both would otherwise land on emerald).
+  note: { icon: MessageSquare, color: "bg-chart-2", label: "Note" },
   photo: { icon: Camera, color: "bg-primary", label: "Photo" },
-  milestone: { icon: Flag, color: "bg-vibrant-red", label: "Milestone" },
-  insurance: { icon: Shield, color: "bg-vibrant-purple", label: "Insurance" },
-  equipment: { icon: Wrench, color: "bg-vibrant-amber", label: "Equipment" },
-  expense: { icon: Receipt, color: "bg-[#27500A]", label: "Expense" },
+  milestone: { icon: Flag, color: "bg-chart-5", label: "Milestone" },
+  insurance: { icon: Shield, color: "bg-chart-4", label: "Insurance" },
+  equipment: { icon: Wrench, color: "bg-chart-3", label: "Equipment" },
+  expense: { icon: Receipt, color: "bg-muted-foreground", label: "Expense" },
 };
 
 type ExpenseWithRelations = Expense & { vendor?: Vendor | null; category?: ExpenseCategory | null };

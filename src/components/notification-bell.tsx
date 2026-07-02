@@ -37,19 +37,21 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   qb_sync_failed: AlertTriangle,
 };
 
+// Categorical icon tints — §2.7 chart hues (--chart-1…5) for non-semantic
+// types; the semantic ones stay on --primary / --destructive.
 const TYPE_COLORS: Record<string, string> = {
   new_job: "text-primary",
-  status_change: "text-vibrant-blue",
+  status_change: "text-chart-2",
   payment: "text-primary",
   activity: "text-muted-foreground",
-  photo: "text-vibrant-purple",
-  email: "text-vibrant-blue",
+  photo: "text-chart-4",
+  email: "text-chart-2",
   overdue: "text-destructive",
-  reminder: "text-vibrant-amber",
+  reminder: "text-chart-3",
   // 17c additions
   payment_received: "text-primary",
   payment_failed: "text-destructive",
-  refund_issued: "text-vibrant-amber",
+  refund_issued: "text-chart-3",
   dispute_opened: "text-destructive",
   qb_sync_failed: "text-destructive",
 };
@@ -131,7 +133,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="fixed left-52 top-2 w-80 bg-card dark:bg-card border border-border rounded-xl shadow-2xl ring-1 ring-primary/10 z-[100] overflow-hidden">
+        <div className="fixed left-52 top-2 w-80 bg-card border border-border rounded-xl shadow-2xl ring-1 ring-primary/10 z-[100] overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="text-sm font-semibold text-foreground">Notifications</h3>

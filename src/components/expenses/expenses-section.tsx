@@ -73,8 +73,8 @@ export default function ExpensesSection({ jobId, onChanged }: Props) {
             className={cn(
               "px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors",
               filter === "all"
-                ? "bg-[rgba(55,138,221,0.15)] text-[#85B7EB] border-[rgba(55,138,221,0.3)]"
-                : "bg-transparent text-[#8A9199] border-[rgba(255,255,255,0.08)]",
+                ? "bg-accent-tint text-accent-text border-transparent"
+                : "bg-transparent text-muted-foreground border-border",
             )}>
             All
           </button>
@@ -83,8 +83,8 @@ export default function ExpensesSection({ jobId, onChanged }: Props) {
               className={cn(
                 "px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors",
                 filter === c.id
-                  ? "bg-[rgba(55,138,221,0.15)] text-[#85B7EB] border-[rgba(55,138,221,0.3)]"
-                  : "bg-transparent text-[#8A9199] border-[rgba(255,255,255,0.08)]",
+                  ? "bg-accent-tint text-accent-text border-transparent"
+                  : "bg-transparent text-muted-foreground border-border",
               )}>
               {c.display_label}
             </button>

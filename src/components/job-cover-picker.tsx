@@ -114,7 +114,7 @@ export default function JobCoverPicker({
                   disabled={saving !== null}
                   onClick={() => handleChoose(photo)}
                   className={`relative overflow-hidden rounded-lg transition-transform hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60 ${
-                    isCurrent ? "ring-2 ring-[#F5A623]" : ""
+                    isCurrent ? "ring-2 ring-warning" : ""
                   }`}
                 >
                   <img
@@ -124,7 +124,7 @@ export default function JobCoverPicker({
                     className="aspect-square w-full object-cover"
                   />
                   {isCurrent && (
-                    <span className="absolute left-1.5 top-1.5 rounded-full bg-[#F5A623] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    <span className="absolute left-1.5 top-1.5 rounded-full bg-warning px-1.5 py-0.5 text-[10px] font-semibold text-background">
                       Current cover
                     </span>
                   )}
