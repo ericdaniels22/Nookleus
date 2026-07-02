@@ -131,3 +131,31 @@ describe("InvoiceReadOnlyClient layout panel wiring (#485)", () => {
     expect(screen.getByTestId("layout-panel").getAttribute("data-locked")).toBe("true");
   });
 });
+
+// #929 — the header actions are real token-styled buttons. `.btn` has no
+// definition anywhere in the CSS bundle (dead class), so Edit / Send Payment
+// Request / Record Payment rendered as bare text; they carry the shared
+// secondary/outline treatment now.
+describe("InvoiceReadOnlyClient header actions (#929)", () => {
+  it("styles Edit / Send Payment Request / Record Payment as outline buttons, not the dead .btn", () => {
+    // status "sent" + Stripe connected + not trashed → all three actions render.
+    renderClient({ invoice: fakeInvoice({ status: "sent" }), stripeConnected: true });
+
+    const actions = [
+      screen.getByRole("link", { name: "Edit" }),
+      screen.getByRole("button", { name: "Send Payment Request" }),
+      screen.getByRole("button", { name: "Record Payment" }),
+    ];
+    for (const el of actions) {
+      expect(el.className).toContain("border-input");
+      expect(el.className.split(/\s+/)).not.toContain("btn");
+    }
+  });
+
+  it("sizes the page title per §3 (text-xl, not text-2xl)", () => {
+    renderClient();
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.className).toContain("text-xl");
+    expect(h1.className).not.toContain("text-2xl");
+  });
+});

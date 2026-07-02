@@ -34,7 +34,7 @@ function SummaryLine({ label, amount }: { label: string; amount: number }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-xs font-mono text-foreground">
+      <span className="text-xs font-mono tabular-nums text-foreground">
         {formatCurrency(amount)}
       </span>
     </div>
@@ -123,7 +123,7 @@ function AdjustmentRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-1">
         <span className="text-xs text-muted-foreground">{label}</span>
-        <span className="text-xs font-mono text-foreground">
+        <span className="text-xs font-mono tabular-nums text-foreground">
           {isNone
             ? "—"
             : isDiscount
@@ -274,7 +274,7 @@ export function TotalsCard({
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs text-muted-foreground">Tax</span>
-                <span className="text-xs font-mono text-foreground">
+                <span className="text-xs font-mono tabular-nums text-foreground">
                   {formatCurrency(totals.tax_amount)}
                 </span>
               </div>
@@ -319,7 +319,7 @@ export function TotalsCard({
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Total</span>
             <span
-              className={`text-sm font-semibold font-mono ${
+              className={`text-sm font-semibold font-mono tabular-nums ${
                 isNegative ? "text-destructive" : "text-foreground"
               }`}
             >

@@ -304,7 +304,7 @@ function LibraryTab({
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground">
                       {formatCurrency(item.unit_price)}
                       {item.default_unit ? ` / ${item.default_unit}` : ""}
                     </span>

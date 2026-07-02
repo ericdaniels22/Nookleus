@@ -102,7 +102,7 @@ export function StatementEditor({
         </Label>
         {displayHtml ? (
           <div
-            className="prose prose-sm dark:prose-invert max-w-none text-foreground [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1"
+            className="prose prose-sm prose-invert max-w-none text-foreground [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1"
             dangerouslySetInnerHTML={{ __html: displayHtml }}
           />
         ) : (

@@ -370,7 +370,7 @@ export function HeaderCard(props: HeaderCardProps) {
             <div className="flex flex-col gap-1 text-xs justify-end pb-1">
               <Link
                 href={`/estimates/${entity.data.converted_from_estimate_id}`}
-                className="text-sm text-blue-600 hover:underline"
+                className="text-sm text-accent-text hover:underline"
               >
                 From estimate ↗
               </Link>

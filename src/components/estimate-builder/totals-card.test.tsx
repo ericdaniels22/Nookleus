@@ -522,3 +522,43 @@ describe("TotalsCard floating card (#569)", () => {
     expect(total.className).toContain("text-destructive");
   });
 });
+
+// #929 — §3 typography: every money figure in the totals card is a table
+// number, so digits keep their columns as values tick over. `font-mono` alone
+// doesn't force equal-width digits in every face; the tabular-nums variant
+// does, and the design system requires it on all currency.
+describe("TotalsCard money typography (#929)", () => {
+  it("renders every money figure with tabular numerals", () => {
+    renderBar(
+      makeEstimate({
+        subtotal: 100,
+        overhead_type: "percent",
+        overhead_value: 10,
+        overhead_amount: 10,
+        profit_type: "percent",
+        profit_value: 5,
+        profit_amount: 5,
+        discount_type: "amount",
+        discount_value: 20,
+        discount_amount: 20,
+        adjusted_subtotal: 95,
+        tax_rate: 7.5,
+        tax_amount: 7.13,
+        total: 102.13,
+      }),
+    );
+
+    const figures = [
+      screen.getByText("$100.00"), // Subtotal
+      screen.getByText("$10.00"), // Overhead
+      screen.getByText("$5.00"), // Profit
+      screen.getByText("−$20.00"), // Discount (minus-signed)
+      screen.getByText("$95.00"), // Adjusted subtotal
+      screen.getByText("$7.13"), // Tax
+      screen.getByText("$102.13"), // grand Total
+    ];
+    for (const el of figures) {
+      expect(el.className).toContain("tabular-nums");
+    }
+  });
+});

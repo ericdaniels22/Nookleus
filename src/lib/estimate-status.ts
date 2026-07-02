@@ -7,27 +7,31 @@ export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "voided";
 
 export type EntityKind = "estimate" | "invoice";
 
-// Tailwind classes for the colored pill background + text.
+// Tailwind classes for the colored pill background + text — the §2.6
+// dark-tint treatment (#929): a ~14%-alpha wash of the status hue behind
+// colored text, never a solid light fill. Hue choices mirror the payment
+// badges in badge-colors.ts (sent = sky, partial = amber/warning,
+// paid = emerald/success); draft and voided are the neutral pairs.
 export const ESTIMATE_STATUS_BADGE_CLASSES: Record<EstimateStatus, string> = {
-  draft:     "bg-zinc-100 text-zinc-700",
-  sent:      "bg-blue-100 text-blue-700",
-  converted: "bg-indigo-100 text-indigo-700",
-  voided:    "bg-zinc-200 text-zinc-500 line-through",
+  draft:     "bg-white/7 text-text-secondary",
+  sent:      "bg-sky-400/14 text-sky-300",
+  converted: "bg-indigo-400/14 text-indigo-300",
+  voided:    "bg-white/5 text-muted-foreground line-through",
 };
 
 export const INVOICE_STATUS_BADGE_CLASSES: Record<InvoiceStatus, string> = {
-  draft:   "bg-zinc-100 text-zinc-700",
-  sent:    "bg-blue-100 text-blue-700",
-  partial: "bg-amber-100 text-amber-700",
-  paid:    "bg-emerald-100 text-emerald-700",
-  voided:  "bg-zinc-200 text-zinc-500 line-through",
+  draft:   "bg-white/7 text-text-secondary",
+  sent:    "bg-sky-400/14 text-sky-300",
+  partial: "bg-amber-400/14 text-amber-400",
+  paid:    "bg-emerald-500/14 text-emerald-300",
+  voided:  "bg-white/5 text-muted-foreground line-through",
 };
 
 export function getStatusBadgeClasses(kind: EntityKind, status: string): string {
   if (kind === "invoice") {
-    return INVOICE_STATUS_BADGE_CLASSES[status as InvoiceStatus] ?? "bg-zinc-100 text-zinc-700";
+    return INVOICE_STATUS_BADGE_CLASSES[status as InvoiceStatus] ?? "bg-white/7 text-text-secondary";
   }
-  return ESTIMATE_STATUS_BADGE_CLASSES[status as EstimateStatus] ?? "bg-zinc-100 text-zinc-700";
+  return ESTIMATE_STATUS_BADGE_CLASSES[status as EstimateStatus] ?? "bg-white/7 text-text-secondary";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,10 +77,11 @@ export function rowTint(kind: EntityKind, status: string): RowTint {
 }
 
 // Presentational map from semantic tint → row background class. Reuses the
-// existing badge palette (amber / blue); "none" leaves the row untinted.
+// badge hues (amber / sky) at a lower alpha — a row wash sits under a whole
+// line of text, so it stays quieter than the 14% pill tint (#929).
 export const ROW_TINT_CLASSES: Record<RowTint, string> = {
-  yellow: "bg-amber-50",
-  blue: "bg-blue-50",
+  yellow: "bg-amber-400/8",
+  blue: "bg-sky-400/8",
   none: "",
 };
 

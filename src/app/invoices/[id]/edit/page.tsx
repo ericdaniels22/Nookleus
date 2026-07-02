@@ -29,7 +29,7 @@ function ErrorPage({ title, message, backHref, backLabel }: ErrorPageProps) {
         <p className="text-sm text-muted-foreground mt-1">{message}</p>
         <Link
           href={backHref}
-          className="inline-block mt-4 text-sm font-medium text-[var(--brand-primary)] hover:underline"
+          className="inline-block mt-4 text-sm font-medium text-primary hover:underline"
         >
           {backLabel}
         </Link>
